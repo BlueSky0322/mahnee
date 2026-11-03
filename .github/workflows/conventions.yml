@@ -1,0 +1,35 @@
+name: Conventions
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+# Reads the pull request only; writes nothing
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  conventions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # The title, description and branch are whatever the author typed, so they reach the
+      # script through the environment, never pasted into the shell command
+      - name: Check the branch, title, description, commits and changelog (AGENTS.md)
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          export PR_FILES="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          export PR_COMMITS="$(git log --no-merges --format=%B%x1e "$BASE_SHA..$HEAD_SHA")"
+          node tools/git/conventions.js pr

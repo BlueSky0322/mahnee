@@ -6,9 +6,10 @@
   // Runs the Worker near the D1 database when that is faster than near the visitor
   "placement": { "mode": "smart" },
   // Cloudflare Access app protecting this Worker. The API refuses every request
-  // until both are set. Locally, .dev.vars blanks them and sets DEV_USER_EMAIL.
+  // until both are set; the audience tag comes from the Access application once it
+  // exists. Locally, .dev.vars blanks them and sets DEV_USER_EMAIL.
   "vars": {
-    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_TEAM_DOMAIN": "ryanng-0611.cloudflareaccess.com",
     "ACCESS_AUD": "",
   },
   "assets": {
@@ -29,8 +30,7 @@
     {
       "binding": "DB",
       "database_name": "mahnee-db",
-      // The owner creates the database and puts its id here
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "8c1cd6a9-1db0-4a18-aabb-31339f5e7757",
       "migrations_dir": "migrations",
     },
   ],

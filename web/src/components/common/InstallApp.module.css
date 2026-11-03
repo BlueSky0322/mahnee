@@ -1,0 +1,76 @@
+.card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 40px 16px 16px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--sf-accent) 8%, var(--sf-surface));
+  border: 1px solid color-mix(in srgb, var(--sf-accent) 30%, transparent);
+}
+
+.icon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  box-shadow: var(--sf-shadow-sm);
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.body {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--sf-text-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+  font-size: 15px;
+}
+
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stepIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: var(--sf-tint);
+  color: var(--sf-accent);
+}
+
+.stepIcon img {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}

@@ -1,0 +1,5 @@
+# Copy to .dev.vars for `yarn dev:worker`. There is no Cloudflare Access locally,
+# so the API treats every request as this user (or the X-Dev-User header).
+ACCESS_TEAM_DOMAIN=""
+ACCESS_AUD=""
+DEV_USER_EMAIL="you@example.com"

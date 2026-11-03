@@ -1,0 +1,84 @@
+.sheet {
+  height: auto;
+  /* Above the on-screen keyboard where the page doesn't shrink for it (pwa/keyboard-inset.ts) */
+  margin-bottom: var(--sf-keyboard, 0px);
+  max-height: calc(100dvh - 40px - var(--sf-keyboard, 0px));
+  transition: margin-bottom 120ms ease-out;
+  border-radius: 22px 22px 0 0;
+  padding-bottom: var(--sf-safe-bottom);
+}
+
+/* The grab handle */
+.sheet::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sf-text) 25%, transparent);
+}
+
+.sheetHeader {
+  padding: 12px 20px 4px;
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.sheetBody {
+  padding: 8px 20px 20px;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.sheetTitle {
+  flex: 1;
+  min-width: 0;
+}
+
+.modalBody {
+  padding: 4px 24px 24px;
+}
+
+.sheetTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The whole title, over as many lines as it takes, rather than cut with an ellipsis */
+.sheetTitleText {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* A form's own buttons, by the title */
+.headerSlot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.headerSlot:empty {
+  display: none;
+}
+
+.floating {
+  width: calc(100% - 24px);
+  margin: 0 12px calc(12px + var(--sf-safe-bottom) + var(--sf-keyboard, 0px));
+  border-radius: 22px;
+  padding-bottom: 0;
+  border: 1px solid var(--sf-border);
+}
+
+.floating::before {
+  display: none;
+}

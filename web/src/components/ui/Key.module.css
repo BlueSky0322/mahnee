@@ -1,0 +1,17 @@
+.key {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border: 1px solid var(--sf-divider);
+  border-radius: 5px;
+  box-shadow: inset 0 -1px 0 var(--sf-divider);
+  background: color-mix(in srgb, var(--sf-text) 5%, transparent);
+  color: color-mix(in srgb, var(--sf-text) 80%, transparent);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+}

@@ -1,0 +1,38 @@
+/* A grey block with a soft light sweeping across it, where content is still on its way */
+.block {
+  display: block;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background-color: var(--sf-tag);
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--sf-surface) 55%, transparent) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  /* Every block sweeps in step, measured from the page, so a group reads as one */
+  background-attachment: fixed;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.circle {
+  border-radius: 50%;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .block {
+    animation: none;
+    background-image: none;
+  }
+}

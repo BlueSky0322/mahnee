@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mahnee",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-09-01",
+  // Runs the Worker near the D1 database when that is faster than near the visitor
+  "placement": { "mode": "smart" },
+  // Cloudflare Access app protecting this Worker. The API refuses every request
+  // until both are set. Locally, .dev.vars blanks them and sets DEV_USER_EMAIL.
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": "",
+  },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // The API, which must never get the app's page
+    "run_worker_first": ["/api/*"],
+  },
+  // Logs and traces in the dashboard, for a tenth of requests
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+  // Caps how many changes each account can make a minute (reads are not counted). It
+  // counts per Cloudflare location, so it is a budget, not an exact global quota.
+  "ratelimits": [
+    { "name": "API_LIMITER", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mahnee-db",
+      // The owner creates the database and puts its id here
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+}

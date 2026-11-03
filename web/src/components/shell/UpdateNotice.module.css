@@ -1,0 +1,50 @@
+/* Where the offline notice sits: at the bottom of the page */
+.notice {
+  position: fixed;
+  z-index: 310;
+  left: 50%;
+  bottom: calc(16px + var(--sf-safe-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 6px 6px 6px 16px;
+  border-radius: 999px;
+  background: var(--sf-text);
+  color: var(--sf-bg);
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+  animation: rise 200ms ease-out;
+}
+
+@keyframes rise {
+  from {
+    transform: translate(-50%, 12px);
+    opacity: 0;
+  }
+}
+
+.text {
+  min-width: 0;
+}
+
+/* Filled in the inverted colours, so it reads on the dark (or light) pill */
+.reload:global(.mantine-Button-root) {
+  flex-shrink: 0;
+  background: var(--sf-bg);
+  color: var(--sf-text);
+  border-color: var(--sf-bg);
+}
+
+.close:global(.mantine-CloseButton-root) {
+  flex-shrink: 0;
+  color: var(--sf-bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notice {
+    animation: none;
+  }
+}

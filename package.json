@@ -1,0 +1,74 @@
+{
+  "name": "mahnee",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite web",
+    "build": "tsc -p web && vite build web",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest",
+    "preview": "vite preview web",
+    "prepare": "husky",
+    "typecheck": "tsc -p web && tsc -p worker && tsc -p worker/test && tsc -p shared && tsc -p .",
+    "deploy": "yarn build && wrangler deploy",
+    "dev:worker": "yarn build && wrangler dev",
+    "db:migrate": "wrangler d1 migrations apply mahnee-db --remote",
+    "db:migrate:local": "wrangler d1 migrations apply mahnee-db --local"
+  },
+  "dependencies": {
+    "@mantine/core": "^7.9.2",
+    "@mantine/hooks": "^7.9.2",
+    "@mantine/notifications": "^7.9.2",
+    "@phosphor-icons/react": "^2.1.7",
+    "@tanstack/react-query": "^5.104.2",
+    "hono": "^4.13.13",
+    "idb-keyval": "^6.3.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261013.1",
+    "@eslint/js": "^9.3.0",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^22",
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^6.1.2",
+    "autoprefixer": "^10.4.19",
+    "eslint": "9.x",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.6",
+    "fake-indexeddb": "^6.0.0",
+    "globals": "^15.3.0",
+    "husky": "^9.0.11",
+    "jsdom": "^29",
+    "lint-staged": "^15.2.2",
+    "postcss": "^8.4.38",
+    "postcss-preset-mantine": "^1.15.0",
+    "postcss-simple-vars": "^7.0.1",
+    "prettier": "3.2.5",
+    "tailwindcss": "^3.4.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "8.71.2",
+    "vite": "^8.3.5",
+    "vite-plugin-mkcert": "^2.1.0",
+    "vitest": "^5.0.5",
+    "wrangler": "4"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --cache --fix",
+      "prettier --write",
+      "vitest related --run --passWithNoTests"
+    ],
+    "*.css": "prettier --write",
+    "*.{js,css,md}": "prettier --write"
+  }
+}

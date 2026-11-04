@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <title>Mahnee</title>
+    <meta
+      name="theme-color"
+      content="#161826"
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="/icon.svg"
+    />
+    <link
+      rel="apple-touch-icon"
+      href="/apple-touch-icon.png"
+    />
+    <meta
+      name="apple-mobile-web-app-capable"
+      content="yes"
+    />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <!-- Sent with the Access cookie, or the sign-in page would answer instead -->
+    <link
+      rel="manifest"
+      href="/manifest.webmanifest"
+      crossorigin="use-credentials"
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.googleapis.com"
+      crossorigin
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..600&family=Geist:wght@400..600&display=swap"
+      crossorigin
+    />
+    <!--
+      The first screen, shown before the app's code has loaded: the background of the
+      theme this device last used (or the phone's own, on Auto) and the logo drawing
+      itself. main.tsx fades it out once the app is up. The saved theme's key and the
+      colours are the app's own (sf-appearance in profile/ProfileContext.tsx, --sf-bg in
+      theme/tokens.css); launch-screen.test.ts keeps them in step.
+    -->
+    <script>
+      (function () {
+        var theme = 'auto';
+        try {
+          var saved = JSON.parse(localStorage.getItem('sf-appearance') || '{}');
+          if (saved.theme === 'light' || saved.theme === 'dark') theme = saved.theme;
+        } catch (e) {}
+        if (theme === 'auto') {
+          theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-launch', theme);
+        var bar = document.querySelector('meta[name="theme-color"]');
+        if (bar) bar.setAttribute('content', theme === 'light' ? '#eceef6' : '#161826');
+      })();
+    </script>
+    <style>
+      html {
+        background: #161826;
+      }
+      html[data-launch='light'] {
+        background: #eceef6;
+      }
+      #launch {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: grid;
+        place-items: center;
+        background: #161826;
+        transition: opacity 0.2s ease-out;
+      }
+      html[data-launch='light'] #launch {
+        background: #eceef6;
+      }
+      #launch[data-done] {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #launch svg {
+        width: 88px;
+        height: 88px;
+        overflow: visible;
+      }
+      #launch path {
+        fill: none;
+        stroke: #9184d9;
+        stroke-width: 24;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+        animation: launch-draw 0.32s ease-out forwards;
+      }
+      html[data-launch='light'] #launch path {
+        stroke: #6a5db3;
+      }
+      /* The M in one stroke: up the left side, down and up the middle, down the right */
+      #launch .middle {
+        animation-delay: 0.22s;
+      }
+      #launch .last {
+        animation-delay: 0.5s;
+      }
+      @keyframes launch-draw {
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #launch path {
+          animation: none;
+          stroke-dashoffset: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="launch"
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 256 256">
+        <path
+          pathLength="1"
+          d="M48 200V64"
+        />
+        <path
+          class="middle"
+          pathLength="1"
+          d="M48 64L128 152L208 64"
+        />
+        <path
+          class="last"
+          pathLength="1"
+          d="M208 64V200"
+        />
+      </svg>
+    </div>
+    <div id="root"></div>
+    <script
+      type="module"
+      src="/src/main.tsx"
+    ></script>
+  </body>
+</html>

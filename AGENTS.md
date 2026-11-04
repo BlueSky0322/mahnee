@@ -145,9 +145,9 @@ only packages that run anywhere.
 - This app holds a person's whole financial life. Treat every amount, note, payee and
   account name as private: never in logs, error reports, test fixtures taken from real
   data, the repo or handoff notes.
-- Who may do what is in `shared/rules.ts`. The app uses it to decide what to offer; the
-  Worker enforces it and is the authority. Every row belongs to one account, and every
-  query is scoped by it.
+- Every row belongs to one account, and every query is scoped by it. A rule about who
+  may do what, beyond that, goes in a `rules.ts` in `shared/`, made with the first one:
+  the app uses it to decide what to offer; the Worker enforces it and is the authority.
 - Don't read production data to debug. Reproduce locally. If production must be looked
   at, ask the owner first, and read only counts or ids, never contents.
 - Requests to other services identify the app honestly, with no spoofed user agents.

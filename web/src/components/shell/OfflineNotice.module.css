@@ -1,0 +1,24 @@
+.notice {
+  position: fixed;
+  z-index: 300;
+  left: 50%;
+  bottom: calc(16px + var(--sf-safe-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--sf-text);
+  color: var(--sf-bg);
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+  pointer-events: none;
+}
+
+/* The pill lets taps through to the page, but not on its button */
+.action {
+  flex-shrink: 0;
+  pointer-events: auto;
+}

@@ -10,5 +10,7 @@ request's Summary would put it, with no file names. The conventions check enforc
 
 ### Added
 
+- The app itself: sign in, see who you're signed in as, switch between light and dark,
+  and install it on your phone or computer. Accounts and spending come next.
 - The repository's working rules: how branches, commits and pull requests are named and
   written, checked on every commit, push and pull request.

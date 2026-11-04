@@ -165,7 +165,7 @@ function main([command, arg]) {
     const refs = readFileSync(0, 'utf8')
       .split('\n')
       .map((line) => line.split(' '))
-      .filter(([local, sha, remote]) => remote?.startsWith('refs/heads/') && !/^0+$/.test(sha));
+      .filter(([, sha, remote]) => remote?.startsWith('refs/heads/') && !/^0+$/.test(sha));
     const problems = refs.flatMap(([, , remote]) =>
       checkBranch(remote.slice('refs/heads/'.length)),
     );

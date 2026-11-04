@@ -1,0 +1,8 @@
+# Applied by Cloudflare to the app's pages and files (the API sets its own). The app
+# needs no camera, microphone or location, and nothing may embed it.
+/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()

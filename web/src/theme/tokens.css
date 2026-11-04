@@ -1,0 +1,299 @@
+/* Nocturne tokens. Colours that change with the theme live here; the accent comes
+   from Mantine's primary colour, which follows the user's accent setting. */
+
+:root,
+:root[data-mantine-color-scheme='dark'] {
+  --sf-bg: #161826;
+  --sf-surface: #232532;
+  --sf-text: #e9e9ed;
+  --sf-positive: #76cf8a;
+  --sf-negative: #f28881;
+  /* People's names in their colours (split/person-colors.ts), 4.6:1 on bg and surface */
+  --sf-person-0-text: #478fe7;
+  --sf-person-1-text: #c98500;
+  --sf-person-2-text: #20a174;
+  --sf-person-3-text: #da6891;
+  --sf-person-4-text: #9085e9;
+  --sf-person-5-text: #de6f42;
+  /* Places: the red of a map's pin, apart from people's colours and the accent */
+  --sf-place: #f2555a;
+  --sf-shadow-sm: 0 0 0 1px #3f424d;
+  --sf-shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0, 0, 0, 0.55);
+  --sf-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, 0.65);
+  /* The spending chart's slices, in ring order (components/split/balances/Spending.tsx):
+     blue, orange, aqua, yellow, magenta, stepped for each surface and checked apart
+     under colour-vision deficiency, neighbours and the wrap included */
+  --sf-series-0: #3987e5;
+  --sf-series-1: #d95926;
+  --sf-series-2: #199e70;
+  --sf-series-3: #c98500;
+  --sf-series-4: #d55181;
+  color-scheme: dark;
+}
+
+:root[data-mantine-color-scheme='light'] {
+  --sf-bg: #eceef6;
+  --sf-surface: #f8f9fd;
+  --sf-text: #1e202b;
+  --sf-positive: #298646;
+  --sf-negative: #bd413f;
+  --sf-person-0-text: #2d6bb5;
+  --sf-person-1-text: #916000;
+  --sf-person-2-text: #137a56;
+  --sf-person-3-text: #b1436b;
+  --sf-person-4-text: #6961aa;
+  --sf-person-5-text: #b44a20;
+  --sf-place: #d6383e;
+  --sf-shadow-sm: 0 0 0 1px #cfd3e5;
+  --sf-shadow-md: 0 0 0 1px #b2b6ca, 0 6px 18px rgba(30, 32, 43, 0.12);
+  --sf-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(30, 32, 43, 0.18);
+  --sf-series-0: #2a78d6;
+  --sf-series-1: #eb6834;
+  --sf-series-2: #1baf7a;
+  --sf-series-3: #eda100;
+  --sf-series-4: #e87ba4;
+  color-scheme: light;
+}
+
+:root {
+  --sf-accent: var(--mantine-primary-color-filled);
+  --sf-badge: #e24947;
+  --sf-badge-text: #f3f5fe;
+  --sf-divider: color-mix(in srgb, var(--sf-text) 16%, transparent);
+  --sf-border: color-mix(in srgb, var(--sf-text) 22%, transparent);
+  --sf-text-label: color-mix(in srgb, var(--sf-text) 50%, transparent);
+  --sf-text-muted: color-mix(in srgb, var(--sf-text) 58%, transparent);
+  --sf-text-secondary: color-mix(in srgb, var(--sf-text) 70%, transparent);
+  --sf-hover: color-mix(in srgb, var(--sf-text) 6%, transparent);
+  --sf-tint: color-mix(in srgb, var(--sf-text) 5%, transparent);
+  --sf-tag: color-mix(in srgb, var(--sf-text) 9%, transparent);
+  --sf-accent-tint: color-mix(in srgb, var(--sf-accent) 14%, transparent);
+  /* The spending chart's "everything else" slice: a quiet gray, never a hue */
+  --sf-series-rest: color-mix(in srgb, var(--sf-text) 30%, transparent);
+  --sf-avatar: color-mix(in srgb, var(--sf-accent) 24%, var(--sf-surface));
+  /* A place's chip: its name in the text's colour on a wash of the pin's red */
+  --sf-place-tint: color-mix(in srgb, var(--sf-place) 14%, transparent);
+  /* People's colours (split/person-colors.ts): blue, amber, aqua and pink stay apart
+     side by side, then violet and orange. Avatar fills, the same in both themes, each
+     with the dark ink at 4.5:1 or more; names use the -text shades above. */
+  --sf-person-0: #3987e5;
+  --sf-person-1: #c98500;
+  --sf-person-2: #199e70;
+  --sf-person-3: #d55181;
+  --sf-person-4: #9085e9;
+  --sf-person-5: #d95926;
+  --sf-person-ink: #161826;
+  --sf-safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Amounts: Geist's even, tabular digits */
+  --sf-font-num: Geist, Inter, system-ui, sans-serif;
+}
+
+body {
+  background: var(--sf-bg);
+  color: var(--sf-text);
+  font-family: Inter, system-ui, sans-serif;
+  /* Inter's display cut at large sizes, its text cut at small ones */
+  font-optical-sizing: auto;
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Larger text sits tighter */
+h1,
+h2,
+h3,
+.mantine-Title-root {
+  letter-spacing: -0.02em;
+}
+
+/* A split being dragged into a new place (useSortableSplit); a swipe between tabs is
+   data-swiping, which must not look like this */
+[data-dragging] {
+  cursor: grabbing;
+  background: var(--sf-surface);
+  box-shadow: var(--sf-shadow-lg);
+}
+
+/* A segmented control's highlight and labels stay layered inside it, so sticky footers
+   (the item form's Add item and Save) pass over it when the form scrolls */
+.mantine-SegmentedControl-root {
+  isolation: isolate;
+}
+
+:focus-visible {
+  outline: 2px solid var(--sf-accent);
+  outline-offset: 2px;
+}
+
+/* Primary buttons are an accent outline, not a fill. --button-bg and --ai-bg are only
+   set when a colour is passed, so the accent is the fallback. */
+.mantine-Button-root[data-variant='filled'] {
+  --sf-fill: var(--button-bg, var(--mantine-primary-color-filled));
+}
+.mantine-ActionIcon-root[data-variant='filled'] {
+  --sf-fill: var(--ai-bg, var(--mantine-primary-color-filled));
+}
+.mantine-Button-root[data-variant='filled'],
+.mantine-ActionIcon-root[data-variant='filled'] {
+  background: transparent;
+  border: 1px solid var(--sf-fill);
+  color: var(--sf-fill);
+}
+.mantine-Button-root[data-variant='filled']:where(:not(:disabled, [data-disabled])):hover,
+.mantine-ActionIcon-root[data-variant='filled']:where(:not(:disabled, [data-disabled])):hover {
+  background: color-mix(in srgb, var(--sf-fill) 12%, transparent);
+}
+
+/* Secondary buttons are a neutral outline */
+.mantine-Button-root[data-variant='default'],
+.mantine-ActionIcon-root[data-variant='default'] {
+  background: transparent;
+  border: 1px solid var(--sf-border);
+  color: var(--sf-text);
+}
+.mantine-Button-root[data-variant='default']:where(:not(:disabled, [data-disabled])):hover,
+.mantine-ActionIcon-root[data-variant='default']:where(:not(:disabled, [data-disabled])):hover {
+  background: color-mix(in srgb, var(--sf-accent) 10%, transparent);
+}
+
+.mantine-Button-root:disabled,
+.mantine-Button-root[data-disabled],
+.mantine-ActionIcon-root:disabled,
+.mantine-ActionIcon-root[data-disabled] {
+  opacity: 0.45;
+  background: transparent;
+}
+
+/* Destructive text buttons use the app's red in both themes */
+.sf-danger.mantine-Button-root {
+  color: var(--sf-negative);
+}
+.sf-danger.mantine-Button-root:where(:not(:disabled, [data-disabled])):hover {
+  background: color-mix(in srgb, var(--sf-negative) 12%, transparent);
+}
+
+/* Destructive buttons: a red outline and red text, never a fill */
+.sf-danger-outline.mantine-Button-root,
+.sf-danger-outline.mantine-ActionIcon-root {
+  border-color: var(--sf-negative);
+  color: var(--sf-negative);
+}
+.sf-danger-outline.mantine-Button-root:where(:not(:disabled, [data-disabled])):hover,
+.sf-danger-outline.mantine-ActionIcon-root:where(:not(:disabled, [data-disabled])):hover {
+  background: color-mix(in srgb, var(--sf-negative) 14%, transparent);
+}
+
+/* Text helpers */
+.sf-tabular {
+  font-family: var(--sf-font-num);
+  font-variant-numeric: tabular-nums;
+}
+.sf-muted {
+  color: var(--sf-text-muted);
+}
+.sf-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sf-text-label);
+}
+.sf-positive {
+  color: var(--sf-positive);
+}
+.sf-negative {
+  color: var(--sf-negative);
+}
+
+/* A raised surface */
+.sf-card {
+  background: var(--sf-surface);
+  border-radius: 14px;
+  box-shadow: var(--sf-shadow-sm);
+}
+
+/* A 1px rule that fades out at both ends */
+.sf-rule {
+  height: 1px;
+  border: 0;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--sf-divider) 48px,
+    var(--sf-divider) calc(100% - 48px),
+    transparent
+  );
+}
+
+.sf-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--sf-tag);
+}
+
+.sf-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--sf-badge);
+  color: var(--sf-badge-text);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Buttons: a little more compact and lighter than Mantine's defaults */
+.mantine-Button-root {
+  --button-height-sm: 34px;
+  --button-padding-x-sm: 14px;
+  font-weight: 500;
+}
+
+/* Field labels are small and quiet; the value is what matters */
+.mantine-InputWrapper-label {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--sf-text-secondary);
+  margin-bottom: 6px;
+}
+
+.mantine-InputWrapper-description {
+  font-size: 12px;
+  color: var(--sf-text-muted);
+  margin-top: 6px;
+}
+
+/* Segmented controls are an outlined row of options, the chosen one tinted */
+.mantine-SegmentedControl-root {
+  background: transparent;
+  padding: 0;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--sf-border);
+  overflow: hidden;
+}
+
+.mantine-SegmentedControl-indicator {
+  background: var(--sf-tag);
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.mantine-SegmentedControl-control::before {
+  background-color: var(--sf-border);
+}
+
+.mantine-SegmentedControl-label {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--sf-text-secondary);
+  padding: 7px 12px;
+}
+
+.mantine-SegmentedControl-label[data-active],
+.mantine-SegmentedControl-label[data-active]:hover {
+  color: var(--sf-text);
+}

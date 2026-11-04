@@ -1,0 +1,55 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(24px + var(--sf-safe-bottom));
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px;
+  border-radius: 16px;
+  background: var(--sf-surface);
+  box-shadow: var(--sf-shadow-sm);
+}
+
+.lead {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.email,
+.body {
+  margin: 0;
+  color: var(--sf-text-muted);
+  font-size: 14px;
+}
+
+.body {
+  margin-bottom: 8px;
+}

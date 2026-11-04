@@ -11,9 +11,13 @@ hack-proof, and the limits below are real.
   (`worker/accounts/auth.ts`). With only one of the two set it refuses everyone. The
   developer stand-in (`DEV_USER_EMAIL`, `X-Dev-User`) works only with both unset, so
   never set `DEV_USER_EMAIL` on the deployed Worker, and never remove the Access
-  settings from `wrangler.jsonc`.
-- **Whose data it is.** Every row belongs to the signed-in account, and every query is
-  scoped by its email. There is no sharing between accounts.
+  settings from `wrangler.jsonc`. The Access application covers the Worker's
+  `workers.dev` address with the same policy as Splitfoolish ("Anyone with an email"),
+  so one email is one person in both apps; per-version preview
+  addresses are turned off (`preview_urls`), since Access doesn't cover them.
+- **Whose data it is.** Anyone with an email can sign in, and each account sees only its
+  own data: every row belongs to the signed-in account, and every query is scoped by its
+  email. There is no sharing between accounts.
 - **Whose a write is.** Every write from the app names the account it was made as
   (`X-Expected-Account`). One made as another account is refused before it changes
   anything.
@@ -88,16 +92,17 @@ before they're needed.
 - **A leaked Cloudflare token**: revoke it in the Cloudflare dashboard, make a new one
   with only what the deploy needs (Workers scripts and D1 edit on this account), and
   replace the GitHub secret.
-- **Someone who shouldn't be in**: remove them in the Access policy; their next request
-  is refused.
+- **Someone who shouldn't be in**: narrow the Access policy (a change applies to
+  Splitfoolish too, unless Mahnee gets a policy of its own); their next request is
+  refused.
 - **Data written wrongly**: restore as above, after exporting what's there now.
 
 ## Settings outside the repo
 
 These are kept in Cloudflare and GitHub, not here; check them from time to time:
 
-- Access: which emails the policy allows (for one person, just theirs), and how long a
-  session lasts.
+- Access: who the shared "Anyone with an email" policy lets in (it also guards
+  Splitfoolish), and how long a session lasts (24 hours).
 - The Cloudflare API token's permissions: no more than the deploy needs.
 - `REQUIRE_EXPECTED_ACCOUNT=true` on the Worker, once installed apps send the header, so
   writes from apps too old to say whose they are are refused.

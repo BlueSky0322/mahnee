@@ -11,7 +11,9 @@ hack-proof, and the limits below are real.
   (`worker/accounts/auth.ts`). With only one of the two set it refuses everyone. The
   developer stand-in (`DEV_USER_EMAIL`, `X-Dev-User`) works only with both unset, so
   never set `DEV_USER_EMAIL` on the deployed Worker, and never remove the Access
-  settings from `wrangler.jsonc`.
+  settings from `wrangler.jsonc`. The Access application covers the Worker's
+  `workers.dev` address and lets in only the owner's email; per-version preview
+  addresses are turned off (`preview_urls`), since Access doesn't cover them.
 - **Whose data it is.** Every row belongs to the signed-in account, and every query is
   scoped by its email. There is no sharing between accounts.
 - **Whose a write is.** Every write from the app names the account it was made as
@@ -96,8 +98,8 @@ before they're needed.
 
 These are kept in Cloudflare and GitHub, not here; check them from time to time:
 
-- Access: which emails the policy allows (for one person, just theirs), and how long a
-  session lasts.
+- Access: which emails the policy ("mahnee - Owner only") allows, and how long a
+  session lasts (24 hours).
 - The Cloudflare API token's permissions: no more than the deploy needs.
 - `REQUIRE_EXPECTED_ACCOUNT=true` on the Worker, once installed apps send the header, so
   writes from apps too old to say whose they are are refused.

@@ -3,14 +3,16 @@
   "name": "mahnee",
   "main": "worker/index.ts",
   "compatibility_date": "2025-09-01",
+  // Only the workers.dev address, which Access covers: no per-version preview addresses
+  "preview_urls": false,
   // Runs the Worker near the D1 database when that is faster than near the visitor
   "placement": { "mode": "smart" },
-  // Cloudflare Access app protecting this Worker. The API refuses every request
-  // until both are set; the audience tag comes from the Access application once it
-  // exists. Locally, .dev.vars blanks them and sets DEV_USER_EMAIL.
+  // Cloudflare Access app protecting this Worker ("mahnee - Cloudflare Workers", on its
+  // workers.dev address). The API refuses every request unless both are set. Locally,
+  // .dev.vars blanks them and sets DEV_USER_EMAIL.
   "vars": {
     "ACCESS_TEAM_DOMAIN": "ryanng-0611.cloudflareaccess.com",
-    "ACCESS_AUD": "",
+    "ACCESS_AUD": "18cc5a8ad6ad6b831b40ab4a17ab3a1e152251f8a556ce570ff110edcc59aa26",
   },
   "assets": {
     "directory": "./dist",

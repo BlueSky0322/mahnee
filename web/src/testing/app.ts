@@ -35,13 +35,16 @@ import {
   MAX_PAYEE,
   MAX_TRANSACTION,
   MAX_TRANSACTIONS_PER_ACCOUNT,
+  balanceEffect,
   fitsOpeningCents,
   fitsTransactionCents,
   isAccountKind,
   isDay,
+  isOnAccount,
   isTransactionKind,
   readAccountName,
   readOptionalText,
+  whyNotBetween,
   whyNotInCategory,
   whyNotOnAccount,
 } from '@shared/ledger';
@@ -281,15 +284,12 @@ function answerNow(server: FakeServer) {
   };
 }
 
-/** An account's balance as the real server works it out: opening, plus income, less spending */
+/**
+ * An account's balance as the real server works it out: opening, plus income and
+ * transfers in, less spending and transfers out
+ */
 const balanceOf = (server: FakeServer, account: Pick<Account, 'id' | 'openingCents'>) =>
-  server.transactions
-    .filter((t) => t.accountId === account.id)
-    .reduce(
-      (sum, t) =>
-        sum + (t.kind === 'income' ? t.amountCents : t.kind === 'expense' ? -t.amountCents : 0),
-      account.openingCents,
-    );
+  server.transactions.reduce((sum, t) => sum + balanceEffect(t, account.id), account.openingCents);
 
 /** Newest first, as the real server lists them: by day, time saved, then id */
 const newestFirst = (a: Transaction, b: Transaction) =>
@@ -298,8 +298,8 @@ const newestFirst = (a: Transaction, b: Transaction) =>
 const cursorOf = (t: Transaction) => `${t.date}_${t.createdAt}_${t.id}`;
 
 /**
- * GET /api/transactions as the real one (worker/ledger/read.ts) answers: an account's or
- * a month's, newest first, 50 to a page unless asked (at most 200), carrying on after a
+ * GET /api/transactions as the real one (worker/ledger/read.ts) answers: an account's
+ * (transfers into it too) or a month's, newest first, 50 to a page unless asked (at most 200), carrying on after a
  * cursor; someone else's account is answered as one that doesn't exist
  */
 function listTransactions(
@@ -320,7 +320,7 @@ function listTransactions(
     return [400, 'Unknown place to carry on from'];
   }
   const all = server.transactions
-    .filter((t) => (account != null ? t.accountId === account : t.date.startsWith(`${month}-`)))
+    .filter((t) => (account != null ? isOnAccount(t, account) : t.date.startsWith(`${month}-`)))
     .sort(newestFirst);
   const after = before == null ? all : all.filter((t) => isOlderThan(t, before));
   const transactions = after.slice(0, limit);
@@ -528,16 +528,42 @@ function saveTransactionChange(
     change.op === 'addTransaction' ? { op: '', ...change.transaction } : change;
   if (Object.keys(given).length === 1) return [400, 'Nothing to change'];
   const before = at >= 0 ? transactions[at] : null;
-  const next = { ...before, ...given, createdAt: before?.createdAt ?? Date.now() } as Transaction;
+  const next = {
+    // Spending and income go nowhere else, whether or not it's said
+    toAccountId: null,
+    ...before,
+    ...given,
+    createdAt: before?.createdAt ?? Date.now(),
+  } as Transaction;
   if (!isRowId(next.id)) return [400, 'Invalid transaction id'];
   if (!isTransactionKind(next.kind)) return [400, 'Unknown kind of transaction'];
-  if (next.kind === 'transfer') return [400, "Transfers can't be saved yet"];
-  if (before == null || 'accountId' in given) {
-    const account = accounts.find((a) => a.id === next.accountId);
-    if (account == null) return [404, 'Account not found'];
+  const usable = (id: string) => {
+    const account = accounts.find((a) => a.id === id);
+    if (account == null) return [404, 'Account not found'] as [number, string];
     const reason = whyNotOnAccount(account);
-    if (reason != null) return [409, reason];
-    const held = transactions.filter((t) => t.accountId === account.id && t.id !== next.id);
+    return reason == null ? null : ([409, reason] as [number, string]);
+  };
+  if (before == null || 'accountId' in given) {
+    const refusal = usable(next.accountId);
+    if (refusal != null) return refusal;
+  }
+  if (before == null || 'kind' in given || 'accountId' in given || 'toAccountId' in given) {
+    if (next.kind !== 'transfer') {
+      if (next.toAccountId != null) return [400, 'Only a transfer goes to another account'];
+    } else {
+      if (next.toAccountId == null) return [400, 'Pick the account it goes to'];
+      if (before == null || 'toAccountId' in given) {
+        const refusal = usable(next.toAccountId);
+        if (refusal != null) return refusal;
+      }
+      const reason = whyNotBetween(next.accountId, next.toAccountId);
+      if (reason != null) return [400, reason];
+    }
+  }
+  // Every account it's newly on needs room for it, transactions on either side counted
+  const sides = (t: Transaction | null) => [t?.accountId, t?.toAccountId].filter((a) => a != null);
+  for (const id of sides(next).filter((a) => !sides(before).includes(a))) {
+    const held = transactions.filter((t) => isOnAccount(t, id) && t.id !== next.id);
     if (held.length >= MAX_TRANSACTIONS_PER_ACCOUNT) {
       return [
         409,
@@ -546,11 +572,15 @@ function saveTransactionChange(
     }
   }
   if (before == null || 'kind' in given || 'categoryId' in given) {
-    if (next.categoryId == null) return [400, 'Pick a category'];
-    const category = categories.find((c) => c.id === next.categoryId);
-    if (category == null) return [404, 'Category not found'];
-    const reason = whyNotInCategory(category, next.kind);
-    if (reason != null) return [409, reason];
+    if (next.kind === 'transfer') {
+      if (next.categoryId != null) return [400, 'A transfer has no category'];
+    } else {
+      if (next.categoryId == null) return [400, 'Pick a category'];
+      const category = categories.find((c) => c.id === next.categoryId);
+      if (category == null) return [404, 'Category not found'];
+      const reason = whyNotInCategory(category, next.kind);
+      if (reason != null) return [409, reason];
+    }
   }
   if (!fitsTransactionCents(next.amountCents)) {
     return [400, `An amount is more than 0 and up to ${MAX_TRANSACTION.toLocaleString('en')}`];

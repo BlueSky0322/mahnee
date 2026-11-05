@@ -6,7 +6,7 @@
 // each, about 1e14 cents; across MAX_ACCOUNTS accounts that is about 5e15, still under
 // the 9e15 a number holds as a whole number exactly.
 
-import type { Account, Category } from './api';
+import type { Account, Category, Transaction } from './api';
 import type { CategoryKind } from './categories';
 
 /** What an account is: notes and coins, a bank account, a credit card, or an e-wallet */
@@ -55,7 +55,7 @@ export const fitsOpeningCents = (v: unknown): v is number =>
 
 /**
  * What a transaction is: money spent from an account, money that came into one, or money
- * moved between two (transfers, which aren't saved yet)
+ * moved between two of the person's own accounts (a transfer: never spending or income)
  */
 export const TRANSACTION_KINDS = ['expense', 'income', 'transfer'] as const;
 export type TransactionKind = (typeof TRANSACTION_KINDS)[number];
@@ -129,3 +129,28 @@ export function whyNotInCategory(
 /** Why a transaction can't be put on `account` (one of the person's), or null when it can */
 export const whyNotOnAccount = (account: Pick<Account, 'name' | 'archived'>): string | null =>
   account.archived ? `${account.name} is archived` : null;
+
+/** Why money can't move from one account to another, or null when it can: they must differ */
+export const whyNotBetween = (fromId: string, toId: string): string | null =>
+  fromId === toId ? 'Move it between two different accounts' : null;
+
+/** Whether a transaction is on an account: the one it's from, or the one a transfer goes to */
+export const isOnAccount = (
+  t: Pick<Transaction, 'accountId' | 'toAccountId'>,
+  accountId: string,
+): boolean => t.accountId === accountId || t.toAccountId === accountId;
+
+/**
+ * How much a transaction moves an account's balance, in cents: income adds, spending
+ * takes away, and a transfer takes from the account it's from and adds to the one it
+ * goes to (paying a card from the bank lowers what's owed on it). Nothing for an account
+ * it isn't on.
+ */
+export function balanceEffect(
+  t: Pick<Transaction, 'kind' | 'accountId' | 'toAccountId' | 'amountCents'>,
+  accountId: string,
+): number {
+  if (t.kind === 'transfer' && t.toAccountId === accountId) return t.amountCents;
+  if (t.accountId !== accountId) return 0;
+  return t.kind === 'income' ? t.amountCents : -t.amountCents;
+}

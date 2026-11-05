@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Account, Category, LedgerChange, Transaction, TransactionPage } from '@shared/api';
+import { isOnAccount } from '@shared/ledger';
 import { apply as applyToLedger, applyToPages } from './apply';
 
 /** The accounts once `changes` are made to them (with no categories beside them) */
@@ -243,6 +244,7 @@ const spent = (id: string, changes: Partial<Transaction> = {}): Transaction => (
   id,
   kind: 'expense',
   accountId: 'a',
+  toAccountId: null,
   amountCents: 800,
   categoryId: 'food',
   payee: null,
@@ -306,6 +308,39 @@ describe('apply transactions to balances', () => {
     expect(
       balancesAfter([wallet], [{ op: 'removeTransaction', id: 't1' }, addCoffee], known),
     ).toEqual({ a: 10_000 });
+  });
+
+  test('a transfer takes from one account and adds to the other: a card owes less', () => {
+    const bank = account('b', { balanceCents: 100_000 });
+    const payCard = { ...coffee, kind: 'transfer' as const, accountId: 'b', toAccountId: 'c' };
+    const paid = balancesAfter(
+      [bank, wallet, card],
+      [{ op: 'addTransaction', transaction: { ...payCard, amountCents: 5_000, categoryId: null } }],
+    );
+    expect(paid).toEqual({ b: 95_000, a: 10_000, c: -7_000 });
+  });
+
+  test('an edited transfer moves both balances by what changed, and a deletion takes it back', () => {
+    // The 8.00 moved from the bank to the wallet is in these balances already
+    const bank = account('b', { balanceCents: 100_000 });
+    const known = [
+      spent('t1', { kind: 'transfer', accountId: 'b', toAccountId: 'a', categoryId: null }),
+    ];
+    expect(
+      balancesAfter(
+        [bank, wallet, card],
+        [
+          { op: 'updateTransaction', id: 't1', amountCents: 1_000 },
+          // Sent to the card instead: the wallet gives back what it was given
+          { op: 'updateTransaction', id: 't1', toAccountId: 'c' },
+        ],
+        known,
+      ),
+    ).toEqual({ b: 99_800, a: 9_200, c: -11_000 });
+    expect(balancesAfter([bank, wallet], [{ op: 'removeTransaction', id: 't1' }], known)).toEqual({
+      b: 100_800,
+      a: 9_200,
+    });
   });
 
   test('a transaction not known moves no balance, and one already there is not added twice', () => {
@@ -378,6 +413,27 @@ describe('apply transactions to pages of a list', () => {
       ['t4', '2026-11-03'],
     ]);
     expect(ids(after)[1]).toEqual(['t3']);
+  });
+
+  test("an account's list holds transfers out of it and into it, and lets one go once it isn't on it", () => {
+    const onWallet = (t: Transaction) => isOnAccount(t, 'a');
+    const out = { ...coffee, id: 'n1', kind: 'transfer' as const, toAccountId: 'b' };
+    const into = { ...out, id: 'n2', accountId: 'b', toAccountId: 'a', date: '2026-11-04' };
+    const both = applyToPages(
+      pages,
+      [
+        { op: 'addTransaction', transaction: out },
+        { op: 'addTransaction', transaction: into },
+      ],
+      onWallet,
+    );
+    expect(ids(both)[0]).toEqual(['n1', 't5', 'n2', 't4']);
+    const after = applyToPages(
+      both,
+      [{ op: 'updateTransaction', id: 'n2', toAccountId: 'c' }],
+      onWallet,
+    );
+    expect(ids(after)[0]).toEqual(['n1', 't5', 't4']);
   });
 
   test('comes out the same applied to pages that already have the changes', () => {

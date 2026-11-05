@@ -1,10 +1,12 @@
-import type { Transaction } from '@shared/api';
-import { MAX_TRANSACTION, fitsTransactionCents } from '@shared/ledger';
+import type { Account, Category, Transaction } from '@shared/api';
+import { MAX_TRANSACTION, balanceEffect, fitsTransactionCents } from '@shared/ledger';
 import { toCents } from '@shared/rates';
 import { formatMoney } from '../../utils/money';
+import { categoryName } from '../common/category-name';
 
-// A transaction's amount as people type and read it: typed as a plain amount, kept in
-// whole cents, and shown with a sign for which way the money went
+// A transaction as people type and read it: the amount typed as a plain amount, kept in
+// whole cents, and shown with a sign for which way the money went on an account; and
+// what it was, by its category or, for a transfer, the other account
 
 const AMOUNT_PATTERN = /^(\d+(\.\d{0,2})?|\.\d{1,2})$/;
 
@@ -24,7 +26,40 @@ export function readAmount(text: string): { cents: number } | { error: string } 
 export const amountText = (cents: number) =>
   cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
 
-/** "−RM 8.00" spent, "+RM 50.00" received */
-export function signedMoney({ kind, amountCents }: Transaction, currency: string) {
-  return `${kind === 'income' ? '+' : '−'}${formatMoney(amountCents, currency)}`;
+/**
+ * How it changed `accountId`: "−RM 8.00" spent from it or moved out, "+RM 50.00" received
+ * or moved in
+ */
+export function signedMoney(t: Transaction, accountId: string, currency: string) {
+  return `${balanceEffect(t, accountId) > 0 ? '+' : '−'}${formatMoney(t.amountCents, currency)}`;
+}
+
+/** The name an account goes by, or a stand-in while it isn't known */
+const accountName = (accounts: readonly Account[], id: string | null) =>
+  accounts.find((a) => a.id === id)?.name ?? 'another account';
+
+/**
+ * What it was, as `accountId`'s page shows it: "Food › Coffee", or for a transfer the
+ * other account, "To Visa" (paying the card) or "From Maybank" (a top-up)
+ */
+export function transactionTitle(
+  t: Transaction,
+  accountId: string,
+  accounts: readonly Account[],
+  categories: readonly Category[],
+) {
+  if (t.kind !== 'transfer') return categoryName(categories, t.categoryId);
+  return t.accountId === accountId
+    ? `To ${accountName(accounts, t.toAccountId)}`
+    : `From ${accountName(accounts, t.accountId)}`;
+}
+
+/** What it was, wherever it's from: "Food", or a transfer's "Maybank to TNG" */
+export function transactionSummary(
+  t: Transaction,
+  accounts: readonly Account[],
+  categories: readonly Category[],
+) {
+  if (t.kind !== 'transfer') return categoryName(categories, t.categoryId);
+  return `${accountName(accounts, t.accountId)} to ${accountName(accounts, t.toAccountId)}`;
 }

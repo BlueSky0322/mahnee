@@ -4,10 +4,11 @@
 // IndexedDB, for the offline cache
 import 'fake-indexeddb/auto';
 import { cleanup, configure, render } from '@testing-library/react';
+import { onlineManager } from '@tanstack/react-query';
 import { createElement } from 'react';
-import { afterEach, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, onTestFinished, vi } from 'vitest';
 import type { Account, ChangesBody, Profile } from '@shared/api';
-import { DEFAULT_SETTINGS, MAX_CHANGES, isRowId } from '@shared/api';
+import { DEFAULT_SETTINGS, EXPECTED_ACCOUNT_HEADER, MAX_CHANGES, isRowId } from '@shared/api';
 import {
   DEFAULT_CURRENCY,
   MAX_ACCOUNTS,
@@ -87,6 +88,11 @@ export interface FakeServer {
    * general explanation), or with this status and explanation
    */
   failNext: Partial<Record<'profile' | 'changes', number | { status: number; error: string }>>;
+  /**
+   * The next ledger changes are saved, but the answer never reaches the app, as when the
+   * connection drops on the way back
+   */
+  loseNext: { changes?: boolean };
   /** Answers being held back until a test releases them (see holdNext) */
   held: { method: string; path: string; release: Promise<void> }[];
 }
@@ -177,6 +183,13 @@ function answerNow(server: FakeServer) {
     if (server.health === 'unreachable') return Promise.reject(new TypeError('Failed to fetch'));
     if (server.health === 'signedOut') return json({ error: 'Signed out' }, 401);
     if (server.health === 'down') return json({ error: 'Internal error' }, 500);
+    // A write made as someone else than who's signed in now changes nothing
+    const expected = (init?.headers as Record<string, string> | undefined)?.[
+      EXPECTED_ACCOUNT_HEADER
+    ];
+    if (method !== 'GET' && expected != null && expected !== server.me.email) {
+      return json({ error: 'Signed in as someone else.', code: 'account_mismatch' }, 409);
+    }
     if (path === '/api/me' && method === 'GET') return json(server.me);
     const failing = (kind: keyof FakeServer['failNext']) => {
       const failure = server.failNext[kind];
@@ -207,7 +220,12 @@ function answerNow(server: FakeServer) {
       const failure = failing('changes');
       if (failure) return failure;
       const refusal = saveChanges(server, body as Partial<ChangesBody>);
-      return refusal == null ? json({ ok: true }) : json({ error: refusal[1] }, refusal[0]);
+      if (refusal != null) return json({ error: refusal[1] }, refusal[0]);
+      if (server.loseNext.changes) {
+        server.loseNext.changes = false;
+        return Promise.reject(new TypeError('Failed to fetch'));
+      }
+      return json({ ok: true });
     }
     if (path === '/api/rates') {
       const [from, to] = [url.searchParams.get('from') ?? '', url.searchParams.get('to') ?? ''];
@@ -307,6 +325,7 @@ export function fakeServer(): FakeServer {
     accounts: [],
     receipts: new Map(),
     failNext: {},
+    loseNext: {},
     held: [],
   };
 }
@@ -324,6 +343,34 @@ export function renderApp(
   return render(createElement(Root));
 }
 
+/**
+ * Closes the app and opens it again at `path`, as reloading the page does: nothing the
+ * page held in memory survives, only what the browser keeps (IndexedDB, localStorage)
+ */
+export async function reloadApp(
+  server: FakeServer,
+  path = '/',
+  options: { size?: typeof screenSize } = {},
+) {
+  cleanup();
+  await settle();
+  vi.resetModules();
+  const page = await import('./app');
+  // The page opened here is closed with the test, like the first
+  onTestFinished(() => page.closeApp());
+  return page.renderApp(server, path, options);
+}
+
+/** Lets what the app set going finish, and empties what it kept, for the next test */
+export async function closeApp() {
+  cleanup();
+  // What the test set going finishes now, rather than landing in the next test as its data
+  await settle();
+  queryClient.clear();
+  // The device's cache, and whose it is, start empty for the next test
+  await clearCache();
+}
+
 /** Call in a screen test's file: a browser to render into, emptied between tests */
 export function setupAppTests() {
   beforeEach(() => {
@@ -335,14 +382,12 @@ export function setupAppTests() {
     });
     localStorage.clear();
     sessionStorage.clear();
+    // Online, whatever a test before went through: the query cache only hears the
+    // connection come back while the app is open
+    onlineManager.setOnline(true);
   });
   afterEach(async () => {
-    cleanup();
-    // What the test set going finishes now, rather than landing in the next test as its data
-    await settle();
-    queryClient.clear();
-    // The device's cache, and whose it is, start empty for the next test
-    await clearCache();
+    await closeApp();
     vi.unstubAllGlobals();
   });
 }

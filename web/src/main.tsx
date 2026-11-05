@@ -29,7 +29,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 );
 hideLaunchScreen();
 
-// Installable app: the service worker only keeps the built files for offline starts
+// Installable app: the service worker keeps the built files for offline starts, and
+// sends changes kept on the device once the connection is back, even with the app closed
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     // Without it, starting offline just doesn't work; the app runs the same otherwise

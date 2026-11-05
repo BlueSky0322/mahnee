@@ -4,12 +4,14 @@ import AccountList from '../accounts/AccountList';
 import { InstallCard } from '../common/InstallApp';
 import ThemeToggle from '../common/ThemeToggle';
 import Skeleton, { Loading } from '../ui/Skeleton';
-import { nameFor, signOut, useProfile } from '../../profile/ProfileContext';
+import { nameFor, useProfile } from '../../profile/ProfileContext';
 import classes from './HomePage.module.css';
+import { useConfirmSignOut } from './useConfirmSignOut';
 
 // The first screen: the person's accounts, then who's signed in and the way out
 const HomePage = () => {
   const { profile } = useProfile();
+  const { askToSignOut, dialog } = useConfirmSignOut();
   return (
     <div className={classes.page}>
       <header className={classes.header}>
@@ -44,10 +46,11 @@ const HomePage = () => {
         <Button
           variant="default"
           leftSection={<SignOut size={16} />}
-          onClick={() => void signOut()}
+          onClick={askToSignOut}
         >
           Sign out
         </Button>
+        {dialog}
       </section>
     </div>
   );

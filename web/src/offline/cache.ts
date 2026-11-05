@@ -1,16 +1,28 @@
-import { clear, del, get, keys, set } from 'idb-keyval';
+import { clear, del, delMany, get, getMany, keys, set } from 'idb-keyval';
 import { writeAs } from '../api';
 import { quietly } from '../utils/quietly';
 
-// Last-seen copies of API responses (so far, the profile), kept in IndexedDB so pages
-// show instantly on reload and open offline. Entries are tagged with the signed-in
-// email, and nothing is served until it's known who that is, so a different person on
-// the same browser never sees the previous person's data.
+// Last-seen copies of API responses (the profile, the accounts) and the changes not yet
+// saved (the outbox), kept in IndexedDB so pages show instantly on reload and work
+// offline. Entries are tagged with the signed-in email, and nothing is served until it's
+// known who that is, so a different person on the same browser never sees the previous
+// person's data.
 
 /** The page that was open last, reopened on a fresh start (see hooks/useRoute) */
 export const LAST_PAGE_KEY = 'mahnee:lastPage';
 /** Who last signed in on this device, assumed while the server can't say */
 export const LAST_EMAIL_KEY = 'mahnee:lastEmail';
+/**
+ * The signed-in email in IndexedDB, read by public/sw.js to send only that account's
+ * changes (USER_KEY there; sw.test.ts runs it against what the app keeps)
+ */
+export const SW_USER_KEY = 'mahnee:user';
+/**
+ * Keys of work not yet on the server: the outbox of changes (OUTBOX_PREFIX in
+ * outbox.ts). Kept for their own account when someone else signs in, readable and
+ * sendable by nobody else (outbox.test.ts checks these match)
+ */
+export const UNSENT_PREFIXES = ['outbox:'];
 /**
  * Marks the page when the service worker opened it from the copy it keeps, because the
  * server didn't send it in time (OPENED_FROM_DEVICE in public/sw.js)
@@ -58,7 +70,17 @@ function confirmCacheUser(email: string) {
   writeAs(email);
   for (const resolve of waiting) resolve(email);
   waiting = [];
+  knowers.forEach((know) => know(email));
 }
+
+// What else the page picks up once it knows whose the cache is (changes left unsent)
+const knowers = new Set<(email: string) => void>();
+
+/**
+ * Runs `know` each time it's known whose this device's cache is: signed in, or (offline)
+ * the last person here assumed
+ */
+export const onCacheUserKnown = (know: (email: string) => void) => void knowers.add(know);
 
 export async function readCache<T>(key: string): Promise<T | undefined> {
   const email = await whenCacheUserKnown();
@@ -79,6 +101,25 @@ export async function writeCache<T>(key: string, value: T): Promise<boolean> {
   return succeeds(() => set(key, { email, value } satisfies Entry<T>));
 }
 
+/**
+ * What `email` kept under `key`, read only while they're the one signed in here: for
+ * work kept for one account, which must never reach another
+ */
+export async function readCacheAs<T>(email: string, key: string): Promise<T | undefined> {
+  if (user !== email) return undefined;
+  const entry = await quietlyAsync(() => get<Entry<T>>(key));
+  return entry?.email === email && user === email ? entry.value : undefined;
+}
+
+/**
+ * Keeps `value` for `email`, only while they're the one signed in here. Resolves with
+ * whether it was kept.
+ */
+export async function writeCacheAs<T>(email: string, key: string, value: T): Promise<boolean> {
+  if (user !== email) return false;
+  return succeeds(() => set(key, { email, value } satisfies Entry<T>));
+}
+
 /** Resolves with whether it was removed */
 export const removeCacheEntry = (key: string) => succeeds(() => del(key));
 
@@ -95,12 +136,15 @@ export async function setCacheUser(email: string): Promise<void> {
   if (lastEmail() !== email) {
     // The page open now is this person's own: keep it when nobody was signed in before
     const page = lastEmail() == null ? quietly(() => localStorage.getItem(LAST_PAGE_KEY)) : null;
-    await clearCache();
+    // What the last account hasn't sent yet stays, theirs alone, for when they're back
+    await clearCache(() => true);
     quietly(() => {
       if (page != null) localStorage.setItem(LAST_PAGE_KEY, page);
       localStorage.setItem(LAST_EMAIL_KEY, email);
     });
   }
+  // For the service worker, which sends this account's changes and nobody else's
+  await quietlyAsync(() => set(SW_USER_KEY, email));
   confirmCacheUser(email);
 }
 
@@ -148,8 +192,14 @@ const forgetters = new Set<() => void>();
 /** Runs `forget` whenever this device's cache is emptied: on signing out, or someone else signing in */
 export const onCacheCleared = (forget: () => void) => void forgetters.add(forget);
 
-/** Empties this device's cache, which is then nobody's until setCacheUser */
-export async function clearCache(): Promise<void> {
+/**
+ * Empties this device's cache, which is then nobody's until setCacheUser. Work not yet
+ * sent is kept for the accounts `keepUnsentOf` names: tagged with their email, it's
+ * nobody else's to see or send.
+ */
+export async function clearCache(
+  keepUnsentOf: (email: string) => boolean = () => false,
+): Promise<void> {
   user = null;
   writeAs(null);
   forgetters.forEach((forget) => forget());
@@ -158,5 +208,18 @@ export async function clearCache(): Promise<void> {
     // The page they had open is theirs too
     localStorage.removeItem(LAST_PAGE_KEY);
   });
-  await quietlyAsync(() => clear());
+  await quietlyAsync(() => clearExceptUnsent(keepUnsentOf));
+}
+
+async function clearExceptUnsent(keepUnsentOf: (email: string) => boolean) {
+  const all = await keys();
+  const unsent = all.filter(
+    (k): k is string => typeof k === 'string' && UNSENT_PREFIXES.some((p) => k.startsWith(p)),
+  );
+  const entries = await getMany<Entry<unknown> | undefined>(unsent);
+  const kept = new Set(
+    unsent.filter((_, i) => entries[i] != null && keepUnsentOf(entries[i].email)),
+  );
+  if (kept.size === 0) return clear();
+  await delMany(all.filter((k) => !(typeof k === 'string' && kept.has(k))));
 }

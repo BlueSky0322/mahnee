@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Account } from '@shared/api';
 import type { FakeServer } from '../../testing/app';
+import { RETRY_DELAY_MS } from '../../ledger/save-queue';
 import { fakeServer, holdNext, renderApp, setupAppTests } from '../../testing/app';
 
 setupAppTests();
@@ -26,6 +27,12 @@ function seed(server: FakeServer, account: Partial<Account> & Pick<Account, 'id'
 const row = (name: string) => screen.findByRole('button', { name: new RegExp(`^${name},`) });
 
 const dialog = () => screen.findByRole('dialog');
+
+/** How many times the app has sent changes to the server */
+const saves = () =>
+  vi
+    .mocked(fetch)
+    .mock.calls.filter(([path, init]) => path === '/api/changes' && init?.method === 'POST').length;
 
 /** Waits for an account's row to show this kind and balance, read out and drawn */
 async function shows(name: string, kind: string, balance: string) {
@@ -220,11 +227,13 @@ describe('accounts on the home page', () => {
     },
   );
 
-  test('puts a change back when the server is failing and can not be read either', async () => {
+  test('keeps a change while the server is failing, and saves it once it is back', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    onTestFinished(() => void vi.useRealTimers());
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
     renderApp(server, '/', { size: 'phone' });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
     await user.click(await row('Wallet'));
     const form = within(await dialog());
@@ -232,10 +241,16 @@ describe('accounts on the home page', () => {
     await user.type(form.getByLabelText('Name'), 'Purse');
     server.health = 'down';
     await user.click(form.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(saves()).toBe(1));
 
-    expect(await screen.findByText('Internal error')).toBeTruthy();
-    expect(await row('Wallet')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /^Purse,/ })).toBeNull();
+    // Not the change's fault: it stays, and nothing says it was refused
+    expect(await row('Purse')).toBeTruthy();
+    expect(screen.queryByText('Internal error')).toBeNull();
+    server.health = 'up';
+    await act(() => vi.advanceTimersByTimeAsync(RETRY_DELAY_MS));
+    await waitFor(() => expect(server.accounts[0].name).toBe('Purse'));
+    expect(saves()).toBe(2);
+    expect(await row('Purse')).toBeTruthy();
   });
 
   test('drops what was made after a refused change, and shows what the server has', async () => {

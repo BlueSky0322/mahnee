@@ -6,8 +6,10 @@ import type { Profile } from '../api';
 import { ApiError, api } from '../api';
 import { queryClient } from '../query-client';
 import { isOfflineFailure } from '../offline/network';
+import { reportKept } from '../offline/storage-health';
 import {
   assumeLastUser,
+  cacheUser,
   clearCache,
   openedFromDevice,
   openedSignedOut,
@@ -129,9 +131,15 @@ export function signIn() {
   window.location.href = signInAddress();
 }
 
-/** Forgets what this device kept for the account, then signs out of Cloudflare Access */
+/**
+ * Forgets what this device kept for the account, changes not yet saved included, then
+ * signs out of Cloudflare Access. Others' unsent changes, kept from before this account
+ * signed in here, stay theirs.
+ */
 export async function signOut() {
-  await clearCache();
+  const leaving = cacheUser();
+  await clearCache((owner) => leaving != null && owner !== leaving);
+  reportKept(true);
   window.location.href = '/cdn-cgi/access/logout';
 }
 

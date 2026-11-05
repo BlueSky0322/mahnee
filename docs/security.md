@@ -44,11 +44,17 @@ hack-proof, and the limits below are real.
 
 ## On the device
 
-- What the app keeps (the profile and the accounts with their balances) is tagged with
-  the account and shown only to it. Signing out clears it, and so does another account
-  signing in.
+- What the app keeps (the profile, the accounts with their balances, and changes not yet
+  saved) is tagged with the account and shown only to it. Signing out clears it, and so
+  does another account signing in, except that account's unsaved changes: those stay on
+  the device, under its email, unread and unsent until it signs in here again. Signing
+  out asks first when changes are waiting, then drops the leaving account's own.
+- Unsaved changes are sent only as the account they were made as (`X-Expected-Account`),
+  by the app or, while it's closed, by the service worker's background sync, which sends
+  only the outbox of the account the app last said is signed in. The server refuses one
+  sent while someone else is signed in, and it's kept.
 - The service worker keeps the app's own files and web fonts, never anything from the
-  API.
+  API. It reads the app's IndexedDB only to send the outbox.
 - Once an Access session runs out, the app opens with the last account's kept profile
   and offers to sign in. Whoever holds the device can read what was kept until someone
   signs in or signs out: an unlocked shared device is a risk, as with any app that opens

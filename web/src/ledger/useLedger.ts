@@ -1,7 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import type { Account } from '@shared/api';
-import { ACCOUNTS_KEY, fetchAccounts, showKeptCopy } from './ledger';
+import type { QueueState } from './save-queue';
+import {
+  ACCOUNTS_KEY,
+  fetchAccounts,
+  showKeptCopy,
+  subscribeUnsaved,
+  unsavedState,
+} from './ledger';
 
 // The ledger for the screens that show it (see ledger.ts, which changes it)
 
@@ -26,3 +33,9 @@ export function useAccounts(): Accounts {
     retry: () => void refetch(),
   };
 }
+
+/**
+ * Changes made on this device the server hasn't saved yet (offline, say), and whether
+ * sending them waits on signing in again
+ */
+export const useUnsaved = (): QueueState => useSyncExternalStore(subscribeUnsaved, unsavedState);

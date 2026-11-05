@@ -1,9 +1,11 @@
 import { Button } from '@mantine/core';
 import { CloudSlash, SignIn } from '@phosphor-icons/react';
+import { useEffect } from 'react';
 import HomePage from './components/home/HomePage';
 import StateCard from './components/ui/StateCard';
 import AppLayout from './components/shell/AppLayout';
 import { useRoute } from './hooks/useRoute';
+import { sendWhenBack } from './ledger/ledger';
 import { signIn, useProfile } from './profile/ProfileContext';
 
 // Signing in happens in front of the app (Cloudflare Access), so by the time this
@@ -11,6 +13,8 @@ import { signIn, useProfile } from './profile/ProfileContext';
 function App() {
   const route = useRoute();
   const { signedOut, unreachable, profile, retry } = useProfile();
+  // Changes kept on this device go as soon as the connection, or the person, is back
+  useEffect(sendWhenBack, []);
 
   if (signedOut) {
     return (

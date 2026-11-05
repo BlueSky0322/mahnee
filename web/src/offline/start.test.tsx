@@ -252,7 +252,9 @@ describe('starting once Access asks to sign in again', () => {
       renderApp(server);
       expect(await screen.findByText(RYAN)).toBeTruthy();
       expect(
-        await screen.findByText("Offline. You're seeing what this device last loaded."),
+        await screen.findByText(
+          "Offline. Changes are kept on this device and saved when you're back.",
+        ),
       ).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
     } finally {

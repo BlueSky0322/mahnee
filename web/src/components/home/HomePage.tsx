@@ -11,12 +11,14 @@ import { navigate } from '../../hooks/useRoute';
 import { useAccounts } from '../../ledger/useLedger';
 import { nameFor, useProfile } from '../../profile/ProfileContext';
 import classes from './HomePage.module.css';
+import MonthCard from './MonthCard';
 import { useConfirmSignOut } from './useConfirmSignOut';
 
-// The first screen: the person's accounts, the way to their categories, then who's
-// signed in and the way out. Add, floating over it, opens the entry sheet once there's
-// an account to put a transaction on.
-const HomePage = () => {
+// The first screen: the month at a glance (`month`, an earlier one; null for this one),
+// the person's accounts, the way to their categories, then who's signed in and the way
+// out. Add, floating over it, opens the entry sheet once there's an account to put a
+// transaction on. Until the first account is added there's no month to show.
+const HomePage = ({ month }: { month: string | null }) => {
   const { profile } = useProfile();
   const { askToSignOut, dialog } = useConfirmSignOut();
   const { accounts } = useAccounts();
@@ -27,6 +29,7 @@ const HomePage = () => {
         <h1 className={classes.title}>Mahnee</h1>
         <ThemeToggle />
       </header>
+      {accounts?.length !== 0 && <MonthCard month={month} />}
       <InstallCard />
       <AccountList />
       <a

@@ -25,7 +25,7 @@ const unknown: Lookup = () => undefined;
  * The transactions the changes name, as they go: each one as it was (`lookup`) until a
  * change makes it something else, or deletes it (null)
  */
-function tracker(lookup: Lookup) {
+export function tracker(lookup: Lookup) {
   const touched = new Map<string, Transaction | null>();
   return {
     find: (id: string) => (touched.has(id) ? touched.get(id) ?? undefined : lookup(id)),
@@ -34,7 +34,7 @@ function tracker(lookup: Lookup) {
 }
 
 /** A change made to a transaction: what it becomes, null once deleted; undefined if not one */
-function changedTransaction(
+export function changedTransaction(
   change: LedgerChange,
   before: Transaction | undefined,
 ): Transaction | null | undefined {
@@ -54,12 +54,12 @@ function changedTransaction(
   }
 }
 
-const isTransactionChange = (change: LedgerChange) =>
+export const isTransactionChange = (change: LedgerChange) =>
   change.op === 'addTransaction' ||
   change.op === 'updateTransaction' ||
   change.op === 'removeTransaction';
 
-const idOf = (change: LedgerChange) =>
+export const idOf = (change: LedgerChange) =>
   change.op === 'addTransaction' ? change.transaction.id : 'id' in change ? change.id : '';
 
 /**

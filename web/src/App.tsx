@@ -42,7 +42,7 @@ function App() {
 
   return (
     <AppLayout>
-      {route.view === 'home' && <HomePage />}
+      {route.view === 'home' && <HomePage month={route.month} />}
       {route.view === 'categories' && <CategoriesPage />}
       {route.view === 'account' && (
         <AccountPage

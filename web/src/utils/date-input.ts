@@ -1,4 +1,5 @@
-// Days as a date input reads and writes them ("2026-10-14"), in local time
+// Days as a date input reads and writes them ("2026-10-14"), and months ("2026-10"), in
+// local time
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -49,5 +50,26 @@ export function dayHeading(text: string, now = new Date()) {
     day: 'numeric',
     month: 'short',
     ...(day.getFullYear() !== now.getFullYear() && { year: 'numeric' }),
+  });
+}
+
+// ---------- Months ----------
+
+/** This month in local time, as 2026-11 */
+export const thisMonth = (now = new Date()) => toDateInput(now).slice(0, 7);
+
+/** The month `by` months after `month` (before it, below zero), as 2026-11 */
+export function addMonths(month: string, by: number) {
+  const [y, m] = month.split('-').map(Number);
+  const at = new Date(y, m - 1 + by, 1);
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}`;
+}
+
+/** A month as a heading, "November 2026"; with `short`, the month alone, "November" */
+export function monthHeading(month: string, { short = false } = {}) {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, {
+    month: 'long',
+    ...(!short && { year: 'numeric' }),
   });
 }

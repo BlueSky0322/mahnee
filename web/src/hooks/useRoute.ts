@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react';
+import { isMonth } from '@shared/ledger';
 import { LAST_PAGE_KEY } from '../offline/cache';
+import { thisMonth } from '../utils/date-input';
 import { quietly } from '../utils/quietly';
 
 /** The page that's open; each page the app gains adds its own view here */
-export type Route = { view: 'home' } | { view: 'categories' } | { view: 'account'; id: string };
+export type Route =
+  /** month: an earlier month Home shows (2026-10); null for this month */
+  { view: 'home'; month: string | null } | { view: 'categories' } | { view: 'account'; id: string };
+
+/** An earlier month named in the address (?month=2026-10); null for this one or none */
+function readMonth(params: URLSearchParams) {
+  const month = params.get('month');
+  return isMonth(month) && month < thisMonth() ? month : null;
+}
 
 // Any address that names no other page is the home page
 function readRoute(): Route {
@@ -11,13 +21,13 @@ function readRoute(): Route {
   if (params.has('categories')) return { view: 'categories' };
   const account = params.get('account');
   if (account) return { view: 'account', id: account };
-  return { view: 'home' };
+  return { view: 'home', month: readMonth(params) };
 }
 
 const ROUTE_CHANGE = 'routechange';
 const SESSION_KEY = 'mahnee:session';
-/** One-off parts of an address, never reopened on a fresh start */
-const TRANSIENT: string[] = [];
+/** One-off parts of an address, never reopened on a fresh start: Home opens on this month */
+const TRANSIENT: string[] = ['month'];
 
 /** Remembers the page that's open, so the app can reopen there */
 function rememberPage() {

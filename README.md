@@ -3,7 +3,8 @@
 Personal finance tracking for one person: accounts, the money moving in and out of them,
 and where it goes. So far it signs you in, lists your accounts (cash, bank, cards
 and e-wallets) with their balances, keeps your spending and income categories, and
-logs what you spend and receive from a quick entry sheet. It installs as an app on
+logs what you spend and receive from a quick entry sheet, with each month's spending,
+income and what's left at the top of Home. It installs as an app on
 phones and computers, opens offline, and keeps changes made offline on the device until
 they're saved.
 

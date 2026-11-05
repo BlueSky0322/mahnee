@@ -15,6 +15,7 @@ in [AGENTS.md](../AGENTS.md).
 | [Accounts](#accounts)                                          | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Categories](#categories)                                      | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Transactions and quick entry](#transactions-and-quick-entry)  | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Month view](#month-view)                                      | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Exchange rates](#exchange-rates)                              | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
 | [Offline start and installing](#offline-start-and-installing)  | `offline/`, `pwa/`           | (none; the API is the same)    |
 | [Pages, layouts and Back](#pages-layouts-and-back)             | `hooks/useRoute.ts`          | (none)                         |
@@ -238,7 +239,7 @@ table allows them and the Worker refuses them.
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), as for accounts: every
 change goes through `change()` and the outbox, so entry works offline. Lists of
 transactions are infinite queries keyed by account (`accountTransactionsKey`) or month
-(`monthTransactionsKey`, for the month view next), kept as the server has them: each
+(`monthTransactionsKey`, which no screen lists yet), kept as the server has them: each
 batch is added once saved, a page fetched while one was saved gets it on top
 (`savedLog`), and the changes still to send are put on top as they're shown
 (`shownPages`), so a page never has to be put back. An account's first page is kept on
@@ -303,6 +304,70 @@ one; desktop and phone), and the transactions cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (balances of each kind, every
 refusal, paging with ties, a month, the limit per account, receipts, all or nothing,
 defaults with a first transaction).
+
+## Month view
+
+**What it is.** The top of Home: one month at a glance, this month unless the address
+names an earlier one (`?month=2026-10`; the arrows step between months, never past
+this one, and Back returns). What's left (received less spent) is the largest number;
+when more was spent than came in it says "Over", in the negative colour, with a line
+saying by how much. Spent and Received sit beneath it, then spending by top-level
+category, largest first, each with a bar for its share of the month's spending. A
+category with subcategories opens to show each one's amount and what was filed under
+the category itself; income by category is folded under Received. Placeholders show
+until the month arrives; an empty month says so. It isn't shown until the first account
+is added.
+
+**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), as for transactions. A
+month's totals are a query keyed by month (`summaryKey`), fetched from the server
+(`fetchSummary`) with a device copy (`summary-v1:<month>`) shown offline. They're kept
+as the server summed them, with each saved batch counted in (before the lists take it,
+so an edited transaction is taken out as it was), and the changes still to send counted
+on top as they're shown (`shownSummary`). Once nothing is left to send they're fetched
+again. [ledger/summary.ts](../web/src/ledger/summary.ts) (`applyToSummary`) does the
+counting the way the server sums; [ledger/derive.ts](../web/src/ledger/derive.ts)
+(`rollUp`) puts subcategories inside their top-level category for showing. Screens read
+through `useMonthSummary(month)` in [ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
+
+**Parts.**
+
+- UI: [components/home/MonthCard.tsx](../web/src/components/home/MonthCard.tsx), on
+  [HomePage.tsx](../web/src/components/home/HomePage.tsx); months in
+  [utils/date-input.ts](../web/src/utils/date-input.ts) (`thisMonth`, `addMonths`,
+  `monthHeading`).
+- API: `GET /api/summary?month=2026-11` (`readSummary` in
+  [worker/ledger/summary.ts](../worker/ledger/summary.ts)): one grouped SQL sum.
+- Shared: `MonthSummary` and `CategoryTotal` in [shared/api.ts](../shared/api.ts);
+  `isMonth` in [shared/ledger.ts](../shared/ledger.ts).
+
+**Flow.** The server sums the person's spending and income in the month (by the day a
+transaction is on) across every account, grouped by each category's own id, largest
+first. The app rolls subcategories up into their parent by the categories it has now, so
+a subcategory moved under another category moves its spending with it.
+
+**Invariants.**
+
+- Only spending and income count. A transfer is never spending or income, and is left
+  out by name in the SQL and in `applyToSummary`.
+- Every total is exact: at most `MAX_ACCOUNTS` x `MAX_TRANSACTIONS_PER_ACCOUNT` x
+  `MAX_TRANSACTION_CENTS` (5e15 cents) per person, under what a number holds exactly;
+  each list has at most one row per category (`MAX_CATEGORIES`). Left is received less
+  spent, in cents.
+- Scoped to the signed-in person's own transactions; a month is 2000-01 or later.
+- A change is counted once: a month's totals fetched while a batch was being saved are
+  set aside for the fetch once nothing is left to send, rather than counted again.
+- Archived categories still count; an amount in a category the app doesn't know is shown
+  as "Unknown category" rather than dropped.
+
+**Tests.** [summary.test.ts](../web/src/ledger/summary.test.ts) (adding, moving across
+categories and months, deleting and Undo, spending to income, transfers, unknown ones),
+[derive.test.ts](../web/src/ledger/derive.test.ts) (roll-up, unknown parents and
+categories), [MonthCard.test.tsx](../web/src/components/home/MonthCard.test.tsx) (left,
+spent, received, Food opened to Coffee and Food itself, income under Received, earlier
+months and Back, over, placeholders, offline through a reload and once saved; desktop
+and phone), and the month's totals cases in
+[worker/test/api.test.ts](../worker/test/api.test.ts) (spending, income, a transfer,
+subcategories under their own id, other months and other people, bad months).
 
 ## Exchange rates
 
@@ -427,14 +492,16 @@ and once Access asks to sign in again),
 ## Pages, layouts and Back
 
 **What it is.** Which page shows, the layouts for phones, tablets and computers, and
-what Back does. There are three pages so far: the home page, with the accounts on it,
-the categories page (`?categories`) and an account's page (`?account=<id>`), both of
-which go back up to Home.
+what Back does. There are three pages so far: the home page, with the month and the
+accounts on it (an earlier month as `?month=2026-10`), the categories page
+(`?categories`) and an account's page (`?account=<id>`), both of which go back up to
+Home.
 
 **Owner.**
 
 - [hooks/useRoute.ts](../web/src/hooks/useRoute.ts): pages come from the query string
-  through `navigate()`, and the last page reopens on a fresh start. A page opened from
+  through `navigate()`, and the last page reopens on a fresh start (on this month: a
+  month in the address is never reopened, `TRANSIENT`). A page opened from
   another goes back up with `goUp`: Back when it came from there, else straight there in
   its own place. Each page the app gains adds its view to `Route`.
 - [hooks/useBreakpoints.ts](../web/src/hooks/useBreakpoints.ts): `useIsMobile` (under

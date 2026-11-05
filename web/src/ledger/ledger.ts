@@ -1,5 +1,5 @@
 import type { InfiniteData } from '@tanstack/react-query';
-import type { Ledger, LedgerChange, Transaction, TransactionPage } from '@shared/api';
+import type { Ledger, LedgerChange, MonthSummary, Transaction, TransactionPage } from '@shared/api';
 import { categoriesOrDefaults } from '@shared/categories';
 import { api } from '../api';
 import { onCacheCleared, onCacheUserKnown, readCache, writeCache } from '../offline/cache';
@@ -8,6 +8,7 @@ import { queryClient } from '../query-client';
 import { showError } from '../utils/notify';
 import { apply, applyToPages } from './apply';
 import { createSaveQueue } from './save-queue';
+import { applyToSummary } from './summary';
 
 // A person's ledger (their accounts and categories, and their transactions a page at a
 // time), kept in the query cache so every screen shows the same copy. change() is the
@@ -20,7 +21,10 @@ import { createSaveQueue } from './save-queue';
 // The accounts and categories in the cache are shown as they are, changes still to send
 // included. Lists of transactions are kept as the server has them, with each batch
 // added once it's saved, and the changes still to send are put on top as they're shown
-// (shownPages), so a list loaded a page at a time never has to be put back.
+// (shownPages), so a list loaded a page at a time never has to be put back. A month's
+// totals are kept the same way: as the server summed them, with each batch counted in
+// once it's saved, and the changes still to send counted on top as they're shown
+// (shownSummary).
 
 export const LEDGER_KEY = ['ledger'] as const;
 /** Versioned like the other saved copies: one in an older shape is never read */
@@ -49,6 +53,13 @@ export const monthTransactionsKey = (month: string): TransactionsKey => [
   'month',
   month,
 ];
+/** Every month's totals */
+export const SUMMARY_KEY = ['summary'] as const;
+/** A month's totals (2026-11) */
+export const summaryKey = (month: string) => ['summary', month] as const;
+/** A month's totals, kept on the device for opening offline */
+const summaryCacheKey = (month: string) => `summary-v1:${month}`;
+
 /** The first page of an account's transactions, kept on the device for opening offline */
 const pageCacheKey = (accountId: string) => `transactions-v1:${accountId}`;
 
@@ -104,6 +115,14 @@ const queue = createSaveQueue({
   saved: (changes) => {
     savedCount++;
     if (confirmed != null) confirmed = apply(confirmed, changes, savedTransaction);
+    // Counted in each month's totals, before the lists below hold them, so a transaction
+    // changed is taken out of the totals as it was
+    for (const [key, summary] of queryClient.getQueriesData<MonthSummary>({
+      queryKey: SUMMARY_KEY,
+    })) {
+      if (summary == null) continue;
+      queryClient.setQueryData(key, applyToSummary(summary, changes, savedTransaction));
+    }
     // Saved, so part of every list as the server has it
     for (const [key, data] of listsInCache()) {
       if (data == null) continue;
@@ -127,6 +146,7 @@ const queue = createSaveQueue({
   idle: () => {
     void reloadLedger();
     void queryClient.invalidateQueries({ queryKey: TRANSACTIONS_KEY });
+    void queryClient.invalidateQueries({ queryKey: SUMMARY_KEY });
   },
 });
 
@@ -246,6 +266,31 @@ export function shownPages(
     .flatMap((p) => p.transactions)
     .filter((t) => !seen.has(t.id) && Boolean(seen.add(t.id)));
 }
+
+/**
+ * A month's totals from the server; offline, the copy kept on this device. One fetched
+ * while a batch was saved may be from before it, and summing it in again could count it
+ * twice, so what's shown stays until the totals fetched once nothing is left to send.
+ */
+export async function fetchSummary(month: string): Promise<MonthSummary> {
+  const savedBefore = savedCount;
+  let summary: MonthSummary;
+  try {
+    summary = await api.getSummary(month);
+  } catch (err) {
+    if (!isOfflineFailure(err)) throw err;
+    const kept = await readCache<MonthSummary>(summaryCacheKey(month));
+    if (kept == null) throw err;
+    return kept;
+  }
+  void writeCache(summaryCacheKey(month), summary);
+  const shown = queryClient.getQueryData<MonthSummary>(summaryKey(month));
+  return savedCount !== savedBefore && shown != null ? shown : summary;
+}
+
+/** A month's totals as shown: as the server summed them, with the changes still to send */
+export const shownSummary = (summary: MonthSummary, pending: LedgerChange[]) =>
+  applyToSummary(summary, pending, savedTransaction);
 
 /**
  * Shows the copy kept on this device while the first fresh one loads, unless something

@@ -12,6 +12,7 @@ import type {
   Category,
   ChangesBody,
   LedgerChange,
+  MonthSummary,
   Profile,
   Transaction,
 } from '@shared/api';
@@ -39,6 +40,7 @@ import {
   fitsTransactionCents,
   isAccountKind,
   isDay,
+  isMonth,
   isTransactionKind,
   readAccountName,
   readOptionalText,
@@ -258,6 +260,12 @@ function answerNow(server: FakeServer) {
       const page = listTransactions(server, url.searchParams);
       return Array.isArray(page) ? json({ error: page[1] }, page[0]) : json(page);
     }
+    if (path === '/api/summary' && method === 'GET') {
+      const month = url.searchParams.get('month');
+      return isMonth(month)
+        ? json(summarize(server, month))
+        : json({ error: 'Give a month from 2000, like 2026-11' }, 400);
+    }
     if (path === '/api/changes' && method === 'POST') {
       const failure = failing('changes');
       if (failure) return failure;
@@ -290,6 +298,35 @@ const balanceOf = (server: FakeServer, account: Pick<Account, 'id' | 'openingCen
         sum + (t.kind === 'income' ? t.amountCents : t.kind === 'expense' ? -t.amountCents : 0),
       account.openingCents,
     );
+
+/**
+ * GET /api/summary as the real one (worker/ledger/summary.ts) sums a month: spending and
+ * income only (never a transfer), by each category's own id, largest first then by id
+ */
+function summarize(server: FakeServer, month: string): MonthSummary {
+  const totals = (kind: 'expense' | 'income') => {
+    const byId = new Map<string, number>();
+    for (const t of server.transactions) {
+      if (t.kind !== kind || !t.date.startsWith(`${month}-`) || t.categoryId == null) continue;
+      byId.set(t.categoryId, (byId.get(t.categoryId) ?? 0) + t.amountCents);
+    }
+    return [...byId]
+      .map(([categoryId, cents]) => ({ categoryId, cents }))
+      .sort((a, b) => b.cents - a.cents || (a.categoryId < b.categoryId ? -1 : 1));
+  };
+  const sum = (list: { cents: number }[]) => list.reduce((all, t) => all + t.cents, 0);
+  const spentByCategory = totals('expense');
+  const incomeByCategory = totals('income');
+  const [spentCents, incomeCents] = [sum(spentByCategory), sum(incomeByCategory)];
+  return {
+    month,
+    incomeCents,
+    spentCents,
+    leftCents: incomeCents - spentCents,
+    spentByCategory,
+    incomeByCategory,
+  };
+}
 
 /** Newest first, as the real server lists them: by day, time saved, then id */
 const newestFirst = (a: Transaction, b: Transaction) =>

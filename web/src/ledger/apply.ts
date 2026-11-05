@@ -7,7 +7,7 @@ import type {
   TransactionPage,
 } from '@shared/api';
 import { nextPosition, reorder, siblingsOf } from '@shared/categories';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
+import { DEFAULT_CURRENCY, balanceEffect } from '@shared/ledger';
 
 // Changes shown before the server has them: the ledger and lists of transactions as
 // they will be once they're saved, worked out the way the server saves them. Each change
@@ -90,16 +90,13 @@ export function apply(ledger: Ledger, changes: LedgerChange[], lookup: Lookup = 
   return next;
 }
 
-/** How much a transaction adds to its account's balance: below zero for spending */
-const effect = (t: Transaction) =>
-  t.kind === 'income' ? t.amountCents : t.kind === 'expense' ? -t.amountCents : 0;
-
-/** The accounts with `t`'s effect added (`by` 1) or taken back (-1) */
+/** The accounts with `t`'s effect on each (shared/ledger.ts) added (`by` 1) or taken back (-1) */
 function moveBalances(accounts: Account[], t: Transaction | null | undefined, by: 1 | -1) {
-  if (t == null || effect(t) === 0) return accounts;
-  return accounts.map((a) =>
-    a.id === t.accountId ? { ...a, balanceCents: a.balanceCents + by * effect(t) } : a,
-  );
+  if (t == null) return accounts;
+  return accounts.map((a) => {
+    const effect = balanceEffect(t, a.id);
+    return effect === 0 ? a : { ...a, balanceCents: a.balanceCents + by * effect };
+  });
 }
 
 /** Newest first: by day, then when it was saved, then by id, as the server lists them */

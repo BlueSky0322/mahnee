@@ -15,6 +15,7 @@ setupAppTests();
 
 const SIZES = ['desktop', 'phone'] as const;
 const WALLET = 'a'.repeat(16);
+const BANK = 'b'.repeat(16);
 const COFFEE = 'e'.repeat(16);
 const categoryId = (name: string) => DEFAULT_CATEGORIES.find((c) => c.name === name)!.id;
 const NOW = thisMonth();
@@ -52,6 +53,7 @@ function seed(server: FakeServer, t: Partial<Transaction>) {
     id: seeded.toString(16).padStart(16, 'd'),
     kind: 'expense',
     accountId: WALLET,
+    toAccountId: null,
     amountCents: 800,
     categoryId: categoryId('Food'),
     payee: null,
@@ -90,7 +92,16 @@ describe('the month on Home', () => {
     async (size) => {
       const server = withFoodAndSalary();
       // Moved between the person's own accounts: never spending
-      seed(server, { kind: 'transfer', amountCents: 40_000, categoryId: null });
+      server.accounts.push({
+        id: BANK,
+        name: 'Bank',
+        kind: 'bank',
+        currency: 'MYR',
+        openingCents: 100_000,
+        position: 1,
+        archived: false,
+      });
+      seed(server, { kind: 'transfer', toAccountId: BANK, amountCents: 40_000, categoryId: null });
       renderApp(server, '/', { size });
       const user = userEvent.setup();
 

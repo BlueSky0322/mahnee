@@ -104,13 +104,20 @@ export interface Category {
 }
 
 /**
- * Money spent from one of a person's accounts, or that came into it. An amount is always
- * above zero; the kind says which way it went.
+ * Money spent from one of a person's accounts, money that came into it, or money moved
+ * from it to another of theirs (a transfer). An amount is always above zero; the kind
+ * says which way it went.
  */
 export interface Transaction {
   id: string;
   kind: TransactionKind;
+  /** The account it's on; for a transfer, the one the money left */
   accountId: string;
+  /**
+   * The account a transfer's money went to, never the one it left; null for spending and
+   * income
+   */
+  toAccountId: string | null;
   /** Whole cents, above zero, at most MAX_TRANSACTION_CENTS */
   amountCents: number;
   /** A category of the matching kind, top level or a subcategory; null only for transfers */
@@ -196,8 +203,9 @@ export type LedgerChange =
   | { op: 'archiveCategory'; id: string; archived: boolean }
   | { op: 'addTransaction'; transaction: NewTransaction }
   /**
-   * Changes what it names. A kind changes only between spending and income, with a
-   * category of the new kind.
+   * Changes what it names. A new kind comes with what that kind needs: spending or
+   * income a category of its kind and toAccountId null, a transfer categoryId null and
+   * the account it goes to.
    */
   | ({ op: 'updateTransaction'; id: string } & Partial<Omit<NewTransaction, 'id'>>)
   /** Deletes it for good; Undo adds it again, with the same id */

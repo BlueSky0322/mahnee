@@ -19,7 +19,7 @@ hack-proof, and the limits below are real.
   own data: every row belongs to the signed-in account, and every query is scoped by its
   email. Money accounts, categories and transactions are keyed by email and id together,
   so an id of someone else's is answered exactly as one that doesn't exist, and never
-  reveals that it does; a subcategory's parent, and a transaction's account and category,
+  reveals that it does; a subcategory's parent, and a transaction's accounts and category,
   are looked up among the person's own only (composite foreign keys hold this in the
   database too). There is no sharing between accounts.
 - **Whose a write is.** Every write from the app names the account it was made as
@@ -41,7 +41,8 @@ hack-proof, and the limits below are real.
   most `MAX_CATEGORIES` categories, `MAX_SUBCATEGORIES` under one, with names of at most
   `MAX_CATEGORY_NAME` characters (`shared/categories.ts`). A transaction is whole cents
   from 1 to `MAX_TRANSACTION_CENTS`, an account holds at most
-  `MAX_TRANSACTIONS_PER_ACCOUNT` (checked again as each row is saved), and a payee and
+  `MAX_TRANSACTIONS_PER_ACCOUNT`, a transfer counted on both its accounts (checked again
+  as each row is saved), and a payee and
   note are at most `MAX_PAYEE` and `MAX_NOTE` characters (`shared/ledger.ts`), so every
   balance stays a whole number held exactly.
 - Reading transactions: at most 200 to a page (`MAX_PAGE_SIZE` in

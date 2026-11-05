@@ -1,6 +1,7 @@
 import type { InfiniteData } from '@tanstack/react-query';
 import type { Ledger, LedgerChange, MonthSummary, Transaction, TransactionPage } from '@shared/api';
 import { categoriesOrDefaults } from '@shared/categories';
+import { isOnAccount } from '@shared/ledger';
 import { api } from '../api';
 import { onCacheCleared, onCacheUserKnown, readCache, writeCache } from '../offline/cache';
 import { isOfflineFailure } from '../offline/network';
@@ -65,11 +66,11 @@ const pageCacheKey = (accountId: string) => `transactions-v1:${accountId}`;
 
 type Pages = InfiniteData<TransactionPage, string | null>;
 
-/** Which transactions a list holds */
+/** Which transactions a list holds: an account's has the transfers into it too */
 const belongsTo =
   ([, by, value]: TransactionsKey) =>
   (t: Transaction) =>
-    by === 'account' ? t.accountId === value : t.date.startsWith(`${value}-`);
+    by === 'account' ? isOnAccount(t, value) : t.date.startsWith(`${value}-`);
 
 /** Every list of transactions in the cache, as the server has them */
 const listsInCache = () =>

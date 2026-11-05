@@ -15,6 +15,7 @@ const coffee: Transaction = {
   id: 't1',
   kind: 'expense',
   accountId: 'wallet',
+  toAccountId: null,
   amountCents: 300,
   categoryId: 'coffee',
   payee: null,

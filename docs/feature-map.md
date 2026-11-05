@@ -226,15 +226,20 @@ and the database's own guard).
 ## Transactions and quick entry
 
 **What it is.** Money spent from an account, or that came into one, each in a category
-of its kind. Add, floating over Home and each account's page, opens the entry sheet:
-the amount first (focused, the phone's number keyboard), Spent or Received, the account
-and category used last on this device (the account's own on its page; else the first),
+of its kind; and transfers, money moved from one of the person's accounts to another
+(an e-wallet top-up, paying off a card), with no category. Add, floating over Home and
+each account's page, opens the entry sheet: the amount first (focused, the phone's
+number keyboard), Spent, Received or Transfer, the account and category used last on
+this device (the account's own on its page; else the first), for a transfer From and To
+(To is the account moved to last, never the one it comes from),
 the day (today, in the person's own time zone), and a payee and note under More. An RM 8
 coffee with the defaults is: Add, 8, Save. An account's page lists its transactions
 newest first, grouped by day, 50 at a time with Load more; tapping one opens it in the
 same sheet to change it, or Delete it (with Undo, which adds it again with the same id).
-Spending and income can swap if the category goes with it. Transfers come later; the
-table allows them and the Worker refuses them.
+A transfer shows on both its accounts' pages, as "To Visa" (−) on the one it left and
+"From Maybank" (+) on the one it reached. Any kind can become another if what that kind
+needs goes with it: a category of its kind for spending and income, the account it goes
+to (and no category) for a transfer.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), as for accounts: every
 change goes through `change()` and the outbox, so entry works offline. Lists of
@@ -249,26 +254,31 @@ a transaction (`Lookup` gives it as it was) and puts each one on the page its da
 in (`applyToPages`). Screens read through `useAccountTransactions(accountId)` in
 [ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
 [ledger/last-used.ts](../web/src/ledger/last-used.ts) keeps the account and each kind's
-category used last, by id, per person (`localStorage`, let go on signing out).
+category used last, and the account a transfer went to last, by id, per person
+(`localStorage`, let go on signing out).
 
 **Parts.**
 
 - UI: [components/entry/EntrySheet.tsx](../web/src/components/entry/EntrySheet.tsx)
   (the sheet, adding and changing, Delete),
   [entry-text.ts](../web/src/components/entry/entry-text.ts) (typed amounts in cents with
-  `toCents`, and signed amounts), the account's page in
+  `toCents`, amounts signed for the account shown, and a transfer's "To Visa" or
+  "From Maybank"), the account's page in
   [components/accounts/AccountPage.tsx](../web/src/components/accounts/AccountPage.tsx),
   the Add on [HomePage.tsx](../web/src/components/home/HomePage.tsx), and
   [components/common/category-name.ts](../web/src/components/common/category-name.ts)
   ("Food › Coffee").
-- API: `GET /api/transactions?account=<id>` or `?month=2026-11`, with `&before=` and
+- API: `GET /api/transactions?account=<id>` (transfers into it too) or `?month=2026-11`
+  (a transfer once), with `&before=` and
   `&limit=` (`listTransactions` in [worker/ledger/read.ts](../worker/ledger/read.ts));
   `addTransaction`, `updateTransaction` and `removeTransaction` in
   [worker/ledger/changes.ts](../worker/ledger/changes.ts); balances in `listAccounts`
   there.
 - Shared: `Transaction`, `NewTransaction`, `TransactionPage` and the change shapes in
   [shared/api.ts](../shared/api.ts); kinds, limits, `isDay`, `readOptionalText`,
-  `whyNotInCategory` and `whyNotOnAccount` in [shared/ledger.ts](../shared/ledger.ts).
+  `whyNotInCategory`, `whyNotOnAccount`, `whyNotBetween`, `isOnAccount` (an account's
+  list) and `balanceEffect` (how a transaction moves each account's balance, used by the
+  app's optimistic balances and the test stand-in) in [shared/ledger.ts](../shared/ledger.ts).
 
 **Flow.** Save checks the amount, day and category with the shared rules, makes the
 change (shown at once: the list and the balances), remembers the account and category,
@@ -279,29 +289,40 @@ twice.
 
 **Invariants.**
 
-- An account's balance is its opening balance plus its income less its spending; on a
-  card, spending grows what's owed.
+- An account's balance is its opening balance plus its income and transfers in, less its
+  spending and transfers out; on a card, spending grows what's owed and a transfer to it
+  (paying it) shrinks it.
+- A transfer is never spending or income: it has no category, and anything that sums
+  spending or income counts only `expense` and `income` rows. It goes between two
+  different listed accounts of the person's (`whyNotBetween`); `to_account_id` is set
+  only on transfers.
 - A transaction goes on a listed account of the person's, in a listed category of the
   person's whose kind matches (spending in spending ones), with an amount of 1 cent to
   `MAX_TRANSACTION`, a day from 2000 to tomorrow in UTC (`isDay`), and a payee and note
   trimmed to at most `MAX_PAYEE` and `MAX_NOTE` (empty is none). The kind and category
-  are checked as a pair whenever either changes. The app asks the same rules; the
+  are checked as a pair whenever either changes, and the kind and the account it goes to
+  whenever the kind or either account changes. The app asks the same rules; the
   Worker is the authority.
-- At most `MAX_TRANSACTIONS_PER_ACCOUNT` on one account, every kind counted, checked
-  again inside the INSERT or move (the account is NULL past it, which the table
-  refuses), so two batches at once can't pass it.
+- At most `MAX_TRANSACTIONS_PER_ACCOUNT` on one account, every kind counted and a
+  transfer on both its accounts, checked again inside the INSERT or move for each
+  account it newly lands on (the account is NULL past it, which the table refuses), so
+  two batches at once can't pass it.
 - Someone else's account, category or transaction is answered as one that doesn't exist
   (404), in reading and in changes.
 - Deleting really deletes the row; nothing else refers to a transaction.
 
 **Tests.** [apply.test.ts](../web/src/ledger/apply.test.ts) (balances for each change,
-pages: where a new one goes, moved out and in, edited days, applied twice),
+transfers on both accounts, pages: where a new one goes, moved out and in, a transfer in
+both accounts' lists, edited days, applied twice),
 [Entry.test.tsx](../web/src/components/entry/Entry.test.tsx) (RM 8 coffee in two steps,
 income, last used remembered through a reload, subcategories, what's wrong, a refusal
 put back, offline through a reload; the account page by day, placeholders, Load more,
 editing, spending to income, Delete and Undo, adding on an account's page, an archived
-one; desktop and phone), and the transactions cases in
-[worker/test/api.test.ts](../worker/test/api.test.ts) (balances of each kind, every
+one; transfers: an e-wallet top-up then spending from it, paying a card, To offered,
+editing, Delete and Undo, offline through a reload; desktop and phone), and the
+transactions cases in
+[worker/test/api.test.ts](../worker/test/api.test.ts) (balances of each kind, transfers
+on both accounts' pages and once in a month, a card paid off, kinds switched, every
 refusal, paging with ties, a month, the limit per account, receipts, all or nothing,
 defaults with a first transaction).
 

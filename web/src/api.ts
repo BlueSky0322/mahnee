@@ -8,6 +8,7 @@ import type {
   Profile as ApiProfile,
   ProfilePatch,
   RateQuote,
+  TransactionPage,
 } from '@shared/api';
 import { newId } from './utils/id';
 
@@ -91,6 +92,18 @@ export const api = {
   updateMe: (patch: ProfilePatch) => request<Profile>('PATCH', '/api/me', patch),
   /** The person's accounts and categories */
   getLedger: () => request<Ledger>('GET', '/api/accounts'),
+  /**
+   * A page of the person's transactions, newest first: one account's, or every account's
+   * in a month (2026-11); `before` is the page before's nextBefore
+   */
+  getTransactions: ({
+    before,
+    ...which
+  }: ({ account: string } | { month: string }) & { before: string | null }) => {
+    const query = new URLSearchParams(which);
+    if (before != null) query.set('before', before);
+    return request<TransactionPage>('GET', `/api/transactions?${query.toString()}`);
+  },
   /**
    * Saves a batch of ledger changes, all or nothing (see ledger/save-queue.ts). While the
    * page is hidden or closing, keepalive lets the save finish after it's gone; browsers

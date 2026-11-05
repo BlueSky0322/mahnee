@@ -1,0 +1,8 @@
+/*
+ * Notifications rise above the floating Add button (components/ui/Fab: 56px tall, 34px
+ * up), so an Undo is never hidden behind it. Mantine places them with zero-specificity
+ * rules, which this class overrides.
+ */
+.notifications[data-position^='bottom'] {
+  bottom: calc(102px + var(--sf-safe-bottom));
+}

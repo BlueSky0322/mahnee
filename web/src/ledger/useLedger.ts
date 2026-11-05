@@ -1,10 +1,20 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useSyncExternalStore } from 'react';
-import type { Account, Category, Ledger } from '@shared/api';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import type { Account, Category, Ledger, Transaction, TransactionPage } from '@shared/api';
 import type { CategoryTree } from './category-tree';
 import { categoryTree } from './category-tree';
 import type { QueueState } from './save-queue';
-import { LEDGER_KEY, fetchLedger, showKeptCopy, subscribeUnsaved, unsavedState } from './ledger';
+import {
+  LEDGER_KEY,
+  accountTransactionsKey,
+  fetchLedger,
+  fetchTransactionPage,
+  pendingChanges,
+  shownPages,
+  showKeptCopy,
+  subscribeUnsaved,
+  unsavedState,
+} from './ledger';
 
 // The ledger for the screens that show it (see ledger.ts, which changes it)
 
@@ -66,3 +76,44 @@ export function useCategories(): Categories {
  * sending them waits on signing in again
  */
 export const useUnsaved = (): QueueState => useSyncExternalStore(subscribeUnsaved, unsavedState);
+
+export interface Transactions {
+  /** Newest first, changes still to send included; null until the first page loads */
+  transactions: Transaction[] | null;
+  failed: boolean;
+  retry: () => void;
+  /** More can be loaded, older than these */
+  hasMore: boolean;
+  loadMore: () => void;
+  loadingMore: boolean;
+}
+
+/** An account's transactions, newest first, a page at a time */
+export function useAccountTransactions(accountId: string): Transactions {
+  const key = accountTransactionsKey(accountId);
+  // Worked out again whenever what's still to send changes
+  const pending = useSyncExternalStore(subscribeUnsaved, pendingChanges);
+  const select = useCallback(
+    (data: { pages: TransactionPage[]; pageParams: (string | null)[] }) =>
+      shownPages(accountTransactionsKey(accountId), data, pending),
+    [accountId, pending],
+  );
+  const { data, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: key,
+      queryFn: ({ pageParam }) => fetchTransactionPage(key, pageParam),
+      initialPageParam: null as string | null,
+      getNextPageParam: (last) => last.nextBefore,
+      select,
+      // Asked for offline too, so the first page kept on the device shows
+      networkMode: 'offlineFirst',
+    });
+  return {
+    transactions: data ?? null,
+    failed: isError && data == null,
+    retry: () => void refetch(),
+    hasMore: hasNextPage,
+    loadMore: () => void fetchNextPage(),
+    loadingMore: isFetchingNextPage,
+  };
+}

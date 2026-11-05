@@ -844,3 +844,533 @@ describe('categories', () => {
     await expect(insertUnder(theirs, 'expense')).rejects.toThrow(/one level deep/);
   });
 });
+
+describe('transactions', () => {
+  let ids = 0;
+  /** A fresh row id, as the app makes them: 16 hex characters */
+  const rowId = () => (++ids).toString(16).padStart(16, 'c');
+  const send = (who: string, changes: unknown[], changeIds = changes.map(() => rowId())) =>
+    api.call(who, 'POST', '/api/changes', { changes, ids: changeIds });
+  const addAccount = (id: string, kind = 'cash', openingCents = 0, name = 'Wallet') => ({
+    op: 'addAccount',
+    account: { id, name, kind, openingCents },
+  });
+  const [food, transport] = DEFAULT_CATEGORIES.map((c) => c.id);
+  const salary = DEFAULT_CATEGORIES.find((c) => c.name === 'Salary')!.id;
+  const DAY = '2025-10-14';
+  const add = (
+    id: string,
+    accountId: string,
+    amountCents: number,
+    more: Record<string, unknown> = {},
+  ) => ({
+    op: 'addTransaction',
+    transaction: {
+      id,
+      kind: 'expense',
+      accountId,
+      amountCents,
+      categoryId: food,
+      payee: null,
+      note: null,
+      date: DAY,
+      ...more,
+    },
+  });
+  const page = (who: string, query: string) => api.call(who, 'GET', `/api/transactions?${query}`);
+  const listed = async (who: string, account: string) => {
+    const res = await page(who, `account=${account}`);
+    expect(res.status).toBe(200);
+    return res.data.transactions as { id: string; [k: string]: unknown }[];
+  };
+  const balances = async (who: string) => {
+    const res = await api.call(who, 'GET', '/api/accounts');
+    const accounts = res.data.accounts as { id: string; balanceCents: number }[];
+    return Object.fromEntries(accounts.map((a) => [a.id, a.balanceCents]));
+  };
+
+  /** A person with a cash account holding RM 100 */
+  async function withWallet() {
+    const me = person('me');
+    const wallet = rowId();
+    expect((await send(me, [addAccount(wallet, 'cash', 10_000)])).status).toBe(200);
+    return { me, wallet };
+  }
+
+  it('adds, edits and deletes a transaction, the balance following each', async () => {
+    const { me, wallet } = await withWallet();
+    const [coffee, pay] = [rowId(), rowId()];
+    expect(
+      await send(me, [add(coffee, wallet, 800, { payee: '  Kopi Corner ', note: ' ' })]),
+    ).toEqual({ status: 200, data: { ok: true } });
+    await send(me, [
+      add(pay, wallet, 5_000, { kind: 'income', categoryId: salary, date: '2025-10-15' }),
+    ]);
+    expect((await balances(me))[wallet]).toBe(10_000 - 800 + 5_000);
+    const [newest, older] = await listed(me, wallet);
+    expect(newest).toMatchObject({ id: pay, kind: 'income', amountCents: 5_000 });
+    expect(older).toEqual({
+      id: coffee,
+      kind: 'expense',
+      accountId: wallet,
+      amountCents: 800,
+      categoryId: food,
+      payee: 'Kopi Corner',
+      note: null,
+      date: DAY,
+      createdAt: expect.any(Number),
+    });
+
+    await send(me, [
+      { op: 'updateTransaction', id: coffee, amountCents: 1_250, payee: null, note: 'Two' },
+    ]);
+    expect((await balances(me))[wallet]).toBe(10_000 - 1_250 + 5_000);
+    expect((await listed(me, wallet))[1]).toMatchObject({
+      amountCents: 1_250,
+      payee: null,
+      note: 'Two',
+      date: DAY,
+    });
+
+    await send(me, [{ op: 'removeTransaction', id: coffee }]);
+    expect((await balances(me))[wallet]).toBe(15_000);
+    expect((await listed(me, wallet)).map((t) => t.id)).toEqual([pay]);
+    // Undo adds it again, with the same id
+    expect((await send(me, [add(coffee, wallet, 1_250)])).status).toBe(200);
+    expect((await listed(me, wallet)).map((t) => t.id)).toEqual([pay, coffee]);
+    expect((await balances(me))[wallet]).toBe(10_000 - 1_250 + 5_000);
+  });
+
+  it('works out each kind of balance: spending on a card grows what is owed', async () => {
+    const me = person('me');
+    const [cash, bank, card] = [rowId(), rowId(), rowId()];
+    await send(me, [
+      addAccount(cash, 'cash', 5_000),
+      addAccount(bank, 'bank', 100_000, 'Bank'),
+      addAccount(card, 'card', -12_000, 'Visa'),
+    ]);
+    await send(me, [
+      add(rowId(), cash, 800),
+      add(rowId(), bank, 30_000, { kind: 'income', categoryId: salary }),
+      add(rowId(), bank, 2_550, { categoryId: transport }),
+      add(rowId(), card, 3_000),
+      add(rowId(), card, 4_500),
+      // A refund on the card takes what's owed down
+      add(rowId(), card, 1_000, { kind: 'income', categoryId: salary }),
+    ]);
+    expect(await balances(me)).toEqual({
+      [cash]: 4_200,
+      [bank]: 127_450,
+      [card]: -18_500,
+    });
+  });
+
+  it('saves the defaults first when the first batch adds a transaction in one', async () => {
+    const me = person('me');
+    const [wallet, coffee] = [rowId(), rowId()];
+    expect((await send(me, [addAccount(wallet), add(coffee, wallet, 800)])).status).toBe(200);
+    expect((await listed(me, wallet)).map((t) => t.categoryId)).toEqual([food]);
+    const { data } = await api.call(me, 'GET', '/api/accounts');
+    expect(data.categories).toHaveLength(DEFAULT_CATEGORIES.length);
+  });
+
+  it('turns spending into income with an income category, and refuses it without', async () => {
+    const { me, wallet } = await withWallet();
+    const id = rowId();
+    await send(me, [add(id, wallet, 800)]);
+    expect(await send(me, [{ op: 'updateTransaction', id, kind: 'income' }])).toEqual({
+      status: 409,
+      data: { error: 'Income goes in an income category' },
+    });
+    expect((await balances(me))[wallet]).toBe(9_200);
+    await send(me, [{ op: 'updateTransaction', id, kind: 'income', categoryId: salary }]);
+    expect((await balances(me))[wallet]).toBe(10_800);
+    expect((await listed(me, wallet))[0]).toMatchObject({ kind: 'income', categoryId: salary });
+  });
+
+  it('moves a transaction to another account, both balances following', async () => {
+    const { me, wallet } = await withWallet();
+    const [bank, id] = [rowId(), rowId()];
+    await send(me, [addAccount(bank, 'bank', 0, 'Bank'), add(id, wallet, 800)]);
+    await send(me, [{ op: 'updateTransaction', id, accountId: bank, date: '2025-10-01' }]);
+    expect(await balances(me)).toEqual({ [wallet]: 10_000, [bank]: -800 });
+    expect(await listed(me, wallet)).toEqual([]);
+    expect(await listed(me, bank)).toEqual([expect.objectContaining({ id, date: '2025-10-01' })]);
+  });
+
+  const tomorrow = rateDay(Date.now() + 864e5);
+  const inTwoDays = rateDay(Date.now() + 2 * 864e5);
+
+  it.each<[string, (ids: Record<string, string>) => unknown, number, string]>([
+    [
+      "someone else's account",
+      ({ theirAccount }) => add(rowId(), theirAccount, 800),
+      404,
+      'Account not found',
+    ],
+    [
+      "someone else's category",
+      ({ wallet, theirCategory }) => add(rowId(), wallet, 800, { categoryId: theirCategory }),
+      404,
+      'Category not found',
+    ],
+    [
+      'an archived account',
+      ({ archived }) => add(rowId(), archived, 800),
+      409,
+      'Old purse is archived',
+    ],
+    [
+      'an archived category',
+      ({ wallet }) => add(rowId(), wallet, 800, { categoryId: transport }),
+      409,
+      'Transport is archived',
+    ],
+    [
+      'spending in an income category',
+      ({ wallet }) => add(rowId(), wallet, 800, { categoryId: salary }),
+      409,
+      'Spending goes in a spending category',
+    ],
+    [
+      'income in a spending category',
+      ({ wallet }) => add(rowId(), wallet, 800, { kind: 'income' }),
+      409,
+      'Income goes in an income category',
+    ],
+    [
+      'no category',
+      ({ wallet }) => add(rowId(), wallet, 800, { categoryId: null }),
+      400,
+      'Pick a category',
+    ],
+    [
+      'an amount of 0',
+      ({ wallet }) => add(rowId(), wallet, 0),
+      400,
+      'An amount is more than 0 and up to 10,000,000',
+    ],
+    [
+      'an amount below 0',
+      ({ wallet }) => add(rowId(), wallet, -800),
+      400,
+      'An amount is more than 0 and up to 10,000,000',
+    ],
+    [
+      'an amount over the most',
+      ({ wallet }) => add(rowId(), wallet, 1_000_000_001),
+      400,
+      'An amount is more than 0 and up to 10,000,000',
+    ],
+    [
+      'an amount in part cents',
+      ({ wallet }) => add(rowId(), wallet, 80.5),
+      400,
+      'An amount is more than 0 and up to 10,000,000',
+    ],
+    [
+      'a day that does not exist',
+      ({ wallet }) => add(rowId(), wallet, 8, { date: '2025-02-29' }),
+      400,
+      'Give a day from 2000 up to today',
+    ],
+    [
+      'a day before 2000',
+      ({ wallet }) => add(rowId(), wallet, 8, { date: '1999-12-31' }),
+      400,
+      'Give a day from 2000 up to today',
+    ],
+    [
+      'a day two days ahead',
+      ({ wallet }) => add(rowId(), wallet, 8, { date: inTwoDays }),
+      400,
+      'Give a day from 2000 up to today',
+    ],
+    [
+      'a day of the wrong shape',
+      ({ wallet }) => add(rowId(), wallet, 8, { date: '14/10/2025' }),
+      400,
+      'Give a day from 2000 up to today',
+    ],
+    [
+      'a payee that is too long',
+      ({ wallet }) => add(rowId(), wallet, 8, { payee: 'x'.repeat(81) }),
+      400,
+      'A payee can be up to 80 characters',
+    ],
+    [
+      'a payee that is not text',
+      ({ wallet }) => add(rowId(), wallet, 8, { payee: 7 }),
+      400,
+      'A payee can be up to 80 characters',
+    ],
+    [
+      'a note that is too long',
+      ({ wallet }) => add(rowId(), wallet, 8, { note: 'x'.repeat(501) }),
+      400,
+      'A note can be up to 500 characters',
+    ],
+    [
+      'a transfer, for now',
+      ({ wallet }) => add(rowId(), wallet, 8, { kind: 'transfer', categoryId: null }),
+      400,
+      "Transfers can't be saved yet",
+    ],
+    [
+      'a kind that does not exist',
+      ({ wallet }) => add(rowId(), wallet, 8, { kind: 'gift' }),
+      400,
+      'Unknown kind of transaction',
+    ],
+    [
+      'a field it does not know',
+      ({ wallet }) => add(rowId(), wallet, 8, { tip: 1 }),
+      400,
+      'Unknown field tip',
+    ],
+    [
+      'an id of the wrong shape',
+      ({ wallet }) => add('ABC', wallet, 8),
+      400,
+      'Invalid transaction id',
+    ],
+    [
+      'an id already used',
+      ({ wallet, mine }) => add(mine, wallet, 8),
+      409,
+      'That transaction already exists',
+    ],
+    [
+      'a change to one that does not exist',
+      () => ({ op: 'updateTransaction', id: rowId(), amountCents: 5 }),
+      404,
+      'Transaction not found',
+    ],
+    [
+      "a change to someone else's",
+      ({ theirs }) => ({ op: 'updateTransaction', id: theirs, amountCents: 5 }),
+      404,
+      'Transaction not found',
+    ],
+    [
+      "deleting someone else's",
+      ({ theirs }) => ({ op: 'removeTransaction', id: theirs }),
+      404,
+      'Transaction not found',
+    ],
+    [
+      'a change that changes nothing',
+      ({ mine }) => ({ op: 'updateTransaction', id: mine }),
+      400,
+      'Nothing to change',
+    ],
+    [
+      'a change into a transfer',
+      ({ mine }) => ({ op: 'updateTransaction', id: mine, kind: 'transfer', categoryId: null }),
+      400,
+      "Transfers can't be saved yet",
+    ],
+    [
+      'a move to an archived account',
+      ({ mine, archived }) => ({ op: 'updateTransaction', id: mine, accountId: archived }),
+      409,
+      'Old purse is archived',
+    ],
+    [
+      'a change to an amount over the most',
+      ({ mine }) => ({ op: 'updateTransaction', id: mine, amountCents: 1_000_000_001 }),
+      400,
+      'An amount is more than 0 and up to 10,000,000',
+    ],
+  ])('refuses %s, saving nothing', async (_what, change, status, error) => {
+    const { me, wallet } = await withWallet();
+    const [archived, mine] = [rowId(), rowId()];
+    await send(me, [
+      addAccount(archived, 'cash', 0, 'Old purse'),
+      { op: 'archiveAccount', id: archived, archived: true },
+      { op: 'archiveCategory', id: transport, archived: true },
+      add(mine, wallet, 500),
+    ]);
+    const other = person('other');
+    const [theirAccount, theirCategory, theirs] = [rowId(), rowId(), rowId()];
+    await send(other, [
+      addAccount(theirAccount),
+      {
+        op: 'addCategory',
+        category: { id: theirCategory, name: 'Theirs', kind: 'expense', parentId: null },
+      },
+      add(theirs, theirAccount, 300),
+    ]);
+    const before = [await listed(me, wallet), await balances(me)];
+
+    const res = await send(me, [
+      change({ wallet, archived, mine, theirAccount, theirCategory, theirs }),
+    ]);
+    expect(res).toEqual({ status, data: { error } });
+    expect([await listed(me, wallet), await balances(me)]).toEqual(before);
+    expect(await listed(other, theirAccount)).toEqual([
+      expect.objectContaining({ id: theirs, amountCents: 300 }),
+    ]);
+  });
+
+  it('takes tomorrow in UTC, which is already today for people ahead of it', async () => {
+    const { me, wallet } = await withWallet();
+    expect((await send(me, [add(rowId(), wallet, 800, { date: tomorrow })])).status).toBe(200);
+  });
+
+  it('pages newest first by a cursor, never skipping or repeating ones on the same day', async () => {
+    const { me, wallet } = await withWallet();
+    // Saved in one batch, so the five on the same day were saved at the same moment too
+    const sameDay = Array.from({ length: 5 }, () => rowId());
+    const [older, newer] = [rowId(), rowId()];
+    await send(me, [
+      add(older, wallet, 1, { date: '2025-10-01' }),
+      ...sameDay.map((id) => add(id, wallet, 2)),
+      add(newer, wallet, 3, { date: '2025-10-20' }),
+    ]);
+    const seen: string[] = [];
+    let before: string | null = null;
+    let pages = 0;
+    do {
+      const query: string = `account=${wallet}&limit=2${before == null ? '' : `&before=${encodeURIComponent(before)}`}`;
+      const res = await page(me, query);
+      expect(res.status).toBe(200);
+      expect(res.data.transactions.length).toBeLessThanOrEqual(2);
+      seen.push(...res.data.transactions.map((t: { id: string }) => t.id));
+      before = res.data.nextBefore;
+      pages++;
+    } while (before != null);
+    expect(pages).toBe(4);
+    expect(seen).toEqual([newer, ...[...sameDay].reverse(), older]);
+    // Fifty to a page unless asked
+    expect((await page(me, `account=${wallet}`)).data).toMatchObject({ nextBefore: null });
+  });
+
+  it('lists a month across every account, and only the person’s own', async () => {
+    const { me, wallet } = await withWallet();
+    const bank = rowId();
+    const [october, alsoOctober, november] = [rowId(), rowId(), rowId()];
+    await send(me, [
+      addAccount(bank, 'bank', 0, 'Bank'),
+      add(october, wallet, 1, { date: '2025-10-01' }),
+      add(alsoOctober, bank, 2, { date: '2025-10-31' }),
+      add(november, wallet, 3, { date: '2025-11-01' }),
+    ]);
+    const other = person('other');
+    const theirs = rowId();
+    await send(other, [addAccount(theirs), add(rowId(), theirs, 4, { date: '2025-10-15' })]);
+    const res = await page(me, 'month=2025-10');
+    expect(res.status).toBe(200);
+    expect(res.data.transactions.map((t: { id: string }) => t.id)).toEqual([alsoOctober, october]);
+    expect((await page(me, 'month=2025-09')).data.transactions).toEqual([]);
+  });
+
+  it.each([
+    ['nothing to list', ''],
+    ['both an account and a month', `account=${'c'.repeat(16)}&month=2025-10`],
+    ['a month of the wrong shape', 'month=2025-13'],
+    ['a limit of 0', 'month=2025-10&limit=0'],
+    ['a limit over 200', 'month=2025-10&limit=201'],
+    ['a limit that is not a number', 'month=2025-10&limit=lots'],
+    ['a cursor of the wrong shape', 'month=2025-10&before=yesterday'],
+  ])('refuses a list with %s', async (_what, query) => {
+    const res = await page(person('me'), query);
+    expect(res.status).toBe(400);
+    expect(typeof res.data.error).toBe('string');
+  });
+
+  it("answers someone else's account as one that doesn't exist", async () => {
+    const other = person('other');
+    const theirs = rowId();
+    await send(other, [addAccount(theirs), add(rowId(), theirs, 800)]);
+    const res = await page(person('me'), `account=${theirs}`);
+    expect(res).toEqual({ status: 404, data: { error: 'Account not found' } });
+  });
+
+  it('keeps to 100,000 transactions on an account, every kind counted', async () => {
+    const { me, wallet } = await withWallet();
+    const bank = rowId();
+    const moving = rowId();
+    await send(me, [addAccount(bank, 'bank', 0, 'Bank'), add(moving, bank, 1)]);
+    // All but one of them, written straight to the database
+    await api.sql(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 99999)
+       INSERT INTO transactions (email, id, kind, account_id, amount_cents, category_id,
+                                 date, created_at, updated_at)
+       SELECT ?, printf('%016x', i), CASE WHEN i % 2 THEN 'expense' ELSE 'income' END, ?,
+              1, CASE WHEN i % 2 THEN ? ELSE ? END, '2025-01-01', 0, 0
+       FROM n`,
+      me,
+      wallet,
+      food,
+      salary,
+    );
+    const full = {
+      status: 409,
+      data: { error: 'An account can hold up to 100,000 transactions' },
+    };
+    expect(await send(me, [add(rowId(), wallet, 1), add(rowId(), wallet, 1)])).toEqual(full);
+    expect((await send(me, [add(rowId(), wallet, 1)])).status).toBe(200);
+    expect(await send(me, [add(rowId(), wallet, 1)])).toEqual(full);
+    expect(await send(me, [{ op: 'updateTransaction', id: moving, accountId: wallet }])).toEqual(
+      full,
+    );
+    // Room again once one is deleted, and other accounts are never held back
+    const [first] = await listed(me, wallet);
+    expect(
+      (
+        await send(me, [
+          { op: 'removeTransaction', id: first.id },
+          { op: 'updateTransaction', id: moving, accountId: wallet },
+          add(rowId(), bank, 1),
+        ])
+      ).status,
+    ).toBe(200);
+  }, 60_000);
+
+  it('counts a transaction sent again once', async () => {
+    const { me, wallet } = await withWallet();
+    const [coffee, changeId] = [rowId(), rowId()];
+    await send(me, [add(coffee, wallet, 800)], [changeId]);
+    // Its answer lost, the app sends it again, with an edit after it
+    const again = await send(
+      me,
+      [add(coffee, wallet, 800), { op: 'updateTransaction', id: coffee, amountCents: 900 }],
+      [changeId, rowId()],
+    );
+    expect(again).toEqual({ status: 200, data: { ok: true } });
+    expect(await listed(me, wallet)).toEqual([expect.objectContaining({ amountCents: 900 })]);
+    expect((await balances(me))[wallet]).toBe(9_100);
+  });
+
+  it('saves a batch of accounts, categories and transactions all or nothing', async () => {
+    const me = person('me');
+    const [wallet, coffee] = [rowId(), rowId()];
+    const res = await send(me, [
+      addAccount(wallet),
+      {
+        op: 'addCategory',
+        category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
+      },
+      add(rowId(), wallet, 800, { categoryId: coffee }),
+      add(rowId(), wallet, 0),
+    ]);
+    expect(res.status).toBe(400);
+    expect((await api.call(me, 'GET', '/api/accounts')).data).toEqual({
+      accounts: [],
+      categories: [],
+    });
+
+    // In order, a transaction can follow the account and subcategory added before it
+    const ok = await send(me, [
+      addAccount(wallet),
+      {
+        op: 'addCategory',
+        category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
+      },
+      add(rowId(), wallet, 800, { categoryId: coffee }),
+    ]);
+    expect(ok.status).toBe(200);
+    expect(await listed(me, wallet)).toEqual([expect.objectContaining({ categoryId: coffee })]);
+  });
+});

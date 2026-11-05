@@ -9,6 +9,7 @@ import { IconContext } from '@phosphor-icons/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import App from './App';
+import classes from './Root.module.css';
 import './index.css';
 import { ProfileProvider, readAppearance } from './profile/ProfileContext';
 import { syncStatusBar } from './pwa/launch-screen';
@@ -44,7 +45,7 @@ export function Root() {
       <IconContext.Provider value={{ size: 20, weight: 'regular' }}>
         <QueryClientProvider client={queryClient}>
           <ProfileProvider onAccentChange={setAccent}>
-            <Notifications />
+            <Notifications classNames={{ root: classes.notifications }} />
             <App />
           </ProfileProvider>
         </QueryClientProvider>

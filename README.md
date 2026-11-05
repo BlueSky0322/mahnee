@@ -2,8 +2,8 @@
 
 Personal finance tracking for one person: accounts, the money moving in and out of them,
 and where it goes. So far it signs you in, lists your accounts (cash, bank, cards
-and e-wallets) with their balances, and keeps your spending and income categories;
-transactions come next. It installs as an app on
+and e-wallets) with their balances, keeps your spending and income categories, and
+logs what you spend and receive from a quick entry sheet. It installs as an app on
 phones and computers, opens offline, and keeps changes made offline on the device until
 they're saved.
 
@@ -25,17 +25,17 @@ browser types, the Worker gets Worker types and `shared/` gets neither.
 
 Inside `web/src`, what the app knows is kept apart from how it looks:
 
-| Folder                 | What it holds                                                               |
-| ---------------------- | --------------------------------------------------------------------------- |
-| `profile/`, `offline/` | Shared state: the signed-in profile, and what's kept on the device          |
-| `ledger/`              | Shared state: accounts and categories, and saving changes to them in order  |
-| `components/<screen>/` | What a screen draws, reading from the folders above                         |
-| `components/common/`   | What more than one screen draws that knows the app (theme switch, Undo)     |
-| `components/shell/`    | What sits around every page: the offline and new-version notices            |
-| `components/ui/`       | Plain building blocks that know nothing of finances or accounts (dialogs)   |
-| `hooks/`, `utils/`     | What every feature leans on: screen sizes, the page address, money, dates   |
-| `pwa/`                 | Installing the app, its launch screen, and the on-screen keyboard           |
-| `testing/`             | Rendering the whole app in tests, against an in-memory stand-in for the API |
+| Folder                 | What it holds                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------- |
+| `profile/`, `offline/` | Shared state: the signed-in profile, and what's kept on the device            |
+| `ledger/`              | Shared state: accounts, categories and transactions, and saving them in order |
+| `components/<screen>/` | What a screen draws, reading from the folders above                           |
+| `components/common/`   | What more than one screen draws that knows the app (theme switch, Undo)       |
+| `components/shell/`    | What sits around every page: the offline and new-version notices              |
+| `components/ui/`       | Plain building blocks that know nothing of finances or accounts (dialogs)     |
+| `hooks/`, `utils/`     | What every feature leans on: screen sizes, the page address, money, dates     |
+| `pwa/`                 | Installing the app, its launch screen, and the on-screen keyboard             |
+| `testing/`             | Rendering the whole app in tests, against an in-memory stand-in for the API   |
 
 The Worker is laid out by feature:
 

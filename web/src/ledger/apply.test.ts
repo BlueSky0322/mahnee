@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import type { Account, Category, LedgerChange } from '@shared/api';
-import { apply as applyToLedger } from './apply';
+import type { Account, Category, LedgerChange, Transaction, TransactionPage } from '@shared/api';
+import { apply as applyToLedger, applyToPages } from './apply';
 
 /** The accounts once `changes` are made to them (with no categories beside them) */
 const apply = (accounts: Account[], changes: LedgerChange[]) =>
@@ -236,5 +236,157 @@ describe('apply to categories', () => {
     expect(after.accounts[0].name).toBe('Purse');
     expect(after.categories[0].name).toBe('Meals');
     expect(ledger.categories[0].name).toBe('Category food');
+  });
+});
+
+const spent = (id: string, changes: Partial<Transaction> = {}): Transaction => ({
+  id,
+  kind: 'expense',
+  accountId: 'a',
+  amountCents: 800,
+  categoryId: 'food',
+  payee: null,
+  note: null,
+  date: '2026-11-05',
+  createdAt: 1_000,
+  ...changes,
+});
+
+const { createdAt: _, ...coffee } = spent('t1');
+const addCoffee: LedgerChange = { op: 'addTransaction', transaction: coffee };
+
+/** The balances once `changes` are made, transactions known as `known` holds them */
+const balancesAfter = (accounts: Account[], changes: LedgerChange[], known: Transaction[] = []) =>
+  Object.fromEntries(
+    applyToLedger({ accounts, categories: [] }, changes, (id) =>
+      known.find((t) => t.id === id),
+    ).accounts.map((a) => [a.id, a.balanceCents]),
+  );
+
+describe('apply transactions to balances', () => {
+  const wallet = account('a', { kind: 'cash', balanceCents: 10_000 });
+  const card = account('c', { kind: 'card', balanceCents: -12_000 });
+
+  test('spending takes from the account, and on a card adds to what is owed', () => {
+    expect(
+      balancesAfter(
+        [wallet, card],
+        [addCoffee, { op: 'addTransaction', transaction: { ...coffee, id: 't2', accountId: 'c' } }],
+      ),
+    ).toEqual({ a: 9_200, c: -12_800 });
+  });
+
+  test('income adds to the account', () => {
+    const pay = { ...coffee, kind: 'income' as const, amountCents: 5_000 };
+    expect(balancesAfter([wallet], [{ op: 'addTransaction', transaction: pay }])).toEqual({
+      a: 15_000,
+    });
+  });
+
+  test('an edit moves the balances by what changed, a later edit after it too', () => {
+    const before = spent('t1');
+    expect(
+      balancesAfter(
+        [wallet, card],
+        [
+          { op: 'updateTransaction', id: 't1', amountCents: 1_000 },
+          { op: 'updateTransaction', id: 't1', accountId: 'c', kind: 'income', categoryId: 's' },
+        ],
+        [before],
+      ),
+      // The 8.00 spent from the wallet is taken back; 10.00 came into the card
+    ).toEqual({ a: 10_800, c: -11_000 });
+  });
+
+  test('a deletion takes it back, and Undo adds it again', () => {
+    const known = [spent('t1')];
+    expect(balancesAfter([wallet], [{ op: 'removeTransaction', id: 't1' }], known)).toEqual({
+      a: 10_800,
+    });
+    expect(
+      balancesAfter([wallet], [{ op: 'removeTransaction', id: 't1' }, addCoffee], known),
+    ).toEqual({ a: 10_000 });
+  });
+
+  test('a transaction not known moves no balance, and one already there is not added twice', () => {
+    expect(balancesAfter([wallet], [{ op: 'removeTransaction', id: 't9' }])).toEqual({
+      a: 10_000,
+    });
+    // A fresh copy from the server that has it already counts it
+    expect(balancesAfter([wallet], [addCoffee], [spent('t1')])).toEqual({ a: 10_000 });
+  });
+});
+
+describe('apply transactions to pages of a list', () => {
+  const inWallet = (t: Transaction) => t.accountId === 'a';
+  const ids = (pages: TransactionPage[]) => pages.map((p) => p.transactions.map((t) => t.id));
+  // Two pages loaded, newest first, with more after them
+  const pages: TransactionPage[] = [
+    {
+      transactions: [spent('t5', { date: '2026-11-05' }), spent('t4', { date: '2026-11-03' })],
+      nextBefore: 'p1',
+    },
+    {
+      transactions: [spent('t3', { date: '2026-11-02' }), spent('t2', { date: '2026-10-30' })],
+      nextBefore: 'p2',
+    },
+  ];
+  const add = (id: string, date: string): LedgerChange => ({
+    op: 'addTransaction',
+    transaction: { ...coffee, id, date },
+  });
+
+  test('puts a new one on the page whose days it falls in, and leaves one past them for later', () => {
+    const after = applyToPages(
+      pages,
+      [add('n1', '2026-11-06'), add('n2', '2026-11-02'), add('n3', '2026-10-01')],
+      inWallet,
+    );
+    expect(ids(after)).toEqual([
+      ['n1', 't5', 't4'],
+      ['n2', 't3', 't2'],
+    ]);
+  });
+
+  test('keeps one on another account out, and moves one out when its account changes', () => {
+    const after = applyToPages(
+      pages,
+      [
+        { op: 'addTransaction', transaction: { ...coffee, id: 'n1', accountId: 'b' } },
+        { op: 'updateTransaction', id: 't4', accountId: 'b' },
+      ],
+      inWallet,
+    );
+    expect(ids(after)).toEqual([['t5'], ['t3', 't2']]);
+  });
+
+  test('re-sorts an edited day, deletes, and brings in one moved here that it can look up', () => {
+    const elsewhere = spent('x1', { accountId: 'b', date: '2026-11-04' });
+    const after = applyToPages(
+      pages,
+      [
+        { op: 'updateTransaction', id: 't2', date: '2026-11-04' },
+        { op: 'removeTransaction', id: 't5' },
+        { op: 'updateTransaction', id: 'x1', accountId: 'a' },
+      ],
+      inWallet,
+      (id) => (id === 'x1' ? elsewhere : undefined),
+    );
+    expect(after[0].transactions.map((t) => [t.id, t.date])).toEqual([
+      ['x1', '2026-11-04'],
+      ['t2', '2026-11-04'],
+      ['t4', '2026-11-03'],
+    ]);
+    expect(ids(after)[1]).toEqual(['t3']);
+  });
+
+  test('comes out the same applied to pages that already have the changes', () => {
+    const changes: LedgerChange[] = [
+      add('n1', '2026-11-06'),
+      { op: 'updateTransaction', id: 't4', amountCents: 1_200 },
+      { op: 'removeTransaction', id: 't3' },
+    ];
+    const once = applyToPages(pages, changes, inWallet);
+    expect(applyToPages(once, changes, inWallet)).toEqual(once);
   });
 });

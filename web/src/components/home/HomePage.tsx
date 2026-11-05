@@ -1,19 +1,26 @@
 import { Button } from '@mantine/core';
 import { CaretRight, SignOut, Tag } from '@phosphor-icons/react';
+import { useState } from 'react';
 import AccountList from '../accounts/AccountList';
+import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
+import Fab from '../ui/Fab';
 import { InstallCard } from '../common/InstallApp';
 import ThemeToggle from '../common/ThemeToggle';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import { navigate } from '../../hooks/useRoute';
+import { useAccounts } from '../../ledger/useLedger';
 import { nameFor, useProfile } from '../../profile/ProfileContext';
 import classes from './HomePage.module.css';
 import { useConfirmSignOut } from './useConfirmSignOut';
 
 // The first screen: the person's accounts, the way to their categories, then who's
-// signed in and the way out
+// signed in and the way out. Add, floating over it, opens the entry sheet once there's
+// an account to put a transaction on.
 const HomePage = () => {
   const { profile } = useProfile();
   const { askToSignOut, dialog } = useConfirmSignOut();
+  const { accounts } = useAccounts();
+  const [entry, setEntry] = useState<OpenEntry | null>(null);
   return (
     <div className={classes.page}>
       <header className={classes.header}>
@@ -72,6 +79,16 @@ const HomePage = () => {
         </Button>
         {dialog}
       </section>
+      {accounts?.some((a) => !a.archived) && (
+        <Fab
+          label="Add"
+          onClick={() => setEntry({ transaction: null })}
+        />
+      )}
+      <EntrySheet
+        open={entry}
+        onClose={() => setEntry(null)}
+      />
     </div>
   );
 };

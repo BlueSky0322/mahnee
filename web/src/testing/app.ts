@@ -7,7 +7,14 @@ import { cleanup, configure, render } from '@testing-library/react';
 import { onlineManager } from '@tanstack/react-query';
 import { createElement } from 'react';
 import { afterEach, beforeEach, onTestFinished, vi } from 'vitest';
-import type { Account, Category, ChangesBody, LedgerChange, Profile } from '@shared/api';
+import type {
+  Account,
+  Category,
+  ChangesBody,
+  LedgerChange,
+  Profile,
+  Transaction,
+} from '@shared/api';
 import { DEFAULT_SETTINGS, EXPECTED_ACCOUNT_HEADER, MAX_CHANGES, isRowId } from '@shared/api';
 import {
   MAX_CATEGORIES,
@@ -24,10 +31,19 @@ import {
   DEFAULT_CURRENCY,
   MAX_ACCOUNTS,
   MAX_ACCOUNT_NAME,
+  MAX_NOTE,
+  MAX_PAYEE,
   MAX_TRANSACTION,
+  MAX_TRANSACTIONS_PER_ACCOUNT,
   fitsOpeningCents,
+  fitsTransactionCents,
   isAccountKind,
+  isDay,
+  isTransactionKind,
   readAccountName,
+  readOptionalText,
+  whyNotInCategory,
+  whyNotOnAccount,
 } from '@shared/ledger';
 import { rateDay } from '@shared/rates';
 import { Root } from '../Root';
@@ -89,9 +105,12 @@ export interface FakeServer {
   rates: Map<string, number>;
   /**
    * The person's accounts as the server keeps them, in the order they were added; a
-   * balance is the opening balance, as on the real server until there are transactions
+   * balance is worked out from the opening balance and the transactions, as the real
+   * server does
    */
   accounts: Omit<Account, 'balanceCents'>[];
+  /** The person's transactions as the server keeps them */
+  transactions: Transaction[];
   /**
    * The person's categories as the server keeps them: none until their first change,
    * which saves the defaults (shared/categories.ts) with it
@@ -229,11 +248,15 @@ function answerNow(server: FakeServer) {
     if (path === '/api/accounts' && method === 'GET') {
       const accounts = [...server.accounts]
         .sort((a, b) => a.position - b.position)
-        .map((a) => ({ ...a, balanceCents: a.openingCents }));
+        .map((a) => ({ ...a, balanceCents: balanceOf(server, a) }));
       const categories = [...server.categories].sort(
         (a, b) => a.position - b.position || (a.id < b.id ? -1 : 1),
       );
       return json({ accounts, categories });
+    }
+    if (path === '/api/transactions' && method === 'GET') {
+      const page = listTransactions(server, url.searchParams);
+      return Array.isArray(page) ? json({ error: page[1] }, page[0]) : json(page);
     }
     if (path === '/api/changes' && method === 'POST') {
       const failure = failing('changes');
@@ -256,6 +279,62 @@ function answerNow(server: FakeServer) {
     }
     return json({ error: `No stand-in for ${method} ${path}` }, 404);
   };
+}
+
+/** An account's balance as the real server works it out: opening, plus income, less spending */
+const balanceOf = (server: FakeServer, account: Pick<Account, 'id' | 'openingCents'>) =>
+  server.transactions
+    .filter((t) => t.accountId === account.id)
+    .reduce(
+      (sum, t) =>
+        sum + (t.kind === 'income' ? t.amountCents : t.kind === 'expense' ? -t.amountCents : 0),
+      account.openingCents,
+    );
+
+/** Newest first, as the real server lists them: by day, time saved, then id */
+const newestFirst = (a: Transaction, b: Transaction) =>
+  b.date.localeCompare(a.date) || b.createdAt - a.createdAt || b.id.localeCompare(a.id);
+
+const cursorOf = (t: Transaction) => `${t.date}_${t.createdAt}_${t.id}`;
+
+/**
+ * GET /api/transactions as the real one (worker/ledger/read.ts) answers: an account's or
+ * a month's, newest first, 50 to a page unless asked (at most 200), carrying on after a
+ * cursor; someone else's account is answered as one that doesn't exist
+ */
+function listTransactions(
+  server: FakeServer,
+  params: URLSearchParams,
+): { transactions: Transaction[]; nextBefore: string | null } | [number, string] {
+  const account = params.get('account');
+  const month = params.get('month');
+  if ((account == null) === (month == null)) return [400, 'Ask for an account or a month'];
+  const limit = Number(params.get('limit') ?? 50);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) return [400, 'Ask for 1-200'];
+  if (account != null && !server.accounts.some((a) => a.id === account)) {
+    return [404, 'Account not found'];
+  }
+  if (month != null && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return [400, 'Give a month'];
+  const before = params.get('before');
+  if (before != null && !/^\d{4}-\d{2}-\d{2}_\d+_[0-9a-f]{16}$/.test(before)) {
+    return [400, 'Unknown place to carry on from'];
+  }
+  const all = server.transactions
+    .filter((t) => (account != null ? t.accountId === account : t.date.startsWith(`${month}-`)))
+    .sort(newestFirst);
+  const after = before == null ? all : all.filter((t) => isOlderThan(t, before));
+  const transactions = after.slice(0, limit);
+  return {
+    transactions: transactions.map((t) => ({ ...t })),
+    nextBefore: after.length > limit ? cursorOf(transactions[transactions.length - 1]) : null,
+  };
+}
+
+/** Whether `t` comes after the transaction a cursor names, newest first */
+function isOlderThan(t: Transaction, cursor: string) {
+  const [date, createdAt, id] = cursor.split('_');
+  const named = { date, createdAt: Number(createdAt), id } as Transaction;
+  return newestFirst(named, t) < 0;
 }
 
 /**
@@ -284,6 +363,7 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
   // categories saved has the defaults saved with their first change
   const accounts = server.accounts.map((a) => ({ ...a }));
   const categories = categoriesOrDefaults(server.categories);
+  const transactions = server.transactions.map((t) => ({ ...t }));
   const nameError = `Give the account a name of up to ${MAX_ACCOUNT_NAME} characters`;
   const openingError = `An opening balance can be up to ${MAX_TRANSACTION.toLocaleString('en')} either way`;
   for (const [i, change] of changes.entries()) {
@@ -294,6 +374,15 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
       change.op === 'archiveCategory'
     ) {
       const refusal = saveCategoryChange(categories, change);
+      if (refusal != null) return refusal;
+      continue;
+    }
+    if (
+      change.op === 'addTransaction' ||
+      change.op === 'updateTransaction' ||
+      change.op === 'removeTransaction'
+    ) {
+      const refusal = saveTransactionChange(accounts, categories, transactions, change);
       if (refusal != null) return refusal;
       continue;
     }
@@ -344,6 +433,7 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
   if (ids.some((id) => !server.receipts.has(id))) {
     server.accounts = accounts;
     server.categories = categories;
+    server.transactions = transactions;
   }
   ids.forEach((id, i) => server.receipts.set(id, prints[i]));
   return null;
@@ -411,6 +501,71 @@ function saveCategoryChange(
   return null;
 }
 
+/**
+ * One transaction change, made to `transactions` as the real server checks and saves it,
+ * or the refusal's status and explanation
+ */
+function saveTransactionChange(
+  accounts: Omit<Account, 'balanceCents'>[],
+  categories: Category[],
+  transactions: Transaction[],
+  change: Extract<
+    LedgerChange,
+    { op: 'addTransaction' | 'updateTransaction' | 'removeTransaction' }
+  >,
+): [number, string] | null {
+  const at = transactions.findIndex(
+    (t) => t.id === (change.op === 'addTransaction' ? change.transaction.id : change.id),
+  );
+  if (change.op === 'removeTransaction') {
+    if (at < 0) return [404, 'Transaction not found'];
+    transactions.splice(at, 1);
+    return null;
+  }
+  if (change.op === 'addTransaction' && at >= 0) return [409, 'That transaction already exists'];
+  if (change.op === 'updateTransaction' && at < 0) return [404, 'Transaction not found'];
+  const { op: _op, ...given } =
+    change.op === 'addTransaction' ? { op: '', ...change.transaction } : change;
+  if (Object.keys(given).length === 1) return [400, 'Nothing to change'];
+  const before = at >= 0 ? transactions[at] : null;
+  const next = { ...before, ...given, createdAt: before?.createdAt ?? Date.now() } as Transaction;
+  if (!isRowId(next.id)) return [400, 'Invalid transaction id'];
+  if (!isTransactionKind(next.kind)) return [400, 'Unknown kind of transaction'];
+  if (next.kind === 'transfer') return [400, "Transfers can't be saved yet"];
+  if (before == null || 'accountId' in given) {
+    const account = accounts.find((a) => a.id === next.accountId);
+    if (account == null) return [404, 'Account not found'];
+    const reason = whyNotOnAccount(account);
+    if (reason != null) return [409, reason];
+    const held = transactions.filter((t) => t.accountId === account.id && t.id !== next.id);
+    if (held.length >= MAX_TRANSACTIONS_PER_ACCOUNT) {
+      return [
+        409,
+        `An account can hold up to ${MAX_TRANSACTIONS_PER_ACCOUNT.toLocaleString('en')} transactions`,
+      ];
+    }
+  }
+  if (before == null || 'kind' in given || 'categoryId' in given) {
+    if (next.categoryId == null) return [400, 'Pick a category'];
+    const category = categories.find((c) => c.id === next.categoryId);
+    if (category == null) return [404, 'Category not found'];
+    const reason = whyNotInCategory(category, next.kind);
+    if (reason != null) return [409, reason];
+  }
+  if (!fitsTransactionCents(next.amountCents)) {
+    return [400, `An amount is more than 0 and up to ${MAX_TRANSACTION.toLocaleString('en')}`];
+  }
+  if (!isDay(next.date)) return [400, 'Give a day from 2000 up to today'];
+  const payee = readOptionalText(next.payee, MAX_PAYEE);
+  if (payee === undefined) return [400, `A payee can be up to ${MAX_PAYEE} characters`];
+  const note = readOptionalText(next.note, MAX_NOTE);
+  if (note === undefined) return [400, `A note can be up to ${MAX_NOTE} characters`];
+  const saved = { ...next, payee, note };
+  if (before == null) transactions.push(saved);
+  else transactions[at] = saved;
+  return null;
+}
+
 /** A fresh server with the signed-in account */
 export function fakeServer(): FakeServer {
   return {
@@ -418,6 +573,7 @@ export function fakeServer(): FakeServer {
     me: { email: EMAIL, displayName: 'Ryan', settings: { ...DEFAULT_SETTINGS } },
     rates: new Map(),
     accounts: [],
+    transactions: [],
     categories: [],
     receipts: new Map(),
     failNext: {},

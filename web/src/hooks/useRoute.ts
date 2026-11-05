@@ -3,10 +3,12 @@ import { LAST_PAGE_KEY } from '../offline/cache';
 import { quietly } from '../utils/quietly';
 
 /** The page that's open; each page the app gains adds its own view here */
-export type Route = { view: 'home' };
+export type Route = { view: 'home' } | { view: 'categories' };
 
-// Every address is the home page until there are other pages
+// Any address that names no other page is the home page
 function readRoute(): Route {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('categories')) return { view: 'categories' };
   return { view: 'home' };
 }
 

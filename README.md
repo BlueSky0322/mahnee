@@ -1,8 +1,9 @@
 # Mahnee
 
 Personal finance tracking for one person: accounts, the money moving in and out of them,
-and where it goes. So far it signs you in and lists your accounts (cash, bank, cards
-and e-wallets) with their balances; transactions come next. It installs as an app on
+and where it goes. So far it signs you in, lists your accounts (cash, bank, cards
+and e-wallets) with their balances, and keeps your spending and income categories;
+transactions come next. It installs as an app on
 phones and computers, opens offline, and keeps changes made offline on the device until
 they're saved.
 
@@ -27,7 +28,7 @@ Inside `web/src`, what the app knows is kept apart from how it looks:
 | Folder                 | What it holds                                                               |
 | ---------------------- | --------------------------------------------------------------------------- |
 | `profile/`, `offline/` | Shared state: the signed-in profile, and what's kept on the device          |
-| `ledger/`              | Shared state: the accounts, and saving changes to them in order             |
+| `ledger/`              | Shared state: accounts and categories, and saving changes to them in order  |
 | `components/<screen>/` | What a screen draws, reading from the folders above                         |
 | `components/common/`   | What more than one screen draws that knows the app (theme switch, Undo)     |
 | `components/shell/`    | What sits around every page: the offline and new-version notices            |
@@ -43,7 +44,7 @@ The Worker is laid out by feature:
 | `index.ts`, `app.ts`, `http.ts`, `routes/` | The entry point, what every route shares, reading requests, and the routes |
 | `accounts/`                                | Signing in, the profile and settings                                       |
 | `currency/`                                | Exchange rates                                                             |
-| `ledger/`                                  | Money accounts and balances, and saving the app's changes all or nothing   |
+| `ledger/`                                  | Accounts, balances and categories, and saving changes all or nothing       |
 | `test/`                                    | The API tests, run against a real local Worker and database                |
 
 ## Running it

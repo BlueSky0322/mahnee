@@ -48,3 +48,42 @@
   color: var(--sf-text-muted);
   font-size: 14px;
 }
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 8px 16px;
+  border-radius: 16px;
+  background: var(--sf-surface);
+  box-shadow: var(--sf-shadow-sm);
+  color: inherit;
+  text-decoration: none;
+}
+
+.link:hover {
+  background: color-mix(in srgb, var(--sf-surface), var(--sf-text) 4%);
+}
+
+.linkIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--sf-tag);
+  color: var(--sf-text-secondary);
+}
+
+.linkText {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.linkCaret {
+  color: var(--sf-text-muted);
+}

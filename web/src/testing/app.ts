@@ -7,8 +7,19 @@ import { cleanup, configure, render } from '@testing-library/react';
 import { onlineManager } from '@tanstack/react-query';
 import { createElement } from 'react';
 import { afterEach, beforeEach, onTestFinished, vi } from 'vitest';
-import type { Account, ChangesBody, Profile } from '@shared/api';
+import type { Account, Category, ChangesBody, LedgerChange, Profile } from '@shared/api';
 import { DEFAULT_SETTINGS, EXPECTED_ACCOUNT_HEADER, MAX_CHANGES, isRowId } from '@shared/api';
+import {
+  MAX_CATEGORIES,
+  MAX_CATEGORY_NAME,
+  categoriesOrDefaults,
+  isCategoryKind,
+  nextPosition,
+  readCategoryName,
+  reorder,
+  siblingsOf,
+  whyNotUnder,
+} from '@shared/categories';
 import {
   DEFAULT_CURRENCY,
   MAX_ACCOUNTS,
@@ -81,6 +92,11 @@ export interface FakeServer {
    * balance is the opening balance, as on the real server until there are transactions
    */
   accounts: Omit<Account, 'balanceCents'>[];
+  /**
+   * The person's categories as the server keeps them: none until their first change,
+   * which saves the defaults (shared/categories.ts) with it
+   */
+  categories: Category[];
   /** Saved change ids and the change each was, as the real server keeps receipts */
   receipts: Map<string, string>;
   /**
@@ -214,7 +230,10 @@ function answerNow(server: FakeServer) {
       const accounts = [...server.accounts]
         .sort((a, b) => a.position - b.position)
         .map((a) => ({ ...a, balanceCents: a.openingCents }));
-      return json({ accounts });
+      const categories = [...server.categories].sort(
+        (a, b) => a.position - b.position || (a.id < b.id ? -1 : 1),
+      );
+      return json({ accounts, categories });
     }
     if (path === '/api/changes' && method === 'POST') {
       const failure = failing('changes');
@@ -261,12 +280,23 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
   if (ids.some((id, i) => server.receipts.has(id) && server.receipts.get(id) !== prints[i])) {
     return [409, 'That change was saved differently before'];
   }
-  // Worked out on a copy, kept only if every change can be saved
+  // Worked out on a copy, kept only if every change can be saved; a person with no
+  // categories saved has the defaults saved with their first change
   const accounts = server.accounts.map((a) => ({ ...a }));
+  const categories = categoriesOrDefaults(server.categories);
   const nameError = `Give the account a name of up to ${MAX_ACCOUNT_NAME} characters`;
   const openingError = `An opening balance can be up to ${MAX_TRANSACTION.toLocaleString('en')} either way`;
   for (const [i, change] of changes.entries()) {
     if (server.receipts.has(ids[i])) continue;
+    if (
+      change.op === 'addCategory' ||
+      change.op === 'updateCategory' ||
+      change.op === 'archiveCategory'
+    ) {
+      const refusal = saveCategoryChange(categories, change);
+      if (refusal != null) return refusal;
+      continue;
+    }
     if (change.op === 'addAccount') {
       const { id, name, kind, openingCents } = change.account;
       if (!isRowId(id)) return [400, 'Invalid account id'];
@@ -311,8 +341,73 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
       account.openingCents = change.openingCents;
     }
   }
-  server.accounts = accounts;
+  if (ids.some((id) => !server.receipts.has(id))) {
+    server.accounts = accounts;
+    server.categories = categories;
+  }
   ids.forEach((id, i) => server.receipts.set(id, prints[i]));
+  return null;
+}
+
+/**
+ * One category change, made to `categories` as the real server checks and saves it, or
+ * the refusal's status and explanation
+ */
+function saveCategoryChange(
+  categories: Category[],
+  change: Extract<LedgerChange, { op: 'addCategory' | 'updateCategory' | 'archiveCategory' }>,
+): [number, string] | null {
+  const nameError = `Give the category a name of up to ${MAX_CATEGORY_NAME} characters`;
+  const find = (id: unknown) => categories.find((c) => c.id === id);
+  if (change.op === 'addCategory') {
+    const { id, name, kind, parentId } = change.category;
+    if (!isRowId(id)) return [400, 'Invalid category id'];
+    if (find(id) != null) return [409, 'That category already exists'];
+    const checked = readCategoryName(name);
+    if (checked == null) return [400, nameError];
+    if (!isCategoryKind(kind)) return [400, 'Unknown kind of category'];
+    if (parentId != null && find(parentId) == null) return [404, 'Category not found'];
+    const reason = whyNotUnder(categories, { id, kind }, parentId);
+    if (reason != null) return [409, reason];
+    if (categories.length >= MAX_CATEGORIES) {
+      return [409, `You can have up to ${MAX_CATEGORIES} categories, archived ones included`];
+    }
+    const position = nextPosition(siblingsOf(categories, kind, parentId));
+    categories.push({ id, name: checked, kind, parentId, position, archived: false });
+    return null;
+  }
+  const category = find(change.id);
+  if (category == null) return [404, 'Category not found'];
+  if (change.op === 'archiveCategory') {
+    if (typeof change.archived !== 'boolean') return [400, 'Say whether it is archived'];
+    category.archived = change.archived;
+    return null;
+  }
+  if (change.name === undefined && change.parentId === undefined && change.position == null) {
+    return [400, 'Nothing to change'];
+  }
+  if (change.name !== undefined) {
+    const checked = readCategoryName(change.name);
+    if (checked == null) return [400, nameError];
+    category.name = checked;
+  }
+  if (change.parentId !== undefined && change.parentId !== category.parentId) {
+    if (change.parentId != null && find(change.parentId) == null) {
+      return [404, 'Category not found'];
+    }
+    const reason = whyNotUnder(categories, category, change.parentId);
+    if (reason != null) return [409, reason];
+    category.position = nextPosition(siblingsOf(categories, category.kind, change.parentId));
+    category.parentId = change.parentId;
+  }
+  if (change.position != null) {
+    if (!Number.isSafeInteger(change.position) || change.position < 0) {
+      return [400, 'Give a place from 0'];
+    }
+    const siblings = siblingsOf(categories, category.kind, category.parentId);
+    const order = reorder(siblings, category.id, change.position);
+    for (const sibling of siblings) sibling.position = order.indexOf(sibling.id);
+  }
   return null;
 }
 
@@ -323,6 +418,7 @@ export function fakeServer(): FakeServer {
     me: { email: EMAIL, displayName: 'Ryan', settings: { ...DEFAULT_SETTINGS } },
     rates: new Map(),
     accounts: [],
+    categories: [],
     receipts: new Map(),
     failNext: {},
     loseNext: {},

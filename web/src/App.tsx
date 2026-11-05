@@ -1,6 +1,7 @@
 import { Button } from '@mantine/core';
 import { CloudSlash, SignIn } from '@phosphor-icons/react';
 import { useEffect } from 'react';
+import CategoriesPage from './components/categories/CategoriesPage';
 import HomePage from './components/home/HomePage';
 import StateCard from './components/ui/StateCard';
 import AppLayout from './components/shell/AppLayout';
@@ -38,7 +39,12 @@ function App() {
     );
   }
 
-  return <AppLayout>{route.view === 'home' && <HomePage />}</AppLayout>;
+  return (
+    <AppLayout>
+      {route.view === 'home' && <HomePage />}
+      {route.view === 'categories' && <CategoriesPage />}
+    </AppLayout>
+  );
 }
 
 export default App;

@@ -13,6 +13,7 @@ in [AGENTS.md](../AGENTS.md).
 | -------------------------------------------------------------- | ---------------------------- | ------------------------------ |
 | [Sign-in, profile and settings](#sign-in-profile-and-settings) | `profile/ProfileContext.tsx` | `accounts/`, `routes/me.ts`    |
 | [Accounts](#accounts)                                          | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Categories](#categories)                                      | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Exchange rates](#exchange-rates)                              | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
 | [Offline start and installing](#offline-start-and-installing)  | `offline/`, `pwa/`           | (none; the API is the same)    |
 | [Pages, layouts and Back](#pages-layouts-and-back)             | `hooks/useRoute.ts`          | (none)                         |
@@ -68,11 +69,12 @@ its opening balance, or archive it (with Undo; archived ones are listed apart an
 brought back). A card's balance is what's owed on it. Its kind is fixed once added.
 Worker folder `accounts/` is sign-in, not these: the ledger is `ledger/`.
 
-**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts) keeps the accounts in the
-query cache (`ACCOUNTS_KEY`), with a device copy (`accounts-v1`) shown while the first
-fresh one loads and offline. `change(...changes)` is the only way the ledger changes: it
-shows the changes at once ([ledger/apply.ts](../web/src/ledger/apply.ts)), then hands
-them to [ledger/save-queue.ts](../web/src/ledger/save-queue.ts), which keeps them in the
+**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts) keeps the ledger (accounts
+and categories, one request) in the query cache (`LEDGER_KEY`), with a device copy
+(`ledger-v1`) shown while the first fresh one loads and offline. `change(...changes)`
+is the only way the ledger changes: it shows the changes at once
+([ledger/apply.ts](../web/src/ledger/apply.ts)), then hands them to
+[ledger/save-queue.ts](../web/src/ledger/save-queue.ts), which keeps them in the
 person's outbox on the device ([offline/outbox.ts](../web/src/offline/outbox.ts)) and
 sends them in order, one request at a time, in batches of at most `MAX_CHANGES` and
 `MAX_CHANGES_BYTES`, each change with its own id (`cid`). Screens read through
@@ -89,16 +91,17 @@ sends them in order, one request at a time, in batches of at most `MAX_CHANGES` 
   and opening balances in; Undo is
   [components/common/undo-toast.tsx](../web/src/components/common/undo-toast.tsx).
 - API: [worker/routes/ledger.ts](../worker/routes/ledger.ts) serves `GET /api/accounts`
-  and `POST /api/changes`; [worker/ledger/read.ts](../worker/ledger/read.ts) lists the
-  accounts with balances, [changes.ts](../worker/ledger/changes.ts) checks and saves a
-  batch, and [receipts.ts](../worker/ledger/receipts.ts) keeps one receipt per change id.
-- Shared: `Account`, `LedgerChange`, `ChangesBody` and the batch limits in
+  (the `Ledger`: accounts and categories) and `POST /api/changes`;
+  [worker/ledger/read.ts](../worker/ledger/read.ts) lists the accounts with balances,
+  [changes.ts](../worker/ledger/changes.ts) checks and saves a batch, and
+  [receipts.ts](../worker/ledger/receipts.ts) keeps one receipt per change id.
+- Shared: `Account`, `Ledger`, `LedgerChange`, `ChangesBody` and the batch limits in
   [shared/api.ts](../shared/api.ts); kinds, limits and the name and opening-balance
   checks in [shared/ledger.ts](../shared/ledger.ts).
 
 **Flow.** A change shows at once, joins the queue and is written to the outbox. Nothing
 is sent while a batch is on its way; what's made meanwhile goes in the next one. Each
-saved batch is crossed off the outbox; once nothing is left to send, the accounts are
+saved batch is crossed off the outbox; once nothing is left to send, the ledger is
 fetched again. A copy fetched (or read from the device) while changes are still to send
 has them applied on top; one that was on its way while a batch was saved is set aside
 for the next. Once it's known whose the ledger is (signed in, or offline the last
@@ -117,8 +120,8 @@ worker's background sync sends the outbox (see Offline start).
 - Every query names the signed-in email; accounts are keyed by email and id, so an id of
   someone else's is answered exactly as a missing one (404) and never collides with one
   of theirs.
-- A batch is checked in order against the person's accounts with the batch's earlier
-  changes, and saved all or nothing in one D1 batch with its receipts.
+- A batch is checked in order against the person's accounts and categories with the
+  batch's earlier changes, and saved all or nothing in one D1 batch with its receipts.
 - A change id saved before with the same change is answered as saved and not applied
   again; with a different change it's refused (409). Receipts last 90 days
   (`RECEIPT_DAYS`).
@@ -146,6 +149,73 @@ cards, renaming, archiving and Undo, refusals put back, a failing server tried a
 answers out of order, at desktop and phone sizes), and the accounts cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (every refusal, another person's
 account, receipts, all or nothing).
+
+## Categories
+
+**What it is.** What spending and income are sorted into, on their own page (`?categories`,
+reached from Home): a Spending list and an Income list, each top-level category with its
+subcategories under it. Add one (at the top level or under another), rename it, put it
+higher or lower with its arrows, move it under another or back to the top level, or
+archive it (with Undo; archived ones are listed apart and can be brought back). Moves
+that aren't allowed can't be picked, and say why. Everyone starts with the defaults:
+Food, Transport, Groceries, Bills, Shopping, Health, Fun and Other for spending, Salary
+and Other income for income. Transactions will name a category once they land.
+
+**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), the same as accounts: every
+change goes through `change()`, so it shows at once, is kept in the outbox, works offline
+and is put back if refused. [ledger/apply.ts](../web/src/ledger/apply.ts) makes category
+changes the way the server does; [ledger/category-tree.ts](../web/src/ledger/category-tree.ts)
+arranges them as listed. Screens read through `useCategories()` in
+[ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
+
+**Parts.**
+
+- UI: [components/categories/CategoriesPage.tsx](../web/src/components/categories/CategoriesPage.tsx)
+  (the two lists, arrows, placeholders and archived ones) and
+  [CategoryForm.tsx](../web/src/components/categories/CategoryForm.tsx) (adding, renaming,
+  moving and archiving, in a `ResponsiveDialog`); the link on
+  [components/home/HomePage.tsx](../web/src/components/home/HomePage.tsx).
+- API: `addCategory`, `updateCategory` (name, parent, place) and `archiveCategory` in
+  [worker/ledger/changes.ts](../worker/ledger/changes.ts); categories are read with the
+  accounts in [worker/ledger/read.ts](../worker/ledger/read.ts).
+- Shared: `Category` and the change shapes in [shared/api.ts](../shared/api.ts); kinds,
+  limits, the defaults (`DEFAULT_CATEGORIES`, fixed ids), what can sit under what
+  (`whyNotUnder`, `whyStaysOnTop`) and how siblings are ordered (`siblingsOf`,
+  `nextPosition`, `reorder`) in [shared/categories.ts](../shared/categories.ts).
+
+**Flow.** Nothing is saved for a person until their first change of any kind (an account
+added, say), which saves the defaults first, in the same D1 batch, with an insert that does
+nothing once they have any. Until then `GET /api/accounts` answers no categories, and the
+app shows the defaults in their place (`categoriesOrDefaults`, which the Worker uses too),
+so a change to a default made before then names a row the same batch saves. Moving one
+puts it last among its new siblings; a place (`position`) puts it there among its
+siblings, counted without it, and numbers them afresh from 0. The arrows step past the
+listed category beside it, whatever archived ones lie between.
+
+**Invariants.**
+
+- One level deep: a subcategory's parent is a top-level, listed (not archived) category of
+  the same kind, and a category with subcategories (archived ones too) stays at the top
+  level. The app and the Worker ask the same rule; the database holds it too, with
+  triggers, so two saves at once can't get round it, and a composite foreign key keeps a
+  parent among the person's own categories.
+- At most `MAX_CATEGORIES` per person and `MAX_SUBCATEGORIES` under one category,
+  archived ones included, checked again as each row is saved (its position is NULL past
+  either, which the table refuses). Names are 1 to `MAX_CATEGORY_NAME` characters once
+  trimmed. A category's kind never changes.
+- Archived, never deleted, so a person with none saved has never saved a change. A
+  subcategory of an archived category is out of the list with it and comes back with it.
+- Someone else's category id is answered exactly as a missing one (404).
+
+**Tests.** [apply.test.ts](../web/src/ledger/apply.test.ts) (adding, moving, placing,
+archiving, applied twice), [category-tree.test.ts](../web/src/ledger/category-tree.test.ts),
+[Categories.test.tsx](../web/src/components/categories/Categories.test.tsx) (opening from
+Home with the defaults, adding a subcategory, renaming, moving, the arrows, moves that
+can't be picked and why, archiving and Undo, bringing back, a refusal put back, offline
+through a reload, at desktop and phone sizes), and the categories cases in
+[worker/test/api.test.ts](../worker/test/api.test.ts) (the defaults with the first
+change, every refusal, limits, someone else's, receipts, all or nothing with accounts,
+and the database's own guard).
 
 ## Exchange rates
 
@@ -270,7 +340,8 @@ and once Access asks to sign in again),
 ## Pages, layouts and Back
 
 **What it is.** Which page shows, the layouts for phones, tablets and computers, and
-what Back does. There is one page so far, the home page, with the accounts on it.
+what Back does. There are two pages so far: the home page, with the accounts on it,
+and the categories page (`?categories`), which goes back up to Home.
 
 **Owner.**
 

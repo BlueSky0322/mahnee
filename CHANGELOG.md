@@ -42,6 +42,13 @@ Release heading format:
 
 <!-- New features or capabilities. -->
 
+- Home: a month card at the top shows what's left this month (received less spent) as
+  the largest number, marked "Over" when more was spent than came in, with Spent and
+  Received beneath and spending by category, largest first with a bar each; tap a
+  category to see its subcategories and what was filed under it directly, and Received
+  for income by category. Step back to earlier months with the arrows (the month is in
+  the address, so Back returns). Transfers never count as spending. Changes show in the
+  totals at once, offline too. Adds `GET /api/summary?month=`, summed on the server.
 - Transactions: move money between your own accounts with Transfer in the entry sheet
   (From and To, no category; To offers the account you moved to last): top up an
   e-wallet from the bank, or pay off a card, which lowers what's owed. Both balances

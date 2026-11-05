@@ -1433,6 +1433,82 @@ describe('transactions', () => {
     expect(typeof res.data.error).toBe('string');
   });
 
+  describe("a month's totals", () => {
+    const summary = (who: string, month: string) =>
+      api.call(who, 'GET', `/api/summary?month=${month}`);
+
+    it('sums spending and income by category; transfers, other months and other people never count', async () => {
+      const { me, wallet } = await withWallet();
+      const [bank, coffee] = [rowId(), rowId()];
+      await send(me, [
+        addAccount(bank, 'bank', 0, 'Bank'),
+        {
+          op: 'addCategory',
+          category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
+        },
+        add(rowId(), wallet, 800, { date: '2025-10-01' }),
+        add(rowId(), bank, 300, { date: '2025-10-31', categoryId: coffee }),
+        add(rowId(), wallet, 200, { date: '2025-10-20', categoryId: coffee }),
+        add(rowId(), wallet, 120, { date: '2025-10-15', categoryId: transport }),
+        add(rowId(), bank, 5_000, { kind: 'income', categoryId: salary, date: '2025-10-25' }),
+        // Either side of the month
+        add(rowId(), wallet, 7_000, { date: '2025-09-30' }),
+        add(rowId(), wallet, 9_000, { date: '2025-11-01' }),
+      ]);
+      // A transfer between the person's own accounts, written straight to the database so
+      // this holds whether or not the Worker saves transfers yet
+      await api.sql(
+        `INSERT INTO transactions (email, id, kind, account_id, to_account_id, amount_cents,
+                                   category_id, date, created_at, updated_at)
+         VALUES (?, ?, 'transfer', ?, ?, 40000, NULL, '2025-10-10', 0, 0)`,
+        me,
+        rowId(),
+        wallet,
+        bank,
+      );
+      const other = person('other');
+      const theirs = rowId();
+      await send(other, [addAccount(theirs), add(rowId(), theirs, 6_600, { date: '2025-10-15' })]);
+
+      expect(await summary(me, '2025-10')).toEqual({
+        status: 200,
+        data: {
+          month: '2025-10',
+          incomeCents: 5_000,
+          spentCents: 1_420,
+          leftCents: 3_580,
+          // A subcategory's spending under its own id, never added into its parent's
+          spentByCategory: [
+            { categoryId: food, cents: 800 },
+            { categoryId: coffee, cents: 500 },
+            { categoryId: transport, cents: 120 },
+          ],
+          incomeByCategory: [{ categoryId: salary, cents: 5_000 }],
+        },
+      });
+      // A month with nothing in it, and more spent than came in
+      expect((await summary(me, '2025-08')).data).toEqual({
+        month: '2025-08',
+        incomeCents: 0,
+        spentCents: 0,
+        leftCents: 0,
+        spentByCategory: [],
+        incomeByCategory: [],
+      });
+      expect((await summary(me, '2025-11')).data).toMatchObject({ leftCents: -9_000 });
+    });
+
+    it.each([
+      ['no month', ''],
+      ['a month of the wrong shape', '?month=2025-13'],
+      ['a day instead of a month', '?month=2025-10-01'],
+      ['a month before 2000', '?month=1999-12'],
+    ])('refuses %s', async (_what, query) => {
+      const res = await api.call(person('me'), 'GET', `/api/summary${query}`);
+      expect(res).toEqual({ status: 400, data: { error: 'Give a month from 2000, like 2026-11' } });
+    });
+  });
+
   it("answers someone else's account as one that doesn't exist", async () => {
     const other = person('other');
     const theirs = rowId();

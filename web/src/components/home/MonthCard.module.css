@@ -1,0 +1,234 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 20px;
+  border-radius: 16px;
+  background: var(--sf-surface);
+  box-shadow: var(--sf-shadow-sm);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.leftLabel {
+  color: var(--sf-text-secondary);
+  font-size: 14px;
+}
+
+.leftAmount {
+  font-size: 36px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.negative {
+  color: var(--sf-negative);
+}
+
+.caption {
+  color: var(--sf-text-muted);
+  font-size: 13px;
+}
+
+.figures {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--sf-tint);
+}
+
+.figureButton {
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.figureButton:hover {
+  background: var(--sf-hover);
+}
+
+.figureLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--sf-text-muted);
+  font-size: 13px;
+}
+
+.figureAmount {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.groupTitle {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--sf-text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.rowButton {
+  cursor: pointer;
+}
+
+.rowButton:hover {
+  background: var(--sf-hover);
+}
+
+.rowLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rowName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowAmount {
+  flex: none;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.caret {
+  flex: none;
+  color: var(--sf-text-muted);
+}
+
+.track {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--sf-tag);
+}
+
+.bar {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--sf-accent);
+}
+
+.inside {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 4px 16px;
+  padding: 0 0 0 12px;
+  border-left: 2px solid var(--sf-divider);
+  list-style: none;
+}
+
+.insideRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  color: var(--sf-text-secondary);
+}
+
+.insideAmount {
+  flex: none;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.insideRow .rowName {
+  font-size: 14px;
+}
+
+.placeholderRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 4px;
+}
+
+.failed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.muted {
+  margin: 0;
+  color: var(--sf-text-muted);
+  font-size: 14px;
+}

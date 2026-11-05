@@ -92,6 +92,12 @@ export function isDay(v: unknown, now = Date.now()): v is string {
   return v >= FIRST_DAY && v <= new Date(now + DAY_MS).toISOString().slice(0, 10);
 }
 
+const MONTH_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/;
+
+/** Whether `v` is a month, as 2026-11, from the first a transaction can be in */
+export const isMonth = (v: unknown): v is string =>
+  typeof v === 'string' && MONTH_PATTERN.test(v) && v >= FIRST_DAY.slice(0, 7);
+
 /**
  * Optional text as typed (a payee or note), trimmed: null when it's missing or empty, and
  * undefined when it isn't text or is longer than `max`

@@ -4,6 +4,7 @@ import type {
   ChangesBody,
   ErrorCode,
   Ledger,
+  MonthSummary,
   Ok,
   Profile as ApiProfile,
   ProfilePatch,
@@ -104,6 +105,9 @@ export const api = {
     if (before != null) query.set('before', before);
     return request<TransactionPage>('GET', `/api/transactions?${query.toString()}`);
   },
+  /** What was spent and received in a month (2026-11), in total and by category */
+  getSummary: (month: string) =>
+    request<MonthSummary>('GET', `/api/summary?month=${encodeURIComponent(month)}`),
   /**
    * Saves a batch of ledger changes, all or nothing (see ledger/save-queue.ts). While the
    * page is hidden or closing, keepalive lets the save finish after it's gone; browsers

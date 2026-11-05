@@ -46,7 +46,8 @@ hack-proof, and the limits below are real.
   note are at most `MAX_PAYEE` and `MAX_NOTE` characters (`shared/ledger.ts`), so every
   balance stays a whole number held exactly.
 - Reading transactions: at most 200 to a page (`MAX_PAGE_SIZE` in
-  `worker/ledger/read.ts`), 50 unless asked.
+  `worker/ledger/read.ts`), 50 unless asked. A month's totals (`/api/summary`) are one
+  grouped sum of the person's own, at most one row per category.
 - Changes to the ledger: at most `MAX_CHANGES` in one request, saved all or nothing.
   Each carries the app's id, kept as a receipt for 90 days, so a change sent again is
   never applied twice.
@@ -56,7 +57,8 @@ hack-proof, and the limits below are real.
 ## On the device
 
 - What the app keeps (the profile, the accounts with their balances, the categories,
-  the newest page of each account's transactions it has opened, and changes not yet
+  the newest page of each account's transactions it has opened, the totals of each
+  month it has shown, and changes not yet
   saved) is tagged with the account and shown only to it. The account and categories
   used last are kept in `localStorage` by id only, under the account's email, and let go
   on signing out. Signing

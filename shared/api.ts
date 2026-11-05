@@ -141,6 +141,30 @@ export interface TransactionPage {
   nextBefore: string | null;
 }
 
+/** What was spent in one category, or received in one, over a month */
+export interface CategoryTotal {
+  /** The category the transactions name: a subcategory's own id, not its parent's */
+  categoryId: string;
+  /** Whole cents, above zero */
+  cents: number;
+}
+
+/**
+ * GET /api/summary: what a person spent and received in a month (2026-11), across every
+ * account, worked out by the server. Only spending and income count; a transfer moves
+ * money between the person's own accounts, so it is never spending. Each list holds
+ * only categories with something in them, largest first.
+ */
+export interface MonthSummary {
+  month: string;
+  incomeCents: number;
+  spentCents: number;
+  /** Received less spent; below zero when more was spent than came in */
+  leftCents: number;
+  spentByCategory: CategoryTotal[];
+  incomeByCategory: CategoryTotal[];
+}
+
 /** What a transaction is given when it's added: all of it but when it was saved */
 export type NewTransaction = Omit<Transaction, 'createdAt'>;
 

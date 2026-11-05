@@ -1,6 +1,13 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import type { Account, Category, Ledger, Transaction, TransactionPage } from '@shared/api';
+import type {
+  Account,
+  Category,
+  Ledger,
+  MonthSummary,
+  Transaction,
+  TransactionPage,
+} from '@shared/api';
 import type { CategoryTree } from './category-tree';
 import { categoryTree } from './category-tree';
 import type { QueueState } from './save-queue';
@@ -8,10 +15,13 @@ import {
   LEDGER_KEY,
   accountTransactionsKey,
   fetchLedger,
+  fetchSummary,
   fetchTransactionPage,
   pendingChanges,
   shownPages,
+  shownSummary,
   showKeptCopy,
+  summaryKey,
   subscribeUnsaved,
   unsavedState,
 } from './ledger';
@@ -116,4 +126,25 @@ export function useAccountTransactions(accountId: string): Transactions {
     loadMore: () => void fetchNextPage(),
     loadingMore: isFetchingNextPage,
   };
+}
+
+export interface Summary {
+  /** The month's totals, changes still to send included; null until loaded */
+  summary: MonthSummary | null;
+  failed: boolean;
+  retry: () => void;
+}
+
+/** What was spent and received in a month (2026-11), in total and by category */
+export function useMonthSummary(month: string): Summary {
+  const pending = useSyncExternalStore(subscribeUnsaved, pendingChanges);
+  const select = useCallback((data: MonthSummary) => shownSummary(data, pending), [pending]);
+  const { data, isError, refetch } = useQuery({
+    queryKey: summaryKey(month),
+    queryFn: () => fetchSummary(month),
+    select,
+    // Asked for offline too, so the copy kept on the device shows
+    networkMode: 'offlineFirst',
+  });
+  return { summary: data ?? null, failed: isError && data == null, retry: () => void refetch() };
 }

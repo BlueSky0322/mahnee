@@ -17,10 +17,11 @@ hack-proof, and the limits below are real.
   addresses are turned off (`preview_urls`), since Access doesn't cover them.
 - **Whose data it is.** Anyone with an email can sign in, and each account sees only its
   own data: every row belongs to the signed-in account, and every query is scoped by its
-  email. Money accounts and categories are keyed by email and id together, so an id of
-  someone else's is answered exactly as one that doesn't exist, and never reveals that it
-  does; a subcategory's parent is looked up among the person's own categories only. There
-  is no sharing between accounts.
+  email. Money accounts, categories and transactions are keyed by email and id together,
+  so an id of someone else's is answered exactly as one that doesn't exist, and never
+  reveals that it does; a subcategory's parent, and a transaction's account and category,
+  are looked up among the person's own only (composite foreign keys hold this in the
+  database too). There is no sharing between accounts.
 - **Whose a write is.** Every write from the app names the account it was made as
   (`X-Expected-Account`). One made as another account is refused before it changes
   anything.
@@ -38,7 +39,13 @@ hack-proof, and the limits below are real.
   most `MAX_TRANSACTION` either way, a person has at most `MAX_ACCOUNTS` accounts, and
   their names at most `MAX_ACCOUNT_NAME` characters (`shared/ledger.ts`). They have at
   most `MAX_CATEGORIES` categories, `MAX_SUBCATEGORIES` under one, with names of at most
-  `MAX_CATEGORY_NAME` characters (`shared/categories.ts`).
+  `MAX_CATEGORY_NAME` characters (`shared/categories.ts`). A transaction is whole cents
+  from 1 to `MAX_TRANSACTION_CENTS`, an account holds at most
+  `MAX_TRANSACTIONS_PER_ACCOUNT` (checked again as each row is saved), and a payee and
+  note are at most `MAX_PAYEE` and `MAX_NOTE` characters (`shared/ledger.ts`), so every
+  balance stays a whole number held exactly.
+- Reading transactions: at most 200 to a page (`MAX_PAGE_SIZE` in
+  `worker/ledger/read.ts`), 50 unless asked.
 - Changes to the ledger: at most `MAX_CHANGES` in one request, saved all or nothing.
   Each carries the app's id, kept as a receipt for 90 days, so a change sent again is
   never applied twice.
@@ -48,7 +55,10 @@ hack-proof, and the limits below are real.
 ## On the device
 
 - What the app keeps (the profile, the accounts with their balances, the categories,
-  and changes not yet saved) is tagged with the account and shown only to it. Signing
+  the newest page of each account's transactions it has opened, and changes not yet
+  saved) is tagged with the account and shown only to it. The account and categories
+  used last are kept in `localStorage` by id only, under the account's email, and let go
+  on signing out. Signing
   out clears it, and so does another account signing in, except that account's unsaved
   changes: those stay on the device, under its email, unread and unsent until it signs
   in here again. Signing out asks first when changes are waiting, then drops the leaving

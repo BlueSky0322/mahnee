@@ -66,14 +66,23 @@ async function addAccount(name: string) {
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 }
 
+/** Opens an account's page from Home, then its Edit form */
+async function edit(name: string) {
+  const user = userEvent.setup();
+  await user.click(await row(name));
+  await user.click(await screen.findByRole('button', { name: 'Edit' }));
+  return within(await dialog());
+}
+
+/** Renames an account on its page, and goes back to Home */
 async function rename(from: string, to: string) {
   const user = userEvent.setup();
-  await user.click(await row(from));
-  const form = within(await dialog());
+  const form = await edit(from);
   await user.clear(form.getByLabelText('Name'));
   await user.type(form.getByLabelText('Name'), to);
   await user.click(form.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  await user.click(screen.getByRole('button', { name: 'Home' }));
 }
 
 describe('changes made offline', () => {
@@ -155,8 +164,9 @@ describe('changes made offline', () => {
     await row('Wallet');
     const back = goOffline(server);
 
-    await user.click(await row('Wallet'));
-    await user.click(within(await dialog()).getByRole('button', { name: 'Archive' }));
+    await user.click((await edit('Wallet')).getByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await user.click(screen.getByRole('button', { name: 'Home' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Wallet,/ })).toBeNull());
     await user.click(await screen.findByRole('button', { name: 'Undo' }));
     expect(await row('Wallet')).toBeTruthy();
@@ -238,10 +248,10 @@ describe('saving while the app is in the background', () => {
     await waitFor(() => expect(server.accounts[0].name).toBe('Purse'));
     // Archived, and the app put behind another before the save goes
     const user = userEvent.setup();
-    await user.click(await row('Purse'));
+    const form = await edit('Purse');
     const held = holdNext(server, 'POST', '/api/changes');
     showPage('hidden');
-    await user.click(within(await dialog()).getByRole('button', { name: 'Archive' }));
+    await user.click(form.getByRole('button', { name: 'Archive' }));
     held.release();
     await waitFor(() => expect(server.accounts[0].archived).toBe(true));
     expect(keepalive()).toEqual([false, true]);

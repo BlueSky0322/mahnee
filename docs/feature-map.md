@@ -14,6 +14,7 @@ in [AGENTS.md](../AGENTS.md).
 | [Sign-in, profile and settings](#sign-in-profile-and-settings) | `profile/ProfileContext.tsx` | `accounts/`, `routes/me.ts`    |
 | [Accounts](#accounts)                                          | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Categories](#categories)                                      | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Transactions and quick entry](#transactions-and-quick-entry)  | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Exchange rates](#exchange-rates)                              | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
 | [Offline start and installing](#offline-start-and-installing)  | `offline/`, `pwa/`           | (none; the API is the same)    |
 | [Pages, layouts and Back](#pages-layouts-and-back)             | `hooks/useRoute.ts`          | (none)                         |
@@ -64,10 +65,12 @@ profile cases in [worker/test/api.test.ts](../worker/test/api.test.ts).
 ## Accounts
 
 **What it is.** The places a person's money is: cash, bank accounts, cards and
-e-wallets, each with its balance, listed on the home page. Add one, rename it, change
-its opening balance, or archive it (with Undo; archived ones are listed apart and can be
-brought back). A card's balance is what's owed on it. Its kind is fixed once added.
-Worker folder `accounts/` is sign-in, not these: the ledger is `ledger/`.
+e-wallets, each with its balance, listed on the home page. Tapping one opens its own
+page (`?account=<id>`): its name, kind and balance, and its transactions (see
+Transactions). Add one from Home; rename it, change its opening balance, or archive it
+(with Undo; archived ones are listed apart and can be brought back) from Edit on its
+page. A card's balance is what's owed on it. Its kind is fixed once added. Worker folder
+`accounts/` is sign-in, not these: the ledger is `ledger/`.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts) keeps the ledger (accounts
 and categories, one request) in the query cache (`LEDGER_KEY`), with a device copy
@@ -84,8 +87,9 @@ sends them in order, one request at a time, in batches of at most `MAX_CHANGES` 
 **Parts.**
 
 - UI: [components/accounts/AccountList.tsx](../web/src/components/accounts/AccountList.tsx)
-  (the list, placeholders, empty state and archived ones) and
-  [AccountForm.tsx](../web/src/components/accounts/AccountForm.tsx) (adding and
+  (the list, placeholders, empty state and archived ones),
+  [AccountPage.tsx](../web/src/components/accounts/AccountPage.tsx) (one account's page)
+  and [AccountForm.tsx](../web/src/components/accounts/AccountForm.tsx) (adding and
   changing one, in a `ResponsiveDialog`);
   [account-text.ts](../web/src/components/accounts/account-text.ts) reads balances out
   and opening balances in; Undo is
@@ -128,8 +132,9 @@ worker's background sync sends the outbox (see Offline start).
 - At most `MAX_ACCOUNTS` accounts, archived ones included, checked again as the row is
   saved (the position is NULL past it, which the table refuses), so two batches at once
   can't pass it. Names are 1 to `MAX_ACCOUNT_NAME` characters once trimmed; an opening
-  balance is whole cents within `MAX_TRANSACTION` either way. A balance is worked out by
-  the server, never stored.
+  balance is whole cents within `MAX_TRANSACTION` either way. A balance is the opening
+  balance plus income less spending, worked out by the server in one grouped sum, never
+  stored.
 - The app checks a change with the same shared rules before making it; the Worker is the
   authority.
 - A change leaves the outbox only once the server has saved it (or refused it), and is
@@ -145,7 +150,7 @@ reload, another person's never picked up, retries and waits for each kind of fai
 answer, a refusal once back, Undo offline, signed out, storage full, hidden pages,
 signing out, another person signing in),
 [Accounts.test.tsx](../web/src/components/accounts/Accounts.test.tsx) (adding,
-cards, renaming, archiving and Undo, refusals put back, a failing server tried again,
+cards, renaming and archiving from an account's page, Undo, refusals put back, a failing server tried again,
 answers out of order, at desktop and phone sizes), and the accounts cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (every refusal, another person's
 account, receipts, all or nothing).
@@ -216,6 +221,88 @@ through a reload, at desktop and phone sizes), and the categories cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (the defaults with the first
 change, every refusal, limits, someone else's, receipts, all or nothing with accounts,
 and the database's own guard).
+
+## Transactions and quick entry
+
+**What it is.** Money spent from an account, or that came into one, each in a category
+of its kind. Add, floating over Home and each account's page, opens the entry sheet:
+the amount first (focused, the phone's number keyboard), Spent or Received, the account
+and category used last on this device (the account's own on its page; else the first),
+the day (today, in the person's own time zone), and a payee and note under More. An RM 8
+coffee with the defaults is: Add, 8, Save. An account's page lists its transactions
+newest first, grouped by day, 50 at a time with Load more; tapping one opens it in the
+same sheet to change it, or Delete it (with Undo, which adds it again with the same id).
+Spending and income can swap if the category goes with it. Transfers come later; the
+table allows them and the Worker refuses them.
+
+**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), as for accounts: every
+change goes through `change()` and the outbox, so entry works offline. Lists of
+transactions are infinite queries keyed by account (`accountTransactionsKey`) or month
+(`monthTransactionsKey`, for the month view next), kept as the server has them: each
+batch is added once saved, a page fetched while one was saved gets it on top
+(`savedLog`), and the changes still to send are put on top as they're shown
+(`shownPages`), so a page never has to be put back. An account's first page is kept on
+the device (`transactions-v1:<id>`) and shown from there offline.
+[ledger/apply.ts](../web/src/ledger/apply.ts) moves balances by what each change does to
+a transaction (`Lookup` gives it as it was) and puts each one on the page its day falls
+in (`applyToPages`). Screens read through `useAccountTransactions(accountId)` in
+[ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
+[ledger/last-used.ts](../web/src/ledger/last-used.ts) keeps the account and each kind's
+category used last, by id, per person (`localStorage`, let go on signing out).
+
+**Parts.**
+
+- UI: [components/entry/EntrySheet.tsx](../web/src/components/entry/EntrySheet.tsx)
+  (the sheet, adding and changing, Delete),
+  [entry-text.ts](../web/src/components/entry/entry-text.ts) (typed amounts in cents with
+  `toCents`, and signed amounts), the account's page in
+  [components/accounts/AccountPage.tsx](../web/src/components/accounts/AccountPage.tsx),
+  the Add on [HomePage.tsx](../web/src/components/home/HomePage.tsx), and
+  [components/common/category-name.ts](../web/src/components/common/category-name.ts)
+  ("Food › Coffee").
+- API: `GET /api/transactions?account=<id>` or `?month=2026-11`, with `&before=` and
+  `&limit=` (`listTransactions` in [worker/ledger/read.ts](../worker/ledger/read.ts));
+  `addTransaction`, `updateTransaction` and `removeTransaction` in
+  [worker/ledger/changes.ts](../worker/ledger/changes.ts); balances in `listAccounts`
+  there.
+- Shared: `Transaction`, `NewTransaction`, `TransactionPage` and the change shapes in
+  [shared/api.ts](../shared/api.ts); kinds, limits, `isDay`, `readOptionalText`,
+  `whyNotInCategory` and `whyNotOnAccount` in [shared/ledger.ts](../shared/ledger.ts).
+
+**Flow.** Save checks the amount, day and category with the shared rules, makes the
+change (shown at once: the list and the balances), remembers the account and category,
+and the save queue sends it. A first-ever batch that names a default category saves the
+defaults first. Pages come newest first by day, then by when saved, then id; the
+`nextBefore` cursor carries on after the last one, so ties are never skipped or shown
+twice.
+
+**Invariants.**
+
+- An account's balance is its opening balance plus its income less its spending; on a
+  card, spending grows what's owed.
+- A transaction goes on a listed account of the person's, in a listed category of the
+  person's whose kind matches (spending in spending ones), with an amount of 1 cent to
+  `MAX_TRANSACTION`, a day from 2000 to tomorrow in UTC (`isDay`), and a payee and note
+  trimmed to at most `MAX_PAYEE` and `MAX_NOTE` (empty is none). The kind and category
+  are checked as a pair whenever either changes. The app asks the same rules; the
+  Worker is the authority.
+- At most `MAX_TRANSACTIONS_PER_ACCOUNT` on one account, every kind counted, checked
+  again inside the INSERT or move (the account is NULL past it, which the table
+  refuses), so two batches at once can't pass it.
+- Someone else's account, category or transaction is answered as one that doesn't exist
+  (404), in reading and in changes.
+- Deleting really deletes the row; nothing else refers to a transaction.
+
+**Tests.** [apply.test.ts](../web/src/ledger/apply.test.ts) (balances for each change,
+pages: where a new one goes, moved out and in, edited days, applied twice),
+[Entry.test.tsx](../web/src/components/entry/Entry.test.tsx) (RM 8 coffee in two steps,
+income, last used remembered through a reload, subcategories, what's wrong, a refusal
+put back, offline through a reload; the account page by day, placeholders, Load more,
+editing, spending to income, Delete and Undo, adding on an account's page, an archived
+one; desktop and phone), and the transactions cases in
+[worker/test/api.test.ts](../worker/test/api.test.ts) (balances of each kind, every
+refusal, paging with ties, a month, the limit per account, receipts, all or nothing,
+defaults with a first transaction).
 
 ## Exchange rates
 
@@ -340,8 +427,9 @@ and once Access asks to sign in again),
 ## Pages, layouts and Back
 
 **What it is.** Which page shows, the layouts for phones, tablets and computers, and
-what Back does. There are two pages so far: the home page, with the accounts on it,
-and the categories page (`?categories`), which goes back up to Home.
+what Back does. There are three pages so far: the home page, with the accounts on it,
+the categories page (`?categories`) and an account's page (`?account=<id>`), both of
+which go back up to Home.
 
 **Owner.**
 

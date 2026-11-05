@@ -33,3 +33,21 @@ export function keepTimeOf(day: Date, at: number) {
   moved.setHours(was.getHours(), was.getMinutes(), was.getSeconds(), was.getMilliseconds());
   return Math.min(moved.getTime(), Date.now());
 }
+
+/**
+ * A day as a heading over what happened on it: "Today", "Yesterday", "Wed, 14 Oct", with
+ * the year when it isn't this year's
+ */
+export function dayHeading(text: string, now = new Date()) {
+  const day = fromDateInput(text);
+  if (day == null) return text;
+  if (text === toDateInput(now)) return 'Today';
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (text === toDateInput(yesterday)) return 'Yesterday';
+  return day.toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    ...(day.getFullYear() !== now.getFullYear() && { year: 'numeric' }),
+  });
+}

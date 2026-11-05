@@ -4,7 +4,8 @@
   gap: 16px;
   max-width: 560px;
   margin: 0 auto;
-  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(24px + var(--sf-safe-bottom));
+  /* Room below the last card for the floating Add button */
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(104px + var(--sf-safe-bottom));
 }
 
 .header {

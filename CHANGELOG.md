@@ -42,6 +42,14 @@ Release heading format:
 
 <!-- New features or capabilities. -->
 
+- Transactions: log money spent or received from a quick entry sheet (Add, on Home and
+  on each account's page): the amount first, then Spent or Received, the account and
+  category used last (subcategories under their category), the day, and a payee and note
+  under More; an RM 8 coffee is the amount and Save. Tapping an account now opens its
+  page, with its balance and transactions by day, newest first, a page at a time; tap one
+  to change it, or delete it with Undo. Balances follow every transaction (on a card,
+  spending grows what's owed). Works offline like accounts. Adds `GET /api/transactions`
+  and the `transactions` table (migration `0004_transactions.sql`).
 - Categories: a Categories page, reached from Home, lists spending and income
   categories with subcategories one level deep; add, rename, reorder, move under another
   or back to the top level (moves that aren't allowed say why), and archive with Undo.

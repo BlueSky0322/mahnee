@@ -1,0 +1,46 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.symbol {
+  color: var(--sf-text-muted);
+  font-size: 16px;
+}
+
+.chips,
+.subChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.subChips {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--sf-divider);
+}
+
+.editCategories {
+  display: inline-block;
+  margin-top: 8px;
+}
+
+.more {
+  align-self: flex-start;
+  margin-left: -8px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.save {
+  margin-left: auto;
+  min-width: 120px;
+}

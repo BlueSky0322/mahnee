@@ -2,6 +2,7 @@ import { Button } from '@mantine/core';
 import { CaretDown, CaretRight, Plus, Wallet } from '@phosphor-icons/react';
 import { useState } from 'react';
 import type { Account } from '@shared/api';
+import { navigate } from '../../hooks/useRoute';
 import { useAccounts } from '../../ledger/useLedger';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import AccountForm from './AccountForm';
@@ -12,10 +13,13 @@ import classes from './Accounts.module.css';
 /** Placeholder rows while the accounts load */
 const LOADING_ROWS = 3;
 
-// The home page's list of accounts with their balances: tap one to change it, or add one
+/** Opens an account's own page */
+const openAccount = (account: Account) => navigate(`?account=${account.id}`);
+
+// The home page's list of accounts with their balances: tap one to open it, or add one
 export default function AccountList() {
   const { accounts, failed, retry } = useAccounts();
-  const [open, setOpen] = useState<{ account: Account | null } | null>(null);
+  const [open, setOpen] = useState<{ account: null } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
 
   const listed = accounts?.filter((a) => !a.archived) ?? [];
@@ -110,7 +114,7 @@ export default function AccountList() {
       ) : (
         <Rows
           accounts={listed}
-          onOpen={(account) => setOpen({ account })}
+          onOpen={openAccount}
         />
       )}
 
@@ -130,7 +134,7 @@ export default function AccountList() {
           {showArchived && (
             <Rows
               accounts={archived}
-              onOpen={(account) => setOpen({ account })}
+              onOpen={openAccount}
               muted
             />
           )}

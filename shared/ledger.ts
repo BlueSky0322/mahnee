@@ -6,6 +6,9 @@
 // each, about 1e14 cents; across MAX_ACCOUNTS accounts that is about 5e15, still under
 // the 9e15 a number holds as a whole number exactly.
 
+import type { Account, Category } from './api';
+import type { CategoryKind } from './categories';
+
 /** What an account is: notes and coins, a bank account, a credit card, or an e-wallet */
 export const ACCOUNT_KINDS = ['cash', 'bank', 'card', 'ewallet'] as const;
 export type AccountKind = (typeof ACCOUNT_KINDS)[number];
@@ -27,8 +30,8 @@ export const MAX_TRANSACTION = 10_000_000;
 export const MAX_TRANSACTION_CENTS = MAX_TRANSACTION * 100;
 
 /**
- * The most transactions one account can hold, so its balance stays exact. Enforced once
- * transactions can be added.
+ * The most transactions one account can hold, so its balance stays exact: every one on
+ * it counts, whichever way the money went
  */
 export const MAX_TRANSACTIONS_PER_ACCOUNT = 100_000;
 
@@ -47,3 +50,82 @@ export const fitsOpeningCents = (v: unknown): v is number =>
   Number.isSafeInteger(v) &&
   v >= -MAX_TRANSACTION_CENTS &&
   v <= MAX_TRANSACTION_CENTS;
+
+// ---------- Transactions ----------
+
+/**
+ * What a transaction is: money spent from an account, money that came into one, or money
+ * moved between two (transfers, which aren't saved yet)
+ */
+export const TRANSACTION_KINDS = ['expense', 'income', 'transfer'] as const;
+export type TransactionKind = (typeof TRANSACTION_KINDS)[number];
+
+export const isTransactionKind = (v: unknown): v is TransactionKind =>
+  (TRANSACTION_KINDS as readonly unknown[]).includes(v);
+
+/** The longest a payee (who was paid, or who paid) can be, once trimmed */
+export const MAX_PAYEE = 80;
+
+/** The longest a note on a transaction can be, once trimmed */
+export const MAX_NOTE = 500;
+
+/** Whether an amount is whole cents, more than nothing and at most MAX_TRANSACTION */
+export const fitsTransactionCents = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isSafeInteger(v) && v > 0 && v <= MAX_TRANSACTION_CENTS;
+
+/** The earliest day a transaction can be on */
+export const FIRST_DAY = '2000-01-01';
+
+const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Whether `v` is a day a transaction can be on, as 2026-11-05: a real calendar day, from
+ * 2000, and not after tomorrow in UTC, so wherever a person is, their own today is allowed
+ */
+export function isDay(v: unknown, now = Date.now()): v is string {
+  if (typeof v !== 'string') return false;
+  const m = DAY_PATTERN.exec(v);
+  if (m == null) return false;
+  const at = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (at.toISOString().slice(0, 10) !== v) return false;
+  return v >= FIRST_DAY && v <= new Date(now + DAY_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * Optional text as typed (a payee or note), trimmed: null when it's missing or empty, and
+ * undefined when it isn't text or is longer than `max`
+ */
+export function readOptionalText(value: unknown, max: number): string | null | undefined {
+  if (value == null) return null;
+  if (typeof value !== 'string') return undefined;
+  const text = value.trim();
+  if (text.length > max) return undefined;
+  return text === '' ? null : text;
+}
+
+/** The kind of category a transaction of `kind` goes in; none for a transfer */
+export const categoryKindFor = (kind: TransactionKind): CategoryKind | null =>
+  kind === 'transfer' ? null : kind;
+
+/**
+ * Why a transaction of `kind` can't go in `category` (one of the person's), or null when
+ * it can: it has to be listed, and spending goes in spending categories, income in income
+ * ones
+ */
+export function whyNotInCategory(
+  category: Pick<Category, 'name' | 'kind' | 'archived'>,
+  kind: TransactionKind,
+): string | null {
+  if (category.kind !== categoryKindFor(kind)) {
+    return kind === 'income'
+      ? 'Income goes in an income category'
+      : 'Spending goes in a spending category';
+  }
+  if (category.archived) return `${category.name} is archived`;
+  return null;
+}
+
+/** Why a transaction can't be put on `account` (one of the person's), or null when it can */
+export const whyNotOnAccount = (account: Pick<Account, 'name' | 'archived'>): string | null =>
+  account.archived ? `${account.name} is archived` : null;

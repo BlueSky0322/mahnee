@@ -10,6 +10,9 @@ erDiagram
   profiles ||--o{ accounts : "has"
   profiles ||--o{ categories : "has"
   categories ||--o{ categories : "has subcategories"
+  profiles ||--o{ transactions : "has"
+  accounts ||--o{ transactions : "holds"
+  categories ||--o{ transactions : "sorts"
   profiles ||--o{ change_receipts : "has"
   profiles {
     TEXT email PK
@@ -47,6 +50,20 @@ erDiagram
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
+  transactions {
+    TEXT email PK "and FK to profiles"
+    TEXT id PK "16 hex characters, made by the app"
+    TEXT kind "expense, income or transfer (not saved yet)"
+    TEXT account_id "FK with email to accounts"
+    TEXT to_account_id "null; a transfer's other account, later"
+    INTEGER amount_cents "1 to 1,000,000,000"
+    TEXT category_id "FK with email to categories; null only for a transfer"
+    TEXT payee "null, or 1 to 80 characters"
+    TEXT note "null, or 1 to 500 characters"
+    TEXT date "the person's own day, as 2026-11-05"
+    INTEGER created_at "ms"
+    INTEGER updated_at "ms"
+  }
   change_receipts {
     TEXT email PK "and FK to profiles"
     TEXT change_id PK "the app's id for the change"
@@ -80,6 +97,17 @@ erDiagram
   category among its siblings (same kind and parent). The defaults (`DEFAULT_CATEGORIES`
   in `shared/categories.ts`, the same ids for everyone) are saved with a person's first
   change of any kind; until then there are no rows and the app shows the defaults.
+- **`transactions`**: money spent from an account (`expense`) or that came into one
+  (`income`), in a category of the same kind, top level or a subcategory. The amount is
+  always above zero; the kind says which way it went. `date` is the day on the person's
+  own calendar, from 2000 to tomorrow in UTC. Keyed by email and then id, and its account
+  and category are foreign keys with the email, so they're always the person's own. At
+  most 100,000 on one account, checked again as each row is saved. Deleted for good when
+  the person deletes one (Undo adds it again with the same id). An account's balance is
+  its opening balance plus its income less its spending, summed when read. Transfers
+  (`kind` `transfer`, with `to_account_id` and no category) are allowed by the table and
+  refused by the Worker until they land. Indexed for an account's newest first and for a
+  month across accounts.
 - **`change_receipts`**: one per change the app saved through `POST /api/changes`, by
   the id the app gave it, with the change's fingerprint, saved in the same batch as the
   change. A change sent again counts once; the same id with a different change is

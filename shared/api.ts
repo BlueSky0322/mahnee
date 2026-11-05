@@ -2,7 +2,7 @@
 // them, so a field changed on one side fails to compile on the other.
 
 import type { CategoryKind } from './categories';
-import type { AccountKind } from './ledger';
+import type { AccountKind, TransactionKind } from './ledger';
 import type { RateSource } from './rates';
 
 // ---------- Account ----------
@@ -104,6 +104,40 @@ export interface Category {
 }
 
 /**
+ * Money spent from one of a person's accounts, or that came into it. An amount is always
+ * above zero; the kind says which way it went.
+ */
+export interface Transaction {
+  id: string;
+  kind: TransactionKind;
+  accountId: string;
+  /** Whole cents, above zero, at most MAX_TRANSACTION_CENTS */
+  amountCents: number;
+  /** A category of the matching kind, top level or a subcategory; null only for transfers */
+  categoryId: string | null;
+  /** Who was paid, or who paid; null when not said */
+  payee: string | null;
+  note: string | null;
+  /** The person's own calendar day it happened on, as 2026-11-05 */
+  date: string;
+  /** When the server saved it (ms), which orders transactions on the same day */
+  createdAt: number;
+}
+
+/**
+ * GET /api/transactions: one page of transactions, newest first (by day, then when
+ * saved). nextBefore asks for the next page (?before=), and is null on the last one; it
+ * means nothing to the app beyond that.
+ */
+export interface TransactionPage {
+  transactions: Transaction[];
+  nextBefore: string | null;
+}
+
+/** What a transaction is given when it's added: all of it but when it was saved */
+export type NewTransaction = Omit<Transaction, 'createdAt'>;
+
+/**
  * GET /api/accounts: the person's ledger, archived accounts and categories too, each in
  * the person's order. Categories are only what's saved: none until the first change,
  * which saves the defaults (categoriesOrDefaults in shared/categories.ts).
@@ -135,7 +169,15 @@ export type LedgerChange =
    * puts it at that place among its siblings, counted without it, after any move
    */
   | { op: 'updateCategory'; id: string; name?: string; parentId?: string | null; position?: number }
-  | { op: 'archiveCategory'; id: string; archived: boolean };
+  | { op: 'archiveCategory'; id: string; archived: boolean }
+  | { op: 'addTransaction'; transaction: NewTransaction }
+  /**
+   * Changes what it names. A kind changes only between spending and income, with a
+   * category of the new kind.
+   */
+  | ({ op: 'updateTransaction'; id: string } & Partial<Omit<NewTransaction, 'id'>>)
+  /** Deletes it for good; Undo adds it again, with the same id */
+  | { op: 'removeTransaction'; id: string };
 
 /** POST /api/changes: saved in order, all or nothing */
 export interface ChangesBody {

@@ -66,8 +66,10 @@ with`, no session links. This overrides any default your tools have for adding t
 - Tools that append a footer to a new pull request's description: create it with the
   body `placeholder`, then set the real body with an update, which adds nothing. The
   conventions check fails while the body is still `placeholder`.
-- Every pull request that changes what a person sees or can do (`feat`, `fix`, `perf`,
-  `refactor`) adds a line to `CHANGELOG.md` in the same branch. The check enforces it.
+- For notable changes, update `CHANGELOG.md` under Unreleased before finishing. Read and
+  follow the authoring instructions in that file. Every pull request that changes what a
+  person sees or can do (`feat`, `fix`, `perf`, `refactor`) must touch it; the check
+  enforces that.
 
 ### Merging and deploying
 

@@ -1,9 +1,9 @@
 # Mahnee
 
 Personal finance tracking for one person: accounts, the money moving in and out of them,
-and where it goes. So far it signs you in and shows a home page; accounts and
-transactions come next. It installs as an app on phones and computers and opens
-offline.
+and where it goes. So far it signs you in and lists your accounts (cash, bank, cards
+and e-wallets) with their balances; transactions come next. It installs as an app on
+phones and computers and opens offline.
 
 ## Layout
 
@@ -26,8 +26,9 @@ Inside `web/src`, what the app knows is kept apart from how it looks:
 | Folder                 | What it holds                                                               |
 | ---------------------- | --------------------------------------------------------------------------- |
 | `profile/`, `offline/` | Shared state: the signed-in profile, and what's kept on the device          |
+| `ledger/`              | Shared state: the accounts, and saving changes to them in order             |
 | `components/<screen>/` | What a screen draws, reading from the folders above                         |
-| `components/common/`   | What more than one screen draws that knows the app (the theme switch)       |
+| `components/common/`   | What more than one screen draws that knows the app (theme switch, Undo)     |
 | `components/shell/`    | What sits around every page: the offline and new-version notices            |
 | `components/ui/`       | Plain building blocks that know nothing of finances or accounts (dialogs)   |
 | `hooks/`, `utils/`     | What every feature leans on: screen sizes, the page address, money, dates   |
@@ -41,6 +42,7 @@ The Worker is laid out by feature:
 | `index.ts`, `app.ts`, `http.ts`, `routes/` | The entry point, what every route shares, reading requests, and the routes |
 | `accounts/`                                | Signing in, the profile and settings                                       |
 | `currency/`                                | Exchange rates                                                             |
+| `ledger/`                                  | Money accounts and balances, and saving the app's changes all or nothing   |
 | `test/`                                    | The API tests, run against a real local Worker and database                |
 
 ## Running it

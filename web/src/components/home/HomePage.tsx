@@ -1,12 +1,13 @@
 import { Button } from '@mantine/core';
 import { SignOut } from '@phosphor-icons/react';
+import AccountList from '../accounts/AccountList';
 import { InstallCard } from '../common/InstallApp';
 import ThemeToggle from '../common/ThemeToggle';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import { nameFor, signOut, useProfile } from '../../profile/ProfileContext';
 import classes from './HomePage.module.css';
 
-// The first screen, until there are accounts to show: who's signed in, and the way out
+// The first screen: the person's accounts, then who's signed in and the way out
 const HomePage = () => {
   const { profile } = useProfile();
   return (
@@ -16,6 +17,7 @@ const HomePage = () => {
         <ThemeToggle />
       </header>
       <InstallCard />
+      <AccountList />
       <section className={classes.card}>
         {profile == null ? (
           <Loading
@@ -39,7 +41,6 @@ const HomePage = () => {
             <p className={classes.email}>{profile.email}</p>
           </>
         )}
-        <p className={classes.body}>Your accounts and spending will show here.</p>
         <Button
           variant="default"
           leftSection={<SignOut size={16} />}

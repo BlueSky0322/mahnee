@@ -17,7 +17,9 @@ hack-proof, and the limits below are real.
   addresses are turned off (`preview_urls`), since Access doesn't cover them.
 - **Whose data it is.** Anyone with an email can sign in, and each account sees only its
   own data: every row belongs to the signed-in account, and every query is scoped by its
-  email. There is no sharing between accounts.
+  email. Money accounts are keyed by email and id together, so an id of someone else's
+  is answered exactly as one that doesn't exist, and never reveals that it does. There
+  is no sharing between accounts.
 - **Whose a write is.** Every write from the app names the account it was made as
   (`X-Expected-Account`). One made as another account is refused before it changes
   anything.
@@ -31,14 +33,20 @@ hack-proof, and the limits below are real.
 - Request bodies are read only up to 256 KB and within 30 seconds (`readBody` in
   `worker/http.ts`).
 - Money: an amount typed is at most `MAX_AMOUNT`, and once converted at most
-  `MAX_AMOUNT_CENTS` (`shared/rates.ts`), so totals stay exact.
+  `MAX_AMOUNT_CENTS` (`shared/rates.ts`), so totals stay exact. An opening balance is at
+  most `MAX_TRANSACTION` either way, a person has at most `MAX_ACCOUNTS` accounts, and
+  their names at most `MAX_ACCOUNT_NAME` characters (`shared/ledger.ts`).
+- Changes to the ledger: at most `MAX_CHANGES` in one request, saved all or nothing.
+  Each carries the app's id, kept as a receipt for 90 days, so a change sent again is
+  never applied twice.
 - Exchange rates are fetched by the Worker, never the browser, from Wise and Frankfurter,
   with a 4-second time limit; the request names only the two currencies and the day.
 
 ## On the device
 
-- What the app keeps (so far, the profile) is tagged with the account and shown only to
-  it. Signing out clears it, and so does another account signing in.
+- What the app keeps (the profile and the accounts with their balances) is tagged with
+  the account and shown only to it. Signing out clears it, and so does another account
+  signing in.
 - The service worker keeps the app's own files and web fonts, never anything from the
   API.
 - Once an Access session runs out, the app opens with the last account's kept profile

@@ -6,8 +6,17 @@ import 'fake-indexeddb/auto';
 import { cleanup, configure, render } from '@testing-library/react';
 import { createElement } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
-import type { Profile } from '@shared/api';
-import { DEFAULT_SETTINGS } from '@shared/api';
+import type { Account, ChangesBody, Profile } from '@shared/api';
+import { DEFAULT_SETTINGS, MAX_CHANGES, isRowId } from '@shared/api';
+import {
+  DEFAULT_CURRENCY,
+  MAX_ACCOUNTS,
+  MAX_ACCOUNT_NAME,
+  MAX_TRANSACTION,
+  fitsOpeningCents,
+  isAccountKind,
+  readAccountName,
+} from '@shared/ledger';
 import { rateDay } from '@shared/rates';
 import { Root } from '../Root';
 import { queryClient } from '../query-client';
@@ -66,8 +75,18 @@ export interface FakeServer {
    * `${from}${to}@2026-10-12`. Asked about a day with none, it's today's, as the real one does.
    */
   rates: Map<string, number>;
-  /** The next save of the profile answers with this status */
-  failNext: Partial<Record<'profile', number>>;
+  /**
+   * The person's accounts as the server keeps them, in the order they were added; a
+   * balance is the opening balance, as on the real server until there are transactions
+   */
+  accounts: Omit<Account, 'balanceCents'>[];
+  /** Saved change ids and the change each was, as the real server keeps receipts */
+  receipts: Map<string, string>;
+  /**
+   * The next save of the profile, or of ledger changes, answers with this status (and a
+   * general explanation), or with this status and explanation
+   */
+  failNext: Partial<Record<'profile' | 'changes', number | { status: number; error: string }>>;
   /** Answers being held back until a test releases them (see holdNext) */
   held: { method: string; path: string; release: Promise<void> }[];
 }
@@ -160,9 +179,12 @@ function answerNow(server: FakeServer) {
     if (server.health === 'down') return json({ error: 'Internal error' }, 500);
     if (path === '/api/me' && method === 'GET') return json(server.me);
     const failing = (kind: keyof FakeServer['failNext']) => {
-      const status = server.failNext[kind];
+      const failure = server.failNext[kind];
       delete server.failNext[kind];
-      return status && json({ error: 'Something went wrong. Try again in a moment.' }, status);
+      if (failure == null) return null;
+      return typeof failure === 'number'
+        ? json({ error: 'Something went wrong. Try again in a moment.' }, failure)
+        : json({ error: failure.error }, failure.status);
     };
     if (path === '/api/me' && method === 'PATCH') {
       const failure = failing('profile');
@@ -174,6 +196,18 @@ function answerNow(server: FakeServer) {
         settings: { ...server.me.settings, ...patch.settings },
       };
       return json(server.me);
+    }
+    if (path === '/api/accounts' && method === 'GET') {
+      const accounts = [...server.accounts]
+        .sort((a, b) => a.position - b.position)
+        .map((a) => ({ ...a, balanceCents: a.openingCents }));
+      return json({ accounts });
+    }
+    if (path === '/api/changes' && method === 'POST') {
+      const failure = failing('changes');
+      if (failure) return failure;
+      const refusal = saveChanges(server, body as Partial<ChangesBody>);
+      return refusal == null ? json({ ok: true }) : json({ error: refusal[1] }, refusal[0]);
     }
     if (path === '/api/rates') {
       const [from, to] = [url.searchParams.get('from') ?? '', url.searchParams.get('to') ?? ''];
@@ -187,12 +221,91 @@ function answerNow(server: FakeServer) {
   };
 }
 
+/**
+ * POST /api/changes as the real one (worker/ledger/changes.ts) saves a batch: checked in
+ * order, all or nothing, a change id saved before counted once. Answers the refusal's
+ * status and explanation, or null once saved.
+ */
+function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, string] | null {
+  const { changes, ids } = body;
+  if (!Array.isArray(changes) || changes.length === 0 || changes.length > MAX_CHANGES) {
+    return [400, `Send 1-${MAX_CHANGES} changes`];
+  }
+  if (
+    !Array.isArray(ids) ||
+    ids.length !== changes.length ||
+    !ids.every(isRowId) ||
+    new Set(ids).size !== ids.length
+  ) {
+    return [400, 'Send one id of its own for each change'];
+  }
+  const prints = changes.map((c) => JSON.stringify(c));
+  if (ids.some((id, i) => server.receipts.has(id) && server.receipts.get(id) !== prints[i])) {
+    return [409, 'That change was saved differently before'];
+  }
+  // Worked out on a copy, kept only if every change can be saved
+  const accounts = server.accounts.map((a) => ({ ...a }));
+  const nameError = `Give the account a name of up to ${MAX_ACCOUNT_NAME} characters`;
+  const openingError = `An opening balance can be up to ${MAX_TRANSACTION.toLocaleString('en')} either way`;
+  for (const [i, change] of changes.entries()) {
+    if (server.receipts.has(ids[i])) continue;
+    if (change.op === 'addAccount') {
+      const { id, name, kind, openingCents } = change.account;
+      if (!isRowId(id)) return [400, 'Invalid account id'];
+      if (accounts.some((a) => a.id === id)) return [409, 'That account already exists'];
+      const checked = readAccountName(name);
+      if (checked == null) return [400, nameError];
+      if (!isAccountKind(kind)) return [400, 'Unknown kind of account'];
+      if (!fitsOpeningCents(openingCents)) return [400, openingError];
+      if (accounts.length >= MAX_ACCOUNTS) {
+        return [409, `You can have up to ${MAX_ACCOUNTS} accounts, archived ones included`];
+      }
+      const position = accounts.reduce((last, a) => Math.max(last, a.position + 1), 0);
+      accounts.push({
+        id,
+        name: checked,
+        kind,
+        currency: DEFAULT_CURRENCY,
+        openingCents,
+        position,
+        archived: false,
+      });
+      continue;
+    }
+    if (change.op !== 'updateAccount' && change.op !== 'archiveAccount') {
+      return [400, 'Unknown change'];
+    }
+    const account = accounts.find((a) => a.id === change.id);
+    if (account == null) return [404, 'Account not found'];
+    if (change.op === 'archiveAccount') {
+      if (typeof change.archived !== 'boolean') return [400, 'Say whether it is archived'];
+      account.archived = change.archived;
+      continue;
+    }
+    if (change.name == null && change.openingCents == null) return [400, 'Nothing to change'];
+    if (change.name != null) {
+      const checked = readAccountName(change.name);
+      if (checked == null) return [400, nameError];
+      account.name = checked;
+    }
+    if (change.openingCents != null) {
+      if (!fitsOpeningCents(change.openingCents)) return [400, openingError];
+      account.openingCents = change.openingCents;
+    }
+  }
+  server.accounts = accounts;
+  ids.forEach((id, i) => server.receipts.set(id, prints[i]));
+  return null;
+}
+
 /** A fresh server with the signed-in account */
 export function fakeServer(): FakeServer {
   return {
     health: 'up',
     me: { email: EMAIL, displayName: 'Ryan', settings: { ...DEFAULT_SETTINGS } },
     rates: new Map(),
+    accounts: [],
+    receipts: new Map(),
     failNext: {},
     held: [],
   };

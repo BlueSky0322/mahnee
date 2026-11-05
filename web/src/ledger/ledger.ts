@@ -1,6 +1,6 @@
 import type { Account, LedgerChange } from '@shared/api';
 import { api } from '../api';
-import { onCacheCleared, readCache, writeCache } from '../offline/cache';
+import { onCacheCleared, onCacheUserKnown, readCache, writeCache } from '../offline/cache';
 import { isOfflineFailure } from '../offline/network';
 import { queryClient } from '../query-client';
 import { showError } from '../utils/notify';
@@ -9,10 +9,10 @@ import { createSaveQueue } from './save-queue';
 
 // A person's ledger (so far, their accounts), kept in the query cache so every screen
 // shows the same copy. change() is the only way it changes: each change shows straight
-// away, then is sent in order with the others. A refused change is put back and
-// explained, with everything made after it, and once nothing is left to send the ledger
-// is fetched again, so it shows what the server has. The screens read it through
-// useLedger.ts.
+// away, is kept on the device until it's saved, and is sent in order with the others
+// (save-queue.ts), offline or not. A refused change is put back and explained, with
+// everything made after it, and once nothing is left to send the ledger is fetched
+// again, so it shows what the server has. The screens read it through useLedger.ts.
 
 export const ACCOUNTS_KEY = ['accounts'] as const;
 /** Versioned like the other saved copies: one in an older shape is never read */
@@ -32,16 +32,50 @@ const queue = createSaveQueue({
     savedCount++;
     if (confirmed != null) confirmed = apply(confirmed, changes);
   },
+  // Made before a reload, or in another tab: shown on top, as the ones made here are
+  found: (changes) =>
+    queryClient.setQueryData<Account[]>(ACCOUNTS_KEY, (old) => old && apply(old, changes)),
   failed: (err) => {
-    showError(err, "Couldn't save that change. Check your connection and try again.");
+    showError(err, "Couldn't save that change.");
     if (confirmed != null) queryClient.setQueryData(ACCOUNTS_KEY, confirmed);
   },
   idle: () => void reloadAccounts(),
 });
 
-// Signing out, or someone else signing in: nothing made before is sent. What the
-// server last sent stays, since the server only ever sends the signed-in person's own.
+// Once it's known whose the ledger is, what they left unsent on this device is picked
+// up and sent
+onCacheUserKnown((email) => void queue.pickUp(email));
+// Signing out, or someone else signing in: nothing made before is sent from this page
+// (what's kept on the device stays its owner's). What the server last sent stays, since
+// the server only ever sends the signed-in person's own.
 onCacheCleared(() => queue.forget());
+
+/** How many changes are waiting to be saved, and whether sending waits on signing in */
+export const unsavedState = () => queue.state();
+export const subscribeUnsaved = (listener: () => void) => queue.subscribe(listener);
+
+/**
+ * Sends what's waiting as soon as it can: back online, back to the app, or the page
+ * brought back from the browser's memory, rather than at the next retry. Returns how to
+ * stop.
+ */
+export function sendWhenBack() {
+  const resume = () => queue.resume();
+  const shown = () => {
+    if (document.visibilityState === 'visible') queue.resume();
+  };
+  const restored = (event: PageTransitionEvent) => {
+    if (event.persisted) queue.resume();
+  };
+  window.addEventListener('online', resume);
+  document.addEventListener('visibilitychange', shown);
+  window.addEventListener('pageshow', restored);
+  return () => {
+    window.removeEventListener('online', resume);
+    document.removeEventListener('visibilitychange', shown);
+    window.removeEventListener('pageshow', restored);
+  };
+}
 
 /**
  * The accounts from the server, with the changes still being sent shown on top. Offline,
@@ -58,6 +92,8 @@ export async function fetchAccounts({ signal }: { signal?: AbortSignal } = {}): 
     if (kept == null) throw err;
     accounts = kept;
   }
+  // What's waiting on the device goes on top, so it's read first
+  await queue.ready();
   const shown = queryClient.getQueryData<Account[]>(ACCOUNTS_KEY);
   // A change was saved while this was on its way, so this copy may be from before it:
   // what's shown stays, and the copy fetched once nothing is left to send replaces it
@@ -73,7 +109,7 @@ export async function fetchAccounts({ signal }: { signal?: AbortSignal } = {}): 
  */
 export function showKeptCopy() {
   if (queryClient.getQueryData(ACCOUNTS_KEY) !== undefined) return;
-  void readCache<Account[]>(CACHE_KEY).then((kept) => {
+  void Promise.all([readCache<Account[]>(CACHE_KEY), queue.ready()]).then(([kept]) => {
     if (kept == null || queryClient.getQueryState(ACCOUNTS_KEY)?.dataUpdatedAt) return;
     // Marked as old, so it's shown but still fetched
     queryClient.setQueryData(ACCOUNTS_KEY, apply(kept, queue.pending()), { updatedAt: 0 });
@@ -84,9 +120,10 @@ export function showKeptCopy() {
 export const reloadAccounts = () => queryClient.refetchQueries({ queryKey: ACCOUNTS_KEY });
 
 /**
- * Makes changes to the ledger: shown straight away, then saved in the background, in
- * order. Check them first (shared/ledger.ts); one the server refuses is put back with
- * everything made after it, and its explanation shown.
+ * Makes changes to the ledger: shown straight away, kept on the device, then saved in
+ * the background, in order, once there's a connection. Check them first
+ * (shared/ledger.ts); one the server refuses is put back with everything made after it,
+ * and its explanation shown.
  */
 export function change(...changes: LedgerChange[]) {
   queryClient.setQueryData<Account[]>(ACCOUNTS_KEY, (old) => old && apply(old, changes));

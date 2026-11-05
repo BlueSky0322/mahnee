@@ -72,10 +72,12 @@ Worker folder `accounts/` is sign-in, not these: the ledger is `ledger/`.
 query cache (`ACCOUNTS_KEY`), with a device copy (`accounts-v1`) shown while the first
 fresh one loads and offline. `change(...changes)` is the only way the ledger changes: it
 shows the changes at once ([ledger/apply.ts](../web/src/ledger/apply.ts)), then hands
-them to [ledger/save-queue.ts](../web/src/ledger/save-queue.ts), which sends them in
-order, one request at a time, in batches of at most `MAX_CHANGES` and
+them to [ledger/save-queue.ts](../web/src/ledger/save-queue.ts), which keeps them in the
+person's outbox on the device ([offline/outbox.ts](../web/src/offline/outbox.ts)) and
+sends them in order, one request at a time, in batches of at most `MAX_CHANGES` and
 `MAX_CHANGES_BYTES`, each change with its own id (`cid`). Screens read through
-`useAccounts()` in [ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
+`useAccounts()` and `useUnsaved()` (how many are waiting) in
+[ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
 
 **Parts.**
 
@@ -94,14 +96,21 @@ order, one request at a time, in batches of at most `MAX_CHANGES` and
   [shared/api.ts](../shared/api.ts); kinds, limits and the name and opening-balance
   checks in [shared/ledger.ts](../shared/ledger.ts).
 
-**Flow.** A change shows at once and joins the queue. Nothing is sent while a batch is
-on its way; what's made meanwhile goes in the next one. Once nothing is left to send, the
-accounts are fetched again. A copy fetched while changes are still to send has them
-applied on top; one that was on its way while a batch was saved is set aside for the
-next. A refused batch (or one that never arrived) is put back to what the server last
-had, the server's explanation is shown (`showError`), and everything queued after it is
-dropped, since it was made on top of it. Nothing is kept for later yet: a change made
-offline is undone like a refused one.
+**Flow.** A change shows at once, joins the queue and is written to the outbox. Nothing
+is sent while a batch is on its way; what's made meanwhile goes in the next one. Each
+saved batch is crossed off the outbox; once nothing is left to send, the accounts are
+fetched again. A copy fetched (or read from the device) while changes are still to send
+has them applied on top; one that was on its way while a batch was saved is set aside
+for the next. Once it's known whose the ledger is (signed in, or offline the last
+person assumed), what they left in the outbox is picked up, shown and sent. A batch that
+got no answer, or a 429 or 5xx, is kept and tried again after 3 seconds, doubling to a
+minute; offline it waits for the connection, and a 401 or `account_mismatch` waits for
+the person to be back (the connection returning, the page shown again or restored),
+since a timer would only fail. A refused batch (any other 4xx) is put back to what the
+server last had, the server's explanation is shown (`showError`), and it and everything
+queued after it are dropped from the outbox, since they were made on top of it. While
+the page is hidden, batches go with `keepalive`. With the app closed, the service
+worker's background sync sends the outbox (see Offline start).
 
 **Invariants.**
 
@@ -120,13 +129,21 @@ offline is undone like a refused one.
   the server, never stored.
 - The app checks a change with the same shared rules before making it; the Worker is the
   authority.
+- A change leaves the outbox only once the server has saved it (or refused it), and is
+  sent by one sender at a time (the outbox lock); one sent again after its answer was
+  lost is counted once by its id.
 
 **Tests.** [apply.test.ts](../web/src/ledger/apply.test.ts),
-[save-queue.test.ts](../web/src/ledger/save-queue.test.ts) (order, batching by count and
-bytes, a refusal dropping the rest),
+[save-queue.test.ts](../web/src/ledger/save-queue.test.ts) (order, kept on the device
+until saved and crossed off per batch, a refusal dropping the rest, picked up after a
+reload, another person's never picked up, retries and waits for each kind of failure),
+[outbox.test.ts](../web/src/offline/outbox.test.ts) (batching by count and bytes),
+[delivery.test.tsx](../web/src/offline/delivery.test.tsx) (offline, a reload, a lost
+answer, a refusal once back, Undo offline, signed out, storage full, hidden pages,
+signing out, another person signing in),
 [Accounts.test.tsx](../web/src/components/accounts/Accounts.test.tsx) (adding,
-cards, renaming, archiving and Undo, refusals put back, answers out of order, at desktop
-and phone sizes), and the accounts cases in
+cards, renaming, archiving and Undo, refusals put back, a failing server tried again,
+answers out of order, at desktop and phone sizes), and the accounts cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (every refusal, another person's
 account, receipts, all or nothing).
 
@@ -165,13 +182,22 @@ through the query cache, keyed by the pair, the account's rate source and the da
 ## Offline start and installing
 
 **What it is.** The app installs as an app and opens offline or on a bad connection,
-showing what this device last loaded. Nothing can be changed offline yet: a save without
-a connection fails and is undone.
+showing what this device last loaded with the changes made since on top. Changes made
+offline are kept on the device and saved once the connection is back, even with the
+app closed. The offline notice says so, with how many are waiting; it offers Sign in
+when the session ran out, and warns when the device can't keep changes.
 
 **Owner.**
 
 - [offline/cache.ts](../web/src/offline/cache.ts): device copies tagged with the
   signed-in account, and the marks the service worker and sign-in leave on the page.
+- [offline/outbox.ts](../web/src/offline/outbox.ts): each person's changes not yet saved
+  (`outbox:<email>`), the lock the app and the service worker share
+  (`mahnee-outbox:<email>`, Web Locks or turns within the page), how a queue is split into
+  requests, and which failures are kept. The ledger's save queue sends from it.
+- [offline/storage-health.ts](../web/src/offline/storage-health.ts): whether the last
+  write to the outbox was kept, for the notice
+  ([components/shell/OfflineNotice.tsx](../web/src/components/shell/OfflineNotice.tsx)).
 - [offline/storage.ts](../web/src/offline/storage.ts): once the app is installed, asks
   the browser (once per device) not to clear what's kept when space runs low.
 - [pwa/install.ts](../web/src/pwa/install.ts): the browser's install prompt, kept for
@@ -179,8 +205,11 @@ a connection fails and is undone.
   ([components/common/InstallApp.tsx](../web/src/components/common/InstallApp.tsx)).
 
 **Parts.** [web/public/sw.js](../web/public/sw.js) keeps the page, the built files, the
-manifest and icons, and web fonts. It never keeps anything from `/api`. It can't import
-app code, so the names it shares with `offline/cache.ts` are copied in it. The build
+manifest and icons, and web fonts. It never keeps anything from `/api`. On background
+sync (`mahnee-outbox`, registered by the app when a send fails or it's offline) it sends
+the signed-in account's outbox under the same lock, as that account. It can't import
+app code, so the names and limits it shares with `offline/cache.ts`, `offline/outbox.ts`
+and `shared/api.ts` are copied in it, each naming its twin. The build
 writes `precache.json`, every built file the app needs offline
 ([web/build/precache.ts](../web/build/precache.ts)).
 
@@ -208,7 +237,12 @@ account's saved copy ([ProfileContext](../web/src/profile/ProfileContext.tsx)).
 - Nothing kept on the device is shown before the signed-in account is known, and one
   account never sees another's. The last account is only assumed offline, or when the
   page was opened from the device; if the server then names someone else, their copies
-  are dropped and the app reloads. Signing out drops everything kept.
+  are dropped (their unsaved changes kept for them, unread and unsent) and the app
+  reloads. Signing out drops everything kept for the account, its unsaved changes too,
+  after asking when any are waiting
+  ([components/home/useConfirmSignOut.tsx](../web/src/components/home/useConfirmSignOut.tsx)).
+- The app and the service worker read a failed send the same way: no answer, a non-JSON
+  answer, 401, 429, 5xx and `account_mismatch` are kept; any other 4xx drops the rest.
 - Every write names the account it was made as (`X-Expected-Account`, from `writeAs` in
   [api.ts](../web/src/api.ts)). The server refuses one for another account (409
   `account_mismatch`) before it changes anything. With `REQUIRE_EXPECTED_ACCOUNT=true` a
@@ -223,7 +257,10 @@ account's saved copy ([ProfileContext](../web/src/profile/ProfileContext.tsx)).
 **Tests.** [cache.test.ts](../web/src/offline/cache.test.ts),
 [shell.test.ts](../web/src/offline/shell.test.ts) (slow, failing and redirected page
 loads, stopped updates, which files are kept),
-[sw.test.ts](../web/src/offline/sw.test.ts) (web fonts, and the API left alone),
+[sw.test.ts](../web/src/offline/sw.test.ts) (web fonts, the API left alone, background
+sync against what the app keeps, and the app and service worker reading every answer
+alike), [outbox.test.ts](../web/src/offline/outbox.test.ts) (the shared keys and lock,
+another account's changes kept through sign-in and sign-out),
 [start.test.tsx](../web/src/offline/start.test.tsx) (starting from the device's copy,
 and once Access asks to sign in again),
 [storage.test.ts](../web/src/offline/storage.test.ts),

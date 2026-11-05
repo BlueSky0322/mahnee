@@ -115,13 +115,17 @@ export interface ChangesBody {
   ids: string[];
 }
 
-/** The most changes one request may carry; the app sends a longer queue in several, in order */
+/**
+ * The most changes one request may carry; the app sends a longer queue in several, in
+ * order. web/public/sw.js keeps its own copy (sw.test.ts checks they agree).
+ */
 export const MAX_CHANGES = 200;
 
 /**
  * The most bytes of JSON one request of changes may carry; a single change bigger than
  * this still goes, on its own. It keeps a request under the 64 KB browsers allow one
  * that finishes after the page closes, and well under the Worker's 256 KB limit.
+ * web/public/sw.js keeps its own copy (sw.test.ts checks they agree).
  */
 export const MAX_CHANGES_BYTES = 48 * 1024;
 

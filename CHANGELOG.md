@@ -42,6 +42,14 @@ Release heading format:
 
 <!-- New features or capabilities. -->
 
+- Offline: changes to accounts made without a connection are kept on the device, shown
+  at once and after a reload, and saved in order once the connection is back, even with
+  the app closed (background sync, where the browser has it); a lost answer never saves
+  one twice. The offline notice says how many are waiting, offers Sign in when the
+  session ran out, and warns when the device can't keep them. Signing out asks first
+  when changes are waiting; someone else signing in on the device leaves them unseen and
+  unsent until their owner is back.
+
 - Accounts: the home page lists your cash, bank, card and e-wallet accounts with their
   balances (a card's as what's owed); add, rename, change the opening balance, and
   archive with Undo. Changes show at once and are saved in order; a refused one is put

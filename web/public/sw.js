@@ -13,6 +13,9 @@
 //   in their names), so they're served from here once kept.
 // - /api always goes to the network, through Cloudflare Access: nothing the account
 //   holds is kept here.
+// - Changes made offline are kept by the app (in IndexedDB, web/src/offline/outbox.ts);
+//   background sync sends them here when the connection is back, even if the app is
+//   closed.
 const SHELL = 'mahnee-shell-v1';
 const ASSETS = 'mahnee-assets-v1';
 const FONTS = 'mahnee-fonts-v1';
@@ -47,6 +50,47 @@ const OPENED_FROM_DEVICE = 'sf-opened-from-device';
 const SIGNED_OUT = 'signed-out';
 /** SIGN_IN_PARAM in web/src/offline/cache.ts: a page load going to sign in, left to the browser */
 const SIGN_IN_PARAM = 'sign-in';
+/** SYNC_TAG in web/src/offline/outbox.ts */
+const SYNC_TAG = 'mahnee-outbox';
+/**
+ * OUTBOX_PREFIX and LOCK_PREFIX in web/src/offline/outbox.ts: each person's outbox is
+ * kept under their email, as { email, value } with value the changes in order, each
+ * { cid, change }
+ */
+const OUTBOX_PREFIX = 'outbox:';
+const LOCK_PREFIX = 'mahnee-outbox:';
+/** SW_USER_KEY in web/src/offline/cache.ts: who the app last said is signed in */
+const USER_KEY = 'mahnee:user';
+/** CLIENT_ID_HEADER in shared/api.ts */
+const CLIENT_ID_HEADER = 'X-Client-Id';
+/** EXPECTED_ACCOUNT_HEADER in shared/api.ts: whose a write is, the account it was kept for */
+const EXPECTED_ACCOUNT_HEADER = 'X-Expected-Account';
+/** MAX_CHANGES and MAX_CHANGES_BYTES in shared/api.ts: how much one request may carry */
+const MAX_CHANGES = 200;
+const MAX_CHANGES_BYTES = 48 * 1024;
+
+const utf8 = new TextEncoder();
+
+/** The next request's changes, as nextBatch in web/src/offline/outbox.ts picks them */
+function nextBatch(queued) {
+  let bytes = utf8.encode('{"changes":[],"ids":[]}').length;
+  let count = 0;
+  for (const q of queued.slice(0, MAX_CHANGES)) {
+    bytes +=
+      utf8.encode(JSON.stringify(q.change)).length +
+      utf8.encode(JSON.stringify(q.cid)).length +
+      (count > 0 ? 2 : 0);
+    if (count > 0 && bytes > MAX_CHANGES_BYTES) break;
+    count++;
+  }
+  return queued.slice(0, count);
+}
+
+/** What's sent for these changes, as changesBody in web/src/offline/outbox.ts makes it */
+const changesBody = (batch) => ({
+  changes: batch.map((q) => q.change),
+  ids: batch.map((q) => q.cid),
+});
 
 const isFont = (url) =>
   url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com';
@@ -277,4 +321,104 @@ self.addEventListener('fetch', (event) => {
   } else if (url.pathname.startsWith('/assets/')) {
     event.respondWith(cacheFirst(ASSETS, event.request, (r) => r.type === 'basic'));
   }
+});
+
+// --- Background sync: sends what the app kept while offline ---------------------------
+
+// idb-keyval's database, where the app keeps its saved copies and unsent changes
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('keyval-store');
+    req.onupgradeneeded = () => req.result.createObjectStore('keyval');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function idb(db, mode, run) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('keyval', mode);
+    const req = run(tx.objectStore('keyval'));
+    tx.oncomplete = () => resolve(req.result);
+    tx.onerror = tx.onabort = () => reject(tx.error);
+  });
+}
+
+/** The same lock the app takes (withOutbox), so a change is never sent twice at once */
+const withLock = (email, fn) =>
+  self.navigator.locks ? self.navigator.locks.request(`${LOCK_PREFIX}${email}`, fn) : fn();
+
+class TryLater extends Error {}
+
+/**
+ * Sends changes `account` kept; the server refuses them if someone else is signed in
+ * now. Resolves with whether they were saved (false: refused); throws TryLater to keep
+ * them for next time.
+ */
+async function post(path, body, account) {
+  let res;
+  try {
+    res = await fetch(path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [CLIENT_ID_HEADER]: 'background-sync',
+        [EXPECTED_ACCOUNT_HEADER]: account,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new TryLater('No connection');
+  }
+  // The same rule as isRetryable in web/src/offline/outbox.ts: busy, a problem on the
+  // server's side, or signed out. Nothing wrong with what was sent.
+  if (res.status === 401 || res.status === 429 || res.status >= 500) {
+    throw new TryLater(`HTTP ${res.status}`);
+  }
+  // Signed out (Cloudflare Access sends a sign-in page): the app sends it once signed in
+  if (res.redirected || res.type === 'opaqueredirect') throw new TryLater('Signed out');
+  const answer = await res.json().catch(() => null);
+  // Made as another account than the one signed in now: kept for that account, as
+  // isOtherAccount in web/src/offline/outbox.ts says
+  if (answer?.code === 'account_mismatch') throw new TryLater('Signed in as someone else');
+  // Answered by something other than the API (a proxy, say), as the app sees it too:
+  // anything that isn't JSON, or is JSON null
+  if (res.ok && answer == null) throw new TryLater('Not answered with JSON');
+  // Otherwise saved, or refused (4xx): the app shows the ledger as the server has it
+  return res.ok;
+}
+
+/** Sends the signed-in account's changes, in order; nobody else's */
+async function sendOutbox() {
+  const db = await openDb();
+  try {
+    const user = await idb(db, 'readonly', (s) => s.get(USER_KEY));
+    if (typeof user !== 'string') return;
+    const key = `${OUTBOX_PREFIX}${user}`;
+    await withLock(user, async () => {
+      // Read under the lock, in case the app sent them meanwhile
+      const entry = await idb(db, 'readonly', (s) => s.get(key));
+      if (entry?.email !== user || !Array.isArray(entry.value)) return;
+      // As many at a time as the server takes. Each request's changes are crossed off
+      // once saved, so a failure later on leaves only what wasn't sent.
+      let left = entry.value;
+      while (left.length > 0) {
+        const batch = nextBatch(left);
+        const saved = await post('/api/changes', changesBody(batch), entry.email);
+        // Refused: the rest was made on top of it, so it goes too
+        left = saved ? left.slice(batch.length) : [];
+        const now = left;
+        await idb(db, 'readwrite', (s) =>
+          now.length > 0 ? s.put({ ...entry, value: now }, key) : s.delete(key),
+        );
+      }
+    });
+  } finally {
+    db.close();
+  }
+}
+
+self.addEventListener('sync', (event) => {
+  // Failing makes the browser try again later
+  if (event.tag === SYNC_TAG) event.waitUntil(sendOutbox());
 });

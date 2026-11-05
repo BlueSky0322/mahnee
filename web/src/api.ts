@@ -90,8 +90,16 @@ export const api = {
   getMe: () => request<Profile>('GET', '/api/me'),
   updateMe: (patch: ProfilePatch) => request<Profile>('PATCH', '/api/me', patch),
   listAccounts: () => request<AccountList>('GET', '/api/accounts'),
-  /** Saves a batch of ledger changes, all or nothing (see ledger/save-queue.ts) */
-  saveChanges: (body: ChangesBody) => request<Ok>('POST', '/api/changes', body),
+  /**
+   * Saves a batch of ledger changes, all or nothing (see ledger/save-queue.ts). While the
+   * page is hidden or closing, keepalive lets the save finish after it's gone; browsers
+   * allow that only for small requests (nextBatch keeps each one small enough), so it's
+   * not used otherwise. One that still can't go stays on the device and is sent later.
+   */
+  saveChanges: (body: ChangesBody) =>
+    request<Ok>('POST', '/api/changes', body, {
+      keepalive: typeof document !== 'undefined' && document.visibilityState === 'hidden',
+    }),
   /**
    * The rate to convert `from` into `to`, for previews: today's, or with `at` the one for
    * an amount spent then. Whatever saves a converted amount converts it again.

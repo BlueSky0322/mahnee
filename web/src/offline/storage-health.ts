@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-// Whether this device kept the latest unsent work (changes, new splits). When it can't
+// Whether this device kept the latest unsent work (changes to the ledger). When it can't
 // (storage full, or blocked as in some private windows), the work still goes from
 // memory while the app is open, but would be lost if it closed first, so the app says
 // so until a later write is kept.

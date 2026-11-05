@@ -3,7 +3,8 @@
 Personal finance tracking for one person: accounts, the money moving in and out of them,
 and where it goes. So far it signs you in and lists your accounts (cash, bank, cards
 and e-wallets) with their balances; transactions come next. It installs as an app on
-phones and computers and opens offline.
+phones and computers, opens offline, and keeps changes made offline on the device until
+they're saved.
 
 ## Layout
 

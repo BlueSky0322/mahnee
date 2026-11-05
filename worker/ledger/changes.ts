@@ -41,6 +41,7 @@ import {
   isTransactionKind,
   readAccountName,
   readOptionalText,
+  whyNotBetween,
   whyNotInCategory,
   whyNotOnAccount,
 } from '../../shared/ledger';
@@ -70,11 +71,15 @@ const TRANSACTION_NOT_FOUND = 'Transaction not found';
 const AMOUNT_RANGE = `An amount is more than 0 and up to ${MAX_TRANSACTION.toLocaleString('en')}`;
 const DAY_RANGE = 'Give a day from 2000 up to today';
 const TOO_MANY_TRANSACTIONS = `An account can hold up to ${MAX_TRANSACTIONS_PER_ACCOUNT.toLocaleString('en')} transactions`;
+const TRANSFER_CATEGORY = 'A transfer has no category';
+const ONLY_TRANSFERS_GO = 'Only a transfer goes to another account';
+const PICK_DESTINATION = 'Pick the account it goes to';
 
 /** What a check needs to know of a saved transaction */
 interface TransactionState {
   kind: TransactionKind;
   accountId: string;
+  toAccountId: string | null;
   categoryId: string | null;
 }
 
@@ -144,7 +149,6 @@ const readOpening = (value: unknown) => {
 
 const readTransactionKind = (value: unknown) => {
   if (!isTransactionKind(value)) throw new Refused(400, 'Unknown kind of transaction');
-  if (value === 'transfer') throw new Refused(400, "Transfers can't be saved yet");
   return value;
 };
 
@@ -157,8 +161,38 @@ const readTransactionAccount = (model: Model, id: unknown) => {
   return id as string;
 };
 
-/** A category a transaction of `kind` can go in: one of the person's, listed, of its kind */
+/**
+ * The account a transaction of `kind` from `accountId` goes to: for a transfer, another
+ * of the person's (checked as an account it can go on only when `given` is new, as the
+ * account it's from is); for spending and income, none
+ */
+function readDestination(
+  model: Model,
+  kind: TransactionKind,
+  accountId: string,
+  to: unknown,
+  given: boolean,
+): string | null {
+  if (kind !== 'transfer') {
+    if (to != null) throw new Refused(400, ONLY_TRANSFERS_GO);
+    return null;
+  }
+  if (to == null) throw new Refused(400, PICK_DESTINATION);
+  const toAccountId = given ? readTransactionAccount(model, to) : (to as string);
+  const reason = whyNotBetween(accountId, toAccountId);
+  if (reason != null) throw new Refused(400, reason);
+  return toAccountId;
+}
+
+/**
+ * A category a transaction of `kind` can go in: one of the person's, listed, of its
+ * kind; none for a transfer
+ */
 const readTransactionCategory = (model: Model, id: unknown, kind: TransactionKind) => {
+  if (kind === 'transfer') {
+    if (id != null) throw new Refused(400, TRANSFER_CATEGORY);
+    return null;
+  }
   if (id == null) throw new Refused(400, 'Pick a category');
   const category = readCategory(model, id);
   const reason = whyNotInCategory(category, kind);
@@ -192,14 +226,27 @@ function countOn(model: Model, accountId: string, by: 1 | -1) {
   model.counts.set(accountId, count + by);
 }
 
+/** The accounts a transaction is on: the one it's from, and the one a transfer goes to */
+const sidesOf = (t: Pick<TransactionState, 'accountId' | 'toAccountId'>) =>
+  t.toAccountId == null ? [t.accountId] : [t.accountId, t.toAccountId];
+
 /**
- * Account ?2 (person ?1), if it has room for one more transaction, else NULL. Worked out
- * again as it's saved, against what's saved then: NULL is refused by NOT NULL, undoing
- * the whole batch, so two batches at once can't go over the limit between them.
+ * `accountId` (a parameter) for the account column, if each of `joining` (parameters:
+ * accounts it's newly on) has room for one more transaction, of person ?1, either side
+ * counted; else NULL. Worked out again as it's saved, against what's saved then: NULL is
+ * refused by NOT NULL, undoing the whole batch, so two batches at once can't go over the
+ * limit between them.
  */
-const ROOM_ON_ACCOUNT = `CASE WHEN (SELECT COUNT(*) FROM transactions
-                                    WHERE email = ?1 AND account_id = ?2)
-                               < ${MAX_TRANSACTIONS_PER_ACCOUNT} THEN ?2 END`;
+const withRoom = (accountId: string, joining: string[]) =>
+  joining.length === 0
+    ? accountId
+    : `CASE WHEN ${joining
+        .map(
+          (p) => `(SELECT COUNT(*) FROM transactions
+                   WHERE email = ?1 AND (account_id = ${p} OR to_account_id = ${p}))
+                  < ${MAX_TRANSACTIONS_PER_ACCOUNT}`,
+        )
+        .join(' AND ')} THEN ${accountId} END`;
 
 /** One change's statements, after checking it against the model, which it then updates */
 function changeStatements(
@@ -407,6 +454,7 @@ function changeStatements(
         'id',
         'kind',
         'accountId',
+        'toAccountId',
         'amountCents',
         'categoryId',
         'payee',
@@ -417,21 +465,37 @@ function changeStatements(
       if (model.transactions.has(t.id)) throw new Refused(409, 'That transaction already exists');
       const kind = readTransactionKind(t.kind);
       const accountId = readTransactionAccount(model, t.accountId);
+      const toAccountId = readDestination(model, kind, accountId, t.toAccountId, true);
       const amount = readAmount(t.amountCents);
       const categoryId = readTransactionCategory(model, t.categoryId, kind);
       const payee = readText(t.payee, MAX_PAYEE, 'payee');
       const note = readText(t.note, MAX_NOTE, 'note');
       const date = readDay(t.date, now);
-      countOn(model, accountId, 1);
-      model.transactions.set(t.id, { kind, accountId, categoryId });
+      const saved = { kind, accountId, toAccountId, categoryId };
+      for (const side of sidesOf(saved)) countOn(model, side, 1);
+      model.transactions.set(t.id, saved);
+      // ?1 the person, ?2 the account it's from, ?3 the one it goes to
+      const sides = toAccountId == null ? ['?2'] : ['?2', '?3'];
       return [
         db
           .prepare(
-            `INSERT INTO transactions (email, id, kind, account_id, amount_cents, category_id,
-                                       payee, note, date, created_at, updated_at)
-             SELECT ?1, ?3, ?4, ${ROOM_ON_ACCOUNT}, ?5, ?6, ?7, ?8, ?9, ?10, ?10`,
+            `INSERT INTO transactions (email, id, kind, account_id, to_account_id, amount_cents,
+                                       category_id, payee, note, date, created_at, updated_at)
+             SELECT ?1, ?4, ?5, ${withRoom('?2', sides)}, ?3, ?6, ?7, ?8, ?9, ?10, ?11, ?11`,
           )
-          .bind(email, accountId, t.id, kind, amount, categoryId, payee, note, date, now),
+          .bind(
+            email,
+            accountId,
+            toAccountId,
+            t.id,
+            kind,
+            amount,
+            categoryId,
+            payee,
+            note,
+            date,
+            now,
+          ),
       ];
     }
     case 'updateTransaction': {
@@ -440,6 +504,7 @@ function changeStatements(
         'id',
         'kind',
         'accountId',
+        'toAccountId',
         'amountCents',
         'categoryId',
         'payee',
@@ -450,23 +515,26 @@ function changeStatements(
       if (saved == null) throw new Refused(404, TRANSACTION_NOT_FOUND);
       const fields = Object.keys(change).filter((k) => k !== 'op' && k !== 'id');
       if (fields.length === 0) throw new Refused(400, 'Nothing to change');
-      // ?1 is the person and ?2 the account it moves to (ROOM_ON_ACCOUNT), if it moves
-      const values: (string | number | null)[] = [email, null];
+      // ?1 is the person
+      const values: (string | number | null)[] = [email];
+      const param = (value: string | number | null) => `?${values.push(value)}`;
       const sets: string[] = [];
-      const set = (column: string, value: string | number | null) => {
-        values.push(value);
-        sets.push(`${column} = ?${values.length}`);
-      };
+      const set = (column: string, value: string | number | null) =>
+        sets.push(`${column} = ${param(value)}`);
       const kind = 'kind' in change ? readTransactionKind(change.kind) : saved.kind;
-      if ('accountId' in change) {
-        const accountId = readTransactionAccount(model, change.accountId);
-        if (accountId !== saved.accountId) {
-          countOn(model, accountId, 1);
-          countOn(model, saved.accountId, -1);
-          values[1] = accountId;
-          sets.push(`account_id = ${ROOM_ON_ACCOUNT}`);
-          saved.accountId = accountId;
-        }
+      const accountId =
+        'accountId' in change ? readTransactionAccount(model, change.accountId) : saved.accountId;
+      // Where it goes, whenever the kind or either account changes
+      let toAccountId = saved.toAccountId;
+      if ('kind' in change || 'accountId' in change || 'toAccountId' in change) {
+        const given = 'toAccountId' in change;
+        toAccountId = readDestination(
+          model,
+          kind,
+          accountId,
+          given ? change.toAccountId : saved.toAccountId,
+          given,
+        );
       }
       // The kind and category go together: whichever changes, they're checked as a pair
       if ('kind' in change || 'categoryId' in change) {
@@ -480,17 +548,28 @@ function changeStatements(
         saved.kind = kind;
         saved.categoryId = categoryId;
       }
+      // Accounts it's newly on need room for it; ones it leaves have one fewer
+      const before = sidesOf(saved);
+      const after = sidesOf({ accountId, toAccountId });
+      const joining = after.filter((a) => !before.includes(a));
+      for (const side of joining) countOn(model, side, 1);
+      for (const side of before.filter((a) => !after.includes(a))) countOn(model, side, -1);
+      if (accountId !== saved.accountId || joining.length > 0) {
+        sets.push(`account_id = ${withRoom(param(accountId), joining.map(param))}`);
+      }
+      if (toAccountId !== saved.toAccountId) set('to_account_id', toAccountId);
+      saved.accountId = accountId;
+      saved.toAccountId = toAccountId;
       if ('amountCents' in change) set('amount_cents', readAmount(change.amountCents));
       if ('payee' in change) set('payee', readText(change.payee, MAX_PAYEE, 'payee'));
       if ('note' in change) set('note', readText(change.note, MAX_NOTE, 'note'));
       if ('date' in change) set('date', readDay(change.date, now));
       set('updated_at', now);
-      values.push(change.id as string);
       return [
         db
           .prepare(
             `UPDATE transactions SET ${sets.join(', ')}
-             WHERE email = ?1 AND id = ?${values.length}`,
+             WHERE email = ?1 AND id = ${param(change.id as string)}`,
           )
           .bind(...values),
       ];
@@ -500,7 +579,7 @@ function changeStatements(
       const saved = isRowId(change.id) ? model.transactions.get(change.id) : undefined;
       if (saved == null) throw new Refused(404, TRANSACTION_NOT_FOUND);
       model.transactions.delete(change.id as string);
-      countOn(model, saved.accountId, -1);
+      for (const side of sidesOf(saved)) countOn(model, side, -1);
       return [
         db.prepare('DELETE FROM transactions WHERE email = ? AND id = ?').bind(email, change.id),
       ];
@@ -568,6 +647,7 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
     if (!isObject(t)) continue;
     if (isRowId(t.id) && String(change.op).endsWith('Transaction')) named.add(t.id);
     if (isRowId(t.accountId)) addingTo.add(t.accountId);
+    if (isRowId(t.toAccountId)) addingTo.add(t.toAccountId);
   }
   const [accounts, savedCategories, transactions, counts] = await Promise.all([
     db
@@ -579,7 +659,8 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
       ? { results: [] }
       : db
           .prepare(
-            `SELECT id, kind, account_id AS accountId, category_id AS categoryId
+            `SELECT id, kind, account_id AS accountId, to_account_id AS toAccountId,
+                    category_id AS categoryId
              FROM transactions
              WHERE email = ? AND id IN (SELECT value FROM json_each(?))`,
           )
@@ -591,8 +672,9 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
           .prepare(
             `SELECT a.value AS id,
                     (SELECT COUNT(*) FROM transactions
-                     WHERE email = ? AND account_id = a.value) AS count
-             FROM json_each(?) a`,
+                     WHERE email = ?1
+                       AND (account_id = a.value OR to_account_id = a.value)) AS count
+             FROM json_each(?2) a`,
           )
           .bind(email, JSON.stringify([...addingTo]))
           .all<{ id: string; count: number }>(),

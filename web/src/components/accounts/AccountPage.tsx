@@ -2,12 +2,12 @@ import { Button } from '@mantine/core';
 import { CaretLeft, PencilSimple, Receipt } from '@phosphor-icons/react';
 import { useState } from 'react';
 import type { Account, Category, Transaction } from '@shared/api';
+import { balanceEffect } from '@shared/ledger';
 import { goUp } from '../../hooks/useRoute';
 import { useAccountTransactions, useAccounts, useCategories } from '../../ledger/useLedger';
 import { dayHeading } from '../../utils/date-input';
-import { categoryName } from '../common/category-name';
 import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
-import { signedMoney } from '../entry/entry-text';
+import { signedMoney, transactionTitle } from '../entry/entry-text';
 import Fab from '../ui/Fab';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import AccountForm from './AccountForm';
@@ -87,6 +87,7 @@ export default function AccountPage({ id }: { id: string }) {
       {account != null && (
         <Transactions
           account={account}
+          accounts={accounts ?? []}
           categories={categories ?? []}
           onOpen={(transaction) => setEntry({ transaction })}
         />
@@ -150,10 +151,12 @@ function Summary({ account, onEdit }: { account: Account; onEdit: () => void }) 
 
 function Transactions({
   account,
+  accounts,
   categories,
   onOpen,
 }: {
   account: Account;
+  accounts: Account[];
   categories: Category[];
   onOpen: (transaction: Transaction) => void;
 }) {
@@ -242,9 +245,9 @@ function Transactions({
             aria-label={dayHeading(day)}
           >
             {onDay.map((t) => {
-              const name = categoryName(categories, t.categoryId);
+              const name = transactionTitle(t, account.id, accounts, categories);
               const detail = [t.payee, t.note].filter(Boolean).join(' · ');
-              const amount = signedMoney(t, account.currency);
+              const amount = signedMoney(t, account.id, account.currency);
               return (
                 <li key={t.id}>
                   <button
@@ -259,7 +262,9 @@ function Transactions({
                     </span>
                     <span
                       className={
-                        t.kind === 'income' ? `${classes.amount} ${classes.income}` : classes.amount
+                        balanceEffect(t, account.id) > 0
+                          ? `${classes.amount} ${classes.income}`
+                          : classes.amount
                       }
                     >
                       {amount}

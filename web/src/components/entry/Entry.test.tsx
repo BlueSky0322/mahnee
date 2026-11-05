@@ -46,6 +46,7 @@ function seedTransaction(server: FakeServer, t: Partial<Transaction> = {}) {
     id: seeded.toString(16).padStart(16, 'd'),
     kind: 'expense',
     accountId: WALLET,
+    toAccountId: null,
     amountCents: 800,
     categoryId: categoryId('Food'),
     payee: null,
@@ -58,7 +59,7 @@ function seedTransaction(server: FakeServer, t: Partial<Transaction> = {}) {
 
 /** An account's row on Home, read out with its balance */
 const accountRow = (name: string, balance: string) =>
-  screen.findByRole('button', { name: new RegExp(`^${name}, \\w+, ${balance}$`) });
+  screen.findByRole('button', { name: new RegExp(`^${name}, [\\w-]+, ${balance}$`) });
 
 const dialog = async () => within(await screen.findByRole('dialog'));
 
@@ -443,5 +444,211 @@ describe("an account's page", () => {
     await user.click(screen.getByRole('button', { name: 'Edit' }));
     await user.click((await dialog()).getByRole('button', { name: 'Bring back' }));
     expect(await screen.findByRole('button', { name: 'Add' })).toBeTruthy();
+  });
+});
+
+describe('moving money between accounts', () => {
+  const TNG = 'c'.repeat(16);
+  const VISA = 'f'.repeat(16);
+
+  /** RM 1,000 in the Bank, an empty TNG e-wallet, and RM 500 owed on a Visa card */
+  function withTransferAccounts() {
+    const server = fakeServer();
+    seedAccount(server, { id: BANK, name: 'Bank', kind: 'bank', openingCents: 100_000 });
+    seedAccount(server, { id: TNG, name: 'TNG', kind: 'ewallet' });
+    seedAccount(server, { id: VISA, name: 'Visa', kind: 'card', openingCents: -50_000 });
+    return server;
+  }
+
+  /** Adds a transfer from Home: the amount, Transfer, then From and To */
+  async function addTransfer(amount: string, from: string, to: string) {
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    const form = await dialog();
+    await user.type(form.getByLabelText('Amount'), amount);
+    await user.click(form.getByRole('radio', { name: 'Transfer' }));
+    // No category: it's neither spending nor income
+    expect(form.queryByRole('radiogroup', { name: 'Category' })).toBeNull();
+    await user.selectOptions(form.getByLabelText('From'), from);
+    await user.selectOptions(form.getByLabelText('To'), to);
+    await user.click(form.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  }
+
+  /** A transfer the server has before the app opens: RM 100 from the Bank to TNG */
+  const seedTopUp = (server: FakeServer) =>
+    seedTransaction(server, {
+      kind: 'transfer',
+      accountId: BANK,
+      toAccountId: TNG,
+      amountCents: 10_000,
+      categoryId: null,
+    });
+
+  test.each(SIZES)(
+    'tops up an e-wallet by RM 100 from the bank, then spends RM 30 from it (%s)',
+    async (size) => {
+      const server = withTransferAccounts();
+      renderApp(server, '/', { size });
+      const user = userEvent.setup();
+
+      await addTransfer('100', 'Bank', 'TNG');
+      expect(await accountRow('TNG', 'RM 100.00')).toBeTruthy();
+      expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();
+
+      await user.click(await screen.findByRole('button', { name: 'Add' }));
+      const form = await dialog();
+      await user.type(form.getByLabelText('Amount'), '30');
+      await user.selectOptions(form.getByLabelText('Account'), 'TNG');
+      await user.click(form.getByRole('button', { name: 'Save' }));
+
+      expect(await accountRow('TNG', 'RM 70.00')).toBeTruthy();
+      expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();
+      await waitFor(() =>
+        expect(server.transactions).toEqual([
+          expect.objectContaining({
+            kind: 'transfer',
+            accountId: BANK,
+            toAccountId: TNG,
+            amountCents: 10_000,
+            categoryId: null,
+          }),
+          expect.objectContaining({ kind: 'expense', accountId: TNG, amountCents: 3_000 }),
+        ]),
+      );
+
+      // Each account's page shows it from its own side
+      await user.click(await accountRow('TNG', 'RM 70.00'));
+      expect(await screen.findByRole('button', { name: 'From Bank, +RM 100.00' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Food, −RM 30.00' })).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: 'Home' }));
+      await user.click(await accountRow('Bank', 'RM 900.00'));
+      expect(await screen.findByRole('button', { name: 'To TNG, −RM 100.00' })).toBeTruthy();
+    },
+  );
+
+  test('pays the card from the bank, lowering what is owed on it', async () => {
+    const server = withTransferAccounts();
+    renderApp(server, '/', { size: 'phone' });
+    const user = userEvent.setup();
+
+    await addTransfer('200', 'Bank', 'Visa');
+    expect(await accountRow('Visa', 'RM 300.00 owed')).toBeTruthy();
+    expect(await accountRow('Bank', 'RM 800.00')).toBeTruthy();
+    await user.click(await accountRow('Visa', 'RM 300.00 owed'));
+    expect(await screen.findByRole('button', { name: 'From Bank, +RM 200.00' })).toBeTruthy();
+    await waitFor(() =>
+      expect(server.transactions).toEqual([
+        expect.objectContaining({ accountId: BANK, toAccountId: VISA, amountCents: 20_000 }),
+      ]),
+    );
+  });
+
+  test('offers the account moved to last, never the one it comes from', async () => {
+    const server = withTransferAccounts();
+    renderApp(server);
+    const user = userEvent.setup();
+
+    await addTransfer('50', 'Bank', 'Visa');
+    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    const form = await dialog();
+    await user.click(form.getByRole('radio', { name: 'Transfer' }));
+    expect(form.getByLabelText('To')).toHaveProperty('value', VISA);
+    // From the Visa itself, it goes somewhere else, and the Visa isn't offered
+    await user.selectOptions(form.getByLabelText('From'), 'Visa');
+    const to = form.getByLabelText('To');
+    expect(to).toHaveProperty('value', BANK);
+    expect(within(to).queryByRole('option', { name: 'Visa' })).toBeNull();
+  });
+
+  test.each(SIZES)("edits a transfer's amount, both balances following (%s)", async (size) => {
+    const server = withTransferAccounts();
+    seedTopUp(server);
+    renderApp(server, `/?account=${BANK}`, { size });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'To TNG, −RM 100.00' }));
+    const form = await dialog();
+    expect(form.getByRole('radio', { name: 'Transfer' })).toHaveProperty('checked', true);
+    expect(form.getByLabelText('From')).toHaveProperty('value', BANK);
+    expect(form.getByLabelText('To')).toHaveProperty('value', TNG);
+    await user.clear(form.getByLabelText('Amount'));
+    await user.type(form.getByLabelText('Amount'), '150');
+    await user.click(form.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByRole('button', { name: 'To TNG, −RM 150.00' })).toBeTruthy();
+    expect(screen.getByLabelText('Balance RM 850.00')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Home' }));
+    expect(await accountRow('TNG', 'RM 150.00')).toBeTruthy();
+    await waitFor(() =>
+      expect(server.transactions).toEqual([
+        expect.objectContaining({ kind: 'transfer', toAccountId: TNG, amountCents: 15_000 }),
+      ]),
+    );
+  });
+
+  test.each(SIZES)(
+    'deletes a transfer, and Undo brings it back on both accounts (%s)',
+    async (size) => {
+      const server = withTransferAccounts();
+      seedTopUp(server);
+      const id = server.transactions[0].id;
+      renderApp(server, `/?account=${TNG}`, { size });
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole('button', { name: 'From Bank, +RM 100.00' }));
+      await user.click((await dialog()).getByRole('button', { name: 'Delete' }));
+      expect(await screen.findByText('Nothing here yet')).toBeTruthy();
+      expect(screen.getByLabelText('Balance RM 0.00')).toBeTruthy();
+      await waitFor(() => expect(server.transactions).toEqual([]));
+
+      expect(await screen.findByText('Deleted RM 100.00, Bank to TNG')).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: 'Undo' }));
+      expect(await screen.findByRole('button', { name: 'From Bank, +RM 100.00' })).toBeTruthy();
+      expect(screen.getByLabelText('Balance RM 100.00')).toBeTruthy();
+      await waitFor(() =>
+        expect(server.transactions).toEqual([
+          expect.objectContaining({ id, accountId: BANK, toAccountId: TNG, amountCents: 10_000 }),
+        ]),
+      );
+      await user.click(screen.getByRole('button', { name: 'Home' }));
+      expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();
+    },
+  );
+
+  test('keeps a transfer made offline through a reload, and saves it once back', async () => {
+    const server = withTransferAccounts();
+    renderApp(server, '/', { size: 'phone' });
+    const user = userEvent.setup();
+    // The e-wallet's page was seen once, so its first page is kept on the device
+    await user.click(await accountRow('TNG', 'RM 0.00'));
+    expect(await screen.findByText('Nothing here yet')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Home' }));
+    await accountRow('TNG', 'RM 0.00');
+
+    server.health = 'unreachable';
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    onTestFinished(() => onLine.mockRestore());
+    act(() => void window.dispatchEvent(new Event('offline')));
+    await addTransfer('100', 'Bank', 'TNG');
+    expect(await screen.findByText(`${OFFLINE} 1 change waiting.`)).toBeTruthy();
+
+    await reloadApp(server, '/', { size: 'phone' });
+    expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();
+    // The e-wallet's page shows it coming in, from what the device kept
+    await user.click(await accountRow('TNG', 'RM 100.00'));
+    expect(await screen.findByRole('button', { name: 'From Bank, +RM 100.00' })).toBeTruthy();
+    expect(server.transactions).toEqual([]);
+
+    server.health = 'up';
+    onLine.mockReturnValue(true);
+    act(() => void window.dispatchEvent(new Event('online')));
+    await waitFor(() => expect(server.transactions).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText(/changes? waiting/)).toBeNull());
+    expect(sentTransactions()).toHaveLength(1);
+    expect(screen.getByLabelText('Balance RM 100.00')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'From Bank, +RM 100.00' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Home' }));
+    expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();
   });
 });

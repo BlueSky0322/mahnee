@@ -31,7 +31,8 @@ interface CategoryRow {
 /**
  * Every account of `email`, archived ones too, in their order. A balance is the opening
  * balance, plus what came in and less what was spent, summed for every account at once.
- * On a card, spending makes the amount owed (below zero) grow.
+ * A transfer is taken from the account it left and added to the one it went to. On a
+ * card, spending makes the amount owed (below zero) grow, and paying it off shrinks it.
  */
 async function listAccounts(db: D1Database, email: string): Promise<Account[]> {
   const { results } = await db
@@ -42,12 +43,16 @@ async function listAccounts(db: D1Database, email: string): Promise<Account[]> {
               a.position, a.archived
        FROM accounts a
        LEFT JOIN (
-         SELECT account_id,
-                SUM(CASE kind WHEN 'income' THEN amount_cents
-                              WHEN 'expense' THEN -amount_cents ELSE 0 END) AS net
-         FROM transactions WHERE email = ?1
-         GROUP BY account_id
-       ) t ON t.account_id = a.id
+         SELECT id, SUM(cents) AS net FROM (
+           SELECT account_id AS id,
+                  CASE kind WHEN 'income' THEN amount_cents ELSE -amount_cents END AS cents
+           FROM transactions WHERE email = ?1
+           UNION ALL
+           SELECT to_account_id, amount_cents
+           FROM transactions WHERE email = ?1 AND kind = 'transfer'
+         )
+         GROUP BY id
+       ) t ON t.id = a.id
        WHERE a.email = ?1
        ORDER BY a.position, a.created_at, a.id`,
     )
@@ -86,7 +91,8 @@ export async function readLedger(db: D1Database, email: string): Promise<Ledger>
 export const PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 200;
 
-const TRANSACTION_COLUMNS = `id, kind, account_id AS accountId, amount_cents AS amountCents,
+const TRANSACTION_COLUMNS = `id, kind, account_id AS accountId, to_account_id AS toAccountId,
+  amount_cents AS amountCents,
   category_id AS categoryId, payee, note, date, created_at AS createdAt`;
 
 /**
@@ -102,7 +108,8 @@ const MONTH_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
 /**
  * GET /api/transactions: a page of the person's transactions, newest first, either one
- * account's (?account=) or every account's in a month (?month=2026-11). ?before= is the
+ * account's (?account=; a transfer is on both its accounts) or every account's in a
+ * month (?month=2026-11; a transfer once). ?before= is the
  * nextBefore of the page before; ?limit= is how many, PAGE_SIZE unless said. Someone
  * else's account is answered as one that doesn't exist.
  */
@@ -130,8 +137,8 @@ export async function listTransactions(
       .bind(email, account)
       .first();
     if (found == null) return fail('Account not found', 404);
-    where.push('account_id = ?');
-    values.push(account);
+    where.push('(account_id = ? OR to_account_id = ?)');
+    values.push(account, account);
   } else {
     if (month == null || !MONTH_PATTERN.test(month)) return fail('Give a month, like 2026-11', 400);
     where.push('date BETWEEN ? AND ?');

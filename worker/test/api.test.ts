@@ -877,6 +877,15 @@ describe('transactions', () => {
       ...more,
     },
   });
+  /** Money moved from one account to another */
+  const move = (
+    id: string,
+    accountId: string,
+    toAccountId: string,
+    amountCents: number,
+    more: Record<string, unknown> = {},
+  ) =>
+    add(id, accountId, amountCents, { kind: 'transfer', toAccountId, categoryId: null, ...more });
   const page = (who: string, query: string) => api.call(who, 'GET', `/api/transactions?${query}`);
   const listed = async (who: string, account: string) => {
     const res = await page(who, `account=${account}`);
@@ -913,6 +922,7 @@ describe('transactions', () => {
       id: coffee,
       kind: 'expense',
       accountId: wallet,
+      toAccountId: null,
       amountCents: 800,
       categoryId: food,
       payee: 'Kopi Corner',
@@ -996,6 +1006,89 @@ describe('transactions', () => {
     expect(await balances(me)).toEqual({ [wallet]: 10_000, [bank]: -800 });
     expect(await listed(me, wallet)).toEqual([]);
     expect(await listed(me, bank)).toEqual([expect.objectContaining({ id, date: '2025-10-01' })]);
+  });
+
+  it('moves money between accounts: never spending, both balances following each change', async () => {
+    const me = person('me');
+    const [bank, tng, wallet, topUp, coffee] = [rowId(), rowId(), rowId(), rowId(), rowId()];
+    await send(me, [
+      addAccount(bank, 'bank', 100_000, 'Bank'),
+      addAccount(tng, 'ewallet', 0, 'TNG'),
+      addAccount(wallet, 'cash', 0),
+    ]);
+    // Top up the e-wallet by RM 100 from the bank, then spend RM 30 from it
+    expect(await send(me, [move(topUp, bank, tng, 10_000, { payee: ' TNG top-up ' })])).toEqual({
+      status: 200,
+      data: { ok: true },
+    });
+    await send(me, [add(coffee, tng, 3_000, { date: '2025-10-15' })]);
+    expect(await balances(me)).toEqual({ [bank]: 90_000, [tng]: 7_000, [wallet]: 0 });
+    const saved = {
+      id: topUp,
+      kind: 'transfer',
+      accountId: bank,
+      toAccountId: tng,
+      amountCents: 10_000,
+      categoryId: null,
+      payee: 'TNG top-up',
+      note: null,
+      date: DAY,
+      createdAt: expect.any(Number),
+    };
+    // On both accounts' pages, and once in the month beside the spending
+    expect(await listed(me, bank)).toEqual([saved]);
+    expect((await listed(me, tng)).map((t) => t.id)).toEqual([coffee, topUp]);
+    expect(await listed(me, wallet)).toEqual([]);
+    const month = await page(me, 'month=2025-10');
+    expect(
+      month.data.transactions.map((t: { id: string; kind: string }) => [t.id, t.kind]),
+    ).toEqual([
+      [coffee, 'expense'],
+      [topUp, 'transfer'],
+    ]);
+
+    await send(me, [{ op: 'updateTransaction', id: topUp, amountCents: 15_000 }]);
+    expect(await balances(me)).toEqual({ [bank]: 85_000, [tng]: 12_000, [wallet]: 0 });
+    // Sent to the wallet instead: the e-wallet gives it back, and it leaves the e-wallet's page
+    await send(me, [{ op: 'updateTransaction', id: topUp, toAccountId: wallet }]);
+    expect(await balances(me)).toEqual({ [bank]: 85_000, [tng]: -3_000, [wallet]: 15_000 });
+    expect((await listed(me, tng)).map((t) => t.id)).toEqual([coffee]);
+    expect((await listed(me, wallet)).map((t) => t.id)).toEqual([topUp]);
+    // Turned around: from the wallet to the bank
+    await send(me, [{ op: 'updateTransaction', id: topUp, accountId: wallet, toAccountId: bank }]);
+    expect(await balances(me)).toEqual({ [bank]: 115_000, [tng]: -3_000, [wallet]: -15_000 });
+
+    await send(me, [{ op: 'removeTransaction', id: topUp }]);
+    expect(await balances(me)).toEqual({ [bank]: 100_000, [tng]: -3_000, [wallet]: 0 });
+    expect(await listed(me, bank)).toEqual([]);
+    expect(await listed(me, wallet)).toEqual([]);
+  });
+
+  it('pays a card from the bank, lowering what is owed; a cash advance raises it', async () => {
+    const me = person('me');
+    const [bank, card] = [rowId(), rowId()];
+    await send(me, [addAccount(bank, 'bank', 100_000, 'Bank'), addAccount(card, 'card', -50_000)]);
+    await send(me, [move(rowId(), bank, card, 20_000)]);
+    expect(await balances(me)).toEqual({ [bank]: 80_000, [card]: -30_000 });
+    await send(me, [move(rowId(), card, bank, 5_000)]);
+    expect(await balances(me)).toEqual({ [bank]: 85_000, [card]: -35_000 });
+  });
+
+  it('turns spending into a transfer and back, the category going with the kind', async () => {
+    const { me, wallet } = await withWallet();
+    const [bank, id] = [rowId(), rowId()];
+    await send(me, [addAccount(bank, 'bank', 0, 'Bank'), add(id, wallet, 800)]);
+    await send(me, [
+      { op: 'updateTransaction', id, kind: 'transfer', categoryId: null, toAccountId: bank },
+    ]);
+    expect(await balances(me)).toEqual({ [wallet]: 9_200, [bank]: 800 });
+    expect((await listed(me, bank))[0]).toMatchObject({ kind: 'transfer', categoryId: null });
+    await send(me, [
+      { op: 'updateTransaction', id, kind: 'income', categoryId: salary, toAccountId: null },
+    ]);
+    expect(await balances(me)).toEqual({ [wallet]: 10_800, [bank]: 0 });
+    expect(await listed(me, bank)).toEqual([]);
+    expect((await listed(me, wallet))[0]).toMatchObject({ kind: 'income', toAccountId: null });
   });
 
   const tomorrow = rateDay(Date.now() + 864e5);
@@ -1111,10 +1204,40 @@ describe('transactions', () => {
       'A note can be up to 500 characters',
     ],
     [
-      'a transfer, for now',
-      ({ wallet }) => add(rowId(), wallet, 8, { kind: 'transfer', categoryId: null }),
+      'a transfer to the account it comes from',
+      ({ wallet }) => move(rowId(), wallet, wallet, 8),
       400,
-      "Transfers can't be saved yet",
+      'Move it between two different accounts',
+    ],
+    [
+      "a transfer to someone else's account",
+      ({ wallet, theirAccount }) => move(rowId(), wallet, theirAccount, 8),
+      404,
+      'Account not found',
+    ],
+    [
+      'a transfer to an archived account',
+      ({ wallet, archived }) => move(rowId(), wallet, archived, 8),
+      409,
+      'Old purse is archived',
+    ],
+    [
+      'a transfer in a category',
+      ({ wallet, bank }) => move(rowId(), wallet, bank, 8, { categoryId: food }),
+      400,
+      'A transfer has no category',
+    ],
+    [
+      'a transfer going nowhere',
+      ({ wallet }) => move(rowId(), wallet, null as unknown as string, 8),
+      400,
+      'Pick the account it goes to',
+    ],
+    [
+      'spending that goes to another account',
+      ({ wallet, bank }) => add(rowId(), wallet, 8, { toAccountId: bank }),
+      400,
+      'Only a transfer goes to another account',
     ],
     [
       'a kind that does not exist',
@@ -1165,10 +1288,39 @@ describe('transactions', () => {
       'Nothing to change',
     ],
     [
-      'a change into a transfer',
-      ({ mine }) => ({ op: 'updateTransaction', id: mine, kind: 'transfer', categoryId: null }),
+      'spending turned into a transfer that keeps its category',
+      ({ mine, bank }) => ({
+        op: 'updateTransaction',
+        id: mine,
+        kind: 'transfer',
+        toAccountId: bank,
+      }),
       400,
-      "Transfers can't be saved yet",
+      'A transfer has no category',
+    ],
+    [
+      'a transfer turned into spending with no category',
+      ({ moved }) => ({ op: 'updateTransaction', id: moved, kind: 'expense', toAccountId: null }),
+      400,
+      'Pick a category',
+    ],
+    [
+      'a transfer turned into spending that still goes to another account',
+      ({ moved }) => ({ op: 'updateTransaction', id: moved, kind: 'expense', categoryId: food }),
+      400,
+      'Only a transfer goes to another account',
+    ],
+    [
+      'a transfer moved onto the account it goes to',
+      ({ moved, bank }) => ({ op: 'updateTransaction', id: moved, accountId: bank }),
+      400,
+      'Move it between two different accounts',
+    ],
+    [
+      'a transfer sent to an archived account',
+      ({ moved, archived }) => ({ op: 'updateTransaction', id: moved, toAccountId: archived }),
+      409,
+      'Old purse is archived',
     ],
     [
       'a move to an archived account',
@@ -1184,12 +1336,14 @@ describe('transactions', () => {
     ],
   ])('refuses %s, saving nothing', async (_what, change, status, error) => {
     const { me, wallet } = await withWallet();
-    const [archived, mine] = [rowId(), rowId()];
+    const [archived, mine, bank, moved] = [rowId(), rowId(), rowId(), rowId()];
     await send(me, [
       addAccount(archived, 'cash', 0, 'Old purse'),
+      addAccount(bank, 'bank', 0, 'Bank'),
       { op: 'archiveAccount', id: archived, archived: true },
       { op: 'archiveCategory', id: transport, archived: true },
       add(mine, wallet, 500),
+      move(moved, wallet, bank, 2_000),
     ]);
     const other = person('other');
     const [theirAccount, theirCategory, theirs] = [rowId(), rowId(), rowId()];
@@ -1201,13 +1355,13 @@ describe('transactions', () => {
       },
       add(theirs, theirAccount, 300),
     ]);
-    const before = [await listed(me, wallet), await balances(me)];
+    const before = [await listed(me, wallet), await listed(me, bank), await balances(me)];
 
     const res = await send(me, [
-      change({ wallet, archived, mine, theirAccount, theirCategory, theirs }),
+      change({ wallet, archived, mine, bank, moved, theirAccount, theirCategory, theirs }),
     ]);
     expect(res).toEqual({ status, data: { error } });
-    expect([await listed(me, wallet), await balances(me)]).toEqual(before);
+    expect([await listed(me, wallet), await listed(me, bank), await balances(me)]).toEqual(before);
     expect(await listed(other, theirAccount)).toEqual([
       expect.objectContaining({ id: theirs, amountCents: 300 }),
     ]);
@@ -1315,6 +1469,8 @@ describe('transactions', () => {
     expect(await send(me, [{ op: 'updateTransaction', id: moving, accountId: wallet }])).toEqual(
       full,
     );
+    // A transfer counts on the account it goes to as well
+    expect(await send(me, [move(rowId(), bank, wallet, 1)])).toEqual(full);
     // Room again once one is deleted, and other accounts are never held back
     const [first] = await listed(me, wallet);
     expect(
@@ -1328,31 +1484,35 @@ describe('transactions', () => {
     ).toBe(200);
   }, 60_000);
 
-  it('counts a transaction sent again once', async () => {
+  it('counts a transaction sent again once, a transfer on both its accounts', async () => {
     const { me, wallet } = await withWallet();
-    const [coffee, changeId] = [rowId(), rowId()];
-    await send(me, [add(coffee, wallet, 800)], [changeId]);
+    const [bank, topUp, changeId] = [rowId(), rowId(), rowId()];
+    await send(me, [addAccount(bank, 'bank', 0, 'Bank')]);
+    await send(me, [move(topUp, wallet, bank, 800)], [changeId]);
     // Its answer lost, the app sends it again, with an edit after it
     const again = await send(
       me,
-      [add(coffee, wallet, 800), { op: 'updateTransaction', id: coffee, amountCents: 900 }],
+      [move(topUp, wallet, bank, 800), { op: 'updateTransaction', id: topUp, amountCents: 900 }],
       [changeId, rowId()],
     );
     expect(again).toEqual({ status: 200, data: { ok: true } });
     expect(await listed(me, wallet)).toEqual([expect.objectContaining({ amountCents: 900 })]);
-    expect((await balances(me))[wallet]).toBe(9_100);
+    expect(await listed(me, bank)).toEqual([expect.objectContaining({ amountCents: 900 })]);
+    expect(await balances(me)).toEqual({ [wallet]: 9_100, [bank]: 900 });
   });
 
   it('saves a batch of accounts, categories and transactions all or nothing', async () => {
     const me = person('me');
-    const [wallet, coffee] = [rowId(), rowId()];
+    const [wallet, coffee, bank] = [rowId(), rowId(), rowId()];
     const res = await send(me, [
       addAccount(wallet),
+      addAccount(bank, 'bank', 0, 'Bank'),
       {
         op: 'addCategory',
         category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
       },
       add(rowId(), wallet, 800, { categoryId: coffee }),
+      move(rowId(), bank, wallet, 5_000),
       add(rowId(), wallet, 0),
     ]);
     expect(res.status).toBe(400);
@@ -1361,16 +1521,19 @@ describe('transactions', () => {
       categories: [],
     });
 
-    // In order, a transaction can follow the account and subcategory added before it
+    // In order, a transaction can follow the accounts and subcategory added before it
     const ok = await send(me, [
       addAccount(wallet),
+      addAccount(bank, 'bank', 0, 'Bank'),
       {
         op: 'addCategory',
         category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
       },
       add(rowId(), wallet, 800, { categoryId: coffee }),
+      move(rowId(), bank, wallet, 5_000),
     ]);
     expect(ok.status).toBe(200);
-    expect(await listed(me, wallet)).toEqual([expect.objectContaining({ categoryId: coffee })]);
+    expect((await listed(me, wallet)).map((t) => t.categoryId).sort()).toEqual([coffee, null]);
+    expect(await balances(me)).toEqual({ [wallet]: 4_200, [bank]: -5_000 });
   });
 });

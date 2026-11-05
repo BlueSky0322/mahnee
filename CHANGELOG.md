@@ -42,6 +42,13 @@ Release heading format:
 
 <!-- New features or capabilities. -->
 
+- Transactions: move money between your own accounts with Transfer in the entry sheet
+  (From and To, no category; To offers the account you moved to last): top up an
+  e-wallet from the bank, or pay off a card, which lowers what's owed. Both balances
+  follow, the transfer shows on both accounts' pages ("To Visa", "From Maybank"), and it
+  is never counted as spending or income. Edit, delete with Undo and offline work as for
+  other transactions. `GET /api/transactions` rows now carry `toAccountId`, and an
+  account's list includes transfers into it.
 - Transactions: log money spent or received from a quick entry sheet (Add, on Home and
   on each account's page): the amount first, then Spent or Received, the account and
   category used last (subcategories under their category), the day, and a payee and note

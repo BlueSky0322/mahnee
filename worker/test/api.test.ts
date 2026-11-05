@@ -1520,13 +1520,16 @@ describe('transactions', () => {
     }
     const summary = async (who: string) => (await api.call(who, 'GET', '/api/export/summary')).data;
 
-    it('holds every transaction of the person’s, oldest first, names as they are now', async () => {
+    it('holds every opening balance and transaction of the person’s, names as they are now', async () => {
       const { me, wallet } = await withWallet();
-      const [bank, card, coffee] = [rowId(), rowId(), rowId()];
+      const [bank, card, savings, coffee] = [rowId(), rowId(), rowId(), rowId()];
       const [early, kopi, pay, topUp, latte] = [rowId(), rowId(), rowId(), rowId(), rowId()];
       await send(me, [
         addAccount(bank, 'bank', 0, 'Maybank'),
-        addAccount(card, 'card', 0, 'Old card'),
+        // What's owed on it: below zero
+        addAccount(card, 'card', -32_000, 'Old card'),
+        // Nothing logged on it, but its opening balance is still part of the history
+        addAccount(savings, 'bank', 150_000, 'Savings'),
         {
           op: 'addCategory',
           category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
@@ -1563,9 +1566,16 @@ describe('transactions', () => {
         `attachment; filename="mahnee-${new Date().toISOString().slice(0, 10)}.csv"`,
       );
       expect(file.headers.get('Cache-Control')).toBe('no-store');
+      // Accounts are dated the day they were added, in UTC: today
+      const added = new Date().toISOString().slice(0, 10);
       expect(file.text).toBe(
-        '﻿' +
+        '\uFEFF' +
           HEADER +
+          `${added},Opening balance,Purse,,100.00,MYR,,,,,${wallet}\r\n` +
+          `${added},Opening balance,Maybank,,0.00,MYR,,,,,${bank}\r\n` +
+          // A negative amount stays a number: no ' in front of it
+          `${added},Opening balance,Old card,,-320.00,MYR,,,,,${card}\r\n` +
+          `${added},Opening balance,Savings,,1500.00,MYR,,,,,${savings}\r\n` +
           `2025-09-15,Spent,Old card,,0.05,MYR,Transport,,,,${early}\r\n` +
           `2025-10-01,Spent,Purse,,8.00,MYR,Food,,"Kopi, ""Corner""\nSS2",,${kopi}\r\n` +
           // A cell a spreadsheet would run as a formula starts with ' instead
@@ -1577,7 +1587,7 @@ describe('transactions', () => {
         transactions: 5,
         firstDate: '2025-09-15',
         lastDate: '2025-10-04',
-        accounts: 3,
+        accounts: 4,
         // The ten defaults and Coffee
         categories: 11,
       });
@@ -1587,7 +1597,7 @@ describe('transactions', () => {
       const me = person('me');
       const file = await download(me);
       expect(file.status).toBe(200);
-      expect(file.text).toBe('﻿' + HEADER);
+      expect(file.text).toBe('\uFEFF' + HEADER);
       expect(await summary(me)).toEqual({
         transactions: 0,
         firstDate: null,
@@ -1610,7 +1620,8 @@ describe('transactions', () => {
         wallet,
         food,
       );
-      const lines = (await download(me)).text.split('\r\n').slice(1, -1);
+      // After the header and the wallet's opening balance
+      const lines = (await download(me)).text.split('\r\n').slice(2, -1);
       const ids = lines.map((line) => line.split(',').at(-1));
       expect(ids).toEqual(
         Array.from({ length: 2001 }, (_, i) => (i + 1).toString(16).padStart(16, '0')),

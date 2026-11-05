@@ -50,7 +50,14 @@ import {
   whyNotInCategory,
   whyNotOnAccount,
 } from '@shared/ledger';
-import { CSV_BOM, EXPORT_COLUMNS, csvLine, exportCells, exportFileName } from '@shared/export';
+import {
+  CSV_BOM,
+  EXPORT_COLUMNS,
+  csvLine,
+  exportCells,
+  exportFileName,
+  openingCells,
+} from '@shared/export';
 import { rateDay } from '@shared/rates';
 import { Root } from '../Root';
 import { queryClient } from '../query-client';
@@ -96,6 +103,12 @@ function stubBrowser() {
   Element.prototype.scrollIntoView = () => {};
 }
 
+/**
+ * An account as the stand-in keeps it: as listed, but for its balance, which is worked
+ * out, and with when it was added (ms; 0 unless a test says), which only the export shows
+ */
+type FakeAccount = Omit<Account, 'balanceCents'> & { createdAt?: number };
+
 /** The data the stand-in server holds; tests set it up and read it back */
 export interface FakeServer {
   /**
@@ -114,7 +127,7 @@ export interface FakeServer {
    * balance is worked out from the opening balance and the transactions, as the real
    * server does
    */
-  accounts: Omit<Account, 'balanceCents'>[];
+  accounts: FakeAccount[];
   /** The person's transactions as the server keeps them */
   transactions: Transaction[];
   /**
@@ -254,7 +267,7 @@ function answerNow(server: FakeServer) {
     if (path === '/api/accounts' && method === 'GET') {
       const accounts = [...server.accounts]
         .sort((a, b) => a.position - b.position)
-        .map((a) => ({ ...a, balanceCents: balanceOf(server, a) }));
+        .map(({ createdAt: _added, ...a }) => ({ ...a, balanceCents: balanceOf(server, a) }));
       const categories = [...server.categories].sort(
         (a, b) => a.position - b.position || (a.id < b.id ? -1 : 1),
       );
@@ -341,19 +354,23 @@ function summarize(server: FakeServer, month: string): MonthSummary {
 }
 
 /**
- * GET /api/export as the real one (worker/ledger/export.ts) writes it: every transaction,
- * oldest first (by day, time saved, then id), under a header line, with names as they are
+ * GET /api/export as the real one (worker/ledger/export.ts) writes it: under a header
+ * line, each account's opening balance in the person's order, then every transaction,
+ * oldest first (by day, time saved, then id), with names as they are
  */
 function exportFile(server: FakeServer) {
   const names = {
     accounts: new Map(server.accounts.map((a) => [a.id, a])),
     categories: new Map(server.categories.map((c) => [c.id, c])),
   };
+  const openings = [...server.accounts]
+    .sort((a, b) => a.position - b.position)
+    .map((a) => csvLine(openingCells({ ...a, createdAt: a.createdAt ?? 0 })));
   const lines = [...server.transactions]
     .sort((a, b) => -newestFirst(a, b))
     .map((t) => csvLine(exportCells(t, names)));
   return Promise.resolve(
-    new Response(CSV_BOM + csvLine(EXPORT_COLUMNS) + lines.join(''), {
+    new Response(CSV_BOM + csvLine(EXPORT_COLUMNS) + openings.join('') + lines.join(''), {
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="${exportFileName(rateDay(Date.now()))}"`,
@@ -478,6 +495,7 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
         openingCents,
         position,
         archived: false,
+        createdAt: Date.now(),
       });
       continue;
     }
@@ -578,7 +596,7 @@ function saveCategoryChange(
  * or the refusal's status and explanation
  */
 function saveTransactionChange(
-  accounts: Omit<Account, 'balanceCents'>[],
+  accounts: FakeAccount[],
   categories: Category[],
   transactions: Transaction[],
   change: Extract<

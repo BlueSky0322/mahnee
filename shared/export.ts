@@ -1,5 +1,6 @@
-// The file a person downloads to take their whole history with them: every transaction
-// as one line of a CSV file, which Excel, Numbers and Google Sheets open. The Worker
+// The file a person downloads to take their whole history with them: each account's
+// opening balance, then every transaction, one line each of a CSV file, which Excel,
+// Numbers and Google Sheets open. Every balance can be worked out again from it. The Worker
 // writes it (worker/ledger/export.ts) and the app's test stand-in the same way.
 //
 // Names are written as they are now: an account renamed since shows its new name on
@@ -30,25 +31,39 @@ export const EXPORT_KINDS: Record<TransactionKind, string> = {
   transfer: 'Transfer',
 };
 
+/** The kind written on an account's opening balance line */
+export const OPENING_KIND = 'Opening balance';
+
 /**
  * Written first, before the header. Excel takes a CSV file without it for the computer's
  * own older encoding, which garbles "RM", accented and non-Latin names; with it, every
  * spreadsheet reads the file as UTF-8. Other programs skip it.
  */
-export const CSV_BOM = '﻿';
+export const CSV_BOM = '\uFEFF';
 
 /** The file's name for the day it was made (2026-11-05): mahnee-2026-11-05.csv */
 export const exportFileName = (day: string) => `mahnee-${day}.csv`;
 
 /**
  * Whole cents written as an amount, 123450 as "1234.50", worked on the digits alone so
- * no amount is ever rounded. Amounts are never below zero; the kind says which way the
- * money went.
+ * no amount is ever rounded. A transaction's amount is never below zero (its kind says
+ * which way the money went); an opening balance is, for what's owed (-32000 as "-320.00").
  */
 export function centsText(cents: number): string {
-  const digits = String(cents).padStart(3, '0');
-  return `${digits.slice(0, -2)}.${digits.slice(-2)}`;
+  const digits = String(Math.abs(cents)).padStart(3, '0');
+  return `${cents < 0 ? '-' : ''}${digits.slice(0, -2)}.${digits.slice(-2)}`;
 }
+
+/**
+ * A cell holding a number this file wrote (an amount), as opposed to text: it's written
+ * as it is, so "-320.00" stays a number a spreadsheet can add up
+ */
+export interface NumberCell {
+  number: string;
+}
+
+/** A cell: text (names, payees, notes, and the rest), or a number this file wrote */
+export type Cell = string | NumberCell;
 
 /**
  * Text a spreadsheet would run as a formula if a cell began with it: a payee of
@@ -57,17 +72,48 @@ export function centsText(cents: number): string {
 const FORMULA_START = /^[=+\-@\t\r]/;
 
 /**
- * One cell: text that starts like a formula gets a ' in front, which spreadsheets show as
- * plain text, and a cell holding a comma, a quote or a line break goes in quotes, its
- * quotes doubled
+ * One cell. Text that starts like a formula gets a ' in front, which spreadsheets show as
+ * plain text, and text holding a comma, a quote or a line break goes in quotes, its quotes
+ * doubled. A number this file wrote is only ever digits, a point and a leading minus, so
+ * it's written as it is: a ' would turn a negative amount into text.
  */
-export function csvCell(text: string): string {
-  const safe = FORMULA_START.test(text) ? `'${text}` : text;
+export function csvCell(cell: Cell): string {
+  if (typeof cell !== 'string') return cell.number;
+  const safe = FORMULA_START.test(cell) ? `'${cell}` : cell;
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 /** One line of the file, ending in CRLF as CSV files do */
-export const csvLine = (cells: readonly string[]) => `${cells.map(csvCell).join(',')}\r\n`;
+export const csvLine = (cells: readonly Cell[]) => `${cells.map(csvCell).join(',')}\r\n`;
+
+/** What an account's opening balance line needs to know of it */
+export interface ExportAccount {
+  id: string;
+  name: string;
+  currency: string;
+  openingCents: number;
+  /** When it was added (ms) */
+  createdAt: number;
+}
+
+/**
+ * An account's opening balance, in EXPORT_COLUMNS' order: dated the day it was added, in
+ * UTC (the server doesn't know the person's time zone), and signed, below zero for what's
+ * owed on a card. Every account has one, archived ones and ones with no transactions too.
+ */
+export const openingCells = (a: ExportAccount): Cell[] => [
+  new Date(a.createdAt).toISOString().slice(0, 10),
+  OPENING_KIND,
+  a.name,
+  '',
+  { number: centsText(a.openingCents) },
+  a.currency,
+  '',
+  '',
+  '',
+  '',
+  a.id,
+];
 
 /** What a line needs to know about the person's accounts and categories, by id */
 export interface ExportNames {
@@ -83,7 +129,7 @@ export interface ExportNames {
 export function exportCells(
   t: Omit<Transaction, 'createdAt'>,
   { accounts, categories }: ExportNames,
-): string[] {
+): Cell[] {
   const account = accounts.get(t.accountId);
   const category = t.categoryId == null ? null : categories.get(t.categoryId);
   const parent = category?.parentId == null ? null : categories.get(category.parentId);
@@ -92,7 +138,7 @@ export function exportCells(
     EXPORT_KINDS[t.kind],
     account?.name ?? '',
     t.toAccountId == null ? '' : accounts.get(t.toAccountId)?.name ?? '',
-    centsText(t.amountCents),
+    { number: centsText(t.amountCents) },
     account?.currency ?? '',
     category?.name ?? '',
     parent?.name ?? '',

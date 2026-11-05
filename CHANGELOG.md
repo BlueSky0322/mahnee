@@ -43,9 +43,10 @@ Release heading format:
 <!-- New features or capabilities. -->
 
 - Export: an Export row on Home says what the file holds (how many transactions, from
-  which day to which, how many accounts and categories) and downloads every transaction
-  as a CSV file (`mahnee-YYYY-MM-DD.csv`), oldest first, archived accounts included, with
-  each category and its parent; it opens right in Excel, Numbers and Google Sheets,
+  which day to which, how many accounts and categories) and downloads a CSV file
+  (`mahnee-YYYY-MM-DD.csv`) with every account's opening balance (a card's owed amount
+  negative) and every transaction, oldest first, archived accounts included, with each
+  category and its parent, so every balance can be rebuilt from it; it opens right in Excel, Numbers and Google Sheets,
   "RM" and non-Latin names included. Offline it waits for a connection, and says when
   changes still being saved aren't in it yet. Adds `GET /api/export` and
   `GET /api/export/summary`.

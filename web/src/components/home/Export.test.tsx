@@ -20,7 +20,13 @@ const categoryId = (name: string) => DEFAULT_CATEGORIES.find((c) => c.name === n
 /** A Wallet, an archived card, the default categories and three transactions */
 function withHistory() {
   const server = fakeServer();
-  const account = { kind: 'cash' as const, currency: 'MYR', openingCents: 0, position: 0 };
+  const account = {
+    kind: 'cash' as const,
+    currency: 'MYR',
+    openingCents: 0,
+    position: 0,
+    createdAt: Date.UTC(2026, 0, 1),
+  };
   server.accounts.push(
     { ...account, id: WALLET, name: 'Wallet', archived: false },
     { ...account, id: CARD, name: 'Old card', kind: 'card', position: 1, archived: true },
@@ -110,10 +116,12 @@ describe('exporting', () => {
     expect(lines[0]).toBe(
       'Date,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id',
     );
-    expect(lines.slice(1).map((line) => line.slice(0, 10))).toEqual([
-      '2026-01-03',
-      '2026-02-10',
-      '2026-03-14',
+    expect(lines.slice(1).map((line) => line.split(',').slice(0, 2).join(','))).toEqual([
+      '2026-01-01,Opening balance',
+      '2026-01-01,Opening balance',
+      '2026-01-03,Spent',
+      '2026-02-10,Transfer',
+      '2026-03-14,Spent',
       '',
     ]);
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Export' })).toBeNull());

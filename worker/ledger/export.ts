@@ -1,5 +1,6 @@
-// Taking everything out: every transaction a person has, as a CSV file to keep or open
-// in a spreadsheet (shared/export.ts writes each line), and a count of what it holds.
+// Taking everything out: each account's opening balance and every transaction a person
+// has, as a CSV file to keep or open in a spreadsheet (shared/export.ts writes each
+// line), and a count of what it holds.
 //
 // The file is read from the database a page at a time and sent as it's read, so a long
 // history never sits in memory whole. A person has at most MAX_ACCOUNTS accounts, each
@@ -7,8 +8,15 @@
 // kept or logged here: it goes straight to the person who asked.
 
 import type { ExportSummary } from '../../shared/api';
-import type { ExportNames } from '../../shared/export';
-import { CSV_BOM, EXPORT_COLUMNS, csvLine, exportCells, exportFileName } from '../../shared/export';
+import type { ExportAccount, ExportNames } from '../../shared/export';
+import {
+  CSV_BOM,
+  EXPORT_COLUMNS,
+  csvLine,
+  exportCells,
+  exportFileName,
+  openingCells,
+} from '../../shared/export';
 import type { TransactionKind } from '../../shared/ledger';
 
 /** How many transactions are read from the database at a time */
@@ -42,28 +50,39 @@ export async function readExportSummary(db: D1Database, email: string): Promise<
   return row!;
 }
 
-/** The person's account and category names now, archived ones too */
-async function readNames(db: D1Database, email: string): Promise<ExportNames> {
-  const [accounts, categories] = await db.batch<{
-    id: string;
-    name: string;
-    currency: string;
-    parentId: string | null;
-  }>([
-    db.prepare('SELECT id, name, currency FROM accounts WHERE email = ?').bind(email),
+/**
+ * The person's accounts, in their order, and their category names, as they are now,
+ * archived ones too
+ */
+async function readNames(
+  db: D1Database,
+  email: string,
+): Promise<ExportNames & { inOrder: ExportAccount[] }> {
+  const [accounts, categories] = await db.batch<
+    ExportAccount & { name: string; parentId: string | null }
+  >([
+    db
+      .prepare(
+        `SELECT id, name, currency, opening_cents AS openingCents, created_at AS createdAt
+         FROM accounts WHERE email = ?
+         ORDER BY position, created_at, id`,
+      )
+      .bind(email),
     db
       .prepare('SELECT id, name, parent_id AS parentId FROM categories WHERE email = ?')
       .bind(email),
   ]);
   return {
+    inOrder: accounts.results,
     accounts: new Map(accounts.results.map((a) => [a.id, a])),
     categories: new Map(categories.results.map((c) => [c.id, c])),
   };
 }
 
 /**
- * GET /api/export: every transaction of the person's, oldest first (by day, then when it
- * was saved, then id), one line each under a header line. `today` (2026-11-05, in UTC)
+ * GET /api/export: under a header line, each account's opening balance in the person's
+ * order, then every transaction of theirs, oldest first (by day, then when it was saved,
+ * then id), one line each. `today` (2026-11-05, in UTC)
  * names the file.
  */
 export async function exportTransactions(
@@ -79,7 +98,8 @@ export async function exportTransactions(
 
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(encoder.encode(CSV_BOM + csvLine(EXPORT_COLUMNS)));
+      const openings = names.inOrder.map((a) => csvLine(openingCells(a))).join('');
+      controller.enqueue(encoder.encode(CSV_BOM + csvLine(EXPORT_COLUMNS) + openings));
     },
     // Asked for each time the person's download has taken what came before. A failure
     // part way stops the download with an error, so it can't pass for the whole file.

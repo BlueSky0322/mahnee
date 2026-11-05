@@ -396,11 +396,15 @@ subcategories under their own id, other months and other people, bad months).
 **What it is.** Taking everything out, so leaving the app never means leaving part of
 the history behind. Export, on Home under Categories, opens a dialog that says what the
 file holds before it's downloaded ("1,284 transactions from 3 Jan 2026 to 5 Nov 2026, 6
-accounts, 23 categories", counted by the server), and Download saves every transaction
-as `mahnee-2026-11-05.csv`, one line each, oldest first: Date, Kind (Spent, Received,
-Transfer), Account, To account, Amount, Currency, Category, Parent category, Payee,
-Note, Id. Archived accounts and categories are in it like any other, with the names
-they have now. On phones and tablets the share sheet opens where the device has one for
+accounts, 23 categories", counted by the server), and Download saves it as
+`mahnee-2026-11-05.csv`: first each account's opening balance (Kind "Opening balance",
+dated the day the account was added, in UTC, signed, so what's owed on a card is
+negative), in the person's order, then every transaction, oldest first, one line each.
+Columns: Date, Kind (Opening balance, Spent, Received, Transfer), Account, To account,
+Amount, Currency, Category, Parent category, Payee, Note, Id (the account's id on an
+opening line). Every balance can be worked out again from the file. Archived accounts
+(and accounts with no transactions) and categories are in it like any other, with the
+names they have now. On phones and tablets the share sheet opens where the device has one for
 files (Save to Files on an iPhone), else it downloads. Offline the button says "Connect
 to download"; changes still waiting on the device are counted ("3 changes still being
 saved won't be in the file yet") and the count is taken again as they're saved.
@@ -422,20 +426,21 @@ opens and as waiting changes are saved (`useUnsaved`).
   amounts, quoting and file name in [shared/export.ts](../shared/export.ts), which the
   Worker and the test stand-in both write lines with.
 
-**Flow.** The Worker reads the person's account and category names, answers at once
-with the header line, then reads transactions `EXPORT_PAGE_SIZE` at a time, oldest first
+**Flow.** The Worker reads the person's accounts and category names, answers at once
+with the header line and the opening balances, then reads transactions `EXPORT_PAGE_SIZE` at a time, oldest first
 by day, time saved and id, carrying on after the last one read, and sends each page as
 it's read (a `ReadableStream`). The app reads the whole answer before saving it.
 
 **Invariants.**
 
 - Only the signed-in person's rows; every query names their email.
-- Every transaction, archived accounts' too. A failure part way stops the download with
+- Every account's opening balance and every transaction, archived accounts' too. A failure part way stops the download with
   an error, which the app reports, so a cut-off file is never saved as the whole one.
-- Amounts are written from whole cents by their digits ("1234.50"), never through
-  floating point. A cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return gets
-  a `'` in front, so a spreadsheet never runs it as a formula; a cell holding a comma, a
-  quote or a line break is quoted.
+- Amounts are written from whole cents by their digits ("1234.50", "-320.00"), never
+  through floating point, and are written as numbers: never prefixed, so a negative
+  opening balance stays a number. A text cell starting with `=`, `+`, `-`, `@`, a tab or
+  a carriage return gets a `'` in front, so a spreadsheet never runs it as a formula; a
+  text cell holding a comma, a quote or a line break is quoted.
 - UTF-8 with a byte-order mark, so Excel reads "RM" and non-Latin names right. Lines end
   in CRLF.
 - The answer is `Cache-Control: no-store`, and nothing in it is logged or kept by the
@@ -445,10 +450,12 @@ it's read (a `ReadableStream`). The app reads the whole answer before saving it.
   request: one per `EXPORT_PAGE_SIZE` transactions).
 
 **Tests.** The export cases in [worker/test/api.test.ts](../worker/test/api.test.ts)
-(the exact file for spending, income, a transfer, a subcategory, a renamed and an
-archived account, quoting, the formula guard, another person left out; the header alone
+(the exact file: opening balances, a card's negative one and an account with no
+transactions among them, then spending, income, a transfer, a subcategory, a renamed and
+an archived account, quoting, the formula guard, another person left out; the header alone
 for someone with nothing; paging past 2,000 rows on one day and time; the counts and
-days), and [Export.test.tsx](../web/src/components/home/Export.test.tsx) (counts and
+days), [shared/export.test.ts](../shared/export.test.ts) (a negative amount stays a
+number while text starting with "-" is guarded; the UTC day), and [Export.test.tsx](../web/src/components/home/Export.test.tsx) (counts and
 days, downloading with today's name and the server's bytes, nothing logged yet, offline
 and changes still being saved, a failed download saving nothing; desktop and phone).
 

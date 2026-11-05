@@ -16,6 +16,7 @@ in [AGENTS.md](../AGENTS.md).
 | [Categories](#categories)                                      | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Transactions and quick entry](#transactions-and-quick-entry)  | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Month view](#month-view)                                      | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Export](#export)                                              | (none; read when asked)      | `ledger/`, `routes/ledger.ts`  |
 | [Exchange rates](#exchange-rates)                              | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
 | [Offline start and installing](#offline-start-and-installing)  | `offline/`, `pwa/`           | (none; the API is the same)    |
 | [Pages, layouts and Back](#pages-layouts-and-back)             | `hooks/useRoute.ts`          | (none)                         |
@@ -389,6 +390,67 @@ months and Back, over, placeholders, offline through a reload and once saved; de
 and phone), and the month's totals cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (spending, income, a transfer,
 subcategories under their own id, other months and other people, bad months).
+
+## Export
+
+**What it is.** Taking everything out, so leaving the app never means leaving part of
+the history behind. Export, on Home under Categories, opens a dialog that says what the
+file holds before it's downloaded ("1,284 transactions from 3 Jan 2026 to 5 Nov 2026, 6
+accounts, 23 categories", counted by the server), and Download saves every transaction
+as `mahnee-2026-11-05.csv`, one line each, oldest first: Date, Kind (Spent, Received,
+Transfer), Account, To account, Amount, Currency, Category, Parent category, Payee,
+Note, Id. Archived accounts and categories are in it like any other, with the names
+they have now. On phones and tablets the share sheet opens where the device has one for
+files (Save to Files on an iPhone), else it downloads. Offline the button says "Connect
+to download"; changes still waiting on the device are counted ("3 changes still being
+saved won't be in the file yet") and the count is taken again as they're saved.
+
+**Owner.** No feature state: nothing else shows the counts or the file, so
+[components/home/ExportDialog.tsx](../web/src/components/home/ExportDialog.tsx) asks
+for them itself (`api.getExportSummary`, `api.getExport`), counting afresh each time it
+opens and as waiting changes are saved (`useUnsaved`).
+
+**Parts.**
+
+- UI: [ExportDialog.tsx](../web/src/components/home/ExportDialog.tsx) and the row on
+  [HomePage.tsx](../web/src/components/home/HomePage.tsx);
+  [utils/deliver-file.ts](../web/src/utils/deliver-file.ts) saves the file (or shares it);
+  `dayText` in [utils/date-input.ts](../web/src/utils/date-input.ts).
+- API: `GET /api/export` (`exportTransactions`) and `GET /api/export/summary`
+  (`readExportSummary`) in [worker/ledger/export.ts](../worker/ledger/export.ts).
+- Shared: `ExportSummary` in [shared/api.ts](../shared/api.ts); the columns, kinds,
+  amounts, quoting and file name in [shared/export.ts](../shared/export.ts), which the
+  Worker and the test stand-in both write lines with.
+
+**Flow.** The Worker reads the person's account and category names, answers at once
+with the header line, then reads transactions `EXPORT_PAGE_SIZE` at a time, oldest first
+by day, time saved and id, carrying on after the last one read, and sends each page as
+it's read (a `ReadableStream`). The app reads the whole answer before saving it.
+
+**Invariants.**
+
+- Only the signed-in person's rows; every query names their email.
+- Every transaction, archived accounts' too. A failure part way stops the download with
+  an error, which the app reports, so a cut-off file is never saved as the whole one.
+- Amounts are written from whole cents by their digits ("1234.50"), never through
+  floating point. A cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return gets
+  a `'` in front, so a spreadsheet never runs it as a formula; a cell holding a comma, a
+  quote or a line break is quoted.
+- UTF-8 with a byte-order mark, so Excel reads "RM" and non-Latin names right. Lines end
+  in CRLF.
+- The answer is `Cache-Control: no-store`, and nothing in it is logged or kept by the
+  Worker or the service worker (which leaves `/api` alone).
+- Bounded by `MAX_ACCOUNTS` x `MAX_TRANSACTIONS_PER_ACCOUNT` rows. A very long history
+  is still subject to the Worker's per-request limits (CPU time, and D1 queries per
+  request: one per `EXPORT_PAGE_SIZE` transactions).
+
+**Tests.** The export cases in [worker/test/api.test.ts](../worker/test/api.test.ts)
+(the exact file for spending, income, a transfer, a subcategory, a renamed and an
+archived account, quoting, the formula guard, another person left out; the header alone
+for someone with nothing; paging past 2,000 rows on one day and time; the counts and
+days), and [Export.test.tsx](../web/src/components/home/Export.test.tsx) (counts and
+days, downloading with today's name and the server's bytes, nothing logged yet, offline
+and changes still being saved, a failed download saving nothing; desktop and phone).
 
 ## Exchange rates
 

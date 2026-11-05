@@ -1509,6 +1509,116 @@ describe('transactions', () => {
     });
   });
 
+  describe('the export file', () => {
+    const HEADER =
+      'Date,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id\r\n';
+    /** The file as sent, its headers and its text with the byte-order mark kept */
+    async function download(who: string) {
+      const res = await api.raw(who, 'GET', '/api/export');
+      const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(await res.arrayBuffer());
+      return { status: res.status, headers: res.headers, text };
+    }
+    const summary = async (who: string) => (await api.call(who, 'GET', '/api/export/summary')).data;
+
+    it('holds every transaction of the person’s, oldest first, names as they are now', async () => {
+      const { me, wallet } = await withWallet();
+      const [bank, card, coffee] = [rowId(), rowId(), rowId()];
+      const [early, kopi, pay, topUp, latte] = [rowId(), rowId(), rowId(), rowId(), rowId()];
+      await send(me, [
+        addAccount(bank, 'bank', 0, 'Maybank'),
+        addAccount(card, 'card', 0, 'Old card'),
+        {
+          op: 'addCategory',
+          category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
+        },
+        add(kopi, wallet, 800, { date: '2025-10-01', payee: 'Kopi, "Corner"\nSS2' }),
+        add(pay, bank, 500_000, {
+          kind: 'income',
+          categoryId: salary,
+          date: '2025-10-02',
+          payee: '=HYPERLINK("x")',
+          note: 'October',
+        }),
+        move(topUp, bank, wallet, 10_000, { date: '2025-10-03' }),
+        add(latte, wallet, 123_450, { date: '2025-10-04', categoryId: coffee, note: '-RM5 off' }),
+        add(early, card, 5, { date: '2025-09-15', categoryId: transport }),
+      ]);
+      // Renamed and archived since: written with the name it has now, and still written
+      expect(
+        (
+          await send(me, [
+            { op: 'updateAccount', id: wallet, name: 'Purse' },
+            { op: 'archiveAccount', id: card, archived: true },
+          ])
+        ).status,
+      ).toBe(200);
+      const other = person('other');
+      const theirs = rowId();
+      await send(other, [addAccount(theirs), add(rowId(), theirs, 6_600, { date: '2025-10-01' })]);
+
+      const file = await download(me);
+      expect(file.status).toBe(200);
+      expect(file.headers.get('Content-Type')).toBe('text/csv; charset=utf-8');
+      expect(file.headers.get('Content-Disposition')).toBe(
+        `attachment; filename="mahnee-${new Date().toISOString().slice(0, 10)}.csv"`,
+      );
+      expect(file.headers.get('Cache-Control')).toBe('no-store');
+      expect(file.text).toBe(
+        '﻿' +
+          HEADER +
+          `2025-09-15,Spent,Old card,,0.05,MYR,Transport,,,,${early}\r\n` +
+          `2025-10-01,Spent,Purse,,8.00,MYR,Food,,"Kopi, ""Corner""\nSS2",,${kopi}\r\n` +
+          // A cell a spreadsheet would run as a formula starts with ' instead
+          `2025-10-02,Received,Maybank,,5000.00,MYR,Salary,,"'=HYPERLINK(""x"")",October,${pay}\r\n` +
+          `2025-10-03,Transfer,Maybank,Purse,100.00,MYR,,,,,${topUp}\r\n` +
+          `2025-10-04,Spent,Purse,,1234.50,MYR,Coffee,Food,,'-RM5 off,${latte}\r\n`,
+      );
+      expect(await summary(me)).toEqual({
+        transactions: 5,
+        firstDate: '2025-09-15',
+        lastDate: '2025-10-04',
+        accounts: 3,
+        // The ten defaults and Coffee
+        categories: 11,
+      });
+    });
+
+    it('is the header alone for someone with nothing logged', async () => {
+      const me = person('me');
+      const file = await download(me);
+      expect(file.status).toBe(200);
+      expect(file.text).toBe('﻿' + HEADER);
+      expect(await summary(me)).toEqual({
+        transactions: 0,
+        firstDate: null,
+        lastDate: null,
+        accounts: 0,
+        categories: 0,
+      });
+    });
+
+    it('carries on across pages read from the database, never skipping or repeating one', async () => {
+      const { me, wallet } = await withWallet();
+      // More than two pages, all on the same day and saved in the same millisecond, so
+      // only the id tells them apart
+      await api.sql(
+        `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2001)
+         INSERT INTO transactions (email, id, kind, account_id, amount_cents, category_id,
+                                   date, created_at, updated_at)
+         SELECT ?, printf('%016x', i), 'expense', ?, 1, ?, '2025-01-01', 0, 0 FROM n`,
+        me,
+        wallet,
+        food,
+      );
+      const lines = (await download(me)).text.split('\r\n').slice(1, -1);
+      const ids = lines.map((line) => line.split(',').at(-1));
+      expect(ids).toEqual(
+        Array.from({ length: 2001 }, (_, i) => (i + 1).toString(16).padStart(16, '0')),
+      );
+      expect((await summary(me)).transactions).toBe(2001);
+    }, 30_000);
+  });
+
   it("answers someone else's account as one that doesn't exist", async () => {
     const other = person('other');
     const theirs = rowId();

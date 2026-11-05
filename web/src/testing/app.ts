@@ -50,6 +50,7 @@ import {
   whyNotInCategory,
   whyNotOnAccount,
 } from '@shared/ledger';
+import { CSV_BOM, EXPORT_COLUMNS, csvLine, exportCells, exportFileName } from '@shared/export';
 import { rateDay } from '@shared/rates';
 import { Root } from '../Root';
 import { queryClient } from '../query-client';
@@ -269,6 +270,17 @@ function answerNow(server: FakeServer) {
         ? json(summarize(server, month))
         : json({ error: 'Give a month from 2000, like 2026-11' }, 400);
     }
+    if (path === '/api/export/summary' && method === 'GET') {
+      const days = server.transactions.map((t) => t.date).sort();
+      return json({
+        transactions: days.length,
+        firstDate: days[0] ?? null,
+        lastDate: days.at(-1) ?? null,
+        accounts: server.accounts.length,
+        categories: server.categories.length,
+      });
+    }
+    if (path === '/api/export' && method === 'GET') return exportFile(server);
     if (path === '/api/changes' && method === 'POST') {
       const failure = failing('changes');
       if (failure) return failure;
@@ -326,6 +338,29 @@ function summarize(server: FakeServer, month: string): MonthSummary {
     spentByCategory,
     incomeByCategory,
   };
+}
+
+/**
+ * GET /api/export as the real one (worker/ledger/export.ts) writes it: every transaction,
+ * oldest first (by day, time saved, then id), under a header line, with names as they are
+ */
+function exportFile(server: FakeServer) {
+  const names = {
+    accounts: new Map(server.accounts.map((a) => [a.id, a])),
+    categories: new Map(server.categories.map((c) => [c.id, c])),
+  };
+  const lines = [...server.transactions]
+    .sort((a, b) => -newestFirst(a, b))
+    .map((t) => csvLine(exportCells(t, names)));
+  return Promise.resolve(
+    new Response(CSV_BOM + csvLine(EXPORT_COLUMNS) + lines.join(''), {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${exportFileName(rateDay(Date.now()))}"`,
+        'Cache-Control': 'no-store',
+      },
+    }),
+  );
 }
 
 /** Newest first, as the real server lists them: by day, time saved, then id */

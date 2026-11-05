@@ -3,6 +3,7 @@ import type {
   ApiErrorBody,
   ChangesBody,
   ErrorCode,
+  ExportSummary,
   Ledger,
   MonthSummary,
   Ok,
@@ -47,12 +48,16 @@ export class NetworkError extends Error {}
 /** This tab, sent with every request */
 export const CLIENT_ID = newId();
 
-async function request<T>(
+/**
+ * Sends a request to the API with what every request carries, answering with the response
+ * once it's known to be a success; anything else is thrown as an ApiError or NetworkError
+ */
+async function send(
   method: string,
   path: string,
   body?: unknown,
   { headers, ...init }: RequestInit & { headers?: Record<string, string> } = {},
-): Promise<T> {
+): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(path, {
@@ -72,9 +77,8 @@ async function request<T>(
   }
   // Sent to the sign-in page: the session has run out
   if (res.redirected) throw new ApiError(401, `${method} ${path} was sent to sign in`);
-  const data = (await res.json().catch(() => null)) as unknown;
   if (!res.ok) {
-    const answer = data as Partial<ApiErrorBody> | null;
+    const answer = (await res.json().catch(() => null)) as Partial<ApiErrorBody> | null;
     const error = answer?.error ?? null;
     throw new ApiError(
       res.status,
@@ -83,8 +87,14 @@ async function request<T>(
       answer?.code ?? null,
     );
   }
+  return res;
+}
+
+async function request<T>(...args: Parameters<typeof send>): Promise<T> {
+  const res = await send(...args);
+  const data = (await res.json().catch(() => null)) as unknown;
   // Answered by something other than the API (a proxy, say): worth trying again, like a 5xx
-  if (data == null) throw new ApiError(502, `${method} ${path} didn't answer with JSON`);
+  if (data == null) throw new ApiError(502, `${args[0]} ${args[1]} didn't answer with JSON`);
   return data as T;
 }
 
@@ -104,6 +114,24 @@ export const api = {
     const query = new URLSearchParams(which);
     if (before != null) query.set('before', before);
     return request<TransactionPage>('GET', `/api/transactions?${query.toString()}`);
+  },
+  /** How many transactions the export file holds, over which days */
+  getExportSummary: () => request<ExportSummary>('GET', '/api/export/summary'),
+  /**
+   * The export file: every transaction, as CSV. A download cut off part way fails here
+   * rather than giving part of the file.
+   */
+  getExport: async () => {
+    const res = await send('GET', '/api/export');
+    // Answered by something other than the API (a proxy, say): not the file
+    if (!res.headers.get('Content-Type')?.startsWith('text/csv')) {
+      throw new ApiError(502, "GET /api/export didn't answer with the file");
+    }
+    try {
+      return await res.blob();
+    } catch (err) {
+      throw new NetworkError(`GET /api/export was cut off (${String(err)})`);
+    }
   },
   /** What was spent and received in a month (2026-11), in total and by category */
   getSummary: (month: string) =>

@@ -51,6 +51,9 @@ hack-proof, and the limits below are real.
 - Changes to the ledger: at most `MAX_CHANGES` in one request, saved all or nothing.
   Each carries the app's id, kept as a receipt for 90 days, so a change sent again is
   never applied twice.
+- Exporting (`/api/export`) reads the person's transactions a page at a time and sends
+  each as it's read, so the Worker never holds the whole history at once; a person has
+  at most `MAX_ACCOUNTS` x `MAX_TRANSACTIONS_PER_ACCOUNT` of them.
 - Exchange rates are fetched by the Worker, never the browser, from Wise and Frankfurter,
   with a 4-second time limit; the request names only the two currencies and the day.
 
@@ -76,6 +79,11 @@ hack-proof, and the limits below are real.
   and offers to sign in. Whoever holds the device can read what was kept until someone
   signs in or signs out: an unlocked shared device is a risk, as with any app that opens
   offline.
+- The export file holds the person's whole financial history: every transaction, with
+  amounts, payees, notes and account names. The app doesn't store it anywhere: the
+  Worker writes it as it's asked for, answers it with `Cache-Control: no-store`, and
+  logs none of it; the service worker never keeps anything from `/api`. Once
+  downloaded or shared it is wherever the person saved it, outside the app's care.
 - Errors are logged by name and message only, never with what a person typed.
 
 ## Secrets and where they live

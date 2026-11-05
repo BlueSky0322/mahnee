@@ -53,6 +53,14 @@ export function dayHeading(text: string, now = new Date()) {
   });
 }
 
+/** A day in full, as the person's language writes it: "3 Jan 2026" */
+export function dayText(text: string) {
+  const day = fromDateInput(text);
+  return day == null
+    ? text
+    : day.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 // ---------- Months ----------
 
 /** This month in local time, as 2026-11 */

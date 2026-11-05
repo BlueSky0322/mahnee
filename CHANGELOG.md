@@ -42,6 +42,13 @@ Release heading format:
 
 <!-- New features or capabilities. -->
 
+- Export: an Export row on Home says what the file holds (how many transactions, from
+  which day to which, how many accounts and categories) and downloads every transaction
+  as a CSV file (`mahnee-YYYY-MM-DD.csv`), oldest first, archived accounts included, with
+  each category and its parent; it opens right in Excel, Numbers and Google Sheets,
+  "RM" and non-Latin names included. Offline it waits for a connection, and says when
+  changes still being saved aren't in it yet. Adds `GET /api/export` and
+  `GET /api/export/summary`.
 - Home: a month card at the top shows what's left this month (received less spent) as
   the largest number, marked "Over" when more was spent than came in, with Spent and
   Received beneath and spending by category, largest first with a bar each; tap a

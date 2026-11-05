@@ -42,6 +42,13 @@ Release heading format:
 
 <!-- New features or capabilities. -->
 
+- Categories: a Categories page, reached from Home, lists spending and income
+  categories with subcategories one level deep; add, rename, reorder, move under another
+  or back to the top level (moves that aren't allowed say why), and archive with Undo.
+  Everyone starts with defaults (Food, Transport, Groceries, Bills, Shopping, Health,
+  Fun, Other; Salary, Other income), saved with their first change. Works offline like
+  accounts. `GET /api/accounts` now answers the whole ledger, accounts and categories.
+  Adds the `categories` table (migration `0003_categories.sql`).
 - Offline: changes to accounts made without a connection are kept on the device, shown
   at once and after a reload, and saved in order once the connection is back, even with
   the app closed (background sync, where the browser has it); a lost answer never saves

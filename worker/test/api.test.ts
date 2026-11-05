@@ -1,10 +1,11 @@
 // The API end to end, against the real Worker and a fresh local database: who's signed
-// in, their profile and settings, exchange rates, their accounts and the changes saved
-// to them, and the safeguards every write passes.
+// in, their profile and settings, exchange rates, their accounts and categories and the
+// changes saved to them, and the safeguards every write passes.
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { LocalWorker } from './local-worker';
 import { startLocalWorker } from './local-worker';
+import { DEFAULT_CATEGORIES } from '../../shared/categories';
 import { rateDay } from '../../shared/rates';
 
 let api: LocalWorker;
@@ -487,5 +488,359 @@ describe('accounts', () => {
       me,
     )) as { id: string }[];
     expect(kept.map((r) => r.id)).toEqual([recent, expect.any(String)]);
+  });
+});
+
+describe('categories', () => {
+  let ids = 0;
+  /** A fresh row id, as the app makes them: 16 hex characters */
+  const rowId = () => (++ids).toString(16).padStart(16, 'b');
+  const add = (id: string, name: string, parentId: string | null = null, kind = 'expense') => ({
+    op: 'addCategory',
+    category: { id, name, kind, parentId },
+  });
+  const send = (who: string, changes: unknown[], changeIds = changes.map(() => rowId())) =>
+    api.call(who, 'POST', '/api/changes', { changes, ids: changeIds });
+  interface Row {
+    id: string;
+    name: string;
+    kind: string;
+    parentId: string | null;
+    position: number;
+    archived: boolean;
+  }
+  const ledger = async (who: string) => {
+    const res = await api.call(who, 'GET', '/api/accounts');
+    expect(res.status).toBe(200);
+    return res.data as { accounts: { id: string; name: string }[]; categories: Row[] };
+  };
+  const list = async (who: string) => (await ledger(who)).categories;
+  /** The categories beside each other under `parentId` (null: top level), as "name" in order */
+  const under = async (who: string, parentId: string | null, kind = 'expense') =>
+    (await list(who))
+      .filter((c) => c.parentId === parentId && c.kind === kind)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => c.name);
+  const byId = (rows: readonly { id: string }[]) =>
+    [...rows].sort((a, b) => (a.id < b.id ? -1 : 1));
+  const [food, transport, groceries] = DEFAULT_CATEGORIES.map((c) => c.id);
+  const salary = DEFAULT_CATEGORIES.find((c) => c.name === 'Salary')!.id;
+
+  /** A person with the defaults saved, and Coffee under Food */
+  async function withCoffee() {
+    const me = person('me');
+    const coffee = rowId();
+    expect((await send(me, [add(coffee, 'Coffee', food)])).status).toBe(200);
+    return { me, coffee };
+  }
+
+  it('has none saved at first, and saves the defaults with the first change of any kind', async () => {
+    const me = person('me');
+    expect(await list(me)).toEqual([]);
+    expect(
+      (
+        await send(me, [
+          {
+            op: 'addAccount',
+            account: { id: rowId(), name: 'Wallet', kind: 'cash', openingCents: 0 },
+          },
+        ])
+      ).status,
+    ).toBe(200);
+    const saved = await list(me);
+    expect(byId(saved)).toEqual(byId(DEFAULT_CATEGORIES));
+    expect(await under(me, null)).toEqual([
+      'Food',
+      'Transport',
+      'Groceries',
+      'Bills',
+      'Shopping',
+      'Health',
+      'Fun',
+      'Other',
+    ]);
+    expect(await under(me, null, 'income')).toEqual(['Salary', 'Other income']);
+    // Later changes leave them as they are
+    await send(me, [add(rowId(), 'Gifts')]);
+    expect(await list(me)).toHaveLength(DEFAULT_CATEGORIES.length + 1);
+  });
+
+  it('takes a change to a default before any are saved, saving the defaults first', async () => {
+    const me = person('me');
+    expect((await send(me, [{ op: 'updateCategory', id: food, name: 'Eating out' }])).status).toBe(
+      200,
+    );
+    expect(await under(me, null)).toEqual(expect.arrayContaining(['Eating out', 'Transport']));
+    expect(await list(me)).toHaveLength(DEFAULT_CATEGORIES.length);
+  });
+
+  it('adds categories and subcategories, each last among the ones beside it', async () => {
+    const { me, coffee } = await withCoffee();
+    const tea = rowId();
+    await send(me, [
+      add(tea, '  Tea ', food),
+      add(rowId(), 'Gifts'),
+      add(rowId(), 'Bonus', null, 'income'),
+    ]);
+    expect(await under(me, food)).toEqual(['Coffee', 'Tea']);
+    expect((await under(me, null)).at(-1)).toBe('Gifts');
+    expect(await under(me, null, 'income')).toEqual(['Salary', 'Other income', 'Bonus']);
+    expect((await list(me)).find((c) => c.id === coffee)).toEqual({
+      id: coffee,
+      name: 'Coffee',
+      kind: 'expense',
+      parentId: food,
+      position: 0,
+      archived: false,
+    });
+  });
+
+  it('renames, reorders, moves, archives and brings back', async () => {
+    const { me, coffee } = await withCoffee();
+    const tea = rowId();
+    await send(me, [add(tea, 'Tea', food)]);
+
+    await send(me, [{ op: 'updateCategory', id: coffee, name: 'Kopi' }]);
+    // Tea first among Food's, then Groceries to the top of the list
+    await send(me, [{ op: 'updateCategory', id: tea, position: 0 }]);
+    expect(await under(me, food)).toEqual(['Tea', 'Kopi']);
+    await send(me, [{ op: 'updateCategory', id: groceries, position: 0 }]);
+    expect((await under(me, null)).slice(0, 3)).toEqual(['Groceries', 'Food', 'Transport']);
+    // Positions are numbered afresh, so a place past the end is last
+    await send(me, [{ op: 'updateCategory', id: groceries, position: 99 }]);
+    expect((await under(me, null)).at(-1)).toBe('Groceries');
+
+    // Kopi to the top level, then Transport under Food, at the front there
+    await send(me, [{ op: 'updateCategory', id: coffee, parentId: null }]);
+    expect(await under(me, food)).toEqual(['Tea']);
+    expect((await under(me, null)).at(-1)).toBe('Kopi');
+    await send(me, [{ op: 'updateCategory', id: transport, parentId: food, position: 0 }]);
+    expect(await under(me, food)).toEqual(['Transport', 'Tea']);
+
+    await send(me, [{ op: 'archiveCategory', id: tea, archived: true }]);
+    expect((await list(me)).find((c) => c.id === tea)).toMatchObject({
+      archived: true,
+      parentId: food,
+    });
+    await send(me, [{ op: 'archiveCategory', id: tea, archived: false }]);
+    expect((await list(me)).find((c) => c.id === tea)?.archived).toBe(false);
+  });
+
+  it.each<[string, (ids: { coffee: string; other: string }) => unknown, number, string?]>([
+    [
+      'a subcategory under a subcategory',
+      ({ coffee }) => add(rowId(), 'Espresso', coffee),
+      409,
+      'Coffee is a subcategory itself',
+    ],
+    [
+      'a move under a subcategory',
+      ({ coffee }) => ({ op: 'updateCategory', id: groceries, parentId: coffee }),
+      409,
+    ],
+    [
+      'an income category under a spending one',
+      () => add(rowId(), 'Bonus', food, 'income'),
+      409,
+      'Spending and income categories stay apart',
+    ],
+    [
+      'a move under the other kind',
+      () => ({ op: 'updateCategory', id: salary, parentId: food }),
+      409,
+    ],
+    ['a category under itself', () => ({ op: 'updateCategory', id: food, parentId: food }), 409],
+    [
+      'moving one with subcategories under another',
+      () => ({ op: 'updateCategory', id: food, parentId: groceries }),
+      409,
+      'Food has subcategories, so it stays at the top level',
+    ],
+    [
+      "one under someone else's category",
+      ({ other }) => add(rowId(), 'Mine', other),
+      404,
+      'Category not found',
+    ],
+    ['one under a category that does not exist', () => add(rowId(), 'Mine', rowId()), 404],
+    [
+      'one under nothing said',
+      () => ({ op: 'addCategory', category: { id: rowId(), name: 'x', kind: 'expense' } }),
+      400,
+    ],
+    ['an id of the wrong shape', () => add('ABC', 'Mine'), 400],
+    ['an empty name', () => add(rowId(), '   '), 400],
+    ['a name that is too long', () => add(rowId(), 'x'.repeat(41)), 400],
+    ['a kind that does not exist', () => add(rowId(), 'Gold', null, 'savings'), 400],
+    ['a field it does not know', () => ({ ...add(rowId(), 'x'), extra: 1 }), 400],
+    ['changing the kind', () => ({ op: 'updateCategory', id: food, kind: 'income' }), 400],
+    ['an update that changes nothing', () => ({ op: 'updateCategory', id: food }), 400],
+    ['a place below 0', () => ({ op: 'updateCategory', id: food, position: -1 }), 400],
+    ['a place in part', () => ({ op: 'updateCategory', id: food, position: 1.5 }), 400],
+    [
+      'archiving without saying which way',
+      () => ({ op: 'archiveCategory', id: food, archived: 1 }),
+      400,
+    ],
+    ['a category id already used', () => add(food, 'Again'), 409],
+  ])('refuses %s, saving nothing', async (_what, change, status, error) => {
+    const { me, coffee } = await withCoffee();
+    const theirs = rowId();
+    await send(person('other'), [add(theirs, 'Theirs')]);
+    const before = await list(me);
+    const res = await send(me, [change({ coffee, other: theirs })]);
+    expect(res.status).toBe(status);
+    if (error != null) expect(res.data).toEqual({ error });
+    else expect(typeof res.data.error).toBe('string');
+    expect(await list(me)).toEqual(before);
+  });
+
+  it('refuses a move under an archived category, and adding under one', async () => {
+    const { me } = await withCoffee();
+    await send(me, [{ op: 'archiveCategory', id: groceries, archived: true }]);
+    const before = await list(me);
+    for (const change of [
+      add(rowId(), 'Veg', groceries),
+      { op: 'updateCategory', id: transport, parentId: groceries },
+    ]) {
+      expect(await send(me, [change])).toEqual({
+        status: 409,
+        data: { error: 'Groceries is archived' },
+      });
+    }
+    expect(await list(me)).toEqual(before);
+  });
+
+  it('keeps a category with archived subcategories at the top level too', async () => {
+    const { me, coffee } = await withCoffee();
+    await send(me, [{ op: 'archiveCategory', id: coffee, archived: true }]);
+    const res = await send(me, [{ op: 'updateCategory', id: food, parentId: groceries }]);
+    expect(res.status).toBe(409);
+    expect((await list(me)).find((c) => c.id === food)?.parentId).toBeNull();
+  });
+
+  it("refuses someone else's category like one that doesn't exist, and leaves it alone", async () => {
+    const [me, other] = [person('me'), person('other')];
+    const theirs = rowId();
+    await send(other, [add(theirs, 'Theirs')]);
+    for (const change of [
+      { op: 'updateCategory', id: theirs, name: 'Mine' },
+      { op: 'archiveCategory', id: theirs, archived: true },
+    ]) {
+      expect(await send(me, [change])).toEqual({
+        status: 404,
+        data: { error: 'Category not found' },
+      });
+    }
+    expect((await list(other)).find((c) => c.id === theirs)).toMatchObject({
+      name: 'Theirs',
+      archived: false,
+    });
+    // Nothing was saved for me, the defaults included
+    expect(await list(me)).toEqual([]);
+  });
+
+  it('keeps to 200 categories, archived ones included', async () => {
+    const me = person('me');
+    // The 10 defaults and 190 more
+    const more = Array.from({ length: 190 }, (_, i) => add(rowId(), `Category ${i}`));
+    expect((await send(me, more)).status).toBe(200);
+    await send(me, [{ op: 'archiveCategory', id: food, archived: true }]);
+    expect(await send(me, [add(rowId(), 'One too many')])).toEqual({
+      status: 409,
+      data: { error: 'You can have up to 200 categories, archived ones included' },
+    });
+    expect(await list(me)).toHaveLength(200);
+  });
+
+  it('keeps to 50 subcategories under one category, archived ones included', async () => {
+    const me = person('me');
+    const fifty = Array.from({ length: 50 }, (_, i) => add(rowId(), `Sub ${i}`, food));
+    expect((await send(me, fifty)).status).toBe(200);
+    await send(me, [{ op: 'archiveCategory', id: fifty[0].category.id, archived: true }]);
+    const full = {
+      status: 409,
+      data: { error: 'Food has 50 subcategories, the most it can have' },
+    };
+    expect(await send(me, [add(rowId(), 'Sub 51', food)])).toEqual(full);
+    expect(await send(me, [{ op: 'updateCategory', id: transport, parentId: food }])).toEqual(full);
+    expect(await under(me, food)).toHaveLength(50);
+    expect((await list(me)).find((c) => c.id === transport)?.parentId).toBeNull();
+  });
+
+  it('counts a change sent again once', async () => {
+    const me = person('me');
+    const [coffee, changeId] = [rowId(), rowId()];
+    expect((await send(me, [add(coffee, 'Coffee', food)], [changeId])).status).toBe(200);
+    // Its answer lost, the app sends it again, with a move after it
+    const again = await send(
+      me,
+      [add(coffee, 'Coffee', food), { op: 'updateCategory', id: coffee, parentId: null }],
+      [changeId, rowId()],
+    );
+    expect(again).toEqual({ status: 200, data: { ok: true } });
+    expect((await list(me)).filter((c) => c.name === 'Coffee')).toEqual([
+      expect.objectContaining({ id: coffee, parentId: null }),
+    ]);
+    expect(await list(me)).toHaveLength(DEFAULT_CATEGORIES.length + 1);
+  });
+
+  it('saves a batch of account and category changes all or nothing, defaults included', async () => {
+    const me = person('me');
+    const [wallet, coffee] = [rowId(), rowId()];
+    const res = await send(me, [
+      { op: 'addAccount', account: { id: wallet, name: 'Wallet', kind: 'cash', openingCents: 0 } },
+      add(coffee, 'Coffee', food),
+      { op: 'updateCategory', id: food, name: 'Meals' },
+      add(rowId(), 'Espresso', coffee),
+    ]);
+    expect(res).toEqual({ status: 409, data: { error: 'Coffee is a subcategory itself' } });
+    expect(await ledger(me)).toEqual({ accounts: [], categories: [] });
+
+    // In order, a later change can name a category added earlier in the batch
+    const ok = await send(me, [
+      { op: 'addAccount', account: { id: wallet, name: 'Wallet', kind: 'cash', openingCents: 0 } },
+      add(coffee, 'Coffee'),
+      { op: 'updateCategory', id: coffee, parentId: food },
+      { op: 'archiveCategory', id: coffee, archived: true },
+    ]);
+    expect(ok.status).toBe(200);
+    const after = await ledger(me);
+    expect(after.accounts).toEqual([expect.objectContaining({ id: wallet })]);
+    expect(after.categories.find((c) => c.id === coffee)).toMatchObject({
+      parentId: food,
+      archived: true,
+      position: 0,
+    });
+  });
+
+  it('holds one level deep in the database too, whatever writes there', async () => {
+    const { me, coffee } = await withCoffee();
+    const now = Date.now();
+    const insertUnder = (parent: string, kind: string) =>
+      api.sql(
+        `INSERT INTO categories (email, id, name, kind, parent_id, position, created_at, updated_at)
+         VALUES (?, ?, 'x', ?, ?, 9, ?, ?)`,
+        me,
+        rowId(),
+        kind,
+        parent,
+        now,
+        now,
+      );
+    await expect(insertUnder(coffee, 'expense')).rejects.toThrow(/one level deep/);
+    await expect(insertUnder(food, 'income')).rejects.toThrow(/one level deep/);
+    await expect(
+      api.sql(
+        'UPDATE categories SET parent_id = ? WHERE email = ? AND id = ?',
+        groceries,
+        me,
+        food,
+      ),
+    ).rejects.toThrow(/one level deep/);
+    // Someone else's category is never a parent
+    const theirs = rowId();
+    await send(person('other'), [add(theirs, 'Theirs')]);
+    await expect(insertUnder(theirs, 'expense')).rejects.toThrow(/one level deep/);
   });
 });

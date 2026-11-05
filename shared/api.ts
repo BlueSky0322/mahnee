@@ -1,6 +1,7 @@
 // What the API sends back, in one place: the Worker builds these and the app reads
 // them, so a field changed on one side fails to compile on the other.
 
+import type { CategoryKind } from './categories';
 import type { AccountKind } from './ledger';
 import type { RateSource } from './rates';
 
@@ -86,14 +87,35 @@ export interface Account {
   archived: boolean;
 }
 
-/** GET /api/accounts: every account, archived ones too, in the person's order */
-export interface AccountList {
+/**
+ * What a person's spending and income is sorted into. A subcategory names its parent,
+ * a top-level category, and is that parent's kind (shared/categories.ts).
+ */
+export interface Category {
+  id: string;
+  name: string;
+  kind: CategoryKind;
+  /** The category it sits under; null at the top level */
+  parentId: string | null;
+  /** Its place among the categories beside it (same kind and parent), first at 0 */
+  position: number;
+  /** Taken out of the list, never deleted; it can be brought back */
+  archived: boolean;
+}
+
+/**
+ * GET /api/accounts: the person's ledger, archived accounts and categories too, each in
+ * the person's order. Categories are only what's saved: none until the first change,
+ * which saves the defaults (categoriesOrDefaults in shared/categories.ts).
+ */
+export interface Ledger {
   accounts: Account[];
+  categories: Category[];
 }
 
 /**
  * One change to the ledger, as the app makes it and POST /api/changes saves it. An
- * account's kind is fixed once it's added.
+ * account's or category's kind is fixed once it's added.
  */
 export type LedgerChange =
   | {
@@ -102,7 +124,18 @@ export type LedgerChange =
     }
   | { op: 'updateAccount'; id: string; name?: string; openingCents?: number }
   /** archived: true takes it out of the list, false brings it back */
-  | { op: 'archiveAccount'; id: string; archived: boolean };
+  | { op: 'archiveAccount'; id: string; archived: boolean }
+  /** parentId: the top-level category it goes under, of the same kind; null for top level */
+  | {
+      op: 'addCategory';
+      category: { id: string; name: string; kind: CategoryKind; parentId: string | null };
+    }
+  /**
+   * parentId moves it (last among its new siblings; null to the top level), and position
+   * puts it at that place among its siblings, counted without it, after any move
+   */
+  | { op: 'updateCategory'; id: string; name?: string; parentId?: string | null; position?: number }
+  | { op: 'archiveCategory'; id: string; archived: boolean };
 
 /** POST /api/changes: saved in order, all or nothing */
 export interface ChangesBody {

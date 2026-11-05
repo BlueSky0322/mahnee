@@ -17,8 +17,9 @@ hack-proof, and the limits below are real.
   addresses are turned off (`preview_urls`), since Access doesn't cover them.
 - **Whose data it is.** Anyone with an email can sign in, and each account sees only its
   own data: every row belongs to the signed-in account, and every query is scoped by its
-  email. Money accounts are keyed by email and id together, so an id of someone else's
-  is answered exactly as one that doesn't exist, and never reveals that it does. There
+  email. Money accounts and categories are keyed by email and id together, so an id of
+  someone else's is answered exactly as one that doesn't exist, and never reveals that it
+  does; a subcategory's parent is looked up among the person's own categories only. There
   is no sharing between accounts.
 - **Whose a write is.** Every write from the app names the account it was made as
   (`X-Expected-Account`). One made as another account is refused before it changes
@@ -35,7 +36,9 @@ hack-proof, and the limits below are real.
 - Money: an amount typed is at most `MAX_AMOUNT`, and once converted at most
   `MAX_AMOUNT_CENTS` (`shared/rates.ts`), so totals stay exact. An opening balance is at
   most `MAX_TRANSACTION` either way, a person has at most `MAX_ACCOUNTS` accounts, and
-  their names at most `MAX_ACCOUNT_NAME` characters (`shared/ledger.ts`).
+  their names at most `MAX_ACCOUNT_NAME` characters (`shared/ledger.ts`). They have at
+  most `MAX_CATEGORIES` categories, `MAX_SUBCATEGORIES` under one, with names of at most
+  `MAX_CATEGORY_NAME` characters (`shared/categories.ts`).
 - Changes to the ledger: at most `MAX_CHANGES` in one request, saved all or nothing.
   Each carries the app's id, kept as a receipt for 90 days, so a change sent again is
   never applied twice.
@@ -44,11 +47,12 @@ hack-proof, and the limits below are real.
 
 ## On the device
 
-- What the app keeps (the profile, the accounts with their balances, and changes not yet
-  saved) is tagged with the account and shown only to it. Signing out clears it, and so
-  does another account signing in, except that account's unsaved changes: those stay on
-  the device, under its email, unread and unsent until it signs in here again. Signing
-  out asks first when changes are waiting, then drops the leaving account's own.
+- What the app keeps (the profile, the accounts with their balances, the categories,
+  and changes not yet saved) is tagged with the account and shown only to it. Signing
+  out clears it, and so does another account signing in, except that account's unsaved
+  changes: those stay on the device, under its email, unread and unsent until it signs
+  in here again. Signing out asks first when changes are waiting, then drops the leaving
+  account's own.
 - Unsaved changes are sent only as the account they were made as (`X-Expected-Account`),
   by the app or, while it's closed, by the service worker's background sync, which sends
   only the outbox of the account the app last said is signed in. The server refuses one

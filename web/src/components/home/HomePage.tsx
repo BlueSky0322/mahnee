@@ -1,14 +1,16 @@
 import { Button } from '@mantine/core';
-import { SignOut } from '@phosphor-icons/react';
+import { CaretRight, SignOut, Tag } from '@phosphor-icons/react';
 import AccountList from '../accounts/AccountList';
 import { InstallCard } from '../common/InstallApp';
 import ThemeToggle from '../common/ThemeToggle';
 import Skeleton, { Loading } from '../ui/Skeleton';
+import { navigate } from '../../hooks/useRoute';
 import { nameFor, useProfile } from '../../profile/ProfileContext';
 import classes from './HomePage.module.css';
 import { useConfirmSignOut } from './useConfirmSignOut';
 
-// The first screen: the person's accounts, then who's signed in and the way out
+// The first screen: the person's accounts, the way to their categories, then who's
+// signed in and the way out
 const HomePage = () => {
   const { profile } = useProfile();
   const { askToSignOut, dialog } = useConfirmSignOut();
@@ -20,6 +22,24 @@ const HomePage = () => {
       </header>
       <InstallCard />
       <AccountList />
+      <a
+        href="?categories"
+        className={classes.link}
+        onClick={(e) => {
+          e.preventDefault();
+          navigate('?categories');
+        }}
+      >
+        <span className={classes.linkIcon}>
+          <Tag size={20} />
+        </span>
+        <span className={classes.linkText}>Categories</span>
+        <CaretRight
+          size={16}
+          className={classes.linkCaret}
+          aria-hidden
+        />
+      </a>
       <section className={classes.card}>
         {profile == null ? (
           <Loading

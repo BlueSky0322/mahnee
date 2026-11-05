@@ -2,7 +2,7 @@ import { clear, del, delMany, get, getMany, keys, set } from 'idb-keyval';
 import { writeAs } from '../api';
 import { quietly } from '../utils/quietly';
 
-// Last-seen copies of API responses (the profile, the accounts) and the changes not yet
+// Last-seen copies of API responses (the profile, the ledger) and the changes not yet
 // saved (the outbox), kept in IndexedDB so pages show instantly on reload and work
 // offline. Entries are tagged with the signed-in email, and nothing is served until it's
 // known who that is, so a different person on the same browser never sees the previous

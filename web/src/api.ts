@@ -1,9 +1,9 @@
 import { CLIENT_ID_HEADER, EXPECTED_ACCOUNT_HEADER } from '@shared/api';
 import type {
-  AccountList,
   ApiErrorBody,
   ChangesBody,
   ErrorCode,
+  Ledger,
   Ok,
   Profile as ApiProfile,
   ProfilePatch,
@@ -89,7 +89,8 @@ async function request<T>(
 export const api = {
   getMe: () => request<Profile>('GET', '/api/me'),
   updateMe: (patch: ProfilePatch) => request<Profile>('PATCH', '/api/me', patch),
-  listAccounts: () => request<AccountList>('GET', '/api/accounts'),
+  /** The person's accounts and categories */
+  getLedger: () => request<Ledger>('GET', '/api/accounts'),
   /**
    * Saves a batch of ledger changes, all or nothing (see ledger/save-queue.ts). While the
    * page is hidden or closing, keepalive lets the save finish after it's gone; browsers

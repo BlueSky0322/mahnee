@@ -165,6 +165,21 @@ export interface MonthSummary {
   incomeByCategory: CategoryTotal[];
 }
 
+/**
+ * GET /api/export/summary: what the export file (GET /api/export) holds, so the app can
+ * say so before it's downloaded. Accounts and categories are every one the person has,
+ * archived ones too.
+ */
+export interface ExportSummary {
+  /** Every transaction of the person's, on every account */
+  transactions: number;
+  /** The day of the earliest and of the latest (2026-01-03); null with none */
+  firstDate: string | null;
+  lastDate: string | null;
+  accounts: number;
+  categories: number;
+}
+
 /** What a transaction is given when it's added: all of it but when it was saved */
 export type NewTransaction = Omit<Transaction, 'createdAt'>;
 

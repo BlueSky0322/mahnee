@@ -63,6 +63,15 @@
   text-decoration: none;
 }
 
+/* Export opens a dialog rather than a page: a button drawn as the same row */
+button.link {
+  width: 100%;
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .link:hover {
   background: color-mix(in srgb, var(--sf-surface), var(--sf-text) 4%);
 }

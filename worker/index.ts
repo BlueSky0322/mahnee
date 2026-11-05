@@ -6,6 +6,7 @@ import type { AppEnv, Env } from './app';
 import { fail, isCrossSiteWrite, notFound } from './http';
 import { EXPECTED_ACCOUNT_HEADER } from '../shared/api';
 import { getUserEmail } from './accounts/auth';
+import ledger from './routes/ledger';
 import me from './routes/me';
 import rates from './routes/rates';
 
@@ -50,6 +51,7 @@ api.use('*', async (c, next) => {
 });
 
 api.route('/', me);
+api.route('/', ledger);
 api.route('/', rates);
 
 api.notFound(() => notFound());

@@ -5,7 +5,11 @@
 // its body, and answering with a Response) and loaders (returning data shaped as in
 // shared/api.ts, for the route to send with json<T>()). The feature folders:
 //   - accounts/: who's signed in (auth.ts), and their profile and settings (profiles.ts);
-//   - currency/: exchange rates.
+//   - currency/: exchange rates;
+//   - ledger/: the money a person tracks: their cash, bank, card and e-wallet accounts
+//     with balances (read.ts), saving the app's batches of changes all or nothing
+//     (changes.ts), and the receipts that make a change sent again count once
+//     (receipts.ts).
 // Reading requests and answering is in http.ts.
 
 import type { AuthEnv } from './accounts/auth';

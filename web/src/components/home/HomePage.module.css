@@ -43,13 +43,8 @@
   padding: 2px 0;
 }
 
-.email,
-.body {
-  margin: 0;
+.email {
+  margin: 0 0 8px;
   color: var(--sf-text-muted);
   font-size: 14px;
-}
-
-.body {
-  margin-bottom: 8px;
 }

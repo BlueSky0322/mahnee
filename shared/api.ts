@@ -1,6 +1,7 @@
 // What the API sends back, in one place: the Worker builds these and the app reads
 // them, so a field changed on one side fails to compile on the other.
 
+import type { AccountKind } from './ledger';
 import type { RateSource } from './rates';
 
 // ---------- Account ----------
@@ -65,6 +66,64 @@ export interface RateQuote {
   /** The amount asked about (?amount=), converted */
   convertedCents?: number;
 }
+
+// ---------- Ledger ----------
+
+/** One of a person's accounts: where their money is, or what they owe on a card */
+export interface Account {
+  id: string;
+  name: string;
+  kind: AccountKind;
+  /** Its currency, MYR for now */
+  currency: string;
+  /** What it held when tracking began; below zero for what's owed on a card */
+  openingCents: number;
+  /** What it holds now, worked out by the server; below zero when owed */
+  balanceCents: number;
+  /** Its place in the person's list, first at 0 */
+  position: number;
+  /** Taken out of the list, never deleted; it can be brought back */
+  archived: boolean;
+}
+
+/** GET /api/accounts: every account, archived ones too, in the person's order */
+export interface AccountList {
+  accounts: Account[];
+}
+
+/**
+ * One change to the ledger, as the app makes it and POST /api/changes saves it. An
+ * account's kind is fixed once it's added.
+ */
+export type LedgerChange =
+  | {
+      op: 'addAccount';
+      account: { id: string; name: string; kind: AccountKind; openingCents: number };
+    }
+  | { op: 'updateAccount'; id: string; name?: string; openingCents?: number }
+  /** archived: true takes it out of the list, false brings it back */
+  | { op: 'archiveAccount'; id: string; archived: boolean };
+
+/** POST /api/changes: saved in order, all or nothing */
+export interface ChangesBody {
+  changes: LedgerChange[];
+  /**
+   * The id the app gave each change (isRowId), one each in order: a change sent again
+   * after its answer was lost then counts once, and an id sent with a different change
+   * is refused
+   */
+  ids: string[];
+}
+
+/** The most changes one request may carry; the app sends a longer queue in several, in order */
+export const MAX_CHANGES = 200;
+
+/**
+ * The most bytes of JSON one request of changes may carry; a single change bigger than
+ * this still goes, on its own. It keeps a request under the 64 KB browsers allow one
+ * that finishes after the page closes, and well under the Worker's 256 KB limit.
+ */
+export const MAX_CHANGES_BYTES = 48 * 1024;
 
 // ---------- Requests ----------
 

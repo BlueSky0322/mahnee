@@ -12,6 +12,7 @@ in [AGENTS.md](../AGENTS.md).
 | Feature                                                        | State owner (app)            | Worker                         |
 | -------------------------------------------------------------- | ---------------------------- | ------------------------------ |
 | [Sign-in, profile and settings](#sign-in-profile-and-settings) | `profile/ProfileContext.tsx` | `accounts/`, `routes/me.ts`    |
+| [Accounts](#accounts)                                          | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Exchange rates](#exchange-rates)                              | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
 | [Offline start and installing](#offline-start-and-installing)  | `offline/`, `pwa/`           | (none; the API is the same)    |
 | [Pages, layouts and Back](#pages-layouts-and-back)             | `hooks/useRoute.ts`          | (none)                         |
@@ -58,6 +59,76 @@ preference and explains a failure itself.
 keys, configuration, 401 versus 500), [App.test.tsx](../web/src/App.test.tsx) (who's
 signed in, signed out, unreachable, saving the theme and undoing a failed save), and the
 profile cases in [worker/test/api.test.ts](../worker/test/api.test.ts).
+
+## Accounts
+
+**What it is.** The places a person's money is: cash, bank accounts, cards and
+e-wallets, each with its balance, listed on the home page. Add one, rename it, change
+its opening balance, or archive it (with Undo; archived ones are listed apart and can be
+brought back). A card's balance is what's owed on it. Its kind is fixed once added.
+Worker folder `accounts/` is sign-in, not these: the ledger is `ledger/`.
+
+**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts) keeps the accounts in the
+query cache (`ACCOUNTS_KEY`), with a device copy (`accounts-v1`) shown while the first
+fresh one loads and offline. `change(...changes)` is the only way the ledger changes: it
+shows the changes at once ([ledger/apply.ts](../web/src/ledger/apply.ts)), then hands
+them to [ledger/save-queue.ts](../web/src/ledger/save-queue.ts), which sends them in
+order, one request at a time, in batches of at most `MAX_CHANGES` and
+`MAX_CHANGES_BYTES`, each change with its own id (`cid`). Screens read through
+`useAccounts()` in [ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
+
+**Parts.**
+
+- UI: [components/accounts/AccountList.tsx](../web/src/components/accounts/AccountList.tsx)
+  (the list, placeholders, empty state and archived ones) and
+  [AccountForm.tsx](../web/src/components/accounts/AccountForm.tsx) (adding and
+  changing one, in a `ResponsiveDialog`);
+  [account-text.ts](../web/src/components/accounts/account-text.ts) reads balances out
+  and opening balances in; Undo is
+  [components/common/undo-toast.tsx](../web/src/components/common/undo-toast.tsx).
+- API: [worker/routes/ledger.ts](../worker/routes/ledger.ts) serves `GET /api/accounts`
+  and `POST /api/changes`; [worker/ledger/read.ts](../worker/ledger/read.ts) lists the
+  accounts with balances, [changes.ts](../worker/ledger/changes.ts) checks and saves a
+  batch, and [receipts.ts](../worker/ledger/receipts.ts) keeps one receipt per change id.
+- Shared: `Account`, `LedgerChange`, `ChangesBody` and the batch limits in
+  [shared/api.ts](../shared/api.ts); kinds, limits and the name and opening-balance
+  checks in [shared/ledger.ts](../shared/ledger.ts).
+
+**Flow.** A change shows at once and joins the queue. Nothing is sent while a batch is
+on its way; what's made meanwhile goes in the next one. Once nothing is left to send, the
+accounts are fetched again. A copy fetched while changes are still to send has them
+applied on top; one that was on its way while a batch was saved is set aside for the
+next. A refused batch (or one that never arrived) is put back to what the server last
+had, the server's explanation is shown (`showError`), and everything queued after it is
+dropped, since it was made on top of it. Nothing is kept for later yet: a change made
+offline is undone like a refused one.
+
+**Invariants.**
+
+- Every query names the signed-in email; accounts are keyed by email and id, so an id of
+  someone else's is answered exactly as a missing one (404) and never collides with one
+  of theirs.
+- A batch is checked in order against the person's accounts with the batch's earlier
+  changes, and saved all or nothing in one D1 batch with its receipts.
+- A change id saved before with the same change is answered as saved and not applied
+  again; with a different change it's refused (409). Receipts last 90 days
+  (`RECEIPT_DAYS`).
+- At most `MAX_ACCOUNTS` accounts, archived ones included, checked again as the row is
+  saved (the position is NULL past it, which the table refuses), so two batches at once
+  can't pass it. Names are 1 to `MAX_ACCOUNT_NAME` characters once trimmed; an opening
+  balance is whole cents within `MAX_TRANSACTION` either way. A balance is worked out by
+  the server, never stored.
+- The app checks a change with the same shared rules before making it; the Worker is the
+  authority.
+
+**Tests.** [apply.test.ts](../web/src/ledger/apply.test.ts),
+[save-queue.test.ts](../web/src/ledger/save-queue.test.ts) (order, batching by count and
+bytes, a refusal dropping the rest),
+[Accounts.test.tsx](../web/src/components/accounts/Accounts.test.tsx) (adding,
+cards, renaming, archiving and Undo, refusals put back, answers out of order, at desktop
+and phone sizes), and the accounts cases in
+[worker/test/api.test.ts](../worker/test/api.test.ts) (every refusal, another person's
+account, receipts, all or nothing).
 
 ## Exchange rates
 
@@ -162,7 +233,7 @@ and once Access asks to sign in again),
 ## Pages, layouts and Back
 
 **What it is.** Which page shows, the layouts for phones, tablets and computers, and
-what Back does. There is one page so far, the home page.
+what Back does. There is one page so far, the home page, with the accounts on it.
 
 **Owner.**
 

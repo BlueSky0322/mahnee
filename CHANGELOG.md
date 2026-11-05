@@ -42,6 +42,11 @@ Release heading format:
 
 <!-- New features or capabilities. -->
 
+- Accounts: the home page lists your cash, bank, card and e-wallet accounts with their
+  balances (a card's as what's owed); add, rename, change the opening balance, and
+  archive with Undo. Changes show at once and are saved in order; a refused one is put
+  back with the reason. Adds the `accounts` and `change_receipts` tables (migration
+  `0002_accounts.sql`).
 - App: sign in through Cloudflare Access, see who is signed in, switch between light and
   dark, and install the app on a phone or computer; it opens offline from what the device
   last loaded. ([#2](https://github.com/BlueSky0322/mahnee/pull/2))

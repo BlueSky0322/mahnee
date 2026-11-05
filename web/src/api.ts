@@ -1,7 +1,10 @@
 import { CLIENT_ID_HEADER, EXPECTED_ACCOUNT_HEADER } from '@shared/api';
 import type {
+  AccountList,
   ApiErrorBody,
+  ChangesBody,
   ErrorCode,
+  Ok,
   Profile as ApiProfile,
   ProfilePatch,
   RateQuote,
@@ -86,6 +89,9 @@ async function request<T>(
 export const api = {
   getMe: () => request<Profile>('GET', '/api/me'),
   updateMe: (patch: ProfilePatch) => request<Profile>('PATCH', '/api/me', patch),
+  listAccounts: () => request<AccountList>('GET', '/api/accounts'),
+  /** Saves a batch of ledger changes, all or nothing (see ledger/save-queue.ts) */
+  saveChanges: (body: ChangesBody) => request<Ok>('POST', '/api/changes', body),
   /**
    * The rate to convert `from` into `to`, for previews: today's, or with `at` the one for
    * an amount spent then. Whatever saves a converted amount converts it again.

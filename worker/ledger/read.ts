@@ -2,7 +2,14 @@
 // never stored, so it can't drift from what makes it up, their categories, and their
 // transactions a page at a time.
 
-import type { Account, Category, Ledger, Transaction, TransactionPage } from '../../shared/api';
+import type {
+  Account,
+  Category,
+  Ledger,
+  Recurring,
+  Transaction,
+  TransactionPage,
+} from '../../shared/api';
 import { categoriesOrDefaults } from '../../shared/categories';
 import { categoriesIn, foldCase, readSearch, searchAmount } from '../../shared/search';
 import { isRowId } from '../../shared/api';
@@ -73,6 +80,21 @@ const categoriesStatement = (db: D1Database, email: string) =>
 
 const toCategory = (r: CategoryRow): Category => ({ ...r, archived: r.archived === 1 });
 
+type RecurringRow = Omit<Recurring, 'archived'> & { archived: 0 | 1 };
+
+/** Every repeating item of `email`, stopped ones too, in the order they were set up */
+const recurringStatement = (db: D1Database, email: string) =>
+  db
+    .prepare(
+      `SELECT id, kind, account_id AS accountId, to_account_id AS toAccountId,
+              amount_cents AS amountCents, category_id AS categoryId, payee, schedule, day,
+              start_date AS startDate, next_due AS nextDue, archived
+       FROM recurring
+       WHERE email = ?
+       ORDER BY position, id`,
+    )
+    .bind(email);
+
 /**
  * Every category of `email` saved so far, archived ones too, each in its place among
  * the ones beside it. None until their first change, which saves the defaults.
@@ -84,7 +106,7 @@ export async function listCategories(db: D1Database, email: string): Promise<Cat
 
 /**
  * A person's whole ledger, in one answer, read in one batch so the balances, the
- * categories and which of `pending` (change ids the app may have had saved, its answer
+ * categories, the repeating items (when there are any) and which of `pending` (change ids the app may have had saved, its answer
  * lost) are saved all describe the same moment
  */
 export async function readLedger(
@@ -92,16 +114,24 @@ export async function readLedger(
   email: string,
   pending: string[] = [],
 ): Promise<Ledger> {
-  const [accounts, categories, saved] = await db.batch<AccountRow | CategoryRow | { id: string }>([
+  const [accounts, categories, recurring, saved] = await db.batch<
+    AccountRow | CategoryRow | RecurringRow | { id: string }
+  >([
     accountsStatement(db, email),
     categoriesStatement(db, email),
+    recurringStatement(db, email),
     ...(pending.length > 0 ? [savedIdsStatement(db, email, pending)] : []),
   ]);
+  const repeating = recurring.results as RecurringRow[];
   return {
     accounts: (accounts.results as AccountRow[]).map(
       (r): Account => ({ ...r, archived: r.archived === 1 }),
     ),
     categories: (categories.results as CategoryRow[]).map(toCategory),
+    // Only for someone who has any, so the answer is as it always was for everyone else
+    ...(repeating.length > 0 && {
+      recurring: repeating.map((r): Recurring => ({ ...r, archived: r.archived === 1 })),
+    }),
     // Only for a read that named any
     ...(saved != null && { alreadySaved: (saved.results as { id: string }[]).map((r) => r.id) }),
   };

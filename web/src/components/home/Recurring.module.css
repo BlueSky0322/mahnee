@@ -1,0 +1,176 @@
+.due {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dueRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--sf-surface);
+  box-shadow: var(--sf-shadow-sm);
+}
+
+.dueText {
+  display: flex;
+  flex: 1 1 200px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.dueDay {
+  color: var(--sf-text-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.dueActions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.total {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.totalButton {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 16px;
+  background: var(--sf-surface);
+  box-shadow: var(--sf-shadow-sm);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.totalButton:hover {
+  background: color-mix(in srgb, var(--sf-surface), var(--sf-text) 4%);
+}
+
+.totalLabel {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.totalFigure {
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.negative {
+  color: var(--sf-negative);
+}
+
+.belowZero {
+  margin: 0 16px;
+  color: var(--sf-negative);
+  font-size: 13px;
+}
+
+.listTitle {
+  margin: 16px 0 8px;
+  color: var(--sf-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 14px;
+}
+
+.itemDay {
+  flex: none;
+  width: 64px;
+  color: var(--sf-text-muted);
+}
+
+.itemName {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.itemMoney {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.balances {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 14px;
+}
+
+.muted {
+  margin: 0;
+  color: var(--sf-text-muted);
+  font-size: 14px;
+}
+
+.repeating {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.repeatingDetail {
+  color: var(--sf-text-muted);
+  font-size: 13px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}

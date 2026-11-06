@@ -14,6 +14,9 @@ erDiagram
   accounts ||--o{ transactions : "holds"
   categories ||--o{ transactions : "sorts"
   profiles ||--o{ change_receipts : "has"
+  profiles ||--o{ recurring : "has"
+  accounts ||--o{ recurring : "repeats on"
+  categories ||--o{ recurring : "sorts"
   profiles {
     TEXT email PK
     TEXT display_name "null, or 1 to 32 characters"
@@ -64,6 +67,24 @@ erDiagram
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
+  recurring {
+    TEXT email PK "and FK to profiles"
+    TEXT id PK "16 hex characters, made by the app"
+    TEXT kind "expense, income or transfer"
+    TEXT account_id "FK with email to accounts; a transfer's from"
+    TEXT to_account_id "FK with email to accounts; a transfer's to, else null"
+    INTEGER amount_cents "1 to 1,000,000,000"
+    TEXT category_id "FK with email to categories; null only for a transfer"
+    TEXT payee "null, or 1 to 80 characters"
+    TEXT schedule "monthly or weekly"
+    INTEGER day "1 to 31 of a month, or 1 (Monday) to 7"
+    TEXT start_date "the day it was set up from"
+    TEXT next_due "the next occurrence not logged or skipped"
+    INTEGER position "set up in this order, first at 0"
+    INTEGER archived "0 or 1: stopped repeating"
+    INTEGER created_at "ms"
+    INTEGER updated_at "ms"
+  }
   change_receipts {
     TEXT email PK "and FK to profiles"
     TEXT change_id PK "the app's id for the change"
@@ -111,6 +132,16 @@ erDiagram
   out, summed when read. Indexed for an account's newest first (by `account_id`; the
   transfers into an account are found by scanning the person's rows) and for a month
   across accounts.
+- **`recurring`**: bills and income that repeat, monthly on a day of the month (the
+  month's last day when it's shorter) or weekly on a weekday (1 Monday to 7 Sunday), with
+  what Log it records each time, written like a transaction's columns and checked the same
+  way. Nothing is recorded until an occurrence is logged: logging saves its transaction and
+  moves `next_due` on in one batch, only from the occurrence it names (`next_due` is NULL
+  otherwise, which the table refuses), so it's never recorded twice; skipping moves it on
+  alone. Stopped (archived), never deleted; at most 200 per person, stopped ones included,
+  checked again as each row is saved. Keyed by email and then id, its accounts and category
+  foreign keys with the email. Read with the accounts (`GET /api/accounts`, only for someone
+  who has any).
 - **`change_receipts`**: one per change the app saved through `POST /api/changes`, by
   the id the app gave it, with the change's fingerprint, saved in the same batch as the
   change. A change sent again counts once; the same id with a different change is

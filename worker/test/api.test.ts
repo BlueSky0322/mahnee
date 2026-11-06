@@ -2274,3 +2274,710 @@ describe('transactions', () => {
     });
   });
 });
+
+describe('recurring', () => {
+  let ids = 0;
+  /** A fresh row id, as the app makes them: 16 hex characters */
+  const rowId = () => (++ids).toString(16).padStart(16, 'f');
+  const send = (who: string, changes: unknown[], changeIds = changes.map(() => rowId())) =>
+    api.call(who, 'POST', '/api/changes', { changes, ids: changeIds });
+  const addAccount = (id: string, name = 'Maybank', kind = 'bank', openingCents = 300_000) => ({
+    op: 'addAccount',
+    account: { id, name, kind, openingCents },
+  });
+  const bills = DEFAULT_CATEGORIES.find((c) => c.name === 'Bills')!.id;
+  const salary = DEFAULT_CATEGORIES.find((c) => c.name === 'Salary')!.id;
+  /** A bill repeating monthly on the 1st, set up from a payment on 1 Oct 2025 */
+  const repeat = (
+    id: string,
+    accountId: string,
+    amountCents = 120_000,
+    more: Record<string, unknown> = {},
+  ) => ({
+    op: 'addRecurring',
+    recurring: {
+      id,
+      kind: 'expense',
+      accountId,
+      toAccountId: null,
+      amountCents,
+      categoryId: bills,
+      payee: 'Rent',
+      schedule: 'monthly',
+      day: 1,
+      startDate: '2025-10-01',
+      ...more,
+    },
+  });
+  /** The transaction Log it makes for an occurrence due on `date` */
+  const logged = (
+    id: string,
+    accountId: string,
+    date: string,
+    more: Record<string, unknown> = {},
+  ) => ({
+    id,
+    kind: 'expense',
+    accountId,
+    toAccountId: null,
+    amountCents: 120_000,
+    categoryId: bills,
+    payee: 'Rent',
+    note: null,
+    date,
+    ...more,
+  });
+  const ledger = async (who: string) => {
+    const res = await api.call(who, 'GET', '/api/accounts');
+    expect(res.status).toBe(200);
+    return res.data as {
+      accounts: { id: string; balanceCents: number }[];
+      recurring?: { id: string; nextDue: string; [k: string]: unknown }[];
+    };
+  };
+  const repeating = async (who: string) => (await ledger(who)).recurring ?? [];
+  const nextDue = async (who: string, id: string) =>
+    (await repeating(who)).find((r) => r.id === id)?.nextDue;
+  const balance = async (who: string, account: string) =>
+    (await ledger(who)).accounts.find((a) => a.id === account)?.balanceCents;
+  const listed = async (who: string, account: string) => {
+    const res = await api.call(who, 'GET', `/api/transactions?account=${account}`);
+    expect(res.status).toBe(200);
+    return res.data.transactions as { id: string; [k: string]: unknown }[];
+  };
+
+  /** A person with Maybank holding RM 3,000 and Rent repeating on it */
+  async function withRent() {
+    const me = person('me');
+    const [bank, rent] = [rowId(), rowId()];
+    expect(await send(me, [addAccount(bank), repeat(rent, bank)])).toEqual({
+      status: 200,
+      data: { ok: true },
+    });
+    return { me, bank, rent };
+  }
+
+  it('sets one up, listed with the ledger and next due after the day it was set up from, recording nothing', async () => {
+    const me = person('me');
+    const bank = rowId();
+    await send(me, [addAccount(bank)]);
+    // None yet: the ledger answers as it always did
+    expect(await ledger(me)).not.toHaveProperty('recurring');
+
+    const rent = rowId();
+    expect(await send(me, [repeat(rent, bank, 120_000, { payee: '  Rent ' })])).toEqual({
+      status: 200,
+      data: { ok: true },
+    });
+    expect(await repeating(me)).toEqual([
+      {
+        id: rent,
+        kind: 'expense',
+        accountId: bank,
+        toAccountId: null,
+        amountCents: 120_000,
+        categoryId: bills,
+        payee: 'Rent',
+        schedule: 'monthly',
+        day: 1,
+        startDate: '2025-10-01',
+        nextDue: '2025-11-01',
+        archived: false,
+      },
+    ]);
+    // Nothing moved: no transaction, the balance as it was
+    expect(await balance(me, bank)).toBe(300_000);
+    expect(await listed(me, bank)).toEqual([]);
+    // Someone else never sees it
+    expect(await ledger(person('other'))).not.toHaveProperty('recurring');
+  });
+
+  it.each([
+    [
+      'monthly on the 31st, from 31 Jan',
+      'monthly',
+      31,
+      '2025-01-31',
+      ['2025-02-28', '2025-03-31', '2025-04-30'],
+    ],
+    [
+      'monthly on the 31st in a leap year',
+      'monthly',
+      31,
+      '2024-01-31',
+      ['2024-02-29', '2024-03-31', '2024-04-30'],
+    ],
+    [
+      'monthly on the 30th',
+      'monthly',
+      30,
+      '2025-01-30',
+      ['2025-02-28', '2025-03-30', '2025-04-30'],
+    ],
+    [
+      'monthly on the 15th',
+      'monthly',
+      15,
+      '2025-10-15',
+      ['2025-11-15', '2025-12-15', '2026-01-15'],
+    ],
+    // Weekly days run from 1 (Monday) to 7 (Sunday); 13 Oct 2025 was a Monday
+    ['weekly on Mondays', 'weekly', 1, '2025-10-13', ['2025-10-20', '2025-10-27', '2025-11-03']],
+    ['weekly on Sundays', 'weekly', 7, '2025-10-13', ['2025-10-19', '2025-10-26', '2025-11-02']],
+    [
+      'weekly on Wednesdays, across a year',
+      'weekly',
+      3,
+      '2025-12-24',
+      ['2025-12-31', '2026-01-07', '2026-01-14'],
+    ],
+  ])(
+    'falls due %s, each skip moving it to the next',
+    async (_what, schedule, day, startDate, dues) => {
+      const me = person('me');
+      const [bank, item] = [rowId(), rowId()];
+      await send(me, [addAccount(bank), repeat(item, bank, 1_000, { schedule, day, startDate })]);
+      expect(await nextDue(me, item)).toBe(dues[0]);
+      for (const [i, due] of dues.slice(0, -1).entries()) {
+        expect(await send(me, [{ op: 'skipRecurring', id: item, due }])).toEqual({
+          status: 200,
+          data: { ok: true },
+        });
+        expect(await nextDue(me, item)).toBe(dues[i + 1]);
+      }
+      // Skipping records nothing
+      expect(await listed(me, bank)).toEqual([]);
+      expect(await balance(me, bank)).toBe(300_000);
+    },
+  );
+
+  it('logs one: the transaction and the next due date in one batch, counted once when sent again', async () => {
+    const { me, bank, rent } = await withRent();
+    const t = rowId();
+    const log = {
+      op: 'logRecurring',
+      id: rent,
+      due: '2025-11-01',
+      transaction: logged(t, bank, '2025-11-01'),
+    };
+    const changeId = rowId();
+    expect(await send(me, [log], [changeId])).toEqual({ status: 200, data: { ok: true } });
+    expect(await balance(me, bank)).toBe(300_000 - 120_000);
+    expect(await listed(me, bank)).toEqual([
+      { ...logged(t, bank, '2025-11-01'), createdAt: expect.any(Number) },
+    ]);
+    expect(await nextDue(me, rent)).toBe('2025-12-01');
+
+    // Its answer lost and sent again: saved once, moved on once
+    expect(await send(me, [log], [changeId])).toEqual({ status: 200, data: { ok: true } });
+    expect(await balance(me, bank)).toBe(300_000 - 120_000);
+    expect(await listed(me, bank)).toHaveLength(1);
+    expect(await nextDue(me, rent)).toBe('2025-12-01');
+
+    // A read naming it says the balances and the next due date hold it already, together
+    const named = await api.call(me, 'GET', '/api/accounts', undefined, {
+      'X-Pending-Changes': changeId,
+    });
+    expect(named.data).toMatchObject({
+      alreadySaved: [changeId],
+      accounts: [expect.objectContaining({ id: bank, balanceCents: 180_000 })],
+      recurring: [expect.objectContaining({ id: rent, nextDue: '2025-12-01' })],
+    });
+  });
+
+  it('refuses logging or skipping an occurrence that was logged or skipped already, saving nothing', async () => {
+    const { me, bank, rent } = await withRent();
+    await send(me, [
+      {
+        op: 'logRecurring',
+        id: rent,
+        due: '2025-11-01',
+        transaction: logged(rowId(), bank, '2025-11-01'),
+      },
+    ]);
+    // Another device logs the same one: refused, not logged twice
+    const again = await send(me, [
+      {
+        op: 'logRecurring',
+        id: rent,
+        due: '2025-11-01',
+        transaction: logged(rowId(), bank, '2025-11-01'),
+      },
+    ]);
+    expect(again).toEqual({ status: 409, data: { error: 'That was logged or skipped already' } });
+    expect(await send(me, [{ op: 'skipRecurring', id: rent, due: '2025-11-01' }])).toEqual({
+      status: 409,
+      data: { error: 'That was logged or skipped already' },
+    });
+    expect(await listed(me, bank)).toHaveLength(1);
+    expect(await nextDue(me, rent)).toBe('2025-12-01');
+  });
+
+  it('logs income and transfers too: a transfer moves both balances and no total', async () => {
+    const me = person('me');
+    const [bank, card, pay, cardPayment] = [rowId(), rowId(), rowId(), rowId()];
+    await send(me, [
+      addAccount(bank),
+      addAccount(card, 'Visa', 'card', -50_000),
+      repeat(pay, bank, 500_000, {
+        kind: 'income',
+        categoryId: salary,
+        payee: 'Salary',
+        day: 25,
+        startDate: '2025-10-25',
+      }),
+      repeat(cardPayment, bank, 30_000, {
+        kind: 'transfer',
+        toAccountId: card,
+        categoryId: null,
+        payee: 'Card payment',
+        day: 28,
+        startDate: '2025-10-28',
+      }),
+    ]);
+    expect(
+      (
+        await send(me, [
+          {
+            op: 'logRecurring',
+            id: pay,
+            due: '2025-11-25',
+            transaction: logged(rowId(), bank, '2025-11-25', {
+              kind: 'income',
+              amountCents: 500_000,
+              categoryId: salary,
+              payee: 'Salary',
+            }),
+          },
+          {
+            op: 'logRecurring',
+            id: cardPayment,
+            due: '2025-11-28',
+            transaction: logged(rowId(), bank, '2025-11-28', {
+              kind: 'transfer',
+              toAccountId: card,
+              amountCents: 30_000,
+              categoryId: null,
+              payee: 'Card payment',
+            }),
+          },
+        ])
+      ).status,
+    ).toBe(200);
+    expect(await balance(me, bank)).toBe(300_000 + 500_000 - 30_000);
+    expect(await balance(me, card)).toBe(-50_000 + 30_000);
+    expect(await nextDue(me, pay)).toBe('2025-12-25');
+    expect(await nextDue(me, cardPayment)).toBe('2025-12-28');
+    const totals = await api.call(me, 'GET', '/api/summary?month=2025-11');
+    expect(totals.data).toMatchObject({ incomeCents: 500_000, spentCents: 0 });
+  });
+
+  it('changes what it records and when it falls, and Undo of a log puts both back', async () => {
+    const { me, bank, rent } = await withRent();
+    expect(
+      await send(me, [
+        { op: 'updateRecurring', id: rent, amountCents: 125_000, payee: 'Rent and parking' },
+      ]),
+    ).toEqual({ status: 200, data: { ok: true } });
+    expect((await repeating(me))[0]).toMatchObject({
+      amountCents: 125_000,
+      payee: 'Rent and parking',
+      nextDue: '2025-11-01',
+    });
+    // A new day comes with when it's next due, which falls on it
+    expect(
+      await send(me, [{ op: 'updateRecurring', id: rent, day: 5, nextDue: '2025-11-05' }]),
+    ).toEqual({ status: 200, data: { ok: true } });
+    expect((await repeating(me))[0]).toMatchObject({ day: 5, nextDue: '2025-11-05' });
+    expect(await send(me, [{ op: 'updateRecurring', id: rent, day: 6 }])).toEqual({
+      status: 400,
+      data: { error: 'Say when it is next due' },
+    });
+    expect(
+      await send(me, [
+        { op: 'updateRecurring', id: rent, schedule: 'weekly', day: 1, nextDue: '2025-11-05' },
+      ]),
+    ).toEqual({ status: 400, data: { error: 'Next due has to fall on its schedule' } });
+    expect(await send(me, [{ op: 'updateRecurring', id: rent, kind: 'income' }])).toEqual({
+      status: 400,
+      data: { error: "A kind can't be changed" },
+    });
+
+    // Log it, then Undo: the transaction deleted and the occurrence due again
+    const t = rowId();
+    await send(me, [
+      {
+        op: 'logRecurring',
+        id: rent,
+        due: '2025-11-05',
+        transaction: logged(t, bank, '2025-11-05', { amountCents: 125_000 }),
+      },
+    ]);
+    expect(await nextDue(me, rent)).toBe('2025-12-05');
+    expect(
+      await send(me, [
+        { op: 'removeTransaction', id: t },
+        { op: 'updateRecurring', id: rent, nextDue: '2025-11-05' },
+      ]),
+    ).toEqual({ status: 200, data: { ok: true } });
+    expect(await nextDue(me, rent)).toBe('2025-11-05');
+    expect(await balance(me, bank)).toBe(300_000);
+  });
+
+  it('stops one and brings it back; a stopped one is listed but never logged or skipped', async () => {
+    const { me, bank, rent } = await withRent();
+    expect(await send(me, [{ op: 'archiveRecurring', id: rent, archived: true }])).toEqual({
+      status: 200,
+      data: { ok: true },
+    });
+    expect(await repeating(me)).toEqual([expect.objectContaining({ id: rent, archived: true })]);
+    expect(
+      await send(me, [
+        {
+          op: 'logRecurring',
+          id: rent,
+          due: '2025-11-01',
+          transaction: logged(rowId(), bank, '2025-11-01'),
+        },
+      ]),
+    ).toEqual({ status: 409, data: { error: 'That no longer repeats' } });
+    expect(await send(me, [{ op: 'skipRecurring', id: rent, due: '2025-11-01' }])).toEqual({
+      status: 409,
+      data: { error: 'That no longer repeats' },
+    });
+    expect(await listed(me, bank)).toEqual([]);
+    await send(me, [{ op: 'archiveRecurring', id: rent, archived: false }]);
+    expect(await repeating(me)).toEqual([
+      expect.objectContaining({ id: rent, archived: false, nextDue: '2025-11-01' }),
+    ]);
+  });
+
+  it.each([
+    ['an unknown schedule', { schedule: 'yearly' }, 400, 'Repeat monthly or weekly'],
+    ['a day of the month past 31', { day: 32 }, 400, 'Pick a day of the month from 1 to 31'],
+    ['a day of the month of 0', { day: 0 }, 400, 'Pick a day of the month from 1 to 31'],
+    [
+      'a weekday past 7',
+      { schedule: 'weekly', day: 8 },
+      400,
+      'Pick a day of the week from 1 (Monday) to 7 (Sunday)',
+    ],
+    ['a day that is not a whole number', { day: 1.5 }, 400, 'Pick a day of the month from 1 to 31'],
+    ['no amount', { amountCents: 0 }, 400, 'An amount is more than 0 and up to 10,000,000'],
+    [
+      'a start that is not a day',
+      { startDate: '2025-02-30' },
+      400,
+      'Give a day from 2000 up to today',
+    ],
+    [
+      'spending in an income category',
+      { categoryId: salary },
+      409,
+      'Spending goes in a spending category',
+    ],
+    ['income in a spending category', { kind: 'income' }, 409, 'Income goes in an income category'],
+    ['a field it does not have', { note: 'x' }, 400, 'Unknown field note'],
+  ])('refuses setting one up with %s', async (_what, more, status, error) => {
+    const me = person('me');
+    const bank = rowId();
+    await send(me, [addAccount(bank)]);
+    expect(await send(me, [repeat(rowId(), bank, 120_000, more)])).toEqual({
+      status,
+      data: { error },
+    });
+    expect(await repeating(me)).toEqual([]);
+  });
+
+  it('refuses one on an archived account, or one with an id already used', async () => {
+    const { me, bank, rent } = await withRent();
+    expect(await send(me, [repeat(rent, bank)])).toEqual({
+      status: 409,
+      data: { error: 'That repeating item already exists' },
+    });
+    await send(me, [{ op: 'archiveAccount', id: bank, archived: true }]);
+    expect(await send(me, [repeat(rowId(), bank)])).toEqual({
+      status: 409,
+      data: { error: 'Maybank is archived' },
+    });
+  });
+
+  it("treats someone else's account and repeating items as missing, and changes none of them", async () => {
+    const { me, bank, rent } = await withRent();
+    const stranger = person('stranger');
+    const theirs = rowId();
+    await send(stranger, [addAccount(theirs)]);
+    expect(await send(stranger, [repeat(rowId(), bank)])).toEqual({
+      status: 404,
+      data: { error: 'Account not found' },
+    });
+    const notFound = { status: 404, data: { error: 'Repeating item not found' } };
+    expect(
+      await send(stranger, [
+        {
+          op: 'logRecurring',
+          id: rent,
+          due: '2025-11-01',
+          transaction: logged(rowId(), theirs, '2025-11-01'),
+        },
+      ]),
+    ).toEqual(notFound);
+    expect(await send(stranger, [{ op: 'skipRecurring', id: rent, due: '2025-11-01' }])).toEqual(
+      notFound,
+    );
+    expect(await send(stranger, [{ op: 'updateRecurring', id: rent, amountCents: 1 }])).toEqual(
+      notFound,
+    );
+    expect(await send(stranger, [{ op: 'archiveRecurring', id: rent, archived: true }])).toEqual(
+      notFound,
+    );
+    expect(await repeating(me)).toEqual([
+      expect.objectContaining({
+        id: rent,
+        amountCents: 120_000,
+        nextDue: '2025-11-01',
+        archived: false,
+      }),
+    ]);
+    expect(await repeating(stranger)).toEqual([]);
+  });
+
+  it('saves a log all or nothing with the rest of its batch', async () => {
+    const { me, bank, rent } = await withRent();
+    const res = await send(me, [
+      {
+        op: 'logRecurring',
+        id: rent,
+        due: '2025-11-01',
+        transaction: logged(rowId(), bank, '2025-11-01'),
+      },
+      { op: 'updateRecurring', id: rowId(), amountCents: 1 },
+    ]);
+    expect(res).toEqual({ status: 404, data: { error: 'Repeating item not found' } });
+    expect(await listed(me, bank)).toEqual([]);
+    expect(await nextDue(me, rent)).toBe('2025-11-01');
+    expect(await balance(me, bank)).toBe(300_000);
+  });
+
+  it('holds up to 200 repeating items a person, stopped ones included', async () => {
+    const me = person('me');
+    const bank = rowId();
+    const items = Array.from({ length: 200 }, () => repeat(rowId(), bank, 100));
+    expect((await send(me, [addAccount(bank), ...items.slice(0, 100)])).status).toBe(200);
+    expect((await send(me, items.slice(100))).status).toBe(200);
+    await send(me, [{ op: 'archiveRecurring', id: items[0].recurring.id, archived: true }]);
+    expect(await send(me, [repeat(rowId(), bank, 100)])).toEqual({
+      status: 409,
+      data: { error: 'You can have up to 200 repeating items, stopped ones included' },
+    });
+    expect(await repeating(me)).toHaveLength(200);
+  });
+  it.each([
+    ['1 cent', 1],
+    ['the largest amount', 1_000_000_000],
+  ])('takes an amount of %s, setting one up and changing it', async (_what, cents) => {
+    const { me, bank, rent } = await withRent();
+    const other = rowId();
+    expect((await send(me, [repeat(other, bank, cents)])).status).toBe(200);
+    expect((await send(me, [{ op: 'updateRecurring', id: rent, amountCents: cents }])).status).toBe(
+      200,
+    );
+    expect((await repeating(me)).map((r) => r.amountCents)).toEqual([cents, cents]);
+  });
+
+  it.each([
+    ['past the largest amount', 1_000_000_001],
+    ['part of a cent', 80.5],
+  ])('refuses an amount %s, setting one up and changing it', async (_what, cents) => {
+    const { me, bank, rent } = await withRent();
+    const refused = {
+      status: 400,
+      data: { error: 'An amount is more than 0 and up to 10,000,000' },
+    };
+    expect(await send(me, [repeat(rowId(), bank, cents)])).toEqual(refused);
+    expect(await send(me, [{ op: 'updateRecurring', id: rent, amountCents: cents }])).toEqual(
+      refused,
+    );
+    expect(await repeating(me)).toEqual([
+      expect.objectContaining({ id: rent, amountCents: 120_000 }),
+    ]);
+  });
+
+  it("checks a log's transaction as any added one: refused, it saves nothing and stays due", async () => {
+    const { me, bank, rent } = await withRent();
+    const stranger = person('stranger');
+    const theirs = rowId();
+    await send(stranger, [addAccount(theirs)]);
+    const cases: [Record<string, unknown>, number, string][] = [
+      [{ amountCents: 0 }, 400, 'An amount is more than 0 and up to 10,000,000'],
+      [{ categoryId: salary }, 409, 'Spending goes in a spending category'],
+      [{ accountId: theirs }, 404, 'Account not found'],
+      // Logged on the day it was due, never another
+      [{ date: '2025-11-02' }, 400, 'A repeating item is logged on the day it was due'],
+    ];
+    for (const [more, status, error] of cases) {
+      const res = await send(me, [
+        {
+          op: 'logRecurring',
+          id: rent,
+          due: '2025-11-01',
+          transaction: logged(rowId(), bank, '2025-11-01', more),
+        },
+      ]);
+      expect(res).toEqual({ status, data: { error } });
+    }
+    expect(await listed(me, bank)).toEqual([]);
+    expect(await nextDue(me, rent)).toBe('2025-11-01');
+    expect(await balance(me, bank)).toBe(300_000);
+  });
+
+  it.each([
+    [
+      'a transfer going nowhere',
+      { kind: 'transfer', categoryId: null },
+      400,
+      'Pick the account it goes to',
+    ],
+    [
+      'a transfer to the same account',
+      { kind: 'transfer', categoryId: null, toAccountId: 'SAME' },
+      400,
+      'Move it between two different accounts',
+    ],
+    [
+      'a transfer with a category',
+      { kind: 'transfer', toAccountId: 'CARD' },
+      400,
+      'A transfer has no category',
+    ],
+    [
+      'a transfer to an archived account',
+      { kind: 'transfer', categoryId: null, toAccountId: 'ARCHIVED' },
+      409,
+      'Old card is archived',
+    ],
+    [
+      "a transfer to someone else's account",
+      { kind: 'transfer', categoryId: null, toAccountId: 'THEIRS' },
+      404,
+      'Account not found',
+    ],
+    [
+      'spending going to another account',
+      { toAccountId: 'CARD' },
+      400,
+      'Only a transfer goes to another account',
+    ],
+  ])('refuses setting up %s', async (_what, more, status, error) => {
+    const me = person('me');
+    const stranger = person('stranger');
+    const [bank, card, archived, theirs] = [rowId(), rowId(), rowId(), rowId()];
+    await send(stranger, [addAccount(theirs)]);
+    await send(me, [
+      addAccount(bank),
+      addAccount(card, 'Visa', 'card', 0),
+      addAccount(archived, 'Old card', 'card', 0),
+      { op: 'archiveAccount', id: archived, archived: true },
+    ]);
+    const ends: Record<string, string> = {
+      SAME: bank,
+      CARD: card,
+      ARCHIVED: archived,
+      THEIRS: theirs,
+    };
+    const given = Object.fromEntries(
+      Object.entries(more).map(([k, v]) => [k, typeof v === 'string' && v in ends ? ends[v] : v]),
+    );
+    expect(await send(me, [repeat(rowId(), bank, 30_000, given)])).toEqual({
+      status,
+      data: { error },
+    });
+    expect(await repeating(me)).toEqual([]);
+  });
+
+  it('starts from any day a transaction can be on: tomorrow in UTC, but not the day after', async () => {
+    const me = person('me');
+    const bank = rowId();
+    await send(me, [addAccount(bank)]);
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const utcDay = (days: number) =>
+      new Date(Date.now() + days * DAY_MS).toISOString().slice(0, 10);
+    const tomorrow = utcDay(1);
+    const item = rowId();
+    expect(
+      await send(me, [
+        repeat(item, bank, 1_000, {
+          schedule: 'monthly',
+          day: Number(tomorrow.slice(8)),
+          startDate: tomorrow,
+        }),
+      ]),
+    ).toEqual({ status: 200, data: { ok: true } });
+    expect((await repeating(me))[0]).toMatchObject({ startDate: tomorrow });
+    expect(await send(me, [repeat(rowId(), bank, 1_000, { startDate: utcDay(2) })])).toEqual({
+      status: 400,
+      data: { error: 'Give a day from 2000 up to today' },
+    });
+  });
+
+  it.each([
+    ['not a real day', '2025-02-30'],
+    ['before 2000', '1999-12-01'],
+    ['off its schedule', '2025-11-06'],
+    ['not a day at all', 'soon'],
+  ])('refuses a next due date %s', async (_what, day) => {
+    const { me, rent } = await withRent();
+    expect(await send(me, [{ op: 'updateRecurring', id: rent, nextDue: day }])).toEqual({
+      status: 400,
+      data: { error: 'Next due has to fall on its schedule' },
+    });
+    expect(await nextDue(me, rent)).toBe('2025-11-01');
+  });
+
+  it('refuses logging or skipping one whose account is archived', async () => {
+    const { me, bank, rent } = await withRent();
+    await send(me, [{ op: 'archiveAccount', id: bank, archived: true }]);
+    const archived = { status: 409, data: { error: 'Maybank is archived' } };
+    expect(
+      await send(me, [
+        {
+          op: 'logRecurring',
+          id: rent,
+          due: '2025-11-01',
+          transaction: logged(rowId(), bank, '2025-11-01'),
+        },
+      ]),
+    ).toEqual(archived);
+    expect(await send(me, [{ op: 'skipRecurring', id: rent, due: '2025-11-01' }])).toEqual(
+      archived,
+    );
+    expect(await nextDue(me, rent)).toBe('2025-11-01');
+  });
+
+  it('refuses a next due date more than a year ahead', async () => {
+    const { me, rent } = await withRent();
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const utc = (at: number) => new Date(at).toISOString().slice(0, 10);
+    // The first of a month from 13 months ahead: on Rent's schedule, but too far
+    const far = new Date(Date.now() + 400 * DAY_MS);
+    const tooFar = `${utc(far.getTime()).slice(0, 7)}-01`;
+    expect(await send(me, [{ op: 'updateRecurring', id: rent, nextDue: tooFar }])).toEqual({
+      status: 400,
+      data: { error: 'Next due has to be within a year' },
+    });
+    expect(await send(me, [{ op: 'updateRecurring', id: rent, nextDue: '9999-12-01' }])).toEqual({
+      status: 400,
+      data: { error: 'Next due has to be within a year' },
+    });
+    expect(await nextDue(me, rent)).toBe('2025-11-01');
+  });
+
+  it('counts a skip sent again once', async () => {
+    const { me, rent } = await withRent();
+    const changeId = rowId();
+    const skip = { op: 'skipRecurring', id: rent, due: '2025-11-01' };
+    expect(await send(me, [skip], [changeId])).toEqual({ status: 200, data: { ok: true } });
+    expect(await send(me, [skip], [changeId])).toEqual({ status: 200, data: { ok: true } });
+    expect(await nextDue(me, rent)).toBe('2025-12-01');
+  });
+});

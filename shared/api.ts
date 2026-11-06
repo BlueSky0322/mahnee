@@ -234,7 +234,17 @@ export type LedgerChange =
    */
   | ({ op: 'updateTransaction'; id: string } & Partial<Omit<NewTransaction, 'id'>>)
   /** Deletes it for good; Undo adds it again, with the same id */
-  | { op: 'removeTransaction'; id: string };
+  | { op: 'removeTransaction'; id: string }
+  /**
+   * Moves up to MAX_BULK_TRANSACTIONS spending or income transactions (each once) into one
+   * category of their kind, all or none. Undo is one of these per category they came from.
+   */
+  | { op: 'recategoriseTransactions'; ids: string[]; categoryId: string }
+  /**
+   * Deletes up to MAX_BULK_TRANSACTIONS transactions (each once) for good, all or none; Undo
+   * adds each again, with its own id
+   */
+  | { op: 'removeTransactions'; ids: string[] };
 
 /** POST /api/changes: saved in order, all or nothing */
 export interface ChangesBody {

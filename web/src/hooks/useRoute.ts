@@ -7,7 +7,10 @@ import { quietly } from '../utils/quietly';
 /** The page that's open; each page the app gains adds its own view here */
 export type Route =
   /** month: an earlier month Home shows (2026-10); null for this month */
-  { view: 'home'; month: string | null } | { view: 'categories' } | { view: 'account'; id: string };
+  | { view: 'home'; month: string | null }
+  | { view: 'categories' }
+  | { view: 'search' }
+  | { view: 'account'; id: string };
 
 /** An earlier month named in the address (?month=2026-10); null for this one or none */
 function readMonth(params: URLSearchParams) {
@@ -19,6 +22,7 @@ function readMonth(params: URLSearchParams) {
 function readRoute(): Route {
   const params = new URLSearchParams(window.location.search);
   if (params.has('categories')) return { view: 'categories' };
+  if (params.has('search')) return { view: 'search' };
   const account = params.get('account');
   if (account) return { view: 'account', id: account };
   return { view: 'home', month: readMonth(params) };

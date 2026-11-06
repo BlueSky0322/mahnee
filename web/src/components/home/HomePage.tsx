@@ -1,5 +1,5 @@
 import { Button } from '@mantine/core';
-import { CaretRight, DownloadSimple, SignOut, Tag } from '@phosphor-icons/react';
+import { CaretRight, DownloadSimple, MagnifyingGlass, SignOut, Tag } from '@phosphor-icons/react';
 import { useState } from 'react';
 import AccountList from '../accounts/AccountList';
 import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
@@ -19,9 +19,10 @@ import { useConfirmSignOut } from './useConfirmSignOut';
 
 // The first screen. It says how old the numbers are when they came from this device. Then
 // the month at a glance (`month`, an earlier one; null for this one), the person's
-// accounts, the way to their categories and to exporting everything, then who's signed in
-// and the way out. Add, floating over it, opens the entry sheet once there's an account to
-// put a transaction on. Until the first account is added there's no month to show.
+// accounts, the ways to search their transactions, to their categories and to export
+// everything, then who's signed in and the way out. Add, floating over it, opens the entry
+// sheet once there's an account to put a transaction on. Until the first account is added
+// there's no month to show.
 const HomePage = ({ month }: { month: string | null }) => {
   const { profile } = useProfile();
   const { askToSignOut, dialog } = useConfirmSignOut();
@@ -38,6 +39,22 @@ const HomePage = ({ month }: { month: string | null }) => {
       {accounts?.length !== 0 && <MonthCard month={month} />}
       <InstallCard />
       <AccountList />
+      {/* Search is its own page: a button drawn as the same row, like Export */}
+      <button
+        type="button"
+        className={classes.link}
+        onClick={() => navigate('?search')}
+      >
+        <span className={classes.linkIcon}>
+          <MagnifyingGlass size={20} />
+        </span>
+        <span className={classes.linkText}>Search</span>
+        <CaretRight
+          size={16}
+          className={classes.linkCaret}
+          aria-hidden
+        />
+      </button>
       <a
         href="?categories"
         className={classes.link}

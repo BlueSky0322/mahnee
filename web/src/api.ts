@@ -123,6 +123,16 @@ export const api = {
     if (before != null) query.set('before', before);
     return request<TransactionPage>('GET', `/api/transactions?${query.toString()}`);
   },
+  /**
+   * A page of what a search finds (`search`: its address, as shared/search.ts writes it),
+   * newest first; `before` is the page before's nextBefore
+   */
+  search: (search: string, before: string | null, limit: number) => {
+    const query = new URLSearchParams(search);
+    if (before != null) query.set('before', before);
+    query.set('limit', String(limit));
+    return request<TransactionPage>('GET', `/api/search?${query.toString()}`);
+  },
   /** How many transactions the export file holds, over which days */
   getExportSummary: () => request<ExportSummary>('GET', '/api/export/summary'),
   /**

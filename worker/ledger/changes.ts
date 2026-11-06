@@ -29,6 +29,7 @@ import type { TransactionKind } from '../../shared/ledger';
 import {
   DEFAULT_CURRENCY,
   MAX_ACCOUNTS,
+  MAX_BULK_TRANSACTIONS,
   MAX_ACCOUNT_NAME,
   MAX_NOTE,
   MAX_PAYEE,
@@ -74,6 +75,7 @@ const TOO_MANY_TRANSACTIONS = `An account can hold up to ${MAX_TRANSACTIONS_PER_
 const TRANSFER_CATEGORY = 'A transfer has no category';
 const ONLY_TRANSFERS_GO = 'Only a transfer goes to another account';
 const PICK_DESTINATION = 'Pick the account it goes to';
+const TOO_MANY_AT_ONCE = `Change up to ${MAX_BULK_TRANSACTIONS} transactions at once`;
 
 /** What a check needs to know of a saved transaction */
 interface TransactionState {
@@ -584,9 +586,57 @@ function changeStatements(
         db.prepare('DELETE FROM transactions WHERE email = ? AND id = ?').bind(email, change.id),
       ];
     }
+    case 'recategoriseTransactions': {
+      onlyFields(change, ['op', 'ids', 'categoryId']);
+      const named = readBulk(model, change.ids);
+      const category = readCategory(model, change.categoryId);
+      for (const saved of named) {
+        if (saved.kind === 'transfer') throw new Refused(400, TRANSFER_CATEGORY);
+        const reason = whyNotInCategory(category, saved.kind);
+        if (reason != null) throw new Refused(409, reason);
+      }
+      for (const saved of named) saved.categoryId = category.id;
+      return [
+        db
+          .prepare(
+            `UPDATE transactions SET category_id = ?, updated_at = ?
+             WHERE email = ? AND id IN (SELECT value FROM json_each(?))`,
+          )
+          .bind(category.id, now, email, JSON.stringify(change.ids)),
+      ];
+    }
+    case 'removeTransactions': {
+      onlyFields(change, ['op', 'ids']);
+      const named = readBulk(model, change.ids);
+      (change.ids as string[]).forEach((id) => model.transactions.delete(id));
+      for (const saved of named) for (const side of sidesOf(saved)) countOn(model, side, -1);
+      return [
+        db
+          .prepare(
+            'DELETE FROM transactions WHERE email = ? AND id IN (SELECT value FROM json_each(?))',
+          )
+          .bind(email, JSON.stringify(change.ids)),
+      ];
+    }
     default:
       throw new Refused(400, 'Unknown change');
   }
+}
+
+/**
+ * The transactions a change to many names (`ids`): a list of 1 to MAX_BULK_TRANSACTIONS,
+ * each once, every one the person's
+ */
+function readBulk(model: Model, ids: unknown): TransactionState[] {
+  if (!Array.isArray(ids)) throw new Refused(400, 'Name the transactions as a list of ids');
+  if (ids.length === 0) throw new Refused(400, 'Name at least one transaction');
+  if (ids.length > MAX_BULK_TRANSACTIONS) throw new Refused(400, TOO_MANY_AT_ONCE);
+  if (new Set(ids).size !== ids.length) throw new Refused(400, 'Name each transaction once');
+  return ids.map((id: unknown) => {
+    const saved = isRowId(id) ? model.transactions.get(id) : undefined;
+    if (saved == null) throw new Refused(404, TRANSACTION_NOT_FOUND);
+    return saved;
+  });
 }
 
 /**
@@ -646,6 +696,14 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
     const t = change.op === 'addTransaction' ? change.transaction : change;
     if (!isObject(t)) continue;
     if (isRowId(t.id) && String(change.op).endsWith('Transaction')) named.add(t.id);
+    // A change to many names them all (refused past the limit, so not read past it)
+    if (
+      String(change.op).endsWith('Transactions') &&
+      Array.isArray(change.ids) &&
+      change.ids.length <= MAX_BULK_TRANSACTIONS
+    ) {
+      for (const id of change.ids) if (isRowId(id)) named.add(id);
+    }
     if (isRowId(t.accountId)) addingTo.add(t.accountId);
     if (isRowId(t.toAccountId)) addingTo.add(t.toAccountId);
   }

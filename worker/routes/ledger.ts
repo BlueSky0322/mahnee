@@ -1,4 +1,5 @@
-// A person's ledger: reading their accounts, categories and transactions and a month's
+// A person's ledger: reading their accounts, categories and transactions (searching them
+// too) and a month's
 // totals, taking all of it out as a file, and saving the app's changes to them
 
 import { Hono } from 'hono';
@@ -8,7 +9,7 @@ import type { AppEnv } from '../app';
 import { fail, json, readJson } from '../http';
 import { applyChanges } from '../ledger/changes';
 import { exportTransactions, readExportSummary } from '../ledger/export';
-import { listTransactions, readLedger } from '../ledger/read';
+import { listTransactions, readLedger, searchTransactions } from '../ledger/read';
 import { readSummary } from '../ledger/summary';
 
 const ledger = new Hono<AppEnv>();
@@ -29,6 +30,10 @@ ledger.get('/accounts', async (c) => {
 
 ledger.get('/transactions', (c) =>
   listTransactions(c.env.DB, c.var.email, new URL(c.req.url).searchParams),
+);
+
+ledger.get('/search', (c) =>
+  searchTransactions(c.env.DB, c.var.email, new URL(c.req.url).searchParams),
 );
 
 ledger.get('/summary', (c) => {

@@ -8,6 +8,7 @@ import type {
   Transaction,
   TransactionPage,
 } from '@shared/api';
+import type { SearchQuery } from '@shared/search';
 import type { CategoryTree } from './category-tree';
 import { categoryTree } from './category-tree';
 import type { QueueState } from './save-queue';
@@ -18,6 +19,7 @@ import {
   fetchLedger,
   fetchSummary,
   fetchTransactionPage,
+  searchTransactionsKey,
   pendingChanges,
   pendingWithIds,
   shownPages,
@@ -128,6 +130,54 @@ export function useAccountTransactions(accountId: string): Transactions {
     hasMore: hasNextPage,
     loadMore: () => void fetchNextPage(),
     loadingMore: isFetchingNextPage,
+  };
+}
+
+export interface Found extends Transactions {
+  /**
+   * Loads what's left to find, page by page, until all of it is loaded or more than `enough`
+   * are; answers what's loaded then
+   */
+  loadAll: (enough: number) => Promise<Transaction[]>;
+}
+
+/** What a search finds (shared/search.ts), newest first, a page at a time */
+export function useSearch(query: SearchQuery): Found {
+  const key = searchTransactionsKey(query);
+  const pending = useSyncExternalStore(subscribeUnsaved, pendingChanges);
+  const value = key[2];
+  const select = useCallback(
+    (data: { pages: TransactionPage[]; pageParams: (string | null)[] }) =>
+      shownPages(['transactions', 'search', value], data, pending),
+    [value, pending],
+  );
+  const { data, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: key,
+      queryFn: ({ pageParam }) => fetchTransactionPage(key, pageParam),
+      initialPageParam: null as string | null,
+      getNextPageParam: (last) => last.nextBefore,
+      select,
+    });
+  const loadAll = async (enough: number) => {
+    let found = data ?? [];
+    let more = hasNextPage;
+    while (more && found.length <= enough) {
+      const next = await fetchNextPage();
+      if (next.isError) break;
+      found = next.data ?? found;
+      more = next.hasNextPage;
+    }
+    return found;
+  };
+  return {
+    transactions: data ?? null,
+    failed: isError && data == null,
+    retry: () => void refetch(),
+    hasMore: hasNextPage,
+    loadMore: () => void fetchNextPage(),
+    loadingMore: isFetchingNextPage,
+    loadAll,
   };
 }
 

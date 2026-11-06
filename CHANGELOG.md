@@ -1,153 +1,57 @@
 # Changelog
 
-Notable changes to this project's behavior, interfaces, data, configuration,
-and developer workflows are recorded here.
-
-Based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/).
-Release versions follow the repository's existing versioning policy.
+Notable changes to Mahnee, newest first, by the day they reached `main` (UTC).
 
 <!--
-Instructions for agents:
-- Read Unreleased before editing. Add each change to the matching category;
-  consolidate related entries instead of duplicating them.
-- Record implemented changes only. Do not list plans, TODOs, or unverified claims.
-- Write one concise bullet per notable outcome: affected area, what changed,
-  and the impact. For fixes, describe the incorrect behavior that was corrected.
-- Include meaningful API, schema, configuration, dependency, build, and tooling
-  changes when they affect consumers, maintainers, or future agent work.
-- Skip routine formatting, renames, and test-only edits unless they change a
-  documented contract or development workflow.
-- Prefix incompatible changes with **Breaking:** and explain the required
-  migration, or link to an existing migration guide.
-- Add issue/PR links or repository-relative file links when useful and known.
-  Never invent references, versions, dates, or release history.
-- Update Unreleased during normal work. Create a release section only when
-  explicitly asked to prepare a release; use the agreed version and release
-  date, move the applicable entries, and keep Unreleased at the top.
-- List releases newest first. Preserve released entries except to correct
-  factual errors.
-- Keep the six category names below. Remove empty categories from releases;
-  empty categories under Unreleased may remain as a scaffold.
-
-Entry format:
-- <Area>: <concrete change and its impact>. <Optional reference or migration.>
-
-Release heading format:
-## <version> - <YYYY-MM-DD>
+For agents:
+- Add one line under today's date, starting a `## YYYY-MM-DD` heading at the top if needed.
+- Format: `- <Kind>: <what changed, in plain words> [#<PR>]`, with the link defined at the end.
+- Kinds: Added, Changed, Fixed, Removed, Security. Start an incompatible change with
+  **Breaking:** and say how to migrate.
+- Keep it to one short line. Skip tests, formatting and internal refactors.
+- Never invent references, versions or dates.
 -->
 
-## Unreleased
+## 2026-11-06
 
-### Added
+- Changed: the changelog lists changes by date, one line each [#15]
+- Added: import a bank's CSV file or a Mahnee export, with duplicates left unticked [#14]
+- Added: a Search page across every account, with bulk move and delete of up to 500 [#13]
+- Added: Home says how old its numbers are, and a change is never counted twice [#12]
 
-<!-- New features or capabilities. -->
+## 2026-11-05
 
-- Import: an Import row on Home opens a page to bring in a bank's CSV file: pick the
-  account and the file, say which column is the date, the amount (or money in and money
-  out), the payee and the note (remembered per account on this device; dates are read
-  day first), then look over every row before saving. Each goes in the category its
-  payee was filed under before, else Other or Other income, changeable per row (the page
-  says so when those can't be looked up); a row with the same account, day, amount and
-  payee as one saved says "Looks already saved" and is left unticked, so the same file
-  imported twice adds nothing; rows it can't read say why. Mahnee's own export is read
-  directly (accounts, categories and transfers by name), so export then import restores
-  everything; an existing account's different opening balance changes only if ticked.
-  Up to 5,000 rows a file, saved through the outbox, so it works offline and counts
-  once. Adds `GET /api/payee-categories?account=`.
-- Search: a Search row on Home opens a page (`?search`) that finds transactions on every
-  account, newest first, by payee, note, category name (a top-level name finds its
-  subcategories) or exact amount ("8.50"), narrowed by account, category and a date range.
-  Adds `GET /api/search`.
-- Search: Select (or a long press on a phone) ticks several found transactions to move
-  them to another category or delete them, up to 500 at once, after a preview ("Move 80
-  transactions from Other to Food"); each is one change, works offline, and Undo puts every
-  one back. Adds the `recategoriseTransactions` and `removeTransactions` changes; more than
-  500 is refused by the app and the Worker.
-- Offline and trust: while Home's balances or month come from the copy kept on the
-  device (offline, or the server hasn't answered yet) a small "Updated 2 hours ago" line
-  says how old they are, and a change the server saved whose answer was lost is no longer
-  counted twice when fresh balances or month totals arrive before it's sent again (reads
-  of `/api/accounts` and `/api/summary` name waiting change ids in `X-Pending-Changes` and
-  answer `alreadySaved`).
-- Export: an Export row on Home says what the file holds (how many transactions, from
-  which day to which, how many accounts and categories) and downloads a CSV file
-  (`mahnee-YYYY-MM-DD.csv`) with every account's opening balance (a card's owed amount
-  negative) and every transaction, oldest first, archived accounts included, with each
-  category and its parent, so every balance can be rebuilt from it; it opens right in Excel, Numbers and Google Sheets,
-  "RM" and non-Latin names included. Offline it waits for a connection, and says when
-  changes still being saved aren't in it yet. Adds `GET /api/export` and
-  `GET /api/export/summary`.
-- Home: a month card at the top shows what's left this month (received less spent) as
-  the largest number, marked "Over" when more was spent than came in, with Spent and
-  Received beneath and spending by category, largest first with a bar each; tap a
-  category to see its subcategories and what was filed under it directly, and Received
-  for income by category. Step back to earlier months with the arrows (the month is in
-  the address, so Back returns). Transfers never count as spending. Changes show in the
-  totals at once, offline too. Adds `GET /api/summary?month=`, summed on the server.
-- Transactions: move money between your own accounts with Transfer in the entry sheet
-  (From and To, no category; To offers the account you moved to last): top up an
-  e-wallet from the bank, or pay off a card, which lowers what's owed. Both balances
-  follow, the transfer shows on both accounts' pages ("To Visa", "From Maybank"), and it
-  is never counted as spending or income. Edit, delete with Undo and offline work as for
-  other transactions. `GET /api/transactions` rows now carry `toAccountId`, and an
-  account's list includes transfers into it.
-- Transactions: log money spent or received from a quick entry sheet (Add, on Home and
-  on each account's page): the amount first, then Spent or Received, the account and
-  category used last (subcategories under their category), the day, and a payee and note
-  under More; an RM 8 coffee is the amount and Save. Tapping an account now opens its
-  page, with its balance and transactions by day, newest first, a page at a time; tap one
-  to change it, or delete it with Undo. Balances follow every transaction (on a card,
-  spending grows what's owed). Works offline like accounts. Adds `GET /api/transactions`
-  and the `transactions` table (migration `0004_transactions.sql`).
-- Categories: a Categories page, reached from Home, lists spending and income
-  categories with subcategories one level deep; add, rename, reorder, move under another
-  or back to the top level (moves that aren't allowed say why), and archive with Undo.
-  Everyone starts with defaults (Food, Transport, Groceries, Bills, Shopping, Health,
-  Fun, Other; Salary, Other income), saved with their first change. Works offline like
-  accounts. `GET /api/accounts` now answers the whole ledger, accounts and categories.
-  Adds the `categories` table (migration `0003_categories.sql`).
-- Offline: changes to accounts made without a connection are kept on the device, shown
-  at once and after a reload, and saved in order once the connection is back, even with
-  the app closed (background sync, where the browser has it); a lost answer never saves
-  one twice. The offline notice says how many are waiting, offers Sign in when the
-  session ran out, and warns when the device can't keep them. Signing out asks first
-  when changes are waiting; someone else signing in on the device leaves them unseen and
-  unsent until their owner is back.
+- Added: export every account and transaction as a CSV file [#11]
+- Added: a month card on Home with what's left, spent, received and spending by category [#10]
+- Added: transfers between your own accounts, never counted as spending [#9]
+- Added: log spending and income from a quick entry sheet, and each account's page [#8]
+- Added: spending and income categories with subcategories [#7]
+- Added: changes made offline are kept on the device and saved once back online [#6]
+- Added: cash, bank, card and e-wallet accounts with their balances on Home [#5]
+- Added: a changelog of notable changes [#4]
 
-- Accounts: the home page lists your cash, bank, card and e-wallet accounts with their
-  balances (a card's as what's owed); add, rename, change the opening balance, and
-  archive with Undo. Changes show at once and are saved in order; a refused one is put
-  back with the reason. Adds the `accounts` and `change_receipts` tables (migration
-  `0002_accounts.sql`).
-- App: sign in through Cloudflare Access, see who is signed in, switch between light and
-  dark, and install the app on a phone or computer; it opens offline from what the device
-  last loaded. ([#2](https://github.com/BlueSky0322/mahnee/pull/2))
-- Sign-in: the deployed app uses its own Access application with Splitfoolish's "Anyone
-  with an email" policy, so one email is one person in both apps; each account sees only
-  its own data. ([#3](https://github.com/BlueSky0322/mahnee/pull/3))
-- Repository: working rules for branches, commits, pull requests and this changelog,
-  checked by git hooks and the conventions workflow on every pull request.
-  ([#1](https://github.com/BlueSky0322/mahnee/pull/1))
+## 2026-11-04
 
-### Changed
+- Added: sign in, a home page, light and dark, and installing the app [#2]
+- Added: Access sign-in shared with Splitfoolish, one email one person [#3]
+- Security: per-version preview addresses are off, since Access doesn't cover them [#3]
 
-<!-- Changes to existing behavior or workflows. -->
+## 2026-11-03
 
-### Deprecated
+- Added: working rules for branches, commits and pull requests, checked by hooks and CI [#1]
 
-<!-- Features still available but planned for removal; include the replacement. -->
-
-### Removed
-
-<!-- Removed features or support; include the replacement when applicable. -->
-
-### Fixed
-
-<!-- Corrections to incorrect behavior. -->
-
-### Security
-
-<!-- Security fixes; include a public advisory/CVE link when available. -->
-
-- Worker: per-version preview addresses are turned off, since Access covers only the
-  `workers.dev` address. ([#3](https://github.com/BlueSky0322/mahnee/pull/3))
+[#1]: https://github.com/BlueSky0322/mahnee/pull/1
+[#2]: https://github.com/BlueSky0322/mahnee/pull/2
+[#3]: https://github.com/BlueSky0322/mahnee/pull/3
+[#4]: https://github.com/BlueSky0322/mahnee/pull/4
+[#5]: https://github.com/BlueSky0322/mahnee/pull/5
+[#6]: https://github.com/BlueSky0322/mahnee/pull/6
+[#7]: https://github.com/BlueSky0322/mahnee/pull/7
+[#8]: https://github.com/BlueSky0322/mahnee/pull/8
+[#9]: https://github.com/BlueSky0322/mahnee/pull/9
+[#10]: https://github.com/BlueSky0322/mahnee/pull/10
+[#11]: https://github.com/BlueSky0322/mahnee/pull/11
+[#12]: https://github.com/BlueSky0322/mahnee/pull/12
+[#13]: https://github.com/BlueSky0322/mahnee/pull/13
+[#14]: https://github.com/BlueSky0322/mahnee/pull/14
+[#15]: https://github.com/BlueSky0322/mahnee/pull/15

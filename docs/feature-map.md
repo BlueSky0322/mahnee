@@ -674,8 +674,9 @@ order), so it shows at once, works offline and goes through the outbox in batche
 a 429 is kept and tried again), each change counted once by its id. `transactionsSince`
 there reads an account's transactions back to the file's first day (200 a page), with
 what was saved meanwhile and the changes still to send on top; offline, the pages this
-device has and the changes still to send. What the page works out before saving is its
-own: [components/import/import-plan.ts](../web/src/components/import/import-plan.ts)
+device has and the changes still to send. `loadedLedger` there waits for the accounts and
+categories when an export is picked before they've loaded. What the page works out before
+saving is its own: [components/import/import-plan.ts](../web/src/components/import/import-plan.ts)
 (`planBankFile`, `planExport`, `markSaved`, `importChanges`), and
 [remembered-mapping.ts](../web/src/components/import/remembered-mapping.ts) keeps the
 column names per email and account (`localStorage`, let go on signing out).
@@ -709,8 +710,8 @@ amounts, bank rows and what's wrong with them, export lines read back as written
 duplicate rule, the limit), [Import.test.tsx](../web/src/components/import/Import.test.tsx)
 (mapping and remembering it, money in and out, already saved and ticked anyway, the
 same file twice, categories from payees, shortened text, 5,001 refused, 5,000 on a phone
-with a lost answer counted once, offline, the export round trip, opening balances; desktop
-and phone), and the payee categories cases in
+with a lost answer counted once, offline, the export round trip, opening balances, an
+export picked before the accounts load; desktop and phone), and the payee categories cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts).
 
 ## Exchange rates

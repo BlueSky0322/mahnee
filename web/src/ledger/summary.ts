@@ -1,4 +1,10 @@
-import type { CategoryTotal, LedgerChange, MonthSummary, Transaction } from '@shared/api';
+import type {
+  CategoryTotal,
+  LedgerChange,
+  MonthBudget,
+  MonthSummary,
+  Transaction,
+} from '@shared/api';
 import type { Lookup } from './apply';
 import { changedTransaction, idOf, isTransactionChange, oneByOne, tracker } from './apply';
 
@@ -9,6 +15,10 @@ import { changedTransaction, idOf, isTransactionChange, oneByOne, tracker } from
 // to another month or category moves out of one total and into the other. `lookup`
 // gives a transaction as it was before the changes; one not known isn't taken away, and
 // the totals catch up when they're next fetched.
+//
+// A budget set shows in the months it applies to: the month it's set from, and later ones.
+// What last month left stays as the server worked it out; a change to an earlier month's
+// spending moves it once the totals are next fetched (after the changes are all saved).
 
 /** Which total a transaction counts in, if any, for `month` */
 function countsIn(t: Transaction | null | undefined, month: string) {
@@ -58,6 +68,10 @@ export function applyToSummary(
   const transactions = tracker(lookup);
   let next = summary;
   for (const change of oneByOne(changes)) {
+    if (change.op === 'setBudget') {
+      next = setBudget(next, change);
+      continue;
+    }
     if (!isTransactionChange(change)) continue;
     const id = idOf(change);
     const before = transactions.find(id);
@@ -74,4 +88,27 @@ export function applyToSummary(
     spentByCategory: [...next.spentByCategory].sort(largestFirst),
     incomeByCategory: [...next.incomeByCategory].sort(largestFirst),
   };
+}
+
+/** `summary` with a budget set from a month (shared/budgets.ts), if it applies to this one */
+function setBudget(
+  summary: MonthSummary,
+  change: Extract<LedgerChange, { op: 'setBudget' }>,
+): MonthSummary {
+  if (change.fromMonth > summary.month) return summary;
+  const { budgets: kept = [], ...rest } = summary;
+  const was = kept.find((b) => b.categoryId === change.categoryId);
+  const others = kept.filter((b) => b.categoryId !== change.categoryId);
+  let budgets: MonthBudget[] = others;
+  if (change.amountCents != null) {
+    const set: MonthBudget = {
+      categoryId: change.categoryId,
+      amountCents: change.amountCents,
+      carryOver: change.carryOver,
+      // What last month left doesn't change with this month's amount
+      lastMonthLeftCents: was?.lastMonthLeftCents ?? 0,
+    };
+    budgets = was == null ? [...kept, set] : kept.map((b) => (b === was ? set : b));
+  }
+  return budgets.length === 0 ? rest : { ...rest, budgets };
 }

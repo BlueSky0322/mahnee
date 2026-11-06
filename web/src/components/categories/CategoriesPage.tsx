@@ -9,13 +9,16 @@ import {
   Plus,
 } from '@phosphor-icons/react';
 import { useState } from 'react';
-import type { Category } from '@shared/api';
+import type { Category, MonthBudget } from '@shared/api';
+import { DEFAULT_CURRENCY } from '@shared/ledger';
 import type { CategoryKind } from '@shared/categories';
 import { CATEGORY_KINDS, siblingsOf } from '@shared/categories';
 import { goUp } from '../../hooks/useRoute';
 import { change } from '../../ledger/ledger';
 import type { CategoryNode } from '../../ledger/category-tree';
-import { useCategories } from '../../ledger/useLedger';
+import { useCategories, useMonthSummary } from '../../ledger/useLedger';
+import { thisMonth } from '../../utils/date-input';
+import { formatMoney } from '../../utils/money';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import CategoryForm, { type OpenCategory } from './CategoryForm';
 import { KIND_LABELS } from './category-text';
@@ -25,12 +28,15 @@ import classes from './Categories.module.css';
 const LOADING_ROWS = 6;
 
 // The categories page: spending and income, each top-level category with its
-// subcategories under it. Tap one to rename, move or archive it; the arrows put it
-// higher or lower among the ones beside it.
+// subcategories under it. Tap one to rename, move or archive it, or set its monthly budget
+// (top-level spending ones); the arrows put it higher or lower among the ones beside it.
 export default function CategoriesPage() {
   const { categories, tree, failed, retry } = useCategories();
   const [open, setOpen] = useState<OpenCategory | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  // This month's budgets, as shown: null until known
+  const { summary } = useMonthSummary(thisMonth());
+  const budgets = summary == null ? null : summary.budgets ?? [];
 
   /** Moves a category past the listed one before or after it */
   const step = (category: Category, listed: Category[], by: -1 | 1) => {
@@ -103,6 +109,7 @@ export default function CategoriesPage() {
               onAdd={() => setOpen({ kind, category: null })}
               onOpen={(category) => setOpen({ kind, category })}
               onStep={step}
+              budgets={budgets}
             />
           ))}
 
@@ -152,6 +159,7 @@ export default function CategoriesPage() {
       <CategoryForm
         open={open}
         categories={categories ?? []}
+        budgets={budgets}
         onClose={() => setOpen(null)}
       />
     </div>
@@ -164,12 +172,15 @@ function Section({
   onAdd,
   onOpen,
   onStep,
+  budgets,
 }: {
   kind: CategoryKind;
   nodes: CategoryNode[];
   onAdd: () => void;
   onOpen: (category: Category) => void;
   onStep: (category: Category, listed: Category[], by: -1 | 1) => void;
+  /** This month's budgets; null while not known */
+  budgets: MonthBudget[] | null;
 }) {
   const titleId = `categories-${kind}`;
   return (
@@ -211,6 +222,7 @@ function Section({
                 listed={nodes}
                 onOpen={onOpen}
                 onStep={onStep}
+                budget={budgets?.find((b) => b.categoryId === node.id)}
               />
               {node.subcategories.length > 0 && (
                 <ul
@@ -244,6 +256,7 @@ function Row({
   listed,
   onOpen,
   onStep,
+  budget,
 }: {
   category: Category;
   /** What it's read out as */
@@ -252,6 +265,8 @@ function Row({
   listed: Category[];
   onOpen: (category: Category) => void;
   onStep: (category: Category, listed: Category[], by: -1 | 1) => void;
+  /** Its budget this month, if it has one */
+  budget?: MonthBudget;
 }) {
   const at = listed.findIndex((c) => c.id === category.id);
   const sub = category.parentId != null;
@@ -271,6 +286,11 @@ function Row({
         onClick={() => onOpen(category)}
       >
         <span className={classes.name}>{category.name}</span>
+        {budget != null && (
+          <span className={classes.detail}>
+            {formatMoney(budget.amountCents, DEFAULT_CURRENCY)} a month
+          </span>
+        )}
       </button>
       <ActionIcon
         variant="subtle"

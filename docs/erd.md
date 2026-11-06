@@ -14,6 +14,7 @@ erDiagram
   accounts ||--o{ transactions : "holds"
   categories ||--o{ transactions : "sorts"
   profiles ||--o{ change_receipts : "has"
+  categories ||--o{ budgets : "has"
   profiles {
     TEXT email PK
     TEXT display_name "null, or 1 to 32 characters"
@@ -64,6 +65,14 @@ erDiagram
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
+  budgets {
+    TEXT email PK "and FK to profiles"
+    TEXT category_id PK "FK with email to categories; top-level spending"
+    TEXT from_month PK "the month it applies from, as 2026-11"
+    INTEGER amount_cents "null for none from this month, or 1 to 1,000,000,000"
+    INTEGER carry_over "0 or 1"
+    INTEGER updated_at "ms"
+  }
   change_receipts {
     TEXT email PK "and FK to profiles"
     TEXT change_id PK "the app's id for the change"
@@ -111,6 +120,17 @@ erDiagram
   out, summed when read. Indexed for an account's newest first (by `account_id`; the
   transfers into an account are found by scanning the person's rows) and for a month
   across accounts.
+- **`budgets`**: a monthly amount a person means to spend in a top-level spending
+  category, its subcategories counting toward it. One row per category and month it was
+  set in (`from_month`): the amount applies from that month on, until a later row, so
+  earlier months keep what they had; setting one removes the category's rows for later
+  months. A NULL amount takes the budget away from that month on. With `carry_over`, the
+  month before's leftover (or overspending) is added, worked out when read
+  (`shared/budgets.ts`), never stored. `(email, category_id)` refers to the person's
+  categories, and a trigger refuses a row on anything but one of their top-level spending
+  categories (archived ones allowed, so a budget can be taken away from one). A budget on
+  a category later moved under another is kept but set aside until it's back at the top
+  level.
 - **`change_receipts`**: one per change the app saved through `POST /api/changes`, by
   the id the app gave it, with the change's fingerprint, saved in the same batch as the
   change. A change sent again counts once; the same id with a different change is

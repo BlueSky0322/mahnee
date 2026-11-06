@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-06
 
+- Fixed: a Mahnee export picked before the accounts loaded is now previewed [#?]
 - Changed: the changelog lists changes by date, one line each [#15]
 - Added: import a bank's CSV file or a Mahnee export, with duplicates left unticked [#14]
 - Added: a Search page across every account, with bulk move and delete of up to 500 [#13]

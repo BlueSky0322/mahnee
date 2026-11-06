@@ -16,7 +16,7 @@ import type { AccountKind } from '@shared/ledger';
 import { ACCOUNT_KINDS, MAX_NOTE, MAX_PAYEE } from '@shared/ledger';
 import { api } from '../../api';
 import { goUp, navigate } from '../../hooks/useRoute';
-import { change, transactionsSince } from '../../ledger/ledger';
+import { change, loadedLedger, transactionsSince } from '../../ledger/ledger';
 import { isOfflineFailure } from '../../offline/network';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
 import { useProfile } from '../../profile/ProfileContext';
@@ -177,16 +177,17 @@ export default function ImportPage() {
         };
 
   async function preview(loaded: LoadedFile) {
-    if (accounts == null || categories == null) return;
     const mine = ++asked.current;
     setPreparing(true);
     let lookupFailed = false;
     try {
       let next: Plan;
       if (loaded.isExport) {
-        next = planExport(readExportRows(loaded.table), accounts, categories);
+        // A file picked before the accounts and categories have loaded waits for them
+        const ledger = await loadedLedger();
+        next = planExport(readExportRows(loaded.table), ledger.accounts, ledger.categories);
       } else {
-        if (account == null || mapping == null) return;
+        if (account == null || categories == null || mapping == null) return;
         rememberMapping(email, account.id, mapping);
         // Not known offline: everything goes to Other until it's changed. Online, a failure
         // is said, so rows aren't filed under Other without the person knowing why.

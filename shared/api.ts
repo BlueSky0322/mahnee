@@ -163,6 +163,11 @@ export interface MonthSummary {
   leftCents: number;
   spentByCategory: CategoryTotal[];
   incomeByCategory: CategoryTotal[];
+  /**
+   * Of the change ids the read named (PENDING_CHANGES_HEADER), the ones counted in already;
+   * only when it named any
+   */
+  alreadySaved?: string[];
 }
 
 /**
@@ -191,6 +196,11 @@ export type NewTransaction = Omit<Transaction, 'createdAt'>;
 export interface Ledger {
   accounts: Account[];
   categories: Category[];
+  /**
+   * Of the change ids the read named (PENDING_CHANGES_HEADER), the ones these balances
+   * hold already; only when it named any
+   */
+  alreadySaved?: string[];
 }
 
 /**
@@ -262,10 +272,29 @@ export const CLIENT_ID_HEADER = 'X-Client-Id';
  */
 export const EXPECTED_ACCOUNT_HEADER = 'X-Expected-Account';
 
+/**
+ * On a read of balances or a month's totals (GET /api/accounts, /api/summary): the ids of
+ * changes the app still has waiting that may have been saved already (sent, but the answer
+ * never came), comma-separated, at most MAX_CHANGES (about 3.4 KB). The answer's
+ * `alreadySaved` says which of them it holds, read together with the figures, so the app
+ * never counts one of them on top a second time.
+ */
+export const PENDING_CHANGES_HEADER = 'X-Pending-Changes';
+
 /** A row the app makes before it's saved: 16 hex characters */
 export const ROW_ID_CHARS = '[0-9a-f]{16}';
 const ROW_ID_PATTERN = new RegExp(`^${ROW_ID_CHARS}$`);
 export const isRowId = (v: unknown): v is string => typeof v === 'string' && ROW_ID_PATTERN.test(v);
+
+/**
+ * The change ids a PENDING_CHANGES_HEADER names: none when it's missing or empty, null when
+ * it isn't up to MAX_CHANGES row ids
+ */
+export function readPendingIds(header: string | null | undefined): string[] | null {
+  if (header == null || header === '') return [];
+  const ids = header.split(',');
+  return ids.length <= MAX_CHANGES && ids.every(isRowId) ? ids : null;
+}
 
 // ---------- Writes ----------
 

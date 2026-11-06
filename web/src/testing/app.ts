@@ -16,7 +16,14 @@ import type {
   Profile,
   Transaction,
 } from '@shared/api';
-import { DEFAULT_SETTINGS, EXPECTED_ACCOUNT_HEADER, MAX_CHANGES, isRowId } from '@shared/api';
+import {
+  DEFAULT_SETTINGS,
+  EXPECTED_ACCOUNT_HEADER,
+  MAX_CHANGES,
+  PENDING_CHANGES_HEADER,
+  isRowId,
+  readPendingIds,
+} from '@shared/api';
 import {
   MAX_CATEGORIES,
   MAX_CATEGORY_NAME,
@@ -264,6 +271,18 @@ function answerNow(server: FakeServer) {
       };
       return json(server.me);
     }
+    // A read of balances or totals names the changes the app may have had saved already;
+    // the answer says which of them it holds, as the real one does in the same batch
+    const pending = readPendingIds(
+      (init?.headers as Record<string, string> | undefined)?.[PENDING_CHANGES_HEADER],
+    );
+    const alreadySaved = () =>
+      pending != null && pending.length > 0
+        ? { alreadySaved: pending.filter((id) => server.receipts.has(id)) }
+        : {};
+    if ((path === '/api/accounts' || path === '/api/summary') && pending == null) {
+      return json({ error: `Name up to ${MAX_CHANGES} change ids` }, 400);
+    }
     if (path === '/api/accounts' && method === 'GET') {
       const accounts = [...server.accounts]
         .sort((a, b) => a.position - b.position)
@@ -271,7 +290,7 @@ function answerNow(server: FakeServer) {
       const categories = [...server.categories].sort(
         (a, b) => a.position - b.position || (a.id < b.id ? -1 : 1),
       );
-      return json({ accounts, categories });
+      return json({ accounts, categories, ...alreadySaved() });
     }
     if (path === '/api/transactions' && method === 'GET') {
       const page = listTransactions(server, url.searchParams);
@@ -280,7 +299,7 @@ function answerNow(server: FakeServer) {
     if (path === '/api/summary' && method === 'GET') {
       const month = url.searchParams.get('month');
       return isMonth(month)
-        ? json(summarize(server, month))
+        ? json({ ...summarize(server, month), ...alreadySaved() })
         : json({ error: 'Give a month from 2000, like 2026-11' }, 400);
     }
     if (path === '/api/export/summary' && method === 'GET') {

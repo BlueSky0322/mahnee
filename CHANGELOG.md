@@ -42,6 +42,12 @@ Release heading format:
 
 <!-- New features or capabilities. -->
 
+- Offline and trust: while Home's balances or month come from the copy kept on the
+  device (offline, or the server hasn't answered yet) a small "Updated 2 hours ago" line
+  says how old they are, and a change the server saved whose answer was lost is no longer
+  counted twice when fresh balances or month totals arrive before it's sent again (reads
+  of `/api/accounts` and `/api/summary` name waiting change ids in `X-Pending-Changes` and
+  answer `alreadySaved`).
 - Export: an Export row on Home says what the file holds (how many transactions, from
   which day to which, how many accounts and categories) and downloads a CSV file
   (`mahnee-YYYY-MM-DD.csv`) with every account's opening balance (a card's owed amount

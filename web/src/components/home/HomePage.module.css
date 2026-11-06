@@ -20,6 +20,12 @@
   font-weight: 600;
 }
 
+.age {
+  margin: -8px 0 0;
+  color: var(--sf-text-muted);
+  font-size: 13px;
+}
+
 .card {
   display: flex;
   flex-direction: column;

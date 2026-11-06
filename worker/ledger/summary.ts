@@ -13,6 +13,7 @@
 import type { CategoryTotal, MonthSummary } from '../../shared/api';
 import { isMonth } from '../../shared/ledger';
 import { fail, json } from '../http';
+import { savedIdsStatement } from './receipts';
 
 interface TotalRow {
   kind: 'expense' | 'income';
@@ -29,20 +30,26 @@ export async function readSummary(
   db: D1Database,
   email: string,
   params: URLSearchParams,
+  pending: string[] = [],
 ): Promise<Response> {
   const month = params.get('month');
   if (!isMonth(month)) return fail('Give a month from 2000, like 2026-11', 400);
 
-  const { results } = await db
-    .prepare(
-      `SELECT kind, category_id AS categoryId, SUM(amount_cents) AS cents
+  // In one batch with which of `pending` are saved, so the totals and that list describe
+  // the same moment
+  const [totals, saved] = await db.batch<TotalRow | { id: string }>([
+    db
+      .prepare(
+        `SELECT kind, category_id AS categoryId, SUM(amount_cents) AS cents
        FROM transactions
        WHERE email = ? AND date BETWEEN ? AND ? AND kind IN ('expense', 'income')
        GROUP BY kind, category_id
        ORDER BY cents DESC, category_id`,
-    )
-    .bind(email, `${month}-01`, `${month}-31`)
-    .all<TotalRow>();
+      )
+      .bind(email, `${month}-01`, `${month}-31`),
+    ...(pending.length > 0 ? [savedIdsStatement(db, email, pending)] : []),
+  ]);
+  const results = totals.results as TotalRow[];
 
   const byKind = (kind: TotalRow['kind']): CategoryTotal[] =>
     results.filter((r) => r.kind === kind).map(({ categoryId, cents }) => ({ categoryId, cents }));
@@ -58,5 +65,7 @@ export async function readSummary(
     leftCents: incomeCents - spentCents,
     spentByCategory,
     incomeByCategory,
+    // Only for a read that named any
+    ...(saved != null && { alreadySaved: (saved.results as { id: string }[]).map((r) => r.id) }),
   });
 }

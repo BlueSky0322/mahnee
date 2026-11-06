@@ -14,14 +14,17 @@ import type { QueueState } from './save-queue';
 import {
   LEDGER_KEY,
   accountTransactionsKey,
+  dataAge,
   fetchLedger,
   fetchSummary,
   fetchTransactionPage,
   pendingChanges,
+  pendingWithIds,
   shownPages,
   shownSummary,
   showKeptCopy,
   summaryKey,
+  subscribeDataAge,
   subscribeUnsaved,
   unsavedState,
 } from './ledger';
@@ -137,7 +140,7 @@ export interface Summary {
 
 /** What was spent and received in a month (2026-11), in total and by category */
 export function useMonthSummary(month: string): Summary {
-  const pending = useSyncExternalStore(subscribeUnsaved, pendingChanges);
+  const pending = useSyncExternalStore(subscribeUnsaved, pendingWithIds);
   const select = useCallback((data: MonthSummary) => shownSummary(data, pending), [pending]);
   const { data, isError, refetch } = useQuery({
     queryKey: summaryKey(month),
@@ -147,4 +150,14 @@ export function useMonthSummary(month: string): Summary {
     networkMode: 'offlineFirst',
   });
   return { summary: data ?? null, failed: isError && data == null, retry: () => void refetch() };
+}
+
+/**
+ * When the server last confirmed what Home shows for `month` (the balances and that
+ * month's totals), while any of it came from this device's copy rather than fresh from the
+ * server: 0 when that time isn't known; null while all of it is fresh
+ */
+export function useDataAge(month: string): number | null {
+  const age = useCallback(() => dataAge(month), [month]);
+  return useSyncExternalStore(subscribeDataAge, age);
 }

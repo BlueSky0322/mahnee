@@ -10,15 +10,18 @@ import Skeleton, { Loading } from '../ui/Skeleton';
 import { navigate } from '../../hooks/useRoute';
 import { useAccounts } from '../../ledger/useLedger';
 import { nameFor, useProfile } from '../../profile/ProfileContext';
+import { thisMonth } from '../../utils/date-input';
 import ExportDialog from './ExportDialog';
 import classes from './HomePage.module.css';
 import MonthCard from './MonthCard';
+import Staleness from './Staleness';
 import { useConfirmSignOut } from './useConfirmSignOut';
 
-// The first screen: the month at a glance (`month`, an earlier one; null for this one),
-// the person's accounts, the way to their categories and to exporting everything, then
-// who's signed in and the way out. Add, floating over it, opens the entry sheet once there's an account to put a
-// transaction on. Until the first account is added there's no month to show.
+// The first screen. It says how old the numbers are when they came from this device. Then
+// the month at a glance (`month`, an earlier one; null for this one), the person's
+// accounts, the way to their categories and to exporting everything, then who's signed in
+// and the way out. Add, floating over it, opens the entry sheet once there's an account to
+// put a transaction on. Until the first account is added there's no month to show.
 const HomePage = ({ month }: { month: string | null }) => {
   const { profile } = useProfile();
   const { askToSignOut, dialog } = useConfirmSignOut();
@@ -31,6 +34,7 @@ const HomePage = ({ month }: { month: string | null }) => {
         <h1 className={classes.title}>Mahnee</h1>
         <ThemeToggle />
       </header>
+      <Staleness month={month ?? thisMonth()} />
       {accounts?.length !== 0 && <MonthCard month={month} />}
       <InstallCard />
       <AccountList />

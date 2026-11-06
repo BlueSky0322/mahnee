@@ -1,4 +1,4 @@
-import { CLIENT_ID_HEADER, EXPECTED_ACCOUNT_HEADER } from '@shared/api';
+import { CLIENT_ID_HEADER, EXPECTED_ACCOUNT_HEADER, PENDING_CHANGES_HEADER } from '@shared/api';
 import type {
   ApiErrorBody,
   ChangesBody,
@@ -90,6 +90,10 @@ async function send(
   return res;
 }
 
+/** Names the changes still waiting that may be saved already, for a read to answer which are */
+const naming = (pending: string[]) =>
+  pending.length > 0 ? { headers: { [PENDING_CHANGES_HEADER]: pending.join(',') } } : {};
+
 async function request<T>(...args: Parameters<typeof send>): Promise<T> {
   const res = await send(...args);
   const data = (await res.json().catch(() => null)) as unknown;
@@ -101,8 +105,12 @@ async function request<T>(...args: Parameters<typeof send>): Promise<T> {
 export const api = {
   getMe: () => request<Profile>('GET', '/api/me'),
   updateMe: (patch: ProfilePatch) => request<Profile>('PATCH', '/api/me', patch),
-  /** The person's accounts and categories */
-  getLedger: () => request<Ledger>('GET', '/api/accounts'),
+  /**
+   * The person's accounts and categories, and which of the `pending` change ids (at most
+   * MAX_CHANGES) the balances hold already
+   */
+  getLedger: (pending: string[] = []) =>
+    request<Ledger>('GET', '/api/accounts', undefined, naming(pending)),
   /**
    * A page of the person's transactions, newest first: one account's, or every account's
    * in a month (2026-11); `before` is the page before's nextBefore
@@ -133,9 +141,17 @@ export const api = {
       throw new NetworkError(`GET /api/export was cut off (${String(err)})`);
     }
   },
-  /** What was spent and received in a month (2026-11), in total and by category */
-  getSummary: (month: string) =>
-    request<MonthSummary>('GET', `/api/summary?month=${encodeURIComponent(month)}`),
+  /**
+   * What was spent and received in a month (2026-11), in total and by category, and which
+   * of the `pending` change ids (at most MAX_CHANGES) it counts already
+   */
+  getSummary: (month: string, pending: string[] = []) =>
+    request<MonthSummary>(
+      'GET',
+      `/api/summary?month=${encodeURIComponent(month)}`,
+      undefined,
+      naming(pending),
+    ),
   /**
    * Saves a batch of ledger changes, all or nothing (see ledger/save-queue.ts). While the
    * page is hidden or closing, keepalive lets the save finish after it's gone; browsers

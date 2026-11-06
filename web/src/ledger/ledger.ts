@@ -1,9 +1,19 @@
 import type { InfiniteData } from '@tanstack/react-query';
 import type { Ledger, LedgerChange, MonthSummary, Transaction, TransactionPage } from '@shared/api';
+import { MAX_CHANGES } from '@shared/api';
 import { categoriesOrDefaults } from '@shared/categories';
 import { isOnAccount } from '@shared/ledger';
 import { api } from '../api';
-import { onCacheCleared, onCacheUserKnown, readCache, writeCache } from '../offline/cache';
+import {
+  onCacheCleared,
+  onCacheUserKnown,
+  readCache,
+  readCacheEntry,
+  whenCacheUserKnown,
+  writeCache,
+} from '../offline/cache';
+import type { Queued } from '../offline/outbox';
+import { readOutbox } from '../offline/outbox';
 import { isOfflineFailure } from '../offline/network';
 import { queryClient } from '../query-client';
 import { showError } from '../utils/notify';
@@ -26,6 +36,15 @@ import { applyToSummary } from './summary';
 // totals are kept the same way: as the server summed them, with each batch counted in
 // once it's saved, and the changes still to send counted on top as they're shown
 // (shownSummary).
+//
+// A change the server saved whose answer never came back is still waiting here, and a
+// fresh copy may hold it already. So a read of the balances or a month's totals names the
+// changes waiting that may have been sent (the first MAX_CHANGES, which is as many as one
+// request carries), and the server answers which of them it holds (`alreadySaved`, read
+// with the figures): those are never counted on top of that copy again.
+//
+// What's shown from this device's copies rather than fresh from the server is noted with
+// when the server last confirmed it (dataAge), so Home can say how old it is.
 
 export const LEDGER_KEY = ['ledger'] as const;
 /** Versioned like the other saved copies: one in an older shape is never read */
@@ -36,8 +55,12 @@ const CACHE_KEY = 'ledger-v1';
  * saved since. Shown again when a change is refused. Null before anything is loaded.
  */
 let confirmed: Ledger | null = null;
+/** Ids of the changes still waiting that `confirmed` holds already */
+let confirmedHolds = new Set<string>();
 /** Batches saved so far: a copy fetched while one was saved may not have it */
 let savedCount = 0;
+/** A fresh ledger came from the server since this page started (or its cache was emptied) */
+let ledgerFetched = false;
 
 /** Every list of transactions: one account's, or (later) a month's */
 export const TRANSACTIONS_KEY = ['transactions'] as const;
@@ -111,18 +134,71 @@ function shownTransaction(id: string): Transaction | undefined {
 let savedLog: { n: number; changes: LedgerChange[] }[] = [];
 const SAVED_LOG_LENGTH = 50;
 
+/** `changes` but for those whose ids (`ids`, in step) a copy holds already */
+const notHeld = (changes: LedgerChange[], ids: string[], holds: ReadonlySet<string>) =>
+  changes.filter((_, i) => !holds.has(ids[i]));
+
+/** The changes still waiting, but for those a copy holds already */
+const waitingBut = (holds: ReadonlySet<string>) =>
+  queue
+    .pendingWithIds()
+    .filter((q) => !holds.has(q.cid))
+    .map((q) => q.change);
+
+/** Which of the changes waiting may have been sent already, for a read to answer */
+const maybeSent = () =>
+  queue
+    .pendingWithIds()
+    .slice(0, MAX_CHANGES)
+    .map((q) => q.cid);
+
+/** How long a read waits to learn which changes are waiting before it goes without */
+const NAMING_WAIT_MS = 1500;
+
+/**
+ * The changes waiting that a read should name: once it's known whose they are, the ones
+ * kept on the device (read without the outbox lock, which only sending needs) and the ones
+ * made here. A read never waits on that for long: after NAMING_WAIT_MS it names none, and
+ * what's found later is asked about again (fetchLedger, and `found` for months' totals).
+ */
+async function idsToName(): Promise<string[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const known = whenCacheUserKnown()
+    .then(readOutbox)
+    .then((kept) => {
+      const ids = [...kept, ...queue.pendingWithIds()].map((q) => q.cid);
+      return [...new Set(ids)].slice(0, MAX_CHANGES);
+    })
+    .catch(() => maybeSent());
+  const late = new Promise<string[]>((resolve) => {
+    timer = setTimeout(() => resolve([]), NAMING_WAIT_MS);
+  });
+  try {
+    return await Promise.race([known, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** A copy's own figures, without the list of what it holds */
+const figuresOf = ({ alreadySaved: _held, ...ledger }: Ledger): Ledger => ledger;
+
 const queue = createSaveQueue({
   send: (body) => api.saveChanges(body),
-  saved: (changes) => {
+  saved: (changes, ids) => {
     savedCount++;
-    if (confirmed != null) confirmed = apply(confirmed, changes, savedTransaction);
+    if (confirmed != null) {
+      confirmed = apply(confirmed, notHeld(changes, ids, confirmedHolds), savedTransaction);
+    }
     // Counted in each month's totals, before the lists below hold them, so a transaction
     // changed is taken out of the totals as it was
     for (const [key, summary] of queryClient.getQueriesData<MonthSummary>({
       queryKey: SUMMARY_KEY,
     })) {
       if (summary == null) continue;
-      queryClient.setQueryData(key, applyToSummary(summary, changes, savedTransaction));
+      // Not those it counted already when it was read
+      const counted = notHeld(changes, ids, new Set(summary.alreadySaved));
+      queryClient.setQueryData(key, applyToSummary(summary, counted, savedTransaction));
     }
     // Saved, so part of every list as the server has it
     for (const [key, data] of listsInCache()) {
@@ -134,12 +210,15 @@ const queue = createSaveQueue({
     }
     savedLog = [...savedLog, { n: savedCount, changes }].slice(-SAVED_LOG_LENGTH);
   },
-  // Made before a reload, or in another tab: shown on top, as the ones made here are
-  found: (changes) =>
+  // Made before a reload, or in another tab: shown on top, as the ones made here are.
+  // Months' totals read before they were known didn't name them, so they're read again.
+  found: (changes) => {
     queryClient.setQueryData<Ledger>(
       LEDGER_KEY,
       (old) => old && apply(old, changes, savedTransaction),
-    ),
+    );
+    void queryClient.invalidateQueries({ queryKey: SUMMARY_KEY });
+  },
   failed: (err) => {
     showError(err, "Couldn't save that change.");
     if (confirmed != null) queryClient.setQueryData(LEDGER_KEY, confirmed);
@@ -157,17 +236,70 @@ onCacheUserKnown((email) => void queue.pickUp(email));
 // Signing out, or someone else signing in: nothing made before is sent from this page
 // (what's kept on the device stays its owner's). What the server last sent stays, since
 // the server only ever sends the signed-in person's own.
-onCacheCleared(() => queue.forget());
+onCacheCleared(() => {
+  queue.forget();
+  ledgerFetched = false;
+  fromDevice.clear();
+  ageChanged();
+});
 
 /**
  * The changes still to send, as last shown: the same list until it changes, for screens
  * to show them on top of what the server has
  */
 let pendingNow: LedgerChange[] = [];
+let pendingWithIdsNow: Queued[] = [];
 queue.subscribe(() => {
   pendingNow = queue.pending();
+  pendingWithIdsNow = queue.pendingWithIds();
 });
 export const pendingChanges = () => pendingNow;
+/** The same, each with its id */
+export const pendingWithIds = () => pendingWithIdsNow;
+
+/**
+ * What's shown from this device's copies rather than fresh from the server: the ledger
+ * ('ledger') and months' totals ('summary:2026-11'), each with when the server last
+ * confirmed it (null when that wasn't noted)
+ */
+const fromDevice = new Map<string, number | null>();
+const ageListeners = new Set<() => void>();
+const ageChanged = () => ageListeners.forEach((listener) => listener());
+
+function shownFromDevice(what: string, at: number | null) {
+  fromDevice.set(what, at);
+  ageChanged();
+}
+
+function shownFresh(what: string) {
+  if (fromDevice.delete(what)) ageChanged();
+}
+
+export const subscribeDataAge = (listener: () => void) => {
+  ageListeners.add(listener);
+  return () => ageListeners.delete(listener);
+};
+
+/**
+ * When the server last confirmed what Home shows for `month`, when any of it (the
+ * balances, or that month's totals) came from this device's copy rather than fresh from
+ * the server: the oldest such time, 0 when it isn't known, null when all of it is fresh
+ */
+export function dataAge(month: string): number | null {
+  const times = ['ledger', `summary:${month}`]
+    .filter((what) => fromDevice.has(what))
+    .map((what) => fromDevice.get(what) ?? 0);
+  return times.length === 0 ? null : Math.min(...times);
+}
+
+/** Months' totals shown from the device are fetched again, now the server answers */
+function refreshKeptSummaries() {
+  for (const what of fromDevice.keys()) {
+    if (what.startsWith('summary:')) {
+      void queryClient.invalidateQueries({ queryKey: summaryKey(what.slice('summary:'.length)) });
+    }
+  }
+}
 
 /** How many changes are waiting to be saved, and whether sending waits on signing in */
 export const unsavedState = () => queue.state();
@@ -202,26 +334,52 @@ export function sendWhenBack() {
  * saved yet: they see the defaults, which their first change saves.
  */
 export async function fetchLedger({ signal }: { signal?: AbortSignal } = {}): Promise<Ledger> {
+  // The server is asked which of the changes waiting the copy holds already
+  let named = await idsToName();
   const savedBefore = savedCount;
-  let ledger: Ledger;
-  try {
-    const { accounts, categories } = await api.getLedger();
-    ledger = { accounts, categories: categoriesOrDefaults(categories) };
-  } catch (err) {
-    if (!isOfflineFailure(err)) throw err;
-    const kept = await readCache<Ledger>(CACHE_KEY);
-    if (kept == null) throw err;
-    ledger = kept;
-  }
+  let { ledger, keptAt } = await readLedger(named);
   // What's waiting on the device goes on top, so it's read first
   await queue.ready();
+  // Found waiting since, perhaps saved, and not named: asked again, naming them
+  if (keptAt === undefined && maybeSent().some((id) => !named.includes(id))) {
+    named = maybeSent();
+    ({ ledger, keptAt } = await readLedger(named));
+  }
   const shown = queryClient.getQueryData<Ledger>(LEDGER_KEY);
   // A change was saved while this was on its way, so this copy may be from before it:
   // what's shown stays, and the copy fetched once nothing is left to send replaces it
-  if (signal?.aborted || (savedCount !== savedBefore && shown != null)) return shown ?? ledger;
-  confirmed = ledger;
-  void writeCache(CACHE_KEY, ledger);
-  return apply(ledger, queue.pending(), savedTransaction);
+  if (signal?.aborted || (savedCount !== savedBefore && shown != null)) {
+    return shown ?? figuresOf(ledger);
+  }
+  const holds = new Set(ledger.alreadySaved);
+  confirmed = figuresOf(ledger);
+  confirmedHolds = holds;
+  if (keptAt === undefined) {
+    // Fresh from the server: kept on the device with what it holds, and when
+    ledgerFetched = true;
+    void writeCache(CACHE_KEY, ledger);
+    shownFresh('ledger');
+    refreshKeptSummaries();
+  } else {
+    shownFromDevice('ledger', keptAt);
+  }
+  return apply(confirmed, waitingBut(holds), savedTransaction);
+}
+
+/**
+ * The ledger from the server, saying which of the `named` changes it holds already
+ * (`keptAt` undefined); offline, the copy kept on this device, with when it was kept
+ */
+async function readLedger(named: string[]): Promise<{ ledger: Ledger; keptAt?: number | null }> {
+  try {
+    const { accounts, categories, alreadySaved } = await api.getLedger(named);
+    return { ledger: { accounts, categories: categoriesOrDefaults(categories), alreadySaved } };
+  } catch (err) {
+    if (!isOfflineFailure(err)) throw err;
+    const kept = await readCacheEntry<Ledger>(CACHE_KEY);
+    if (kept == null) throw err;
+    return { ledger: kept.value, keptAt: kept.at };
+  }
 }
 
 /**
@@ -274,24 +432,35 @@ export function shownPages(
  * twice, so what's shown stays until the totals fetched once nothing is left to send.
  */
 export async function fetchSummary(month: string): Promise<MonthSummary> {
+  // The server is asked which of what's waiting on the device it counts already
+  const named = await idsToName();
   const savedBefore = savedCount;
   let summary: MonthSummary;
   try {
-    summary = await api.getSummary(month);
+    summary = await api.getSummary(month, named);
   } catch (err) {
     if (!isOfflineFailure(err)) throw err;
-    const kept = await readCache<MonthSummary>(summaryCacheKey(month));
+    const kept = await readCacheEntry<MonthSummary>(summaryCacheKey(month));
     if (kept == null) throw err;
-    return kept;
+    shownFromDevice(`summary:${month}`, kept.at);
+    return kept.value;
   }
   void writeCache(summaryCacheKey(month), summary);
   const shown = queryClient.getQueryData<MonthSummary>(summaryKey(month));
-  return savedCount !== savedBefore && shown != null ? shown : summary;
+  if (savedCount !== savedBefore && shown != null) return shown;
+  shownFresh(`summary:${month}`);
+  return summary;
 }
 
-/** A month's totals as shown: as the server summed them, with the changes still to send */
-export const shownSummary = (summary: MonthSummary, pending: LedgerChange[]) =>
-  applyToSummary(summary, pending, savedTransaction);
+/**
+ * A month's totals as shown: as the server summed them, with the changes still to send,
+ * but for those it counted already
+ */
+export function shownSummary(summary: MonthSummary, pending: Queued[]) {
+  const holds = new Set(summary.alreadySaved);
+  const waiting = pending.filter((q) => !holds.has(q.cid)).map((q) => q.change);
+  return applyToSummary(summary, waiting, savedTransaction);
+}
 
 /**
  * Shows the copy kept on this device while the first fresh one loads, unless something
@@ -299,10 +468,14 @@ export const shownSummary = (summary: MonthSummary, pending: LedgerChange[]) =>
  */
 export function showKeptCopy() {
   if (queryClient.getQueryData(LEDGER_KEY) !== undefined) return;
-  void Promise.all([readCache<Ledger>(CACHE_KEY), queue.ready()]).then(([kept]) => {
-    if (kept == null || queryClient.getQueryState(LEDGER_KEY)?.dataUpdatedAt) return;
-    // Marked as old, so it's shown but still fetched
-    queryClient.setQueryData(LEDGER_KEY, apply(kept, queue.pending()), { updatedAt: 0 });
+  void Promise.all([readCacheEntry<Ledger>(CACHE_KEY), queue.ready()]).then(([kept]) => {
+    if (kept == null || ledgerFetched || queryClient.getQueryState(LEDGER_KEY)?.dataUpdatedAt) {
+      return;
+    }
+    // Marked as old, so it's shown but still fetched; what it holds already isn't added again
+    const shown = apply(figuresOf(kept.value), waitingBut(new Set(kept.value.alreadySaved)));
+    queryClient.setQueryData(LEDGER_KEY, shown, { updatedAt: 0 });
+    shownFromDevice('ledger', kept.at);
   });
 }
 

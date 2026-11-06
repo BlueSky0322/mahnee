@@ -4,6 +4,7 @@
 // IndexedDB, for the offline cache
 import 'fake-indexeddb/auto';
 import { cleanup, configure, render } from '@testing-library/react';
+import { notifications } from '@mantine/notifications';
 import { onlineManager } from '@tanstack/react-query';
 import { createElement } from 'react';
 import { afterEach, beforeEach, onTestFinished, vi } from 'vitest';
@@ -14,6 +15,7 @@ import type {
   LedgerChange,
   MonthSummary,
   Profile,
+  Recurring,
   Transaction,
 } from '@shared/api';
 import {
@@ -76,6 +78,16 @@ import {
   whyNoBudget,
 } from '@shared/budgets';
 import { rateDay } from '@shared/rates';
+import {
+  MAX_RECURRING,
+  fallsOn,
+  isCalendarDay,
+  isSchedule,
+  isScheduleDay,
+  latestDue,
+  nextAfter,
+  scheduleDayRange,
+} from '@shared/recurring';
 import { matchesSearch, readSearch } from '@shared/search';
 import { Root } from '../Root';
 import { queryClient } from '../query-client';
@@ -153,6 +165,8 @@ export interface FakeServer {
    * which saves the defaults (shared/categories.ts) with it
    */
   categories: Category[];
+  /** The person's repeating items, stopped ones too, in the order they were set up */
+  recurring: Recurring[];
   /**
    * The person's budgets as the server keeps them: an amount from a month on (none when
    * null), one row per category and month it was set in
@@ -308,7 +322,9 @@ function answerNow(server: FakeServer) {
       const categories = [...server.categories].sort(
         (a, b) => a.position - b.position || (a.id < b.id ? -1 : 1),
       );
-      return json({ accounts, categories, ...alreadySaved() });
+      // Repeating items only for someone who has any, as the real one answers
+      const recurring = server.recurring.length > 0 ? { recurring: server.recurring } : {};
+      return json({ accounts, categories, ...recurring, ...alreadySaved() });
     }
     if (path === '/api/transactions' && method === 'GET') {
       const page = listTransactions(server, url.searchParams);
@@ -601,6 +617,7 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
   const accounts = server.accounts.map((a) => ({ ...a }));
   const categories = categoriesOrDefaults(server.categories);
   const transactions = server.transactions.map((t) => ({ ...t }));
+  const recurring = server.recurring.map((r) => ({ ...r }));
   let budgets = server.budgets.map((b) => ({ ...b }));
   const nameError = `Give the account a name of up to ${MAX_ACCOUNT_NAME} characters`;
   const openingError = `An opening balance can be up to ${MAX_TRANSACTION.toLocaleString('en')} either way`;
@@ -641,6 +658,17 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
         amountCents,
         carryOver: amountCents != null && carryOver,
       });
+      continue;
+    }
+    if (
+      change.op === 'addRecurring' ||
+      change.op === 'updateRecurring' ||
+      change.op === 'archiveRecurring' ||
+      change.op === 'logRecurring' ||
+      change.op === 'skipRecurring'
+    ) {
+      const refusal = saveRecurringChange(accounts, categories, transactions, recurring, change);
+      if (refusal != null) return refusal;
       continue;
     }
     if (change.op === 'addAccount') {
@@ -692,6 +720,7 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
     server.accounts = accounts;
     server.categories = categories;
     server.transactions = transactions;
+    server.recurring = recurring;
     server.budgets = budgets;
   }
   ids.forEach((id, i) => server.receipts.set(id, prints[i]));
@@ -914,6 +943,108 @@ function saveBulkChange(
   return null;
 }
 
+/**
+ * A change to a repeating item, made to `recurring` (and, logging one, to `transactions`) as
+ * the real server checks and saves it, or the refusal's status and explanation
+ */
+function saveRecurringChange(
+  accounts: FakeAccount[],
+  categories: Category[],
+  transactions: Transaction[],
+  recurring: Recurring[],
+  change: Extract<
+    LedgerChange,
+    {
+      op:
+        | 'addRecurring'
+        | 'updateRecurring'
+        | 'archiveRecurring'
+        | 'logRecurring'
+        | 'skipRecurring';
+    }
+  >,
+): [number, string] | null {
+  const amountError = `An amount is more than 0 and up to ${MAX_TRANSACTION.toLocaleString('en')}`;
+  /** What it would record, checked as a transaction would be */
+  const checkAsTransaction = (
+    r: Omit<Recurring, 'startDate' | 'nextDue' | 'archived' | 'schedule' | 'day'>,
+  ) =>
+    saveTransactionChange(accounts, categories, [], {
+      op: 'addTransaction',
+      transaction: { ...r, note: null, date: rateDay(Date.now()) },
+    });
+  if (change.op === 'addRecurring') {
+    const r = change.recurring;
+    if (!isRowId(r.id)) return [400, 'Invalid repeating item id'];
+    if (recurring.some((found) => found.id === r.id)) {
+      return [409, 'That repeating item already exists'];
+    }
+    const refusal = checkAsTransaction(r);
+    if (refusal != null) return refusal;
+    if (!isSchedule(r.schedule)) return [400, 'Repeat monthly or weekly'];
+    if (!isScheduleDay(r.schedule, r.day)) return [400, scheduleDayRange(r.schedule)];
+    if (!isDay(r.startDate)) return [400, 'Give a day from 2000 up to today'];
+    if (recurring.length >= MAX_RECURRING) {
+      return [409, `You can have up to ${MAX_RECURRING} repeating items, stopped ones included`];
+    }
+    const payee = readOptionalText(r.payee, MAX_PAYEE) ?? null;
+    recurring.push({
+      ...r,
+      payee,
+      nextDue: nextAfter(r.schedule, r.day, r.startDate),
+      archived: false,
+    });
+    return null;
+  }
+  const saved = recurring.find((r) => r.id === change.id);
+  if (saved == null) return [404, 'Repeating item not found'];
+  if (change.op === 'archiveRecurring') {
+    if (typeof change.archived !== 'boolean') return [400, 'Say whether it is archived'];
+    saved.archived = change.archived;
+    return null;
+  }
+  if (change.op === 'updateRecurring') {
+    const { op: _op, id: _id, ...fields } = change;
+    if ('kind' in fields) return [400, "A kind can't be changed"];
+    if (Object.keys(fields).length === 0) return [400, 'Nothing to change'];
+    const next = { ...saved, ...fields };
+    if (!fitsTransactionCents(next.amountCents)) return [400, amountError];
+    const refusal = checkAsTransaction(next);
+    if (refusal != null) return refusal;
+    if (!isSchedule(next.schedule)) return [400, 'Repeat monthly or weekly'];
+    if (!isScheduleDay(next.schedule, next.day)) return [400, scheduleDayRange(next.schedule)];
+    if (('schedule' in fields || 'day' in fields) && !('nextDue' in fields)) {
+      return [400, 'Say when it is next due'];
+    }
+    if (
+      !isCalendarDay(next.nextDue) ||
+      next.nextDue < '2000-01-01' ||
+      !fallsOn(next.schedule, next.day, next.nextDue)
+    ) {
+      return [400, 'Next due has to fall on its schedule'];
+    }
+    if (next.nextDue > latestDue()) return [400, 'Next due has to be within a year'];
+    Object.assign(saved, next, { payee: readOptionalText(next.payee, MAX_PAYEE) ?? null });
+    return null;
+  }
+  if (saved.archived) return [409, 'That no longer repeats'];
+  const account = accounts.find((a) => a.id === saved.accountId);
+  if (account?.archived) return [409, `${account.name} is archived`];
+  if (change.due !== saved.nextDue) return [409, 'That was logged or skipped already'];
+  if (change.op === 'logRecurring') {
+    if (change.transaction.date !== change.due) {
+      return [400, 'A repeating item is logged on the day it was due'];
+    }
+    const refusal = saveTransactionChange(accounts, categories, transactions, {
+      op: 'addTransaction',
+      transaction: change.transaction,
+    });
+    if (refusal != null) return refusal;
+  }
+  saved.nextDue = nextAfter(saved.schedule, saved.day, saved.nextDue);
+  return null;
+}
+
 /** A fresh server with the signed-in account */
 export function fakeServer(): FakeServer {
   return {
@@ -923,6 +1054,7 @@ export function fakeServer(): FakeServer {
     accounts: [],
     transactions: [],
     categories: [],
+    recurring: [],
     budgets: [],
     receipts: new Map(),
     failNext: {},
@@ -968,6 +1100,8 @@ export async function closeApp() {
   // What the test set going finishes now, rather than landing in the next test as its data
   await settle();
   queryClient.clear();
+  // Messages still showing (an Undo) are kept outside the page; none is left for the next test
+  notifications.clean();
   // The device's cache, and whose it is, start empty for the next test
   await clearCache();
 }

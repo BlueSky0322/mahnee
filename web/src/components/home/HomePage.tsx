@@ -18,18 +18,21 @@ import { navigate } from '../../hooks/useRoute';
 import { useAccounts } from '../../ledger/useLedger';
 import { nameFor, useProfile } from '../../profile/ProfileContext';
 import { thisMonth } from '../../utils/date-input';
+import DueItems from './DueItems';
 import ExportDialog from './ExportDialog';
 import classes from './HomePage.module.css';
 import MonthCard from './MonthCard';
+import MonthEnd from './MonthEnd';
 import Staleness from './Staleness';
 import { useConfirmSignOut } from './useConfirmSignOut';
 
-// The first screen. It says how old the numbers are when they came from this device. Then
-// the month at a glance (`month`, an earlier one; null for this one), the person's
-// accounts, the ways to search their transactions, to their categories, to export
-// everything and to import a file, then who's signed in and the way out. Add, floating
-// over it, opens the entry sheet once there's an account to put a transaction on. Until
-// the first account is added there's no month to show.
+// The first screen. It says how old the numbers are when they came from this device, then
+// what repeating bills and income are due now, to log or skip. Then the month at a glance
+// (`month`, an earlier one; null for this one) and, while anything repeats, what's expected
+// at its end; the person's accounts, the ways to search their transactions, to their
+// categories, to export everything and to import a file, then who's signed in and the way
+// out. Add, floating over it, opens the entry sheet once there's an account to put a
+// transaction on. Until the first account is added there's no month to show.
 const HomePage = ({ month }: { month: string | null }) => {
   const { profile } = useProfile();
   const { askToSignOut, dialog } = useConfirmSignOut();
@@ -43,7 +46,9 @@ const HomePage = ({ month }: { month: string | null }) => {
         <ThemeToggle />
       </header>
       <Staleness month={month ?? thisMonth()} />
+      <DueItems />
       {accounts?.length !== 0 && <MonthCard month={month} />}
+      <MonthEnd />
       <InstallCard />
       <AccountList />
       {/* Search is its own page: a button drawn as the same row, like Export */}

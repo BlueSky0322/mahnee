@@ -4,6 +4,7 @@
 import type { CategoryKind } from './categories';
 import type { AccountKind, TransactionKind } from './ledger';
 import type { RateSource } from './rates';
+import type { Schedule } from './recurring';
 
 // ---------- Account ----------
 
@@ -233,6 +234,37 @@ export const MAX_PAYEE_CATEGORIES = 10_000;
 export type NewTransaction = Omit<Transaction, 'createdAt'>;
 
 /**
+ * A bill or income that repeats, monthly or weekly (shared/recurring.ts), and what Log it
+ * records each time: nothing is recorded until the person logs it. Stopped (archived), never
+ * deleted.
+ */
+export interface Recurring {
+  id: string;
+  kind: TransactionKind;
+  /** The account it's on; for a transfer, the one the money leaves */
+  accountId: string;
+  /** Where a transfer goes; null for spending and income */
+  toAccountId: string | null;
+  /** Whole cents, above zero, at most MAX_TRANSACTION_CENTS */
+  amountCents: number;
+  /** A category of its kind; null only for a transfer */
+  categoryId: string | null;
+  payee: string | null;
+  schedule: Schedule;
+  /** 1 to 31 for monthly (the month's last day when shorter), 1 (Monday) to 7 for weekly */
+  day: number;
+  /** The day it was set up from, as 2026-11-05 */
+  startDate: string;
+  /** The next occurrence not yet logged or skipped, as 2026-12-05; falls on its schedule */
+  nextDue: string;
+  /** Stopped repeating; it can be brought back */
+  archived: boolean;
+}
+
+/** What a repeating item is given when it's set up: its first due date is worked out */
+export type NewRecurring = Omit<Recurring, 'nextDue' | 'archived'>;
+
+/**
  * GET /api/accounts: the person's ledger, archived accounts and categories too, each in
  * the person's order. Categories are only what's saved: none until the first change,
  * which saves the defaults (categoriesOrDefaults in shared/categories.ts).
@@ -240,6 +272,11 @@ export type NewTransaction = Omit<Transaction, 'createdAt'>;
 export interface Ledger {
   accounts: Account[];
   categories: Category[];
+  /**
+   * Bills and income that repeat, stopped ones too, in the order they were set up; only
+   * when the person has any
+   */
+  recurring?: Recurring[];
   /**
    * Of the change ids the read named (PENDING_CHANGES_HEADER), the ones these balances
    * hold already; only when it named any
@@ -299,7 +336,35 @@ export type LedgerChange =
       fromMonth: string;
       amountCents: number | null;
       carryOver: boolean;
-    };
+    }
+  /** Sets one up; it's first due on its schedule's next day after startDate */
+  | { op: 'addRecurring'; recurring: NewRecurring }
+  /**
+   * Changes what it records or when it falls; its kind is fixed. A new schedule or day comes
+   * with nextDue, which falls on it; nextDue alone moves it (Undo of a log or a skip).
+   */
+  | ({ op: 'updateRecurring'; id: string } & Partial<
+      Pick<
+        Recurring,
+        | 'accountId'
+        | 'toAccountId'
+        | 'amountCents'
+        | 'categoryId'
+        | 'payee'
+        | 'schedule'
+        | 'day'
+        | 'nextDue'
+      >
+    >)
+  /** archived: true stops it repeating, false brings it back */
+  | { op: 'archiveRecurring'; id: string; archived: boolean }
+  /**
+   * Records the occurrence due on `due` (its next due date, else refused) as `transaction`,
+   * on that day, and moves it on to the next, together
+   */
+  | { op: 'logRecurring'; id: string; due: string; transaction: NewTransaction }
+  /** Moves the occurrence due on `due` (its next due date, else refused) on, recording nothing */
+  | { op: 'skipRecurring'; id: string; due: string };
 
 /** POST /api/changes: saved in order, all or nothing */
 export interface ChangesBody {

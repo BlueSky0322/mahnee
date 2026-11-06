@@ -9,20 +9,21 @@ The data model is in [erd.md](erd.md). How the Worker's routes and modules fit t
 is at the top of [worker/app.ts](../worker/app.ts). The rules every change follows are
 in [AGENTS.md](../AGENTS.md).
 
-| Feature                                                        | State owner (app)            | Worker                         |
-| -------------------------------------------------------------- | ---------------------------- | ------------------------------ |
-| [Sign-in, profile and settings](#sign-in-profile-and-settings) | `profile/ProfileContext.tsx` | `accounts/`, `routes/me.ts`    |
-| [Accounts](#accounts)                                          | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
-| [Categories](#categories)                                      | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
-| [Transactions and quick entry](#transactions-and-quick-entry)  | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
-| [Month view](#month-view)                                      | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
-| [Budgets](#budgets)                                            | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
-| [Search and changing many](#search-and-changing-many)          | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
-| [Export](#export)                                              | (none; read when asked)      | `ledger/`, `routes/ledger.ts`  |
-| [Import](#import)                                              | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
-| [Exchange rates](#exchange-rates)                              | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
-| [Offline start and installing](#offline-start-and-installing)  | `offline/`, `pwa/`           | (none; the API is the same)    |
-| [Pages, layouts and Back](#pages-layouts-and-back)             | `hooks/useRoute.ts`          | (none)                         |
+| Feature                                                         | State owner (app)            | Worker                         |
+| --------------------------------------------------------------- | ---------------------------- | ------------------------------ |
+| [Sign-in, profile and settings](#sign-in-profile-and-settings)  | `profile/ProfileContext.tsx` | `accounts/`, `routes/me.ts`    |
+| [Accounts](#accounts)                                           | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Categories](#categories)                                       | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Transactions and quick entry](#transactions-and-quick-entry)   | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Month view](#month-view)                                       | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Budgets](#budgets)                                             | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Search and changing many](#search-and-changing-many)           | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Repeating bills and month end](#repeating-bills-and-month-end) | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Export](#export)                                               | (none; read when asked)      | `ledger/`, `routes/ledger.ts`  |
+| [Import](#import)                                               | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Exchange rates](#exchange-rates)                               | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
+| [Offline start and installing](#offline-start-and-installing)   | `offline/`, `pwa/`           | (none; the API is the same)    |
+| [Pages, layouts and Back](#pages-layouts-and-back)              | `hooks/useRoute.ts`          | (none)                         |
 
 App paths are under `web/src/`, Worker paths under `worker/`.
 
@@ -77,8 +78,8 @@ Transactions). Add one from Home; rename it, change its opening balance, or arch
 page. A card's balance is what's owed on it. Its kind is fixed once added. Worker folder
 `accounts/` is sign-in, not these: the ledger is `ledger/`.
 
-**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts) keeps the ledger (accounts
-and categories, one request) in the query cache (`LEDGER_KEY`), with a device copy
+**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts) keeps the ledger (accounts,
+categories and repeating items, one request) in the query cache (`LEDGER_KEY`), with a device copy
 (`ledger-v1`) shown while the first fresh one loads and offline. `change(...changes)`
 is the only way the ledger changes: it shows the changes at once
 ([ledger/apply.ts](../web/src/ledger/apply.ts)), then hands them to
@@ -576,6 +577,91 @@ once and counted once when the answer is lost),
 both changes), and the searching and changing-many cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (every match and filter, paging,
 someone else's, refusals with their messages, a resend counted once, 500 at once).
+
+## Repeating bills and month end
+
+**What it is.** Bills and income that repeat, monthly on a day of the month (on a shorter
+month's last day past its end) or weekly on a weekday. Set one up with Repeat (Monthly or
+Weekly) under More in the entry sheet, adding or changing a transaction: it repeats on that
+transaction's day of the month or weekday, and its first due date is the next one after
+that day (so one set up from an old transaction has the occurrences since due at once,
+each to log or skip). Each one due (its next due date today or before, the person's own
+day) is at the top of Home, "Due: Rent RM 1,200.00 from Maybank" (income "into Maybank",
+a transfer "from Maybank to Visa"; with no payee, its category's name), with Log it, which
+records it as a transaction on the day it was due and moves it on to its next date, and
+Skip, which moves it on recording nothing; each has Undo. Nothing is recorded until one is
+tapped, so balances never show money that didn't move. While anything repeats, Home shows
+one total, "Expected at month end: RM 2,340.00": today's balances of every listed account
+(a card's owed amount counts against them), less the bills still due this month, plus the
+income still due. Still due is every occurrence of a listed item on a listed account not yet
+logged or skipped, from its next due date (overdue and today's too) up to and including the
+month's last day; transfers change nothing whatever their ends. So Log it leaves the total
+as it was (the money moves from still due into the balance) and Skip raises it. Below zero
+it says by how much in words ("RM 1,100.00 below zero"). Tapping it lists today's balances
+and each occurrence still due, by day (the first 100, then how many more), and every
+repeating item; tapping one opens its sheet to change what it records and when, or Stop
+repeating (Undo brings it back). A stopped item is listed nowhere, so once the last one
+stops the total goes and only Undo brings it back.
+
+**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts): repeating items are part of the
+ledger (`Ledger.recurring`), read with the balances in one request, so the total's two
+halves always come from one copy, and the never-count-twice rule (`alreadySaved`) covers a
+log with no second read. Every change goes through `change()`:
+`addRecurring`, `updateRecurring`, `archiveRecurring`, `logRecurring` { id, due, transaction }
+and `skipRecurring` { id, due }. [ledger/apply.ts](../web/src/ledger/apply.ts) makes a log
+into its transaction and the move to the next date (`oneByOne`), and leaves out a log a copy
+holds already (its item moved on past `due`), so the balance and the date move together,
+once. `isDueOn` keeps a second tap from logging twice. Transactions saved lately are
+remembered (`recentlySaved`) so deleting a logged one (Undo) moves the balance at once,
+though no list on screen holds it. [ledger/forecast.ts](../web/src/ledger/forecast.ts)
+works out the total (`monthEndForecast`) and what's due now (`dueNow`) from the ledger as
+shown, read through `useWholeLedger()`.
+
+**Parts.**
+
+- UI: [components/home/DueItems.tsx](../web/src/components/home/DueItems.tsx),
+  [MonthEnd.tsx](../web/src/components/home/MonthEnd.tsx) (the total, its list and the
+  items), [RecurringSheet.tsx](../web/src/components/home/RecurringSheet.tsx) and
+  [recurring-text.ts](../web/src/components/home/recurring-text.ts) on
+  [HomePage.tsx](../web/src/components/home/HomePage.tsx); Repeat in
+  [EntrySheet.tsx](../web/src/components/entry/EntrySheet.tsx).
+- API: read with the accounts (`readLedger` in
+  [worker/ledger/read.ts](../worker/ledger/read.ts); `recurring` only for someone who has
+  any); the five changes in [worker/ledger/changes.ts](../worker/ledger/changes.ts).
+- Shared: `Recurring` and the change shapes in [shared/api.ts](../shared/api.ts); schedules,
+  `nextAfter`, `fallsOn`, `onOrAfter`, `dayFor`, `monthEnd` and `MAX_RECURRING` in
+  [shared/recurring.ts](../shared/recurring.ts), which the Worker, the app and the test
+  stand-in use alike.
+
+**Invariants.**
+
+- What an item records is checked as a transaction's is: a listed account (and for a
+  transfer another listed one), a listed category of its kind, an amount of 1 cent to
+  `MAX_TRANSACTION`, a payee of at most `MAX_PAYEE`. Its start is a day a transaction can be
+  on (up to tomorrow in UTC). Its kind never changes.
+- `next_due` always falls on its schedule, and is moved at most a year ahead
+  (`MAX_DUE_AHEAD_DAYS`). A new schedule or day comes with the next due
+  date, worked out by the app as the first it falls on from the old one.
+- A log's transaction is checked as any added one and dated the day it was due; it's saved
+  with the move to the next date in one batch, only from the occurrence named (else 409
+  "That was logged or skipped already"), so two devices never log one twice. A stopped item,
+  or one on an archived account, is never logged or skipped.
+- At most `MAX_RECURRING` (200) per person, stopped ones included, checked again as each row
+  is saved. The total stays exact: at most 200 items due at most weekly since 2000 at most
+  `MAX_TRANSACTION_CENTS` add about 2.8e14 to balances of at most 5e15.
+- Someone else's item, account or category is answered as one that doesn't exist (404).
+
+**Tests.** [forecast.test.ts](../web/src/ledger/forecast.test.ts) (when each schedule falls,
+the total with bills, income, cards, transfers, stopped and archived, overdue and today's,
+the month's last day, exactly zero, the exactness bound; due now; each change made before
+the server has it, a log steady and a skip raising the total, applied twice),
+[Recurring.test.tsx](../web/src/components/home/Recurring.test.tsx) (due at the top in
+words, the total and its list, below zero and zero, Log it, Skip and Undo, overdue weekly,
+a lost answer across a reload, set up from adding and changing a transaction and from an
+old one, changing and stopping, a refusal put back, a double tap, offline, the person's own
+day in Kuala Lumpur; desktop and phone), and the repeating cases in
+[worker/test/api.test.ts](../worker/test/api.test.ts) (setting up, each schedule, logging
+and skipping once, refusals with their messages, someone else's, all or nothing, the limit).
 
 ## Export
 

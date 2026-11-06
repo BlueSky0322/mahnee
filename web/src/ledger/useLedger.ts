@@ -33,7 +33,7 @@ import {
 
 // The ledger for the screens that show it (see ledger.ts, which changes it)
 
-interface Loaded<T> {
+export interface Loaded<T> {
   /** Null until loaded */
   data: T | null;
   /** Nothing could be loaded, and nothing was kept on this device */
@@ -84,6 +84,16 @@ const pickCategories = (ledger: Ledger) => ({
 export function useCategories(): Categories {
   const { data, ...rest } = useLedgerPart(pickCategories);
   return { categories: data?.categories ?? null, tree: data?.tree ?? null, ...rest };
+}
+
+const pickLedger = (ledger: Ledger) => ledger;
+
+/**
+ * The whole ledger as shown, for what works from its balances and repeating items together
+ * (forecast.ts): one copy, so a log is never counted in both
+ */
+export function useWholeLedger(): Loaded<Ledger> {
+  return useLedgerPart(pickLedger);
 }
 
 /**

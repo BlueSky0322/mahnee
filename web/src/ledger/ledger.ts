@@ -19,12 +19,19 @@ import { readOutbox } from '../offline/outbox';
 import { isOfflineFailure } from '../offline/network';
 import { queryClient } from '../query-client';
 import { showError } from '../utils/notify';
-import { apply, applyToPages } from './apply';
+import {
+  apply,
+  applyToPages,
+  changedTransaction,
+  idOf,
+  isTransactionChange,
+  oneByOne,
+} from './apply';
 import { createSaveQueue } from './save-queue';
 import { applyToSummary } from './summary';
 
-// A person's ledger (their accounts and categories, and their transactions a page at a
-// time), kept in the query cache so every screen shows the same copy. change() is the
+// A person's ledger (their accounts, categories and repeating items, and their
+// transactions a page at a time), kept in the query cache so every screen shows the same copy. change() is the
 // only way it changes: each change shows straight away, is kept on the device until it's
 // saved, and is sent in order with the others (save-queue.ts), offline or not. A refused
 // change is put back and explained, with everything made after it, and once nothing is
@@ -128,7 +135,30 @@ function savedTransaction(id: string): Transaction | undefined {
       if (found != null) return found;
     }
   }
-  return undefined;
+  return recentlySaved.get(id);
+}
+
+/**
+ * Transactions this page saved lately, as saved, for one no list on screen holds (a repeating
+ * item logged from Home), so deleting it again (Undo) moves the balance at once. At most
+ * RECENTLY_SAVED, the oldest let go first.
+ */
+const recentlySaved = new Map<string, Transaction>();
+const RECENTLY_SAVED = 10_000;
+
+function rememberSaved(changes: LedgerChange[]) {
+  for (const change of oneByOne(changes)) {
+    if (!isTransactionChange(change)) continue;
+    const id = idOf(change);
+    const after = changedTransaction(change, recentlySaved.get(id));
+    if (after === undefined) continue;
+    recentlySaved.delete(id);
+    if (after != null) recentlySaved.set(id, after);
+  }
+  for (const id of recentlySaved.keys()) {
+    if (recentlySaved.size <= RECENTLY_SAVED) break;
+    recentlySaved.delete(id);
+  }
 }
 
 /** A transaction as shown: as the server has it, with the changes still to send made to it */
@@ -227,6 +257,8 @@ const queue = createSaveQueue({
       });
     }
     savedLog = [...savedLog, { n: savedCount, changes }].slice(-SAVED_LOG_LENGTH);
+    // Last, so the totals and lists above took each one as it was before
+    rememberSaved(changes);
   },
   // Made before a reload, or in another tab: shown on top, as the ones made here are.
   // Months' totals read before they were known didn't name them, so they're read again.
@@ -256,6 +288,7 @@ onCacheUserKnown((email) => void queue.pickUp(email));
 // the server only ever sends the signed-in person's own.
 onCacheCleared(() => {
   queue.forget();
+  recentlySaved.clear();
   ledgerFetched = false;
   fromDevice.clear();
   ageChanged();
@@ -400,8 +433,16 @@ export const loadedLedger = (): Promise<Ledger> =>
  */
 async function readLedger(named: string[]): Promise<{ ledger: Ledger; keptAt?: number | null }> {
   try {
-    const { accounts, categories, alreadySaved } = await api.getLedger(named);
-    return { ledger: { accounts, categories: categoriesOrDefaults(categories), alreadySaved } };
+    const { accounts, categories, recurring, alreadySaved } = await api.getLedger(named);
+    return {
+      ledger: {
+        accounts,
+        categories: categoriesOrDefaults(categories),
+        // None set up: the answer leaves them out
+        recurring: recurring ?? [],
+        alreadySaved,
+      },
+    };
   } catch (err) {
     if (!isOfflineFailure(err)) throw err;
     const kept = await readCacheEntry<Ledger>(CACHE_KEY);
@@ -563,6 +604,14 @@ export function showKeptCopy() {
     shownFromDevice('ledger', kept.at);
   });
 }
+
+/**
+ * Whether a repeating item is due on `due` as shown now: not logged or skipped since the
+ * screen asked, so a second tap never records it twice
+ */
+export const isDueOn = (id: string, due: string) =>
+  queryClient.getQueryData<Ledger>(LEDGER_KEY)?.recurring?.find((r) => r.id === id)?.nextDue ===
+  due;
 
 /** Fetches the ledger again, if anything is showing it */
 export const reloadLedger = () => queryClient.refetchQueries({ queryKey: LEDGER_KEY });

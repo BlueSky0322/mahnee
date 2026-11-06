@@ -21,6 +21,8 @@ import {
   categoryKindFor,
   readOptionalText,
 } from '@shared/ledger';
+import type { Schedule } from '@shared/recurring';
+import { dayFor, isSchedule } from '@shared/recurring';
 import { navigate } from '../../hooks/useRoute';
 import { change } from '../../ledger/ledger';
 import { lastUsed, rememberUsed } from '../../ledger/last-used';
@@ -41,7 +43,9 @@ export type OpenEntry = { transaction: null; accountId?: string } | { transactio
 // (the ones used last, unless changed), the day, and a payee and note under More. With
 // the defaults, typing the amount and Save is all it takes. A transfer moves money from
 // one account to another of the person's own, with no category: the account it goes to
-// is the one moved to last, unless that's the one it comes from.
+// is the one moved to last, unless that's the one it comes from. Repeat, under More, sets
+// it up to repeat monthly or weekly from its day (shown on Home when due; see
+// components/home/DueItems.tsx).
 export default function EntrySheet({
   open,
   onClose,
@@ -105,6 +109,7 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
   const [payee, setPayee] = useState(editing?.payee ?? '');
   const [note, setNote] = useState(editing?.note ?? '');
   const [more, setMore] = useState(editing?.payee != null || editing?.note != null);
+  const [repeat, setRepeat] = useState<Schedule | ''>('');
   const [amountError, setAmountError] = useState<string | null>(null);
   const [dateError, setDateError] = useState<string | null>(null);
   const [categoryError, setCategoryError] = useState<string | null>(null);
@@ -158,8 +163,29 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
       date,
     };
 
+    // Repeating from this one: it's the first occurrence, so the next is due after its day
+    const repeating: LedgerChange[] =
+      repeat === ''
+        ? []
+        : [
+            {
+              op: 'addRecurring',
+              recurring: {
+                id: newId(),
+                kind: fields.kind,
+                accountId: fields.accountId,
+                toAccountId: fields.toAccountId,
+                amountCents: fields.amountCents,
+                categoryId: fields.categoryId,
+                payee: fields.payee,
+                schedule: repeat,
+                day: dayFor(repeat, date),
+                startDate: date,
+              },
+            },
+          ];
     if (editing == null) {
-      change({ op: 'addTransaction', transaction: { id: newId(), ...fields } });
+      change({ op: 'addTransaction', transaction: { id: newId(), ...fields } }, ...repeating);
     } else {
       // Only what changed is sent; a new kind always comes with its category and where
       // it goes (none, but for a transfer)
@@ -173,7 +199,8 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
           Object.assign(update, { [key]: fields[key] });
         }
       }
-      if (Object.keys(update).length > 2) change(update);
+      const changes = Object.keys(update).length > 2 ? [update, ...repeating] : repeating;
+      if (changes.length > 0) change(...changes);
     }
     if (fields.toAccountId != null) rememberUsed(email, { toAccountId: fields.toAccountId });
     else if (categoryKind != null && categoryId != null) {
@@ -339,6 +366,19 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
             maxLength={MAX_NOTE}
             autosize
             minRows={2}
+          />
+          <NativeSelect
+            label="Repeat"
+            value={repeat}
+            onChange={(e) => {
+              const value = e.currentTarget.value;
+              setRepeat(isSchedule(value) ? value : '');
+            }}
+            data={[
+              { value: '', label: "Doesn't repeat" },
+              { value: 'monthly', label: 'Monthly' },
+              { value: 'weekly', label: 'Weekly' },
+            ]}
           />
         </>
       )}

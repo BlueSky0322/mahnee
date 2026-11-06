@@ -59,7 +59,10 @@ hack-proof, and the limits below are real.
   `MAX_BUDGET_CENTS` (`shared/budgets.ts`), set from a month no later than this one.
 - Changes to the ledger: at most `MAX_CHANGES` in one request, saved all or nothing. A
   change to many transactions names at most `MAX_BULK_TRANSACTIONS` (500), each the
-  person's own.
+  person's own. A person has at most `MAX_RECURRING` (200) repeating items, stopped ones
+  included (`shared/recurring.ts`), each amount within `MAX_TRANSACTION_CENTS`; logging one
+  saves its transaction and its next due date together, and only from the occurrence it
+  names, so it is never recorded twice.
   Each carries the app's id, kept as a receipt for 90 days, so a change sent again is
   never applied twice.
 - Exporting (`/api/export`) reads the person's transactions a page at a time and sends

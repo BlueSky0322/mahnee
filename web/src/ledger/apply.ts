@@ -3,11 +3,13 @@ import type {
   Category,
   Ledger,
   LedgerChange,
+  Recurring,
   Transaction,
   TransactionPage,
 } from '@shared/api';
 import { nextPosition, reorder, siblingsOf } from '@shared/categories';
 import { DEFAULT_CURRENCY, balanceEffect } from '@shared/ledger';
+import { nextAfter } from '@shared/recurring';
 
 // Changes shown before the server has them: the ledger and lists of transactions as
 // they will be once they're saved, worked out the way the server saves them. Each change
@@ -59,11 +61,14 @@ export const isTransactionChange = (change: LedgerChange) =>
   change.op === 'updateTransaction' ||
   change.op === 'removeTransaction' ||
   change.op === 'recategoriseTransactions' ||
-  change.op === 'removeTransactions';
+  change.op === 'removeTransactions' ||
+  change.op === 'logRecurring';
 
 /**
  * The changes, with each change to many transactions made into the same change to each
- * one in turn (moved to the category, or deleted), so it's shown as the server makes it
+ * one in turn (moved to the category, or deleted), and each log of a repeating item into
+ * the transaction it adds and the move to its next due date, so it's shown as the server
+ * makes it
  */
 export const oneByOne = (changes: LedgerChange[]): LedgerChange[] =>
   changes.flatMap((change): LedgerChange[] => {
@@ -76,6 +81,11 @@ export const oneByOne = (changes: LedgerChange[]): LedgerChange[] =>
         }));
       case 'removeTransactions':
         return change.ids.map((id) => ({ op: 'removeTransaction', id }));
+      case 'logRecurring':
+        return [
+          { op: 'addTransaction', transaction: change.transaction },
+          { op: 'skipRecurring', id: change.id, due: change.due },
+        ];
       default:
         return [change];
     }
@@ -92,24 +102,34 @@ export const idOf = (change: LedgerChange) =>
 export function apply(ledger: Ledger, changes: LedgerChange[], lookup: Lookup = unknown): Ledger {
   const transactions = tracker(lookup);
   let next = ledger;
-  for (const change of oneByOne(changes)) {
-    if (!isTransactionChange(change)) {
-      next = applyOne(next, change);
-      continue;
+  for (const made of changes) {
+    // A log this copy holds already (its item has moved on) is in its balance too
+    if (made.op === 'logRecurring' && !stillDue(next, made.id, made.due)) continue;
+    for (const change of oneByOne([made])) {
+      if (!isTransactionChange(change)) {
+        next = applyOne(next, change);
+        continue;
+      }
+      const id = idOf(change);
+      const before = transactions.find(id);
+      // An addition already in this copy is in its balance too
+      if (change.op === 'addTransaction' && before != null) continue;
+      const after = changedTransaction(change, before);
+      if (after === undefined) continue;
+      transactions.set(id, after);
+      next = {
+        ...next,
+        accounts: moveBalances(moveBalances(next.accounts, before, -1), after, 1),
+      };
     }
-    const id = idOf(change);
-    const before = transactions.find(id);
-    // An addition already in this copy is in its balance too
-    if (change.op === 'addTransaction' && before != null) continue;
-    const after = changedTransaction(change, before);
-    if (after === undefined) continue;
-    transactions.set(id, after);
-    next = {
-      ...next,
-      accounts: moveBalances(moveBalances(next.accounts, before, -1), after, 1),
-    };
   }
   return next;
+}
+
+/** Whether a repeating item is still due on `due` in this copy (or isn't known in it) */
+function stillDue(ledger: Ledger, id: string, due: string) {
+  const found = ledger.recurring?.find((r) => r.id === id);
+  return found == null || found.nextDue === due;
 }
 
 /** The accounts with `t`'s effect on each (shared/ledger.ts) added (`by` 1) or taken back (-1) */
@@ -186,8 +206,41 @@ function applyOne(ledger: Ledger, change: LedgerChange): Ledger {
     case 'updateCategory':
     case 'archiveCategory':
       return { ...ledger, categories: applyToCategories(ledger.categories, change) };
+    case 'addRecurring':
+    case 'updateRecurring':
+    case 'archiveRecurring':
+    case 'skipRecurring':
+      return { ...ledger, recurring: applyToRecurring(ledger.recurring ?? [], change) };
     default:
       return ledger;
+  }
+}
+
+/** Repeating items with a change made, the way the server makes it (shared/recurring.ts) */
+function applyToRecurring(recurring: Recurring[], change: LedgerChange): Recurring[] {
+  const changed = (id: string, to: (r: Recurring) => Recurring) =>
+    recurring.map((r) => (r.id === id ? to(r) : r));
+  switch (change.op) {
+    case 'addRecurring': {
+      const r = change.recurring;
+      if (recurring.some((found) => found.id === r.id)) return recurring;
+      // The day it was set up from is its first occurrence: the next is due after it
+      const nextDue = nextAfter(r.schedule, r.day, r.startDate);
+      return [...recurring, { ...r, nextDue, archived: false }];
+    }
+    case 'updateRecurring': {
+      const { op: _op, id, ...fields } = change;
+      return changed(id, (r) => ({ ...r, ...fields }));
+    }
+    case 'archiveRecurring':
+      return changed(change.id, (r) => ({ ...r, archived: change.archived }));
+    case 'skipRecurring':
+      // Only from the occurrence it names, so a copy that moved on already stays as it is
+      return changed(change.id, (r) =>
+        r.nextDue === change.due ? { ...r, nextDue: nextAfter(r.schedule, r.day, r.nextDue) } : r,
+      );
+    default:
+      return recurring;
   }
 }
 

@@ -46,9 +46,14 @@ hack-proof, and the limits below are real.
   note are at most `MAX_PAYEE` and `MAX_NOTE` characters (`shared/ledger.ts`), so every
   balance stays a whole number held exactly.
 - Reading transactions: at most 200 to a page (`MAX_PAGE_SIZE` in
-  `worker/ledger/read.ts`), 50 unless asked. A month's totals (`/api/summary`) are one
+  `worker/ledger/read.ts`), 50 unless asked; searching (`/api/search`) too, with words of
+  at most `MAX_SEARCH_TEXT` characters (`shared/search.ts`), matched as text by bound
+  parameters (never put into the SQL; with `instr`, so no character is a wildcard), within the person's own rows. Search results
+  are not kept on the device. A month's totals (`/api/summary`) are one
   grouped sum of the person's own, at most one row per category.
-- Changes to the ledger: at most `MAX_CHANGES` in one request, saved all or nothing.
+- Changes to the ledger: at most `MAX_CHANGES` in one request, saved all or nothing. A
+  change to many transactions names at most `MAX_BULK_TRANSACTIONS` (500), each the
+  person's own.
   Each carries the app's id, kept as a receipt for 90 days, so a change sent again is
   never applied twice.
 - Exporting (`/api/export`) reads the person's transactions a page at a time and sends

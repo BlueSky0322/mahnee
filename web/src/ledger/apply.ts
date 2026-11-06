@@ -57,7 +57,29 @@ export function changedTransaction(
 export const isTransactionChange = (change: LedgerChange) =>
   change.op === 'addTransaction' ||
   change.op === 'updateTransaction' ||
-  change.op === 'removeTransaction';
+  change.op === 'removeTransaction' ||
+  change.op === 'recategoriseTransactions' ||
+  change.op === 'removeTransactions';
+
+/**
+ * The changes, with each change to many transactions made into the same change to each
+ * one in turn (moved to the category, or deleted), so it's shown as the server makes it
+ */
+export const oneByOne = (changes: LedgerChange[]): LedgerChange[] =>
+  changes.flatMap((change): LedgerChange[] => {
+    switch (change.op) {
+      case 'recategoriseTransactions':
+        return change.ids.map((id) => ({
+          op: 'updateTransaction',
+          id,
+          categoryId: change.categoryId,
+        }));
+      case 'removeTransactions':
+        return change.ids.map((id) => ({ op: 'removeTransaction', id }));
+      default:
+        return [change];
+    }
+  });
 
 export const idOf = (change: LedgerChange) =>
   change.op === 'addTransaction' ? change.transaction.id : 'id' in change ? change.id : '';
@@ -70,7 +92,7 @@ export const idOf = (change: LedgerChange) =>
 export function apply(ledger: Ledger, changes: LedgerChange[], lookup: Lookup = unknown): Ledger {
   const transactions = tracker(lookup);
   let next = ledger;
-  for (const change of changes) {
+  for (const change of oneByOne(changes)) {
     if (!isTransactionChange(change)) {
       next = applyOne(next, change);
       continue;
@@ -126,7 +148,7 @@ export function applyToPages(
   belongs: (t: Transaction) => boolean,
   lookup: Lookup = unknown,
 ): TransactionPage[] {
-  const relevant = changes.filter(isTransactionChange);
+  const relevant = oneByOne(changes.filter(isTransactionChange));
   if (relevant.length === 0) return pages;
   // Where each page ends, when a next one carries on from it
   const ends = pages.map((p) => (p.nextBefore == null ? null : p.transactions.at(-1) ?? null));

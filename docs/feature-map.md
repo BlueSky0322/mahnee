@@ -16,6 +16,7 @@ in [AGENTS.md](../AGENTS.md).
 | [Categories](#categories)                                      | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Transactions and quick entry](#transactions-and-quick-entry)  | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Month view](#month-view)                                      | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Search and changing many](#search-and-changing-many)          | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Export](#export)                                              | (none; read when asked)      | `ledger/`, `routes/ledger.ts`  |
 | [Import](#import)                                              | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Exchange rates](#exchange-rates)                              | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
@@ -409,6 +410,81 @@ change counted at once while an earlier one is being saved; desktop and phone), 
 [worker/test/api.test.ts](../worker/test/api.test.ts) (spending, income, a transfer,
 subcategories under their own id, other months and other people, bad months).
 
+## Search and changing many
+
+**What it is.** Search, a row on Home, opens its own page (`?search`) listing the
+person's transactions on every account, newest first, grouped by day, 200 at a time with
+Load more. Typing finds the words anywhere in the payee, the note, the category's name or
+its parent's (so "food" finds Food › Coffee), ignoring the case of A to Z; words that
+read as an amount ("8", "8.50", "1,000") also find that exact amount, and text containing
+them ("8" finds RM 8.00, and a note "8 refund", but not RM 8.50 or RM 80). Filters narrow
+it by account (transfers into it too), category (a top-level one with its subcategories)
+and From and To days, both included. Tapping one opens it in the entry sheet. Select, or
+a long press on a row (half a second; the release isn't a tap), ticks several: Select all
+loads every page found (stopping past 500), then Change category (a preview: "Move 80
+transactions from Other to Food", or "from 3 categories"; spending or income alone, no
+transfers) or Delete ("Delete 12 transactions"). More than 500 ticked is refused with a
+message. Catching up is this page alone: a date range and Other, Select all, Change
+category; there is no review queue.
+
+**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts): a search's results are a list
+of transactions like an account's, keyed by the search (`searchTransactionsKey`), so a
+change shows in them at once, a page fetched while a batch was saved gets it on top, and
+they're fetched again once nothing is left to send. Whether a changed transaction still
+belongs in them is asked of `matchesSearch` with the categories shown. Screens read them
+through `useSearch(query)` in [ledger/useLedger.ts](../web/src/ledger/useLedger.ts), which
+also loads the rest for Select all (`loadAll`). A change to many is one `change()`:
+`recategoriseTransactions` { ids, categoryId } or `removeTransactions` { ids }, so it's
+one request, saved all or nothing, kept in the outbox offline and counted once by its id.
+[ledger/apply.ts](../web/src/ledger/apply.ts) (`oneByOne`) makes it into the same change
+to each transaction in turn, so balances, lists and months' totals
+([summary.ts](../web/src/ledger/summary.ts)) move at once by what each was, and a copy
+that holds it already (`alreadySaved`) doesn't count it again. Undo of a move is one
+`recategoriseTransactions` per category they came from; Undo of a delete adds each again
+with its own id (`addTransaction`), which the outbox may send in several requests.
+
+**Parts.**
+
+- UI: [components/search/SearchPage.tsx](../web/src/components/search/SearchPage.tsx) (the
+  filters, results, selecting and the long press),
+  [BulkDialogs.tsx](../web/src/components/search/BulkDialogs.tsx) (the previews) and
+  [search-text.ts](../web/src/components/search/search-text.ts); the row on
+  [HomePage.tsx](../web/src/components/home/HomePage.tsx).
+- API: `GET /api/search?q=&account=&category=&from=&to=&before=&limit=`
+  (`searchTransactions` in [worker/ledger/read.ts](../worker/ledger/read.ts), one query:
+  `instr(lower(...))` on the payee, note and both category names (no pattern, so no
+  length limit and no wildcards), or the amount, paged by the same
+  cursor as `/api/transactions`); `recategoriseTransactions` and `removeTransactions` in
+  [worker/ledger/changes.ts](../worker/ledger/changes.ts) (`readBulk`), each one UPDATE or
+  DELETE over the ids.
+- Shared: [shared/search.ts](../shared/search.ts) (`readSearch`, `matchesSearch`,
+  `searchAmount`, `MAX_SEARCH_TEXT`), which the Worker's SQL mirrors and the test stand-in
+  uses; the change shapes in [shared/api.ts](../shared/api.ts); `MAX_BULK_TRANSACTIONS`
+  in [shared/ledger.ts](../shared/ledger.ts).
+
+**Invariants.**
+
+- Only the signed-in person's transactions are found; someone else's account or category
+  as a filter is answered as one that doesn't exist (404). Words are at most
+  `MAX_SEARCH_TEXT` characters; days are real calendar days.
+- A change to many names 1 to `MAX_BULK_TRANSACTIONS` (500) transactions, each once,
+  every one the person's (else 404), and is saved all or nothing with the rest of its
+  batch. A move's category is the person's, listed, and of every transaction's kind
+  (409); a transfer is never given one (400). The app refuses more than 500 before
+  making the change; the Worker is the authority.
+- 500 ids are about 9 KB, inside one request (`MAX_CHANGES_BYTES`).
+
+**Tests.** [Search.test.tsx](../web/src/components/search/Search.test.tsx) (from Home and
+back, words, categories and amounts, the filters, catching up from `?search` alone;
+desktop and phone), [BulkEdit.test.tsx](../web/src/components/search/BulkEdit.test.tsx)
+(Select, a long press, moving from one and from several categories, deleting, Undo of
+each, one transaction, 501 refused and 500 in one change, balances and the month moved at
+once and counted once when the answer is lost),
+[apply.test.ts](../web/src/ledger/apply.test.ts) (balances, lists and months' totals for
+both changes), and the searching and changing-many cases in
+[worker/test/api.test.ts](../worker/test/api.test.ts) (every match and filter, paging,
+someone else's, refusals with their messages, a resend counted once, 500 at once).
+
 ## Export
 
 **What it is.** Taking everything out, so leaving the app never means leaving part of
@@ -683,10 +759,10 @@ when signed out),
 ## Pages, layouts and Back
 
 **What it is.** Which page shows, the layouts for phones, tablets and computers, and
-what Back does. There are four pages so far: the home page, with the month and the
+what Back does. There are five pages so far: the home page, with the month and the
 accounts on it (an earlier month as `?month=2026-10`), the categories page
-(`?categories`), the import page (`?import`) and an account's page (`?account=<id>`),
-each of which goes back up to Home.
+(`?categories`), the search page (`?search`), the import page (`?import`) and an
+account's page (`?account=<id>`), each of which goes back up to Home.
 
 **Owner.**
 

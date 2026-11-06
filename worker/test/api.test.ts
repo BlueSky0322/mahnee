@@ -1853,4 +1853,424 @@ describe('transactions', () => {
     expect((await listed(me, wallet)).map((t) => t.categoryId).sort()).toEqual([coffee, null]);
     expect(await balances(me)).toEqual({ [wallet]: 4_200, [bank]: -5_000 });
   });
+
+  describe('searching transactions', () => {
+    const search = (who: string, query = '') => api.call(who, 'GET', `/api/search?${query}`);
+    /** The ids found, newest first, or the refusal */
+    const found = async (who: string, query: string) => {
+      const res = await search(who, query);
+      expect(res.status).toBe(200);
+      return (res.data.transactions as { id: string }[]).map((t) => t.id);
+    };
+    const [other, otherIncome] = ['Other', 'Other income'].map(
+      (name) => DEFAULT_CATEGORIES.find((c) => c.name === name)!.id,
+    );
+
+    /**
+     * A Wallet, a Bank and a Visa card, Coffee under Food, and one transaction on each day
+     * from 1 to 9 September 2025 (newest is the 9th):
+     *   1 Wallet RM 8.00 Food, paid to "Kopi Corner"
+     *   2 Bank RM 8.50 Coffee, note "kopi with Mei"
+     *   3 Visa RM 80.00 Transport, paid to "Grab"
+     *   4 Wallet RM 8.00 Other
+     *   5 Bank RM 1,000.00 Salary, from "ACME"
+     *   6 Bank to Wallet RM 50.00, a transfer, note "top-up"
+     *   7 Visa RM 12.00 Other, paid to "KOPI KING"
+     *   8 Wallet RM 800.00 Other
+     *   9 Bank RM 20.00 Other income, note "8 refund"
+     */
+    async function withHistory() {
+      const me = person('me');
+      const [wallet, bank, visa, coffee] = [rowId(), rowId(), rowId(), rowId()];
+      const t = Array.from({ length: 9 }, () => rowId());
+      const day = (n: number) => `2025-09-0${n}`;
+      const res = await send(me, [
+        addAccount(wallet, 'cash', 10_000),
+        addAccount(bank, 'bank', 100_000, 'Bank'),
+        addAccount(visa, 'card', 0, 'Visa'),
+        {
+          op: 'addCategory',
+          category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
+        },
+        add(t[0], wallet, 800, { date: day(1), payee: 'Kopi Corner' }),
+        add(t[1], bank, 850, { date: day(2), categoryId: coffee, note: 'kopi with Mei' }),
+        add(t[2], visa, 8_000, { date: day(3), categoryId: transport, payee: 'Grab' }),
+        add(t[3], wallet, 800, { date: day(4), categoryId: other }),
+        add(t[4], bank, 100_000, {
+          date: day(5),
+          kind: 'income',
+          categoryId: salary,
+          payee: 'ACME',
+        }),
+        move(t[5], bank, wallet, 5_000, { date: day(6), note: 'top-up' }),
+        add(t[6], visa, 1_200, { date: day(7), categoryId: other, payee: 'KOPI KING' }),
+        add(t[7], wallet, 80_000, { date: day(8), categoryId: other }),
+        add(t[8], bank, 2_000, {
+          date: day(9),
+          kind: 'income',
+          categoryId: otherIncome,
+          note: '8 refund',
+        }),
+      ]);
+      expect(res.status).toBe(200);
+      return { me, wallet, bank, visa, coffee, t };
+    }
+
+    it('lists every transaction on every account, newest first, with nothing asked', async () => {
+      const { me, t } = await withHistory();
+      const res = await search(me);
+      expect(res.status).toBe(200);
+      expect(res.data.nextBefore).toBeNull();
+      expect((res.data.transactions as { id: string }[]).map((x) => x.id)).toEqual(
+        [...t].reverse(),
+      );
+      // Each as the account's own list has it
+      expect(res.data.transactions[3]).toEqual({
+        id: t[5],
+        kind: 'transfer',
+        accountId: expect.any(String),
+        toAccountId: expect.any(String),
+        amountCents: 5_000,
+        categoryId: null,
+        payee: null,
+        note: 'top-up',
+        date: '2025-09-06',
+        createdAt: expect.any(Number),
+      });
+    });
+
+    it('matches the payee and the note, whatever the case, across all accounts', async () => {
+      const { me, t } = await withHistory();
+      expect(await found(me, 'q=kopi')).toEqual([t[6], t[1], t[0]]);
+      expect(await found(me, 'q=KoPi%20Corner')).toEqual([t[0]]);
+      expect(await found(me, 'q=top-up')).toEqual([t[5]]);
+      expect(await found(me, 'q=nothing%20like%20this')).toEqual([]);
+    });
+
+    it("matches a category's name, a subcategory found by its parent's too", async () => {
+      const { me, t } = await withHistory();
+      expect(await found(me, 'q=transport')).toEqual([t[2]]);
+      expect(await found(me, 'q=coffee')).toEqual([t[1]]);
+      expect(await found(me, 'q=food')).toEqual([t[1], t[0]]);
+      expect(await found(me, 'q=salary')).toEqual([t[4]]);
+    });
+
+    it('matches an exact amount when what is asked is a number', async () => {
+      const { me, t } = await withHistory();
+      // RM 8 is 8.00 exactly: not 8.50, 80 or 800; and the note "8 refund" has an 8 in it
+      expect(await found(me, 'q=8')).toEqual([t[8], t[3], t[0]]);
+      expect(await found(me, 'q=8.00')).toEqual([t[3], t[0]]);
+      expect(await found(me, 'q=8.50')).toEqual([t[1]]);
+      expect(await found(me, 'q=8.5')).toEqual([t[1]]);
+      expect(await found(me, 'q=1%2C000')).toEqual([t[4]]);
+      expect(await found(me, 'q=50')).toEqual([t[5]]);
+    });
+
+    it('filters by account (transfers into it too), category and days, with or without words', async () => {
+      const { me, wallet, visa, coffee, t } = await withHistory();
+      expect(await found(me, `account=${wallet}`)).toEqual([t[7], t[5], t[3], t[0]]);
+      expect(await found(me, `account=${visa}&q=kopi`)).toEqual([t[6]]);
+      // A top-level category brings its subcategories with it; a subcategory only itself
+      expect(await found(me, `category=${food}`)).toEqual([t[1], t[0]]);
+      expect(await found(me, `category=${coffee}`)).toEqual([t[1]]);
+      expect(await found(me, `category=${other}`)).toEqual([t[7], t[6], t[3]]);
+      // From and to are both included
+      expect(await found(me, 'from=2025-09-03&to=2025-09-07')).toEqual([
+        t[6],
+        t[5],
+        t[4],
+        t[3],
+        t[2],
+      ]);
+      // The catch-up: a date range and Other
+      expect(await found(me, `category=${other}&from=2025-09-04&to=2025-09-07`)).toEqual([
+        t[6],
+        t[3],
+      ]);
+    });
+
+    it('carries on page by page, never skipping or repeating one', async () => {
+      const { me, t } = await withHistory();
+      const seen: string[] = [];
+      let before: string | null = null;
+      for (let pages = 0; pages < 10; pages++) {
+        const query: string = `limit=2${before == null ? '' : `&before=${before}`}`;
+        const res = await search(me, query);
+        expect(res.status).toBe(200);
+        expect(res.data.transactions.length).toBeLessThanOrEqual(2);
+        seen.push(...(res.data.transactions as { id: string }[]).map((x) => x.id));
+        before = res.data.nextBefore as string | null;
+        if (before == null) break;
+      }
+      expect(seen).toEqual([...t].reverse());
+    });
+
+    it("finds only the person's own, and treats someone else's account or category as missing", async () => {
+      const { me, wallet, coffee } = await withHistory();
+      const stranger = person('stranger');
+      expect(await found(stranger, 'q=kopi')).toEqual([]);
+      expect(await found(stranger, '')).toEqual([]);
+      expect(await search(stranger, `account=${wallet}`)).toEqual({
+        status: 404,
+        data: { error: 'Account not found' },
+      });
+      expect(await search(stranger, `category=${coffee}`)).toEqual({
+        status: 404,
+        data: { error: 'Category not found' },
+      });
+      expect((await search(me, `account=${rowId()}`)).status).toBe(404);
+    });
+
+    it('finds words up to 100 characters long, and % _ and \\ as themselves', async () => {
+      const { me, wallet } = await withHistory();
+      const [long, sale, abc, slash] = [rowId(), rowId(), rowId(), rowId()];
+      const words = 'y'.repeat(100);
+      const res = await send(me, [
+        add(long, wallet, 100, { date: '2025-09-10', note: `${'x'.repeat(30)}${words}` }),
+        add(sale, wallet, 100, { date: '2025-09-11', note: '100% off_today' }),
+        add(abc, wallet, 100, { date: '2025-09-12', note: 'abc' }),
+        add(slash, wallet, 100, { date: '2025-09-13', note: 'a\\b' }),
+      ]);
+      expect(res.status).toBe(200);
+      expect(await found(me, `q=${words}`)).toEqual([long]);
+      expect(await found(me, `q=${encodeURIComponent('Y'.repeat(100))}`)).toEqual([long]);
+      expect(await found(me, `q=${encodeURIComponent('%')}`)).toEqual([sale]);
+      expect(await found(me, 'q=_')).toEqual([sale]);
+      expect(await found(me, `q=${encodeURIComponent('% off_')}`)).toEqual([sale]);
+      // Neither stands for other characters
+      expect(await found(me, 'q=a_c')).toEqual([]);
+      expect(await found(me, `q=${encodeURIComponent('a%c')}`)).toEqual([]);
+      expect(await found(me, `q=${encodeURIComponent('a\\b')}`)).toEqual([slash]);
+      // 100 of them, as many as can be asked for
+      expect(await found(me, `q=${encodeURIComponent('%'.repeat(100))}`)).toEqual([]);
+    });
+
+    it.each([
+      ['a day that is not a day', 'from=2025-02-30'],
+      ['a to that is not a day', 'to=yesterday'],
+      ['too many at a time', 'limit=201'],
+      ['none at a time', 'limit=0'],
+      ['an unknown place to carry on from', 'before=nowhere'],
+      ['words longer than 100 characters', `q=${'a'.repeat(101)}`],
+    ])('refuses %s', async (_what, query) => {
+      const { me } = await withHistory();
+      const res = await search(me, query);
+      expect(res.status).toBe(400);
+      expect(typeof res.data.error).toBe('string');
+    });
+  });
+
+  describe('changing many transactions at once', () => {
+    const [other, otherIncome] = ['Other', 'Other income'].map(
+      (name) => DEFAULT_CATEGORIES.find((c) => c.name === name)!.id,
+    );
+    const categoriesOf = async (who: string, account: string) =>
+      Object.fromEntries((await listed(who, account)).map((t) => [t.id, t.categoryId]));
+
+    /** A Wallet (RM 100) with three things spent in Other, one on Food and one received */
+    async function withSpending() {
+      const { me, wallet } = await withWallet();
+      const spent = [rowId(), rowId(), rowId()];
+      const [lunch, pay] = [rowId(), rowId()];
+      expect(
+        (
+          await send(me, [
+            ...spent.map((id, i) => add(id, wallet, 100 * (i + 1), { categoryId: other })),
+            add(lunch, wallet, 1_000),
+            add(pay, wallet, 5_000, { kind: 'income', categoryId: salary }),
+          ])
+        ).status,
+      ).toBe(200);
+      return { me, wallet, spent, lunch, pay };
+    }
+
+    it('moves many to another category in one change, balances as they were', async () => {
+      const { me, wallet, spent, lunch, pay } = await withSpending();
+      const before = await balances(me);
+      const res = await send(me, [
+        { op: 'recategoriseTransactions', ids: spent, categoryId: food },
+      ]);
+      expect(res).toEqual({ status: 200, data: { ok: true } });
+      expect(await categoriesOf(me, wallet)).toEqual({
+        [spent[0]]: food,
+        [spent[1]]: food,
+        [spent[2]]: food,
+        [lunch]: food,
+        [pay]: salary,
+      });
+      expect(await balances(me)).toEqual(before);
+      // Undo: one change per category they came from
+      expect(
+        (await send(me, [{ op: 'recategoriseTransactions', ids: spent, categoryId: other }]))
+          .status,
+      ).toBe(200);
+      expect((await categoriesOf(me, wallet))[spent[1]]).toBe(other);
+    });
+
+    it('deletes many in one change, and Undo adds each again with its own id', async () => {
+      const { me, wallet, spent, lunch, pay } = await withSpending();
+      expect((await balances(me))[wallet]).toBe(10_000 - 600 - 1_000 + 5_000);
+      const res = await send(me, [{ op: 'removeTransactions', ids: [...spent, pay] }]);
+      expect(res).toEqual({ status: 200, data: { ok: true } });
+      expect((await listed(me, wallet)).map((t) => t.id)).toEqual([lunch]);
+      expect((await balances(me))[wallet]).toBe(10_000 - 1_000);
+      const again = await send(
+        me,
+        spent.map((id, i) => add(id, wallet, 100 * (i + 1), { categoryId: other })),
+      );
+      expect(again.status).toBe(200);
+      expect((await listed(me, wallet)).map((t) => t.id).sort()).toEqual([...spent, lunch].sort());
+      expect((await balances(me))[wallet]).toBe(10_000 - 600 - 1_000);
+    });
+
+    it('counts a change sent again after its answer was lost once', async () => {
+      const { me, wallet, spent } = await withSpending();
+      const id = rowId();
+      const remove = { op: 'removeTransactions', ids: spent };
+      expect((await send(me, [remove], [id])).status).toBe(200);
+      expect(await send(me, [remove], [id])).toEqual({ status: 200, data: { ok: true } });
+      expect((await balances(me))[wallet]).toBe(10_000 - 1_000 + 5_000);
+      // The same id with another change is refused
+      expect((await send(me, [{ ...remove, ids: [spent[0]] }], [id])).status).toBe(409);
+    });
+
+    it('takes up to 500 in one change', async () => {
+      const { me, wallet } = await withWallet();
+      const ids = Array.from({ length: 500 }, () => rowId());
+      for (let at = 0; at < ids.length; at += 200) {
+        const res = await send(
+          me,
+          ids.slice(at, at + 200).map((id) => add(id, wallet, 1, { categoryId: other })),
+        );
+        expect(res.status).toBe(200);
+      }
+      expect(
+        (await send(me, [{ op: 'recategoriseTransactions', ids, categoryId: food }])).status,
+      ).toBe(200);
+      expect((await send(me, [{ op: 'removeTransactions', ids }])).status).toBe(200);
+      expect((await balances(me))[wallet]).toBe(10_000);
+    });
+
+    it.each<[string, (s: Awaited<ReturnType<typeof withSpending>>) => unknown, number, string]>([
+      [
+        'more than 500 at once',
+        () => ({
+          op: 'removeTransactions',
+          ids: Array.from({ length: 501 }, () => rowId()),
+        }),
+        400,
+        'Change up to 500 transactions at once',
+      ],
+      [
+        'more than 500 to move at once',
+        () => ({
+          op: 'recategoriseTransactions',
+          ids: Array.from({ length: 501 }, () => rowId()),
+          categoryId: food,
+        }),
+        400,
+        'Change up to 500 transactions at once',
+      ],
+      [
+        'none at all',
+        () => ({ op: 'removeTransactions', ids: [] }),
+        400,
+        'Name at least one transaction',
+      ],
+      [
+        'the same one twice',
+        (s) => ({ op: 'removeTransactions', ids: [s.spent[0], s.spent[0]] }),
+        400,
+        'Name each transaction once',
+      ],
+      [
+        'ids that are not a list',
+        (s) => ({ op: 'removeTransactions', ids: s.spent[0] }),
+        400,
+        'Name the transactions as a list of ids',
+      ],
+      [
+        'one that does not exist',
+        (s) => ({ op: 'removeTransactions', ids: [...s.spent, rowId()] }),
+        404,
+        'Transaction not found',
+      ],
+      [
+        'a category that does not exist',
+        (s) => ({ op: 'recategoriseTransactions', ids: s.spent, categoryId: rowId() }),
+        404,
+        'Category not found',
+      ],
+      [
+        'income moved into a spending category',
+        (s) => ({ op: 'recategoriseTransactions', ids: [s.spent[0], s.pay], categoryId: food }),
+        409,
+        'Income goes in an income category',
+      ],
+      [
+        'spending moved into an income category',
+        (s) => ({ op: 'recategoriseTransactions', ids: s.spent, categoryId: otherIncome }),
+        409,
+        'Spending goes in a spending category',
+      ],
+      [
+        'an unknown field',
+        (s) => ({ op: 'removeTransactions', ids: s.spent, categoryId: food }),
+        400,
+        'Unknown field categoryId',
+      ],
+    ])('refuses %s and changes nothing', async (_what, make, status, error) => {
+      const setup = await withSpending();
+      const { me, wallet } = setup;
+      const before = { balances: await balances(me), list: await listed(me, wallet) };
+      const res = await send(me, [make(setup)]);
+      expect(res).toEqual({ status, data: { error } });
+      expect(await balances(me)).toEqual(before.balances);
+      expect(await listed(me, wallet)).toEqual(before.list);
+    });
+
+    it('says how many can be changed at once', async () => {
+      const { me } = await withSpending();
+      const res = await send(me, [
+        { op: 'removeTransactions', ids: Array.from({ length: 501 }, () => rowId()) },
+      ]);
+      expect(res).toEqual({
+        status: 400,
+        data: { error: 'Change up to 500 transactions at once' },
+      });
+    });
+
+    it('refuses an archived category, and a transfer given a category', async () => {
+      const { me, wallet, spent } = await withSpending();
+      const bank = rowId();
+      const transfer = rowId();
+      await send(me, [addAccount(bank, 'bank', 0, 'Bank'), move(transfer, wallet, bank, 100)]);
+      await send(me, [{ op: 'archiveCategory', id: food, archived: true }]);
+      const before = await listed(me, wallet);
+      expect(
+        (await send(me, [{ op: 'recategoriseTransactions', ids: spent, categoryId: food }])).status,
+      ).toBe(409);
+      await send(me, [{ op: 'archiveCategory', id: food, archived: false }]);
+      expect(
+        (
+          await send(me, [
+            { op: 'recategoriseTransactions', ids: [spent[0], transfer], categoryId: food },
+          ])
+        ).status,
+      ).toBe(400);
+      expect(await listed(me, wallet)).toEqual(before);
+    });
+
+    it("treats someone else's transactions as missing, and changes none of them", async () => {
+      const { me, wallet, spent } = await withSpending();
+      const stranger = person('stranger');
+      await send(stranger, [addAccount(rowId())]);
+      expect((await send(stranger, [{ op: 'removeTransactions', ids: spent }])).status).toBe(404);
+      expect(
+        (await send(stranger, [{ op: 'recategoriseTransactions', ids: spent, categoryId: food }]))
+          .status,
+      ).toBe(404);
+      expect((await listed(me, wallet)).map((t) => t.id)).toHaveLength(5);
+    });
+  });
 });

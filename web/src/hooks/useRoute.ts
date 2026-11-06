@@ -10,6 +10,7 @@ export type Route =
   | { view: 'home'; month: string | null }
   | { view: 'categories' }
   | { view: 'import' }
+  | { view: 'search' }
   | { view: 'account'; id: string };
 
 /** An earlier month named in the address (?month=2026-10); null for this one or none */
@@ -23,6 +24,7 @@ function readRoute(): Route {
   const params = new URLSearchParams(window.location.search);
   if (params.has('categories')) return { view: 'categories' };
   if (params.has('import')) return { view: 'import' };
+  if (params.has('search')) return { view: 'search' };
   const account = params.get('account');
   if (account) return { view: 'account', id: account };
   return { view: 'home', month: readMonth(params) };

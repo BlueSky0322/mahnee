@@ -3,6 +3,8 @@ import type { Ledger, LedgerChange, MonthSummary, Transaction, TransactionPage }
 import { MAX_CHANGES } from '@shared/api';
 import { categoriesOrDefaults } from '@shared/categories';
 import { isOnAccount } from '@shared/ledger';
+import type { SearchQuery } from '@shared/search';
+import { matchesSearch, readSearch, searchParams } from '@shared/search';
 import { api } from '../api';
 import {
   onCacheCleared,
@@ -62,15 +64,24 @@ let savedCount = 0;
 /** A fresh ledger came from the server since this page started (or its cache was emptied) */
 let ledgerFetched = false;
 
-/** Every list of transactions: one account's, or (later) a month's */
+/** Every list of transactions: one account's, a search's, or (later) a month's */
 export const TRANSACTIONS_KEY = ['transactions'] as const;
-export type TransactionsKey = readonly ['transactions', 'account' | 'month', string];
+export type TransactionsKey = readonly ['transactions', 'account' | 'month' | 'search', string];
 /** One account's transactions, newest first */
 export const accountTransactionsKey = (accountId: string): TransactionsKey => [
   'transactions',
   'account',
   accountId,
 ];
+/** What a search finds (shared/search.ts), newest first */
+export const searchTransactionsKey = (query: SearchQuery): TransactionsKey => [
+  'transactions',
+  'search',
+  new URLSearchParams(searchParams(query)).toString(),
+];
+/** A page of a search holds this many, the most the server sends at once */
+const SEARCH_PAGE_SIZE = 200;
+
 /** Every account's transactions in a month (2026-11), newest first */
 export const monthTransactionsKey = (month: string): TransactionsKey => [
   'transactions',
@@ -89,11 +100,18 @@ const pageCacheKey = (accountId: string) => `transactions-v1:${accountId}`;
 
 type Pages = InfiniteData<TransactionPage, string | null>;
 
-/** Which transactions a list holds: an account's has the transfers into it too */
-const belongsTo =
-  ([, by, value]: TransactionsKey) =>
-  (t: Transaction) =>
-    by === 'account' ? isOnAccount(t, value) : t.date.startsWith(`${value}-`);
+/**
+ * Which transactions a list holds: an account's has the transfers into it too; a search's,
+ * those it finds, by the categories as they're shown
+ */
+function belongsTo([, by, value]: TransactionsKey): (t: Transaction) => boolean {
+  if (by === 'account') return (t) => isOnAccount(t, value);
+  if (by === 'month') return (t) => t.date.startsWith(`${value}-`);
+  const query = readSearch(new URLSearchParams(value));
+  if ('error' in query) return () => false;
+  const categories = queryClient.getQueryData<Ledger>(LEDGER_KEY)?.categories ?? [];
+  return (t) => matchesSearch(t, query, categories);
+}
 
 /** Every list of transactions in the cache, as the server has them */
 const listsInCache = () =>
@@ -395,9 +413,12 @@ export async function fetchTransactionPage(
   const savedBefore = savedCount;
   let page: TransactionPage;
   try {
-    page = await api.getTransactions(
-      by === 'account' ? { account: value, before } : { month: value, before },
-    );
+    page =
+      by === 'search'
+        ? await api.search(value, before, SEARCH_PAGE_SIZE)
+        : await api.getTransactions(
+            by === 'account' ? { account: value, before } : { month: value, before },
+          );
     if (by === 'account' && before == null) void writeCache(pageCacheKey(value), page);
   } catch (err) {
     if (!isOfflineFailure(err) || by !== 'account' || before != null) throw err;

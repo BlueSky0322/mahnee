@@ -40,6 +40,7 @@ import {
   DEFAULT_CURRENCY,
   MAX_ACCOUNTS,
   MAX_ACCOUNT_NAME,
+  MAX_BULK_TRANSACTIONS,
   MAX_NOTE,
   MAX_PAYEE,
   MAX_TRANSACTION,
@@ -67,6 +68,7 @@ import {
   openingCells,
 } from '@shared/export';
 import { rateDay } from '@shared/rates';
+import { matchesSearch, readSearch } from '@shared/search';
 import { Root } from '../Root';
 import { queryClient } from '../query-client';
 import { clearCache } from '../offline/cache';
@@ -299,6 +301,10 @@ function answerNow(server: FakeServer) {
       const page = listTransactions(server, url.searchParams);
       return Array.isArray(page) ? json({ error: page[1] }, page[0]) : json(page);
     }
+    if (path === '/api/search' && method === 'GET') {
+      const page = searchTransactions(server, url.searchParams);
+      return Array.isArray(page) ? json({ error: page[1] }, page[0]) : json(page);
+    }
     if (path === '/api/summary' && method === 'GET') {
       const month = url.searchParams.get('month');
       return isMonth(month)
@@ -486,6 +492,42 @@ function listTransactions(
   };
 }
 
+/**
+ * GET /api/search as the real one (worker/ledger/read.ts) answers: what shared/search.ts
+ * finds on every account, newest first, 50 to a page unless asked (at most 200), carrying
+ * on after a cursor; someone else's account or category is answered as one that doesn't
+ * exist
+ */
+function searchTransactions(
+  server: FakeServer,
+  params: URLSearchParams,
+): { transactions: Transaction[]; nextBefore: string | null } | [number, string] {
+  const query = readSearch(params);
+  if ('error' in query) return [400, query.error];
+  const limit = Number(params.get('limit') ?? 50);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) return [400, 'Ask for 1-200'];
+  const before = params.get('before');
+  if (before != null && !/^\d{4}-\d{2}-\d{2}_\d+_[0-9a-f]{16}$/.test(before)) {
+    return [400, 'Unknown place to carry on from'];
+  }
+  if (query.account != null && !server.accounts.some((a) => a.id === query.account)) {
+    return [404, 'Account not found'];
+  }
+  const categories = categoriesOrDefaults(server.categories);
+  if (query.category != null && !categories.some((c) => c.id === query.category)) {
+    return [404, 'Category not found'];
+  }
+  const all = server.transactions
+    .filter((t) => matchesSearch(t, query, categories))
+    .sort(newestFirst);
+  const after = before == null ? all : all.filter((t) => isOlderThan(t, before));
+  const transactions = after.slice(0, limit);
+  return {
+    transactions: transactions.map((t) => ({ ...t })),
+    nextBefore: after.length > limit ? cursorOf(transactions[transactions.length - 1]) : null,
+  };
+}
+
 /** Whether `t` comes after the transaction a cursor names, newest first */
 function isOlderThan(t: Transaction, cursor: string) {
   const [date, createdAt, id] = cursor.split('_');
@@ -539,6 +581,11 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
       change.op === 'removeTransaction'
     ) {
       const refusal = saveTransactionChange(accounts, categories, transactions, change);
+      if (refusal != null) return refusal;
+      continue;
+    }
+    if (change.op === 'recategoriseTransactions' || change.op === 'removeTransactions') {
+      const refusal = saveBulkChange(categories, transactions, change);
       if (refusal != null) return refusal;
       continue;
     }
@@ -750,6 +797,42 @@ function saveTransactionChange(
   const saved = { ...next, payee, note };
   if (before == null) transactions.push(saved);
   else transactions[at] = saved;
+  return null;
+}
+
+/**
+ * A change to many transactions, made to `transactions` as the real server checks and
+ * saves it (all of them or none), or the refusal's status and explanation
+ */
+function saveBulkChange(
+  categories: Category[],
+  transactions: Transaction[],
+  change: Extract<LedgerChange, { op: 'recategoriseTransactions' | 'removeTransactions' }>,
+): [number, string] | null {
+  const allowed = change.op === 'removeTransactions' ? ['op', 'ids'] : ['op', 'ids', 'categoryId'];
+  const extra = Object.keys(change).find((k) => !allowed.includes(k));
+  if (extra != null) return [400, `Unknown field ${extra}`];
+  const { ids } = change as { ids: unknown };
+  if (!Array.isArray(ids)) return [400, 'Name the transactions as a list of ids'];
+  if (ids.length === 0) return [400, 'Name at least one transaction'];
+  if (ids.length > MAX_BULK_TRANSACTIONS) {
+    return [400, `Change up to ${MAX_BULK_TRANSACTIONS} transactions at once`];
+  }
+  if (new Set(ids).size !== ids.length) return [400, 'Name each transaction once'];
+  const named = ids.map((id) => transactions.find((t) => t.id === id));
+  if (named.some((t) => t == null)) return [404, 'Transaction not found'];
+  if (change.op === 'removeTransactions') {
+    for (const t of named) transactions.splice(transactions.indexOf(t!), 1);
+    return null;
+  }
+  const category = categories.find((c) => c.id === change.categoryId);
+  if (category == null) return [404, 'Category not found'];
+  for (const t of named) {
+    if (t!.kind === 'transfer') return [400, 'A transfer has no category'];
+    const reason = whyNotInCategory(category, t!.kind);
+    if (reason != null) return [409, reason];
+  }
+  for (const t of named) t!.categoryId = category.id;
   return null;
 }
 

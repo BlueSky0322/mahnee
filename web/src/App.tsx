@@ -5,6 +5,7 @@ import AccountPage from './components/accounts/AccountPage';
 import CategoriesPage from './components/categories/CategoriesPage';
 import ImportPage from './components/import/ImportPage';
 import HomePage from './components/home/HomePage';
+import SearchPage from './components/search/SearchPage';
 import StateCard from './components/ui/StateCard';
 import AppLayout from './components/shell/AppLayout';
 import { useRoute } from './hooks/useRoute';
@@ -46,6 +47,7 @@ function App() {
       {route.view === 'home' && <HomePage month={route.month} />}
       {route.view === 'categories' && <CategoriesPage />}
       {route.view === 'import' && <ImportPage />}
+      {route.view === 'search' && <SearchPage />}
       {route.view === 'account' && (
         <AccountPage
           key={route.id}

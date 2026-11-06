@@ -44,15 +44,25 @@ Release heading format:
 
 - Import: an Import row on Home opens a page to bring in a bank's CSV file: pick the
   account and the file, say which column is the date, the amount (or money in and money
-  out), the payee and the note (remembered per account on this device; dates are read day first), then look over
-  every row before saving. Each goes in the category its payee was filed under before,
-  else Other or Other income, changeable per row (the page says so when those can't be looked up); a row with the same account, day,
-  amount and payee as one saved says "Looks already saved" and is left unticked, so the
-  same file imported twice adds nothing; rows it can't read say why. Mahnee's own export
-  is read directly (accounts, categories and transfers by name), so export then import
-  restores everything; an existing account's different opening balance changes only if
-  ticked. Up to 5,000 rows a file, saved through the outbox, so it works offline and
-  counts once. Adds `GET /api/payee-categories?account=`.
+  out), the payee and the note (remembered per account on this device; dates are read
+  day first), then look over every row before saving. Each goes in the category its
+  payee was filed under before, else Other or Other income, changeable per row (the page
+  says so when those can't be looked up); a row with the same account, day, amount and
+  payee as one saved says "Looks already saved" and is left unticked, so the same file
+  imported twice adds nothing; rows it can't read say why. Mahnee's own export is read
+  directly (accounts, categories and transfers by name), so export then import restores
+  everything; an existing account's different opening balance changes only if ticked.
+  Up to 5,000 rows a file, saved through the outbox, so it works offline and counts
+  once. Adds `GET /api/payee-categories?account=`.
+- Search: a Search row on Home opens a page (`?search`) that finds transactions on every
+  account, newest first, by payee, note, category name (a top-level name finds its
+  subcategories) or exact amount ("8.50"), narrowed by account, category and a date range.
+  Adds `GET /api/search`.
+- Search: Select (or a long press on a phone) ticks several found transactions to move
+  them to another category or delete them, up to 500 at once, after a preview ("Move 80
+  transactions from Other to Food"); each is one change, works offline, and Undo puts every
+  one back. Adds the `recategoriseTransactions` and `removeTransactions` changes; more than
+  500 is refused by the app and the Worker.
 - Offline and trust: while Home's balances or month come from the copy kept on the
   device (offline, or the server hasn't answered yet) a small "Updated 2 hours ago" line
   says how old they are, and a change the server saved whose answer was lost is no longer

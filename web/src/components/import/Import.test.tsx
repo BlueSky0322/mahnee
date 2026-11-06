@@ -6,7 +6,7 @@ import type { Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import { CSV_BOM, EXPORT_COLUMNS, csvLine, exportCells, openingCells } from '@shared/export';
 import type { FakeServer } from '../../testing/app';
-import { closeApp, fakeServer, renderApp, setupAppTests } from '../../testing/app';
+import { closeApp, fakeServer, holdNext, renderApp, setupAppTests } from '../../testing/app';
 
 // Importing a CSV file from Home: a bank's file mapped by column, or Mahnee's own export;
 // rows that look already saved; categories from what a payee was filed under before; and
@@ -712,5 +712,26 @@ describe("Mahnee's own export", () => {
       expect(openingLines()).toHaveLength(0);
     },
     30_000,
+  );
+
+  test.each(SIZES)(
+    'picked before the accounts have loaded, is looked over once they have (%s)',
+    async (size) => {
+      const server = withAccounts();
+      // The accounts and categories are asked for twice as the app opens: both held
+      const answers = [1, 2].map(() => holdNext(server, 'GET', '/api/accounts'));
+      renderApp(server, '/', { size });
+      const user = await openImport();
+      await pickFile(user, exportOf(150_000));
+      expect(await screen.findByText(/Mahnee export/)).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /^Import \d/ })).toBeNull();
+
+      answers.forEach((a) => a.release());
+      await waitFor(() => expect(openingLines()).toHaveLength(1));
+      expect(openingLines()[0].textContent).toMatch(/Maybank/);
+      await user.click(await screen.findByRole('button', { name: 'Import 1 transaction' }));
+      await waitFor(() => expect(server.transactions).toHaveLength(1));
+      expect(server.transactions[0].payee).toBe('Kopi');
+    },
   );
 });

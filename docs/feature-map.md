@@ -16,6 +16,7 @@ in [AGENTS.md](../AGENTS.md).
 | [Categories](#categories)                                       | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Transactions and quick entry](#transactions-and-quick-entry)   | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Month view](#month-view)                                       | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Budgets](#budgets)                                             | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Search and changing many](#search-and-changing-many)           | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Repeating bills and month end](#repeating-bills-and-month-end) | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Export](#export)                                               | (none; read when asked)      | `ledger/`, `routes/ledger.ts`  |
@@ -179,7 +180,8 @@ reached from Home): a Spending list and an Income list, each top-level category 
 subcategories under it. Add one (at the top level or under another), rename it, put it
 higher or lower with its arrows, move it under another or back to the top level, or
 archive it (with Undo; archived ones are listed apart and can be brought back). Moves
-that aren't allowed can't be picked, and say why. Everyone starts with the defaults:
+that aren't allowed can't be picked, and say why. A top-level spending category's sheet
+also sets its monthly budget (see Budgets). Everyone starts with the defaults:
 Food, Transport, Groceries, Bills, Shopping, Health, Fun and Other for spending, Salary
 and Other income for income. Transactions will name a category once they land.
 
@@ -351,7 +353,8 @@ when more was spent than came in it says "Over", in the negative colour, with a 
 saying by how much. Spent and Received sit beneath it, then spending by top-level
 category, largest first, each with a bar for its share of the month's spending. A
 category with subcategories opens to show each one's amount and what was filed under
-the category itself; income by category is folded under Received. Placeholders show
+the category itself; income by category is folded under Received. Budgets, when the
+month has any, are listed after Spent and Received (see Budgets). Placeholders show
 until the month arrives; an empty month says so. It isn't shown until the first account
 is added.
 
@@ -410,6 +413,95 @@ months and Back, over, placeholders, offline through a reload and once saved, ea
 change counted at once while an earlier one is being saved; desktop and phone), and the month's totals cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (spending, income, a transfer,
 subcategories under their own id, other months and other people, bad months).
+
+## Budgets
+
+**What it is.** An optional monthly amount on a top-level spending category, its
+subcategories counting toward it. Set, changed or taken away (amount emptied) from the
+category's own sheet, opened from its row on the Categories page ("Monthly budget", and a
+"Carry over" switch, off to start); the row then says "RM 300.00 a month". The amount
+applies from this month on, the same every month until changed; earlier months keep what
+they had. The month card on Home lists each budgeted category, in the categories' order,
+as "RM 120.00 left of RM 300.00", or "RM 40.00 over" in the negative colour, with a bar
+for what's spent. With Carry over on, last month's leftover is added to this month's
+amount, or what it overspent taken away, shown as "incl. RM 30.00 carried over" ("incl.
+−RM 20.00 carried over"), and the "of" figure includes it.
+
+**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts): `setBudget` goes through
+`change()` and the outbox like every change, so it shows at once, works offline and is put
+back if refused. Budgets ride in a month's totals (`MonthSummary.budgets`), so they're
+kept, counted once and refreshed exactly as the totals are (see Month view).
+[ledger/summary.ts](../web/src/ledger/summary.ts) shows a `setBudget` in the months it
+applies to; [ledger/budgets.ts](../web/src/ledger/budgets.ts) (`budgetLines`) works out
+what's left from the spending as shown, subcategories rolled up by the categories as they
+are now. The sum itself (`budgetFigures`) and the month-to-month chain (`monthBudgets`) are
+[shared/budgets.ts](../shared/budgets.ts), used by the Worker, the app and the test
+stand-in alike.
+
+**Parts.**
+
+- UI: the "Budgets" list in
+  [components/home/MonthCard.tsx](../web/src/components/home/MonthCard.tsx); the fields in
+  [components/categories/CategoryForm.tsx](../web/src/components/categories/CategoryForm.tsx)
+  and the row's amount in
+  [CategoriesPage.tsx](../web/src/components/categories/CategoriesPage.tsx) (both read
+  this month's totals); `readBudget` in
+  [category-text.ts](../web/src/components/categories/category-text.ts).
+- API: `setBudget` in [worker/ledger/changes.ts](../worker/ledger/changes.ts); the budgets
+  of `GET /api/summary` in [worker/ledger/summary.ts](../worker/ledger/summary.ts); table
+  `budgets` ([migrations/0005_budgets.sql](../migrations/0005_budgets.sql)).
+- Shared: `MonthBudget` and the change shape in [shared/api.ts](../shared/api.ts); the
+  rule, limits and sums in [shared/budgets.ts](../shared/budgets.ts).
+
+**Flow.** `setBudget { categoryId, fromMonth, amountCents | null, carryOver }` saves a row
+for that category and month (null: none from then on, kept as its own row so earlier
+months keep theirs) and removes the category's rows for later months. The app always
+sends this month. A month's totals read the person's budget rows up to that month on
+categories at the top level now and, when there are any, their spending by month and
+top-level category before it, from the first budget on, in the same D1 batch as the
+totals; `monthBudgets` walks month by month from the first budget, each month's leftover
+(amount, plus what it carried, less its spending) going into the next while Carry over is
+on. The answer gives each budget's amount, Carry over and what last month left
+(`lastMonthLeftCents`); the app works out carried (`carryOver ? lastMonthLeft : 0`),
+available (amount + carried) and left (available less this month's spending) with the same
+`budgetFigures`. A budget set shows at once in the months it applies to, keeping what last
+month left; a change to an earlier month's spending moves this month's carried figure
+only when the totals are next fetched, once nothing is left to send (as other months'
+totals do), which is expected, not a fault.
+
+**Invariants.**
+
+- Only on a top-level spending category of the person's: someone else's or a missing one
+  is 404; a subcategory, an income category, or setting (not taking away) one on an
+  archived category is 409. The database's trigger holds owner, top level and spending
+  too, not archived, so a budget can be taken away from an archived category.
+- A budgeted category moved under another keeps its rows but its budget is set aside (not
+  listed, its spending counting toward its new parent) until it's back at the top level;
+  while it's a subcategory its budget can't be set or taken away. One on an archived
+  category isn't shown.
+- An amount is whole cents from 1 to `MAX_BUDGET_CENTS`; a month from 2000 up to this one
+  (by tomorrow in UTC). A month after that (still to come) is answered with no budgets,
+  and its budgets and their spending aren't read, so a chain runs from the first budget
+  (January 2000 at the earliest) to this month at most: about 330 months in 2027, each
+  step at most `MAX_BUDGET_CENTS` (309 months at the largest budget to October 2025 is
+  3.09e11 cents), and spending is bounded as in Month view. Every figure is exact. The
+  spending read is one grouped query scoped by the email, run only for a person with
+  budgets, at most one row per month and category up to this month.
+- Setting the same budget again comes out the same, on the server (a receipt) and on
+  screen, and spending in the month moves what's left once (`alreadySaved`, as for the
+  totals).
+
+**Tests.** [shared/budgets.test.ts](../shared/budgets.test.ts) (the sum, the chain, taken
+away, order, the longest chain exact),
+[ledger/budgets.test.ts](../web/src/ledger/budgets.test.ts) (left, over, exactly spent,
+carried both ways, order, archived and moved, set before saving, applied twice),
+[Budgets.test.tsx](../web/src/components/home/Budgets.test.tsx) (the card's lines, over in
+words and colour, carry over, earlier months, setting, changing and taking away from the
+sheet, what can't be typed, a refusal put back, saving the sheet leaving it alone, offline,
+a lost answer never counted twice; desktop and phone), and the budgets cases in
+[worker/test/api.test.ts](../worker/test/api.test.ts) (until changed, the chain, taken
+away, order and moved categories, bounds, every refusal, sent again, the database's own
+guard).
 
 ## Search and changing many
 
@@ -668,8 +760,9 @@ order), so it shows at once, works offline and goes through the outbox in batche
 a 429 is kept and tried again), each change counted once by its id. `transactionsSince`
 there reads an account's transactions back to the file's first day (200 a page), with
 what was saved meanwhile and the changes still to send on top; offline, the pages this
-device has and the changes still to send. What the page works out before saving is its
-own: [components/import/import-plan.ts](../web/src/components/import/import-plan.ts)
+device has and the changes still to send. `loadedLedger` there waits for the accounts and
+categories when an export is picked before they've loaded. What the page works out before
+saving is its own: [components/import/import-plan.ts](../web/src/components/import/import-plan.ts)
 (`planBankFile`, `planExport`, `markSaved`, `importChanges`), and
 [remembered-mapping.ts](../web/src/components/import/remembered-mapping.ts) keeps the
 column names per email and account (`localStorage`, let go on signing out).
@@ -703,8 +796,8 @@ amounts, bank rows and what's wrong with them, export lines read back as written
 duplicate rule, the limit), [Import.test.tsx](../web/src/components/import/Import.test.tsx)
 (mapping and remembering it, money in and out, already saved and ticked anyway, the
 same file twice, categories from payees, shortened text, 5,001 refused, 5,000 on a phone
-with a lost answer counted once, offline, the export round trip, opening balances; desktop
-and phone), and the payee categories cases in
+with a lost answer counted once, offline, the export round trip, opening balances, an
+export picked before the accounts load; desktop and phone), and the payee categories cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts).
 
 ## Exchange rates

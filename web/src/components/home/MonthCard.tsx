@@ -4,6 +4,8 @@ import { useId, useState } from 'react';
 import type { Category, CategoryTotal, MonthSummary } from '@shared/api';
 import { DEFAULT_CURRENCY, FIRST_DAY } from '@shared/ledger';
 import { navigate } from '../../hooks/useRoute';
+import type { BudgetLine } from '../../ledger/budgets';
+import { budgetLines } from '../../ledger/budgets';
 import type { CategoryRollUp } from '../../ledger/derive';
 import { rollUp } from '../../ledger/derive';
 import { useCategories, useMonthSummary } from '../../ledger/useLedger';
@@ -25,7 +27,8 @@ const showMonth = (month: string) => navigate(month >= thisMonth() ? '' : `?mont
 
 // The top of Home: a month at a glance. What's left (received less spent) is the
 // largest number, then what was spent and received, then where the spending went, by
-// top-level category with its subcategories inside. The arrows step between months, up
+// top-level category with its subcategories inside. Each budgeted category says what's left
+// of its budget, or how far over it is. The arrows step between months, up
 // to this one; an earlier month is in the address (?month=2026-10), so Back returns.
 export default function MonthCard({ month }: { month: string | null }) {
   const current = thisMonth();
@@ -253,6 +256,8 @@ function Totals({
         )}
       </div>
 
+      <Budgets lines={budgetLines(summary, categories)} />
+
       {showIncome && (
         <div id={ids.income}>
           <CategoryRows
@@ -421,5 +426,78 @@ function CategoryRow({
         </ul>
       )}
     </>
+  );
+}
+
+/** "−RM 20.00" below zero, "RM 30.00" otherwise */
+const signedMoney = (cents: number) => `${cents < 0 ? '−' : ''}${money(Math.abs(cents))}`;
+
+/**
+ * Each budget: what's left of it ("RM 120.00 left of RM 300.00") or how far over it is
+ * ("RM 40.00 over", in the negative colour), what carried over from last month, and a bar
+ * for how much of it is spent
+ */
+function Budgets({ lines }: { lines: BudgetLine[] }) {
+  const headingId = useId();
+  if (lines.length === 0) return null;
+  return (
+    <div className={classes.group}>
+      <h3
+        id={headingId}
+        className={classes.groupTitle}
+      >
+        Budgets
+      </h3>
+      <ul
+        className={classes.rows}
+        aria-labelledby={headingId}
+      >
+        {lines.map((line) => {
+          const over = line.leftCents < 0;
+          // A share of the bar's width, for drawing only: the amounts stay in cents
+          const share =
+            over || line.availableCents <= 0
+              ? 100
+              : Math.round((line.spentCents / line.availableCents) * 100);
+          return (
+            <li
+              key={line.id}
+              className={classes.row}
+            >
+              <span className={classes.rowLine}>
+                <span className={classes.rowName}>{line.name}</span>
+                <span className="sr-only">, </span>
+                <span
+                  className={
+                    over ? `${classes.budgetLeft} ${classes.negative}` : classes.budgetLeft
+                  }
+                >
+                  {over
+                    ? `${money(-line.leftCents)} over`
+                    : `${money(line.leftCents)} left of ${money(line.availableCents)}`}
+                </span>
+              </span>
+              {line.carriedCents !== 0 && (
+                <>
+                  <span className="sr-only">, </span>
+                  <span className={classes.budgetCarried}>
+                    incl. {signedMoney(line.carriedCents)} carried over
+                  </span>
+                </>
+              )}
+              <span
+                className={classes.track}
+                aria-hidden
+              >
+                <span
+                  className={over ? `${classes.bar} ${classes.barOver}` : classes.bar}
+                  style={{ width: `${share}%` }}
+                />
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

@@ -418,6 +418,16 @@ export async function fetchLedger({ signal }: { signal?: AbortSignal } = {}): Pr
 }
 
 /**
+ * The ledger as shown, once it has loaded: what's shown already, else what's on its way.
+ * For an import whose file is picked before the accounts and categories have loaded.
+ */
+export const loadedLedger = (): Promise<Ledger> =>
+  queryClient.ensureQueryData({
+    queryKey: LEDGER_KEY,
+    queryFn: ({ signal }) => fetchLedger({ signal }),
+  });
+
+/**
  * The ledger from the server, saying which of the `named` changes it holds already
  * (`keptAt` undefined); offline, the copy kept on this device, with when it was kept
  */

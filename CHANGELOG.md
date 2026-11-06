@@ -15,6 +15,8 @@ For agents:
 ## 2026-11-06
 
 - Added: repeating bills and income, logged from Home, and what to expect at month end [#17]
+- Added: a monthly budget per spending category, with what's left on Home and carry-over [#16]
+- Fixed: a Mahnee export picked before the accounts loaded is now previewed [#18]
 - Changed: the changelog lists changes by date, one line each [#15]
 - Added: import a bank's CSV file or a Mahnee export, with duplicates left unticked [#14]
 - Added: a Search page across every account, with bulk move and delete of up to 500 [#13]
@@ -56,4 +58,6 @@ For agents:
 [#13]: https://github.com/BlueSky0322/mahnee/pull/13
 [#14]: https://github.com/BlueSky0322/mahnee/pull/14
 [#15]: https://github.com/BlueSky0322/mahnee/pull/15
+[#16]: https://github.com/BlueSky0322/mahnee/pull/16
 [#17]: https://github.com/BlueSky0322/mahnee/pull/17
+[#18]: https://github.com/BlueSky0322/mahnee/pull/18

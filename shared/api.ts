@@ -151,6 +151,24 @@ export interface CategoryTotal {
 }
 
 /**
+ * A month's budget on a top-level spending category (shared/budgets.ts): the amount set for
+ * the month, whether last month's leftover carries over, and what last month left
+ */
+export interface MonthBudget {
+  categoryId: string;
+  /** Whole cents, above zero, at most MAX_TRANSACTION_CENTS */
+  amountCents: number;
+  /** Last month's leftover is added to this month's amount (its overspending taken away) */
+  carryOver: boolean;
+  /**
+   * What the month before left of this category's budget, its own carried amount included,
+   * less what was spent in it (subcategories included); below zero when overspent, 0 when
+   * that month had no budget. Carried in only when carryOver is on.
+   */
+  lastMonthLeftCents: number;
+}
+
+/**
  * GET /api/summary: what a person spent and received in a month (2026-11), across every
  * account, worked out by the server. Only spending and income count; a transfer moves
  * money between the person's own accounts, so it is never spending. Each list holds
@@ -164,6 +182,12 @@ export interface MonthSummary {
   leftCents: number;
   spentByCategory: CategoryTotal[];
   incomeByCategory: CategoryTotal[];
+  /**
+   * The month's budgets, in the categories' order, on categories at the top level now;
+   * only when there are any. What's left of each is worked out where it's shown
+   * (budgetFigures in shared/budgets.ts), from the spending as shown.
+   */
+  budgets?: MonthBudget[];
   /**
    * Of the change ids the read named (PENDING_CHANGES_HEADER), the ones counted in already;
    * only when it named any
@@ -302,6 +326,17 @@ export type LedgerChange =
    * adds each again, with its own id
    */
   | { op: 'removeTransactions'; ids: string[] }
+  /**
+   * A top-level spending category's monthly budget from `fromMonth` (2026-11) on, replacing
+   * what was set for it from any later month; null takes it away from that month on
+   */
+  | {
+      op: 'setBudget';
+      categoryId: string;
+      fromMonth: string;
+      amountCents: number | null;
+      carryOver: boolean;
+    }
   /** Sets one up; it's first due on its schedule's next day after startDate */
   | { op: 'addRecurring'; recurring: NewRecurring }
   /**

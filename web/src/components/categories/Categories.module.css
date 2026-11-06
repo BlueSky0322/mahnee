@@ -166,3 +166,9 @@
 .save {
   margin-left: auto;
 }
+
+.hint {
+  margin: -8px 0 0;
+  color: var(--sf-text-muted);
+  font-size: 13px;
+}

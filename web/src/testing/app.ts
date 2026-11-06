@@ -69,6 +69,14 @@ import {
   exportFileName,
   openingCells,
 } from '@shared/export';
+import type { BudgetRow } from '@shared/budgets';
+import {
+  BUDGET_RANGE,
+  fitsBudgetCents,
+  isBudgetMonth,
+  monthBudgets,
+  whyNoBudget,
+} from '@shared/budgets';
 import { rateDay } from '@shared/rates';
 import {
   MAX_RECURRING,
@@ -159,6 +167,11 @@ export interface FakeServer {
   categories: Category[];
   /** The person's repeating items, stopped ones too, in the order they were set up */
   recurring: Recurring[];
+  /**
+   * The person's budgets as the server keeps them: an amount from a month on (none when
+   * null), one row per category and month it was set in
+   */
+  budgets: BudgetRow[];
   /** Saved change ids and the change each was, as the real server keeps receipts */
   receipts: Map<string, string>;
   /**
@@ -393,6 +406,31 @@ function summarize(server: FakeServer, month: string): MonthSummary {
   const spentByCategory = totals('expense');
   const incomeByCategory = totals('income');
   const [spentCents, incomeCents] = [sum(spentByCategory), sum(incomeByCategory)];
+  // Budgets as the real one reads them: on categories at the top level now, in their
+  // order, with each earlier month's spending under its top-level category
+  const byId = new Map(server.categories.map((c) => [c.id, c]));
+  const topOf = (id: string | null) => {
+    const c = id == null ? undefined : byId.get(id);
+    return c == null ? null : c.parentId ?? c.id;
+  };
+  const rows = server.budgets
+    .filter((b) => {
+      const c = byId.get(b.categoryId);
+      return c != null && whyNoBudget(c) == null;
+    })
+    .sort((a, b) => {
+      const [ca, cb] = [byId.get(a.categoryId)!, byId.get(b.categoryId)!];
+      return ca.position - cb.position || (ca.id < cb.id ? -1 : ca.id > cb.id ? 1 : 0);
+    });
+  const spentIn = (m: string, categoryId: string) =>
+    server.transactions
+      .filter(
+        (t) =>
+          t.kind === 'expense' && t.date.startsWith(`${m}-`) && topOf(t.categoryId) === categoryId,
+      )
+      .reduce((all, t) => all + t.amountCents, 0);
+  // A month still to come has none, as the real one says
+  const budgets = isBudgetMonth(month) ? monthBudgets(month, rows, spentIn) : [];
   return {
     month,
     incomeCents,
@@ -400,6 +438,7 @@ function summarize(server: FakeServer, month: string): MonthSummary {
     leftCents: incomeCents - spentCents,
     spentByCategory,
     incomeByCategory,
+    ...(budgets.length > 0 && { budgets }),
   };
 }
 
@@ -579,6 +618,7 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
   const categories = categoriesOrDefaults(server.categories);
   const transactions = server.transactions.map((t) => ({ ...t }));
   const recurring = server.recurring.map((r) => ({ ...r }));
+  let budgets = server.budgets.map((b) => ({ ...b }));
   const nameError = `Give the account a name of up to ${MAX_ACCOUNT_NAME} characters`;
   const openingError = `An opening balance can be up to ${MAX_TRANSACTION.toLocaleString('en')} either way`;
   for (const [i, change] of changes.entries()) {
@@ -604,6 +644,20 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
     if (change.op === 'recategoriseTransactions' || change.op === 'removeTransactions') {
       const refusal = saveBulkChange(categories, transactions, change);
       if (refusal != null) return refusal;
+      continue;
+    }
+    if (change.op === 'setBudget') {
+      const refusal = checkBudget(categories, change);
+      if (refusal != null) return refusal;
+      const { categoryId, fromMonth, amountCents, carryOver } = change;
+      // From this month on: what was set for later months goes
+      budgets = budgets.filter((b) => b.categoryId !== categoryId || b.fromMonth < fromMonth);
+      budgets.push({
+        categoryId,
+        fromMonth,
+        amountCents,
+        carryOver: amountCents != null && carryOver,
+      });
       continue;
     }
     if (
@@ -667,6 +721,7 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
     server.categories = categories;
     server.transactions = transactions;
     server.recurring = recurring;
+    server.budgets = budgets;
   }
   ids.forEach((id, i) => server.receipts.set(id, prints[i]));
   return null;
@@ -829,6 +884,29 @@ function saveTransactionChange(
   return null;
 }
 
+/** Why a budget can't be set as the real server checks it, or null when it can */
+function checkBudget(
+  categories: Category[],
+  change: Extract<LedgerChange, { op: 'setBudget' }>,
+): [number, string] | null {
+  const allowed = ['op', 'categoryId', 'fromMonth', 'amountCents', 'carryOver'];
+  const extra = Object.keys(change).find((k) => !allowed.includes(k));
+  if (extra != null) return [400, `Unknown field ${extra}`];
+  const category = categories.find((c) => c.id === change.categoryId);
+  if (category == null) return [404, 'Category not found'];
+  const reason = whyNoBudget(category);
+  if (reason != null) return [409, reason];
+  if (!isBudgetMonth(change.fromMonth)) return [400, 'Give a month from 2000 up to this one'];
+  if (change.amountCents !== null && !fitsBudgetCents(change.amountCents)) {
+    return [400, BUDGET_RANGE];
+  }
+  if (typeof change.carryOver !== 'boolean') return [400, 'Say whether it carries over'];
+  if (change.amountCents !== null && category.archived) {
+    return [409, `${category.name} is archived`];
+  }
+  return null;
+}
+
 /**
  * A change to many transactions, made to `transactions` as the real server checks and
  * saves it (all of them or none), or the refusal's status and explanation
@@ -977,6 +1055,7 @@ export function fakeServer(): FakeServer {
     transactions: [],
     categories: [],
     recurring: [],
+    budgets: [],
     receipts: new Map(),
     failNext: {},
     loseNext: {},

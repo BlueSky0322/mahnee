@@ -50,7 +50,13 @@ hack-proof, and the limits below are real.
   at most `MAX_SEARCH_TEXT` characters (`shared/search.ts`), matched as text by bound
   parameters (never put into the SQL; with `instr`, so no character is a wildcard), within the person's own rows. Search results
   are not kept on the device. A month's totals (`/api/summary`) are one
-  grouped sum of the person's own, at most one row per category.
+  grouped sum of the person's own, at most one row per category. Its budgets add one
+  read of the person's budget rows and, only when they have any, one grouped sum of
+  their spending by month and top-level category since the first budget: at most one
+  row per month since 2000 and category, up to this month. A month still to come (after
+  tomorrow's in UTC) gets no budgets and reads none, so the month-by-month walk is
+  bounded by the months since 2000. A budget is whole cents from 1 to
+  `MAX_BUDGET_CENTS` (`shared/budgets.ts`), set from a month no later than this one.
 - Changes to the ledger: at most `MAX_CHANGES` in one request, saved all or nothing. A
   change to many transactions names at most `MAX_BULK_TRANSACTIONS` (500), each the
   person's own. A person has at most `MAX_RECURRING` (200) repeating items, stopped ones

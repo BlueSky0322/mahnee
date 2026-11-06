@@ -14,6 +14,7 @@ erDiagram
   accounts ||--o{ transactions : "holds"
   categories ||--o{ transactions : "sorts"
   profiles ||--o{ change_receipts : "has"
+  categories ||--o{ budgets : "has"
   profiles ||--o{ recurring : "has"
   accounts ||--o{ recurring : "repeats on"
   categories ||--o{ recurring : "sorts"
@@ -65,6 +66,14 @@ erDiagram
     TEXT note "null, or 1 to 500 characters"
     TEXT date "the person's own day, as 2026-11-05"
     INTEGER created_at "ms"
+    INTEGER updated_at "ms"
+  }
+  budgets {
+    TEXT email PK "and FK to profiles"
+    TEXT category_id PK "FK with email to categories; top-level spending"
+    TEXT from_month PK "the month it applies from, as 2026-11"
+    INTEGER amount_cents "null for none from this month, or 1 to 1,000,000,000"
+    INTEGER carry_over "0 or 1"
     INTEGER updated_at "ms"
   }
   recurring {
@@ -132,6 +141,17 @@ erDiagram
   out, summed when read. Indexed for an account's newest first (by `account_id`; the
   transfers into an account are found by scanning the person's rows) and for a month
   across accounts.
+- **`budgets`**: a monthly amount a person means to spend in a top-level spending
+  category, its subcategories counting toward it. One row per category and month it was
+  set in (`from_month`): the amount applies from that month on, until a later row, so
+  earlier months keep what they had; setting one removes the category's rows for later
+  months. A NULL amount takes the budget away from that month on. With `carry_over`, the
+  month before's leftover (or overspending) is added, worked out when read
+  (`shared/budgets.ts`), never stored. `(email, category_id)` refers to the person's
+  categories, and a trigger refuses a row on anything but one of their top-level spending
+  categories (archived ones allowed, so a budget can be taken away from one). A budget on
+  a category later moved under another is kept but set aside until it's back at the top
+  level.
 - **`recurring`**: bills and income that repeat, monthly on a day of the month (the
   month's last day when it's shorter) or weekly on a weekday (1 Monday to 7 Sunday), with
   what Log it records each time, written like a transaction's columns and checked the same

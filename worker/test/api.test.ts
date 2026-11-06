@@ -1629,6 +1629,330 @@ describe('transactions', () => {
     });
   });
 
+  describe('budgets', () => {
+    const summary = async (who: string, month: string) => {
+      const res = await api.call(who, 'GET', `/api/summary?month=${month}`);
+      expect(res.status).toBe(200);
+      return res.data as { budgets?: unknown[]; spentCents: number };
+    };
+    const budget = (
+      categoryId: string,
+      fromMonth: string,
+      amountCents: number | null,
+      carryOver = false,
+    ) => ({ op: 'setBudget', categoryId, fromMonth, amountCents, carryOver });
+    const line = (
+      categoryId: string,
+      amountCents: number,
+      lastMonthLeftCents: number,
+      carryOver = false,
+    ) => ({ categoryId, amountCents, carryOver, lastMonthLeftCents });
+    const [fun, other] = ['Fun', 'Other'].map(
+      (name) => DEFAULT_CATEGORIES.find((c) => c.name === name)!.id,
+    );
+
+    /** A person with a wallet and Coffee under Food */
+    async function withCoffee() {
+      const { me, wallet } = await withWallet();
+      const coffee = rowId();
+      await send(me, [
+        {
+          op: 'addCategory',
+          category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
+        },
+      ]);
+      return { me, wallet, coffee };
+    }
+
+    it('keeps a budget every month until it is changed, subcategories counting toward it', async () => {
+      const { me, wallet, coffee } = await withCoffee();
+      expect((await send(me, [budget(food, '2025-08', 30_000)])).status).toBe(200);
+      await send(me, [
+        add(rowId(), wallet, 10_000, { date: '2025-08-05' }),
+        add(rowId(), wallet, 25_000, { date: '2025-09-05' }),
+        add(rowId(), wallet, 2_000, { date: '2025-09-06', categoryId: coffee }),
+        add(rowId(), wallet, 15_000, { date: '2025-10-05' }),
+        add(rowId(), wallet, 3_000, { date: '2025-10-06', categoryId: coffee }),
+      ]);
+      // Changed in October: from then on, never before
+      expect((await send(me, [budget(food, '2025-10', 40_000)])).status).toBe(200);
+
+      expect(await summary(me, '2025-07')).not.toHaveProperty('budgets');
+      expect((await summary(me, '2025-08')).budgets).toEqual([line(food, 30_000, 0)]);
+      // What each month before left: RM 300 less RM 100, then RM 300 less RM 250 and RM 20
+      expect((await summary(me, '2025-09')).budgets).toEqual([line(food, 30_000, 20_000)]);
+      expect((await summary(me, '2025-10')).budgets).toEqual([line(food, 40_000, 3_000)]);
+      // RM 400 less RM 150 and RM 30
+      expect((await summary(me, '2025-11')).budgets).toEqual([line(food, 40_000, 22_000)]);
+      // The totals are as they always were
+      expect(await summary(me, '2025-10')).toMatchObject({ spentCents: 18_000 });
+      // Someone else's month has none of them
+      expect(await summary(person('other'), '2025-10')).not.toHaveProperty('budgets');
+    });
+
+    it('with Carry over, adds what last month left, or takes away what it overspent, month to month', async () => {
+      const { me, wallet } = await withWallet();
+      await send(me, [
+        budget(transport, '2025-08', 10_000, true),
+        add(rowId(), wallet, 7_000, { date: '2025-08-10', categoryId: transport }),
+        add(rowId(), wallet, 15_000, { date: '2025-09-10', categoryId: transport }),
+      ]);
+      // August left RM 30; September had RM 130 and spent RM 150: RM 20 over
+      expect((await summary(me, '2025-08')).budgets).toEqual([line(transport, 10_000, 0, true)]);
+      expect((await summary(me, '2025-09')).budgets).toEqual([
+        line(transport, 10_000, 3_000, true),
+      ]);
+      expect((await summary(me, '2025-10')).budgets).toEqual([
+        line(transport, 10_000, -2_000, true),
+      ]);
+
+      // Switched off from October: September stays as it was, and October starts fresh
+      await send(me, [budget(transport, '2025-10', 10_000, false)]);
+      expect((await summary(me, '2025-09')).budgets).toEqual([
+        line(transport, 10_000, 3_000, true),
+      ]);
+      expect((await summary(me, '2025-10')).budgets).toEqual([line(transport, 10_000, -2_000)]);
+      expect((await summary(me, '2025-11')).budgets).toEqual([line(transport, 10_000, 10_000)]);
+    });
+
+    it('takes a budget away from a month on, and setting one from an earlier month replaces later ones', async () => {
+      const { me } = await withWallet();
+      await send(me, [budget(food, '2025-08', 30_000), budget(food, '2025-10', null)]);
+      expect((await summary(me, '2025-09')).budgets).toEqual([line(food, 30_000, 30_000)]);
+      expect(await summary(me, '2025-10')).not.toHaveProperty('budgets');
+      expect(await summary(me, '2025-11')).not.toHaveProperty('budgets');
+      // Back from November, carrying over: October had none, so nothing to carry
+      await send(me, [budget(food, '2025-11', 20_000, true)]);
+      expect((await summary(me, '2025-11')).budgets).toEqual([line(food, 20_000, 0, true)]);
+      // From August again: what was set for later months goes
+      await send(me, [budget(food, '2025-08', 50_000)]);
+      expect((await summary(me, '2025-10')).budgets).toEqual([line(food, 50_000, 50_000)]);
+      expect((await summary(me, '2025-11')).budgets).toEqual([line(food, 50_000, 50_000)]);
+    });
+
+    it('lists budgets in the order the categories are, none for one moved under another', async () => {
+      const { me, wallet } = await withWallet();
+      await send(me, [budget(other, '2025-10', 5_000), budget(food, '2025-10', 30_000)]);
+      // RM 30 on Fun in October
+      await send(me, [add(rowId(), wallet, 3_000, { date: '2025-10-12', categoryId: fun })]);
+      await send(me, [budget(fun, '2025-10', 8_000)]);
+      expect((await summary(me, '2025-10')).budgets).toEqual([
+        line(food, 30_000, 0),
+        line(fun, 8_000, 0),
+        line(other, 5_000, 0),
+      ]);
+      expect((await summary(me, '2025-11')).budgets).toEqual([
+        line(food, 30_000, 30_000),
+        line(fun, 8_000, 5_000),
+        line(other, 5_000, 5_000),
+      ]);
+      // Fun moved under Food counts toward Food: its own budget is set aside until it's back
+      expect((await send(me, [{ op: 'updateCategory', id: fun, parentId: food }])).status).toBe(
+        200,
+      );
+      expect((await summary(me, '2025-10')).budgets).toEqual([
+        line(food, 30_000, 0),
+        line(other, 5_000, 0),
+      ]);
+      // Fun's RM 30 in October is now Food's: Food left RM 270 of RM 300
+      expect((await summary(me, '2025-11')).budgets).toEqual([
+        line(food, 30_000, 27_000),
+        line(other, 5_000, 5_000),
+      ]);
+      expect((await send(me, [{ op: 'updateCategory', id: fun, parentId: null }])).status).toBe(
+        200,
+      );
+      // Back at the top level, last among them, so listed last
+      expect((await summary(me, '2025-10')).budgets).toEqual([
+        line(food, 30_000, 0),
+        line(other, 5_000, 0),
+        line(fun, 8_000, 0),
+      ]);
+      expect((await summary(me, '2025-11')).budgets).toEqual([
+        line(food, 30_000, 30_000),
+        line(other, 5_000, 5_000),
+        line(fun, 8_000, 5_000),
+      ]);
+    });
+
+    it('takes from 1 cent up to 10,000,000', async () => {
+      const { me } = await withWallet();
+      expect(
+        (await send(me, [budget(food, '2025-10', 1), budget(fun, '2025-10', 1_000_000_000)]))
+          .status,
+      ).toBe(200);
+      expect((await summary(me, '2025-10')).budgets).toEqual([
+        line(food, 1, 0),
+        line(fun, 1_000_000_000, 0),
+      ]);
+    });
+
+    it('carries over exactly from January 2000 at the largest budget', async () => {
+      const { me } = await withWallet();
+      await send(me, [budget(food, '2000-01', 1_000_000_000, true)]);
+      // Nothing spent in the 309 months from January 2000 to September 2025
+      expect((await summary(me, '2025-10')).budgets).toEqual([
+        line(food, 1_000_000_000, 309 * 1_000_000_000, true),
+      ]);
+    });
+
+    it('answers a month still to come without budgets, and quickly', async () => {
+      const { me } = await withWallet();
+      await send(me, [budget(food, '2000-01', 1_000_000_000, true)]);
+      const started = Date.now();
+      const res = await api.call(me, 'GET', '/api/summary?month=2999-12');
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(res).toEqual({
+        status: 200,
+        data: {
+          month: '2999-12',
+          incomeCents: 0,
+          spentCents: 0,
+          leftCents: 0,
+          spentByCategory: [],
+          incomeByCategory: [],
+        },
+      });
+    });
+
+    it.each([
+      ['a subcategory', 'coffee', {}, 409, 'A budget goes on a top-level category'],
+      ['an income category', salary, {}, 409, 'A budget goes on a spending category'],
+      ['a category that is not there', 'c'.repeat(16), {}, 404, 'Category not found'],
+      ['an archived category', 'archived', {}, 409, 'Fun is archived'],
+      ['no month', food, { fromMonth: null }, 400, 'Give a month from 2000 up to this one'],
+      [
+        'a month of the wrong shape',
+        food,
+        { fromMonth: '2025-13' },
+        400,
+        'Give a month from 2000 up to this one',
+      ],
+      [
+        'a month before 2000',
+        food,
+        { fromMonth: '1999-12' },
+        400,
+        'Give a month from 2000 up to this one',
+      ],
+      [
+        'a month to come',
+        food,
+        { fromMonth: '2099-01' },
+        400,
+        'Give a month from 2000 up to this one',
+      ],
+      [
+        'an amount of nothing',
+        food,
+        { amountCents: 0 },
+        400,
+        'A budget is more than 0 and up to 10,000,000',
+      ],
+      [
+        'an amount too large',
+        food,
+        { amountCents: 1_000_000_001 },
+        400,
+        'A budget is more than 0 and up to 10,000,000',
+      ],
+      [
+        'part of a cent',
+        food,
+        { amountCents: 10.5 },
+        400,
+        'A budget is more than 0 and up to 10,000,000',
+      ],
+      [
+        'no amount said',
+        food,
+        { amountCents: undefined },
+        400,
+        'A budget is more than 0 and up to 10,000,000',
+      ],
+      ['carry over not said', food, { carryOver: 'yes' }, 400, 'Say whether it carries over'],
+      ['an unknown field', food, { note: 'x' }, 400, 'Unknown field note'],
+      [
+        'taking one away from a subcategory',
+        'coffee',
+        { amountCents: null },
+        409,
+        'A budget goes on a top-level category',
+      ],
+      [
+        'taking one away from an income category',
+        salary,
+        { amountCents: null },
+        409,
+        'A budget goes on a spending category',
+      ],
+    ])('refuses %s, saving nothing', async (_what, categoryId, more, status, error) => {
+      const { me, coffee } = await withCoffee();
+      await send(me, [{ op: 'archiveCategory', id: fun, archived: true }]);
+      const id = categoryId === 'coffee' ? coffee : categoryId === 'archived' ? fun : categoryId;
+      const change = { ...budget(id, '2025-10', 30_000), ...more };
+      // All or nothing: the good budget before it isn't saved either
+      expect(await send(me, [budget(other, '2025-10', 5_000), change])).toEqual({
+        status,
+        data: { error },
+      });
+      expect(await summary(me, '2025-10')).not.toHaveProperty('budgets');
+    });
+
+    it("takes a budget away from an archived category, and treats someone else's as missing", async () => {
+      const { me } = await withWallet();
+      await send(me, [budget(fun, '2025-10', 8_000)]);
+      await send(me, [{ op: 'archiveCategory', id: fun, archived: true }]);
+      expect((await send(me, [budget(fun, '2025-11', null)])).status).toBe(200);
+      expect(await summary(me, '2025-11')).not.toHaveProperty('budgets');
+
+      const theirs = rowId();
+      const stranger = person('stranger');
+      await send(stranger, [
+        {
+          op: 'addCategory',
+          category: { id: theirs, name: 'Theirs', kind: 'expense', parentId: null },
+        },
+      ]);
+      expect(await send(me, [budget(theirs, '2025-10', 1_000)])).toEqual({
+        status: 404,
+        data: { error: 'Category not found' },
+      });
+    });
+
+    it('counts a budget sent again once, and refuses its id with a different one', async () => {
+      const { me } = await withWallet();
+      const id = rowId();
+      expect((await send(me, [budget(food, '2025-10', 30_000)], [id])).status).toBe(200);
+      expect((await send(me, [budget(food, '2025-10', 30_000)], [id])).status).toBe(200);
+      expect((await summary(me, '2025-10')).budgets).toEqual([line(food, 30_000, 0)]);
+      expect((await send(me, [budget(food, '2025-10', 40_000)], [id])).status).toBe(409);
+      expect((await summary(me, '2025-10')).budgets).toEqual([line(food, 30_000, 0)]);
+    });
+
+    it('holds budgets to top-level spending categories in the database too', async () => {
+      const { me, coffee } = await withCoffee();
+      const insert = (categoryId: string) =>
+        api.sql(
+          `INSERT INTO budgets (email, category_id, from_month, amount_cents, carry_over)
+           VALUES (?, ?, '2025-10', 100, 0)`,
+          me,
+          categoryId,
+        );
+      await expect(insert(coffee)).rejects.toThrow(/top-level spending category/);
+      await expect(insert(salary)).rejects.toThrow(/top-level spending category/);
+      // Someone else's category is never one of theirs
+      const theirs = rowId();
+      await send(person('other'), [
+        {
+          op: 'addCategory',
+          category: { id: theirs, name: 'Theirs', kind: 'expense', parentId: null },
+        },
+      ]);
+      await expect(insert(theirs)).rejects.toThrow(/top-level spending category/);
+    });
+  });
+
   describe('the export file', () => {
     const HEADER =
       'Date,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id\r\n';

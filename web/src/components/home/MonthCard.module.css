@@ -232,3 +232,21 @@
   color: var(--sf-text-muted);
   font-size: 14px;
 }
+
+.budgetLeft {
+  flex: none;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.budgetCarried {
+  margin-top: -4px;
+  color: var(--sf-text-muted);
+  font-size: 13px;
+  text-align: right;
+}
+
+.barOver {
+  background: var(--sf-negative);
+}

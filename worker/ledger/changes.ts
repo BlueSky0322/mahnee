@@ -46,6 +46,7 @@ import {
   whyNotInCategory,
   whyNotOnAccount,
 } from '../../shared/ledger';
+import { BUDGET_RANGE, fitsBudgetCents, isBudgetMonth, whyNoBudget } from '../../shared/budgets';
 import { ensureProfileStatement } from '../accounts/profiles';
 import { type Unchecked, fail, ok } from '../http';
 import { listCategories } from './read';
@@ -616,6 +617,46 @@ function changeStatements(
             'DELETE FROM transactions WHERE email = ? AND id IN (SELECT value FROM json_each(?))',
           )
           .bind(email, JSON.stringify(change.ids)),
+      ];
+    }
+    case 'setBudget': {
+      onlyFields(change, ['op', 'categoryId', 'fromMonth', 'amountCents', 'carryOver']);
+      const category = readCategory(model, change.categoryId);
+      const reason = whyNoBudget(category);
+      if (reason != null) throw new Refused(409, reason);
+      if (!isBudgetMonth(change.fromMonth, now)) {
+        throw new Refused(400, 'Give a month from 2000 up to this one');
+      }
+      const amount = change.amountCents;
+      if (amount !== null && !fitsBudgetCents(amount)) throw new Refused(400, BUDGET_RANGE);
+      if (typeof change.carryOver !== 'boolean') {
+        throw new Refused(400, 'Say whether it carries over');
+      }
+      // Taking one away from an archived category is fine; setting one isn't
+      if (amount !== null && category.archived) {
+        throw new Refused(409, `${category.name} is archived`);
+      }
+      // From this month on: what was set for later months goes
+      return [
+        db
+          .prepare('DELETE FROM budgets WHERE email = ? AND category_id = ? AND from_month > ?')
+          .bind(email, category.id, change.fromMonth),
+        db
+          .prepare(
+            `INSERT INTO budgets (email, category_id, from_month, amount_cents, carry_over,
+                                  updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT (email, category_id, from_month)
+             DO UPDATE SET amount_cents = ?4, carry_over = ?5, updated_at = ?6`,
+          )
+          .bind(
+            email,
+            category.id,
+            change.fromMonth,
+            amount,
+            amount !== null && change.carryOver ? 1 : 0,
+            now,
+          ),
       ];
     }
     default:

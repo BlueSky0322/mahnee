@@ -1433,6 +1433,49 @@ describe('transactions', () => {
     expect(typeof res.data.error).toBe('string');
   });
 
+  // A change saved whose answer never reached the app still waits there; a read of the
+  // balances or a month's totals names such changes, and says which it holds already, so
+  // the app never counts one of them on top a second time
+  describe('reads that name changes still waiting in the app', () => {
+    const named = (who: string, path: string, ids: string[]) =>
+      api.call(who, 'GET', path, undefined, { 'X-Pending-Changes': ids.join(',') });
+
+    it('say which of them the balances and the totals hold already', async () => {
+      const { me, wallet } = await withWallet();
+      const [saved, waiting] = [rowId(), rowId()];
+      await send(me, [add(rowId(), wallet, 800, { date: '2025-10-14' })], [saved]);
+
+      const ledger = await named(me, '/api/accounts', [saved, waiting]);
+      expect(ledger.status).toBe(200);
+      expect(ledger.data.alreadySaved).toEqual([saved]);
+      expect(ledger.data.accounts).toEqual([
+        expect.objectContaining({ id: wallet, balanceCents: 9_200 }),
+      ]);
+      const totals = await named(me, '/api/summary?month=2025-10', [waiting, saved]);
+      expect(totals.status).toBe(200);
+      expect(totals.data).toMatchObject({ spentCents: 800, alreadySaved: [saved] });
+
+      // Someone else's saved change is never theirs to see
+      const other = person('other');
+      expect((await named(other, '/api/accounts', [saved])).data.alreadySaved).toEqual([]);
+      // Naming none, the answer is as it always was
+      expect((await api.call(me, 'GET', '/api/accounts')).data).not.toHaveProperty('alreadySaved');
+    });
+
+    it.each([
+      ['an id of the wrong shape', ['not-an-id']],
+      ['more than 200', Array.from({ length: 201 }, () => rowId())],
+    ])('refuse %s', async (_what, ids) => {
+      const me = person('me');
+      for (const path of ['/api/accounts', '/api/summary?month=2025-10']) {
+        expect(await named(me, path, ids)).toEqual({
+          status: 400,
+          data: { error: 'Name up to 200 change ids' },
+        });
+      }
+    });
+  });
+
   describe("a month's totals", () => {
     const summary = (who: string, month: string) =>
       api.call(who, 'GET', `/api/summary?month=${month}`);

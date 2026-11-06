@@ -31,6 +31,18 @@ export async function savedReceipts(
   return new Map(rows.results.map((r) => [r.id, r.fingerprint]));
 }
 
+/**
+ * Which of these change ids have receipts, as a statement to read in the same batch as
+ * the figures it goes with (rows of { id }), so it says exactly which changes they hold
+ */
+export const savedIdsStatement = (db: D1Database, email: string, ids: string[]) =>
+  db
+    .prepare(
+      `SELECT change_id AS id FROM change_receipts
+       WHERE email = ? AND change_id IN (SELECT value FROM json_each(?))`,
+    )
+    .bind(email, JSON.stringify(ids));
+
 /** Receipts for the changes saved now, and this person's ones older than RECEIPT_DAYS let go */
 export function receiptStatements(
   db: D1Database,

@@ -44,6 +44,8 @@ export const SIGN_IN_PARAM = 'sign-in';
 interface Entry<T> {
   email: string;
   value: T;
+  /** When it was kept (ms): for a server's answer, when the server last confirmed it */
+  at?: number;
 }
 
 /** Storage can be unavailable (private browsing, quota); the app works without it */
@@ -61,7 +63,8 @@ let waiting: ((email: string) => void)[] = [];
 /** Whose the cache is now, or null while that isn't known */
 export const cacheUser = () => user;
 
-const whenCacheUserKnown = (): Promise<string> =>
+/** Resolves with whose the cache is, once that's known */
+export const whenCacheUserKnown = (): Promise<string> =>
   user != null ? Promise.resolve(user) : new Promise((resolve) => waiting.push(resolve));
 
 function confirmCacheUser(email: string) {
@@ -83,9 +86,19 @@ const knowers = new Set<(email: string) => void>();
 export const onCacheUserKnown = (know: (email: string) => void) => void knowers.add(know);
 
 export async function readCache<T>(key: string): Promise<T | undefined> {
+  return (await readCacheEntry<T>(key))?.value;
+}
+
+/**
+ * What's kept under `key` for the signed-in person, with when it was kept (null for a
+ * copy kept before that was noted)
+ */
+export async function readCacheEntry<T>(
+  key: string,
+): Promise<{ value: T; at: number | null } | undefined> {
   const email = await whenCacheUserKnown();
   const entry = await quietlyAsync(() => get<Entry<T>>(key));
-  return entry?.email === email ? entry.value : undefined;
+  return entry?.email === email ? { value: entry.value, at: entry.at ?? null } : undefined;
 }
 
 /** Whether `access` worked; storage failing is reported, not thrown */
@@ -98,7 +111,7 @@ const succeeds = (access: () => Promise<unknown>): Promise<boolean> =>
 /** Resolves with whether it was kept */
 export async function writeCache<T>(key: string, value: T): Promise<boolean> {
   const email = await whenCacheUserKnown();
-  return succeeds(() => set(key, { email, value } satisfies Entry<T>));
+  return succeeds(() => set(key, { email, value, at: Date.now() } satisfies Entry<T>));
 }
 
 /**

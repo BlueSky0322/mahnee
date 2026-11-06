@@ -7,6 +7,7 @@ import { isRowId } from '../../shared/api';
 import type { CategoryKind } from '../../shared/categories';
 import type { AccountKind } from '../../shared/ledger';
 import { fail, json, notFound } from '../http';
+import { savedIdsStatement } from './receipts';
 
 interface AccountRow {
   id: string;
@@ -34,8 +35,8 @@ interface CategoryRow {
  * A transfer is taken from the account it left and added to the one it went to. On a
  * card, spending makes the amount owed (below zero) grow, and paying it off shrinks it.
  */
-async function listAccounts(db: D1Database, email: string): Promise<Account[]> {
-  const { results } = await db
+const accountsStatement = (db: D1Database, email: string) =>
+  db
     .prepare(
       `SELECT a.id, a.name, a.kind, a.currency,
               a.opening_cents AS openingCents,
@@ -56,35 +57,52 @@ async function listAccounts(db: D1Database, email: string): Promise<Account[]> {
        WHERE a.email = ?1
        ORDER BY a.position, a.created_at, a.id`,
     )
-    .bind(email)
-    .all<AccountRow>();
-  return results.map((r): Account => ({ ...r, archived: r.archived === 1 }));
-}
+    .bind(email);
 
-/**
- * Every category of `email` saved so far, archived ones too, each in its place among
- * the ones beside it. None until their first change, which saves the defaults.
- */
-export async function listCategories(db: D1Database, email: string): Promise<Category[]> {
-  const { results } = await db
+const categoriesStatement = (db: D1Database, email: string) =>
+  db
     .prepare(
       `SELECT id, name, kind, parent_id AS parentId, position, archived
        FROM categories
        WHERE email = ?
        ORDER BY position, id`,
     )
-    .bind(email)
-    .all<CategoryRow>();
-  return results.map((r): Category => ({ ...r, archived: r.archived === 1 }));
+    .bind(email);
+
+const toCategory = (r: CategoryRow): Category => ({ ...r, archived: r.archived === 1 });
+
+/**
+ * Every category of `email` saved so far, archived ones too, each in its place among
+ * the ones beside it. None until their first change, which saves the defaults.
+ */
+export async function listCategories(db: D1Database, email: string): Promise<Category[]> {
+  const { results } = await categoriesStatement(db, email).all<CategoryRow>();
+  return results.map(toCategory);
 }
 
-/** A person's whole ledger, in one answer */
-export async function readLedger(db: D1Database, email: string): Promise<Ledger> {
-  const [accounts, categories] = await Promise.all([
-    listAccounts(db, email),
-    listCategories(db, email),
+/**
+ * A person's whole ledger, in one answer, read in one batch so the balances, the
+ * categories and which of `pending` (change ids the app may have had saved, its answer
+ * lost) are saved all describe the same moment
+ */
+export async function readLedger(
+  db: D1Database,
+  email: string,
+  pending: string[] = [],
+): Promise<Ledger> {
+  const [accounts, categories, saved] = await db.batch<AccountRow | CategoryRow | { id: string }>([
+    accountsStatement(db, email),
+    categoriesStatement(db, email),
+    ...(pending.length > 0 ? [savedIdsStatement(db, email, pending)] : []),
   ]);
-  return { accounts, categories };
+  return {
+    accounts: (accounts.results as AccountRow[]).map(
+      (r): Account => ({ ...r, archived: r.archived === 1 }),
+    ),
+    categories: (categories.results as CategoryRow[]).map(toCategory),
+    // Only for a read that named any
+    ...(saved != null && { alreadySaved: (saved.results as { id: string }[]).map((r) => r.id) }),
+  };
 }
 
 /** A page of transactions holds this many unless asked for fewer, and never more than the most */

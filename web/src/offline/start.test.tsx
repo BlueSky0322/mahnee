@@ -6,7 +6,14 @@ import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Profile } from '@shared/api';
 import { DEVICE_START_WAIT_MS } from '../profile/ProfileContext';
 import { LAST_EMAIL_KEY, OPENED_FROM_DEVICE, OPENED_SIGNED_OUT, SIGN_IN_PARAM } from './cache';
-import { type FakeServer, fakeServer, holdNext, renderApp, setupAppTests } from '../testing/app';
+import {
+  type FakeServer,
+  fakeServer,
+  holdNext,
+  reloadApp,
+  renderApp,
+  setupAppTests,
+} from '../testing/app';
 
 // Starting the app when the server can't answer in time. The service worker opens it
 // from the copy it keeps, and says so (shell.test.ts); the app then shows the last
@@ -114,6 +121,37 @@ describe('starting with the server out of reach', () => {
       expect((await screen.findAllByText('Signed in as Kept Ryan')).length).toBeGreaterThan(0);
       expect(await screen.findByText(RYAN)).toBeTruthy();
       expect(screen.queryByText("Couldn't reach Mahnee")).toBeNull();
+    } finally {
+      done();
+    }
+  });
+
+  test('opened from the device with the server failing, the kept numbers say how old they are', async () => {
+    const server = fakeServer();
+    server.accounts.push({
+      id: 'a'.repeat(16),
+      name: 'Wallet',
+      kind: 'cash',
+      currency: 'MYR',
+      openingCents: 10_000,
+      position: 0,
+      archived: false,
+    });
+    // Seen once with a connection, so this device keeps the profile and the numbers
+    renderApp(server);
+    await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ });
+    await wait(100);
+    expect(screen.queryByText(/Updated .* ago/)).toBeNull();
+
+    server.health = 'down';
+    const done = openedFromDevice();
+    try {
+      await reloadApp(server);
+      expect((await screen.findAllByText('Signed in as Ryan')).length).toBeGreaterThan(0);
+      expect(
+        await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ }),
+      ).toBeTruthy();
+      expect(await screen.findByText(/Updated .* ago/)).toBeTruthy();
     } finally {
       done();
     }

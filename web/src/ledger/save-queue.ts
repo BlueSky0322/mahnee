@@ -34,8 +34,8 @@ const MAX_RETRY_DELAY_MS = 60_000;
 export interface SaveQueueEvents {
   /** Sends one batch; resolves once it's saved, rejects if it's refused or never arrives */
   send: (body: ChangesBody) => Promise<unknown>;
-  /** A batch was saved */
-  saved: (changes: LedgerChange[]) => void;
+  /** A batch was saved: its changes, and the id each was sent with */
+  saved: (changes: LedgerChange[], ids: string[]) => void;
   /** Changes kept on the device that this page didn't know of: from before a reload, or another tab */
   found: (changes: LedgerChange[]) => void;
   /** A batch was refused; it and everything queued after it are dropped */
@@ -57,6 +57,8 @@ export interface SaveQueue {
   add: (changes: LedgerChange[]) => void;
   /** Changes made but not yet saved, being sent or waiting, in order */
   pending: () => LedgerChange[];
+  /** The same, each with the id it's sent with */
+  pendingWithIds: () => Queued[];
   /**
    * Whose changes these are, once known (or assumed, offline): picks up what they left
    * waiting on this device, and starts sending
@@ -186,7 +188,10 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
       if (saved) {
         failures = 0;
         signedOut = false;
-        events.saved(batch.map((q) => q.change));
+        events.saved(
+          batch.map((q) => q.change),
+          batch.map((q) => q.cid),
+        );
         changed();
       }
     }
@@ -228,6 +233,8 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
       keepAndSend();
     },
     pending: () => queued.map((q) => q.change),
+    // A copy: the queue itself changes in place
+    pendingWithIds: () => [...queued],
     pickUp: async (email) => {
       owner = email;
       const mine = round;

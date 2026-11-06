@@ -197,6 +197,43 @@ describe('the month on Home', () => {
     expect(card.queryByText('Loading this month')).toBeNull();
   });
 
+  test.each(SIZES)(
+    'counts each change at once while an earlier one is still being saved (%s)',
+    async (size) => {
+      const server = withFoodAndSalary();
+      renderApp(server, '/', { size });
+      const user = userEvent.setup();
+      const card = await monthCard(NOW);
+      await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 11.00'));
+      const spend = async (amount: string) => {
+        await user.click(await screen.findByRole('button', { name: 'Add' }));
+        const form = within(await screen.findByRole('dialog'));
+        await user.type(form.getByLabelText('Amount'), amount);
+        await user.click(form.getByRole('button', { name: 'Save' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      };
+
+      // The first is on its way, its answer held up; the others wait behind it
+      const saving = holdNext(server, 'POST', '/api/changes');
+      try {
+        await spend('8');
+        await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 19.00'));
+        await spend('5');
+        await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 24.00'));
+        await spend('2');
+        await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 26.00'));
+        expect(figure(card, 'Left this month')).toBe('RM 24.00');
+      } finally {
+        saving.release();
+      }
+      // Saved, and counted once
+      await waitFor(() => expect(server.transactions).toHaveLength(6));
+      await waitFor(() => expect(screen.queryByText(/changes? waiting/)).toBeNull());
+      await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 26.00'));
+    },
+    15_000,
+  );
+
   test('counts spending added offline at once, through a reload, and once saved', async () => {
     const server = withFoodAndSalary();
     renderApp(server, '/', { size: 'phone' });

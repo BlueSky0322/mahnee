@@ -77,7 +77,8 @@ describe('the save queue', () => {
     requests[0].answer();
     await vi.waitFor(() => expect(requests).toHaveLength(2));
     expect(requests[1].body.changes).toEqual([rename('two'), rename('three')]);
-    expect(events.saved).toHaveBeenCalledWith([rename('one')]);
+    // With the id it was sent with
+    expect(events.saved).toHaveBeenCalledWith([rename('one')], requests[0].body.ids);
     expect(queue.pending()).toEqual([rename('two'), rename('three')]);
     expect(events.idle).not.toHaveBeenCalled();
 

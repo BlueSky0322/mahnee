@@ -97,7 +97,8 @@ sends them in order, one request at a time, in batches of at most `MAX_CHANGES` 
   and opening balances in; Undo is
   [components/common/undo-toast.tsx](../web/src/components/common/undo-toast.tsx).
 - API: [worker/routes/ledger.ts](../worker/routes/ledger.ts) serves `GET /api/accounts`
-  (the `Ledger`: accounts and categories) and `POST /api/changes`;
+  (the `Ledger`: accounts and categories, and `alreadySaved` when the read names changes
+  in `X-Pending-Changes`) and `POST /api/changes`;
   [worker/ledger/read.ts](../worker/ledger/read.ts) lists the accounts with balances,
   [changes.ts](../worker/ledger/changes.ts) checks and saves a batch, and
   [receipts.ts](../worker/ledger/receipts.ts) keeps one receipt per change id.
@@ -110,8 +111,18 @@ is sent while a batch is on its way; what's made meanwhile goes in the next one.
 saved batch is crossed off the outbox; once nothing is left to send, the ledger is
 fetched again. A copy fetched (or read from the device) while changes are still to send
 has them applied on top; one that was on its way while a batch was saved is set aside
-for the next. Once it's known whose the ledger is (signed in, or offline the last
-person assumed), what they left in the outbox is picked up, shown and sent. A batch that
+for the next. A batch the server saved whose answer was lost stays waiting, so a copy
+fetched in that gap may hold it already: each read of the ledger (and of a month's
+totals) names the first `MAX_CHANGES` changes waiting (`X-Pending-Changes`; at most 200
+ids, about 3.4 KB, as many as one request sends), the server answers which of them it
+holds (`alreadySaved`, read in the same D1 batch as the figures), and those are not
+applied on top of that copy, nor on the copy kept on the device, nor again on
+`confirmed` when their answer finally comes. A read learns which are waiting from the
+outbox without its lock, once it's known whose it is, but waits at most 1.5 seconds for
+that; changes found waiting later are asked about again (the ledger read once more, and
+months' totals refetched when they're found). Once it's known whose the ledger is
+(signed in, or offline the last person assumed), what they left in the outbox is picked
+up, shown and sent. A batch that
 got no answer, or a 429 or 5xx, is kept and tried again after 3 seconds, doubling to a
 minute; offline it waits for the connection, and a 401 or `account_mismatch` waits for
 the person to be back (the connection returning, the page shown again or restored),
@@ -141,7 +152,8 @@ worker's background sync sends the outbox (see Offline start).
   authority.
 - A change leaves the outbox only once the server has saved it (or refused it), and is
   sent by one sender at a time (the outbox lock); one sent again after its answer was
-  lost is counted once by its id.
+  lost is counted once by its id, by the server and in the balances shown
+  (`alreadySaved`), even when a fresh copy is fetched before it's sent again.
 
 **Tests.** [apply.test.ts](../web/src/ledger/apply.test.ts),
 [save-queue.test.ts](../web/src/ledger/save-queue.test.ts) (order, kept on the device
@@ -377,17 +389,22 @@ a subcategory moved under another category moves its spending with it.
   spent, in cents.
 - Scoped to the signed-in person's own transactions; a month is 2000-01 or later.
 - A change is counted once: a month's totals fetched while a batch was being saved are
-  set aside for the fetch once nothing is left to send, rather than counted again.
+  set aside for the fetch once nothing is left to send, rather than counted again; and
+  a change saved whose answer was lost, which the totals hold already (their
+  `alreadySaved`), is neither counted on top of them nor counted in again when it's saved.
 - Archived categories still count; an amount in a category the app doesn't know is shown
   as "Unknown category" rather than dropped.
 
-**Tests.** [summary.test.ts](../web/src/ledger/summary.test.ts) (adding, moving across
-categories and months, deleting and Undo, spending to income, transfers, unknown ones),
+**Tests.** [double-count.test.tsx](../web/src/ledger/double-count.test.tsx) (a save whose
+answer was lost, with fresh balances and totals fetched before it's sent again, and across
+a reload: never counted twice, at any moment),
+[summary.test.ts](../web/src/ledger/summary.test.ts) (adding, moving across categories
+and months, deleting and Undo, spending to income, transfers, unknown ones),
 [derive.test.ts](../web/src/ledger/derive.test.ts) (roll-up, unknown parents and
 categories), [MonthCard.test.tsx](../web/src/components/home/MonthCard.test.tsx) (left,
 spent, received, Food opened to Coffee and Food itself, income under Received, earlier
-months and Back, over, placeholders, offline through a reload and once saved; desktop
-and phone), and the month's totals cases in
+months and Back, over, placeholders, offline through a reload and once saved, each
+change counted at once while an earlier one is being saved; desktop and phone), and the month's totals cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (spending, income, a transfer,
 subcategories under their own id, other months and other people, bad months).
 
@@ -494,7 +511,10 @@ through the query cache, keyed by the pair, the account's rate source and the da
 ## Offline start and installing
 
 **What it is.** The app installs as an app and opens offline or on a bad connection,
-showing what this device last loaded with the changes made since on top. Changes made
+showing what this device last loaded with the changes made since on top. While Home's
+balances or month come from that copy (offline, or the server hasn't answered yet), a
+small line under the title says how old they are ("Updated 2 hours ago"); fresh from the
+server it says nothing. Changes made
 offline are kept on the device and saved once the connection is back, even with the
 app closed. The offline notice says so, with how many are waiting; it offers Sign in
 when the session ran out, and warns when the device can't keep changes.
@@ -502,7 +522,14 @@ when the session ran out, and warns when the device can't keep changes.
 **Owner.**
 
 - [offline/cache.ts](../web/src/offline/cache.ts): device copies tagged with the
-  signed-in account, and the marks the service worker and sign-in leave on the page.
+  signed-in account and the time each was kept (`readCacheEntry`), and the marks the
+  service worker and sign-in leave on the page.
+- [ledger/ledger.ts](../web/src/ledger/ledger.ts): which of the ledger and months'
+  totals are shown from the device copy, and when the server last confirmed each
+  (`dataAge`, read through `useDataAge` and shown by
+  [components/home/Staleness.tsx](../web/src/components/home/Staleness.tsx)); a fresh
+  answer clears it, and months shown from the device are fetched again once the ledger
+  comes fresh.
 - [offline/outbox.ts](../web/src/offline/outbox.ts): each person's changes not yet saved
   (`outbox:<email>`), the lock the app and the service worker share
   (`mahnee-outbox:<email>`, Web Locks or turns within the page), how a queue is split into
@@ -573,8 +600,13 @@ loads, stopped updates, which files are kept),
 sync against what the app keeps, and the app and service worker reading every answer
 alike), [outbox.test.ts](../web/src/offline/outbox.test.ts) (the shared keys and lock,
 another account's changes kept through sign-in and sign-out),
-[start.test.tsx](../web/src/offline/start.test.tsx) (starting from the device's copy,
-and once Access asks to sign in again),
+[start.test.tsx](../web/src/offline/start.test.tsx) (starting from the device's copy, with
+how old it is, and once Access asks to sign in again),
+[Staleness.test.tsx](../web/src/components/home/Staleness.test.tsx) (nothing said when
+fresh, "Updated 2 hours ago" offline and while the server hasn't answered),
+[first-read.test.tsx](../web/src/offline/first-read.test.tsx) (the first read of the
+balances goes while the server is slow to say who's signed in, and never waits for good
+when signed out),
 [storage.test.ts](../web/src/offline/storage.test.ts),
 [launch-screen.test.ts](../web/src/pwa/launch-screen.test.ts) and
 [web/build/precache.test.ts](../web/build/precache.test.ts).

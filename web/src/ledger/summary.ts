@@ -1,6 +1,6 @@
 import type { CategoryTotal, LedgerChange, MonthSummary, Transaction } from '@shared/api';
 import type { Lookup } from './apply';
-import { changedTransaction, idOf, isTransactionChange, tracker } from './apply';
+import { changedTransaction, idOf, isTransactionChange, oneByOne, tracker } from './apply';
 
 // A month's totals with changes made to them before the server has them, worked out the
 // way the server sums them (worker/ledger/summary.ts): spending and income in the month,
@@ -57,7 +57,7 @@ export function applyToSummary(
 ): MonthSummary {
   const transactions = tracker(lookup);
   let next = summary;
-  for (const change of changes) {
+  for (const change of oneByOne(changes)) {
     if (!isTransactionChange(change)) continue;
     const id = idOf(change);
     const before = transactions.find(id);

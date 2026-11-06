@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import AccountPage from './components/accounts/AccountPage';
 import CategoriesPage from './components/categories/CategoriesPage';
 import HomePage from './components/home/HomePage';
+import SearchPage from './components/search/SearchPage';
 import StateCard from './components/ui/StateCard';
 import AppLayout from './components/shell/AppLayout';
 import { useRoute } from './hooks/useRoute';
@@ -44,6 +45,7 @@ function App() {
     <AppLayout>
       {route.view === 'home' && <HomePage month={route.month} />}
       {route.view === 'categories' && <CategoriesPage />}
+      {route.view === 'search' && <SearchPage />}
       {route.view === 'account' && (
         <AccountPage
           key={route.id}

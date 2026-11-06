@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'vitest';
-import type { Account, Category, LedgerChange, Transaction, TransactionPage } from '@shared/api';
+import type {
+  Account,
+  Category,
+  LedgerChange,
+  MonthSummary,
+  Transaction,
+  TransactionPage,
+} from '@shared/api';
 import { isOnAccount } from '@shared/ledger';
 import { apply as applyToLedger, applyToPages } from './apply';
+import { applyToSummary } from './summary';
 
 /** The accounts once `changes` are made to them (with no categories beside them) */
 const apply = (accounts: Account[], changes: LedgerChange[]) =>
@@ -444,5 +452,117 @@ describe('apply transactions to pages of a list', () => {
     ];
     const once = applyToPages(pages, changes, inWallet);
     expect(applyToPages(once, changes, inWallet)).toEqual(once);
+  });
+});
+
+describe('changing many transactions at once', () => {
+  const wallet = account('a', { kind: 'cash', balanceCents: 10_000 });
+  const bank = account('b', { balanceCents: 100_000 });
+  // RM 1, 2 and 3 in Other, RM 8 on Food, all from the wallet; RM 50 received in the bank
+  const known = [
+    spent('o1', { amountCents: 100, categoryId: 'other' }),
+    spent('o2', { amountCents: 200, categoryId: 'other' }),
+    spent('o3', { amountCents: 300, categoryId: 'other' }),
+    spent('f1', { amountCents: 800 }),
+    spent('p1', { kind: 'income', accountId: 'b', amountCents: 5_000, categoryId: 'salary' }),
+  ];
+  const lookup = (id: string) => known.find((t) => t.id === id);
+  const toFood: LedgerChange = {
+    op: 'recategoriseTransactions',
+    ids: ['o1', 'o2', 'o3'],
+    categoryId: 'food',
+  };
+  const removeThree: LedgerChange = { op: 'removeTransactions', ids: ['o1', 'o3', 'p1'] };
+  /** November as the server summed `known` */
+  const november: MonthSummary = {
+    month: '2026-11',
+    incomeCents: 5_000,
+    spentCents: 1_400,
+    leftCents: 3_600,
+    spentByCategory: [
+      { categoryId: 'food', cents: 800 },
+      { categoryId: 'other', cents: 600 },
+    ],
+    incomeByCategory: [{ categoryId: 'salary', cents: 5_000 }],
+  };
+  const pages: TransactionPage[] = [{ transactions: known, nextBefore: null }];
+  const page = (changes: LedgerChange[], belongs: (t: Transaction) => boolean = () => true) =>
+    applyToPages(pages, changes, belongs, lookup)[0].transactions;
+
+  test('moving to another category leaves every balance as it was', () => {
+    expect(balancesAfter([wallet, bank], [toFood], known)).toEqual({ a: 10_000, b: 100_000 });
+  });
+
+  test('deleting takes each one back from its own account, and one not known moves nothing', () => {
+    expect(balancesAfter([wallet, bank], [removeThree], known)).toEqual({
+      a: 10_400,
+      b: 95_000,
+    });
+    expect(
+      balancesAfter([wallet, bank], [{ op: 'removeTransactions', ids: ['o2', 'zz'] }], known),
+    ).toEqual({ a: 10_200, b: 100_000 });
+  });
+
+  test('Undo of a delete adds each one again, putting every balance back', () => {
+    const again = known
+      .filter((t) => removeThree.op === 'removeTransactions' && removeThree.ids.includes(t.id))
+      .map(({ createdAt: _at, ...t }): LedgerChange => ({ op: 'addTransaction', transaction: t }));
+    expect(balancesAfter([wallet, bank], [removeThree, ...again], known)).toEqual({
+      a: 10_000,
+      b: 100_000,
+    });
+  });
+
+  test('a list shows each one in its new category, and lets go of those it no longer holds', () => {
+    expect(Object.fromEntries(page([toFood]).map((t) => [t.id, t.categoryId]))).toEqual({
+      o1: 'food',
+      o2: 'food',
+      o3: 'food',
+      f1: 'food',
+      p1: 'salary',
+    });
+    // A list of what's in Other has none of them left
+    const inOther = (t: Transaction) => t.categoryId === 'other';
+    const otherPages = [{ transactions: known.filter(inOther), nextBefore: null }];
+    expect(applyToPages(otherPages, [toFood], inOther, lookup)[0].transactions).toEqual([]);
+    expect(
+      page([removeThree])
+        .map((t) => t.id)
+        .sort(),
+    ).toEqual(['f1', 'o2']);
+  });
+
+  test('a list comes out the same with the changes made twice', () => {
+    const once = applyToPages(pages, [toFood, removeThree], () => true, lookup);
+    expect(applyToPages(once, [toFood, removeThree], () => true, lookup)).toEqual(once);
+  });
+
+  test("a month's totals move between categories, and Undo moves them back", () => {
+    const moved = applyToSummary(november, [toFood], lookup);
+    expect(moved).toEqual({
+      ...november,
+      spentByCategory: [{ categoryId: 'food', cents: 1_400 }],
+    });
+    // Undo is one move per category they came from
+    const back = applyToSummary(
+      november,
+      [toFood, { op: 'recategoriseTransactions', ids: ['o1', 'o2', 'o3'], categoryId: 'other' }],
+      lookup,
+    );
+    expect(back).toEqual(november);
+  });
+
+  test("a month's totals lose what was deleted, spending and income alike", () => {
+    expect(applyToSummary(november, [removeThree], lookup)).toEqual({
+      month: '2026-11',
+      incomeCents: 0,
+      spentCents: 1_000,
+      leftCents: -1_000,
+      spentByCategory: [
+        { categoryId: 'food', cents: 800 },
+        { categoryId: 'other', cents: 200 },
+      ],
+      incomeByCategory: [],
+    });
   });
 });

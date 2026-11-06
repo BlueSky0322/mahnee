@@ -3,6 +3,8 @@
 // transactions a page at a time.
 
 import type { Account, Category, Ledger, Transaction, TransactionPage } from '../../shared/api';
+import { categoriesOrDefaults } from '../../shared/categories';
+import { categoriesIn, foldCase, readSearch, searchAmount } from '../../shared/search';
 import { isRowId } from '../../shared/api';
 import type { CategoryKind } from '../../shared/categories';
 import type { AccountKind } from '../../shared/ledger';
@@ -109,9 +111,11 @@ export async function readLedger(
 export const PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 200;
 
-const TRANSACTION_COLUMNS = `id, kind, account_id AS accountId, to_account_id AS toAccountId,
-  amount_cents AS amountCents,
-  category_id AS categoryId, payee, note, date, created_at AS createdAt`;
+/** A transaction's columns, as the API names them; `t` is what the table is called in the query */
+const transactionColumns = (t = 'transactions') =>
+  `${t}.id, ${t}.kind, ${t}.account_id AS accountId, ${t}.to_account_id AS toAccountId,
+  ${t}.amount_cents AS amountCents, ${t}.category_id AS categoryId, ${t}.payee, ${t}.note,
+  ${t}.date, ${t}.created_at AS createdAt`;
 
 /**
  * Where the next page starts: the last transaction's day, time saved and id, newest
@@ -140,11 +144,8 @@ export async function listTransactions(
   const month = params.get('month');
   if ((account == null) === (month == null)) return fail('Ask for an account or a month', 400);
 
-  const limitText = params.get('limit');
-  const limit = limitText == null ? PAGE_SIZE : Number(limitText);
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_PAGE_SIZE) {
-    return fail(`Ask for 1-${MAX_PAGE_SIZE} at a time`, 400);
-  }
+  const limit = readLimit(params);
+  if (limit == null) return fail(`Ask for 1-${MAX_PAGE_SIZE} at a time`, 400);
 
   const where = ['email = ?'];
   const values: (string | number)[] = [email];
@@ -163,28 +164,132 @@ export async function listTransactions(
     values.push(`${month}-01`, `${month}-31`);
   }
 
-  const before = params.get('before');
-  if (before != null) {
-    const m = CURSOR_PATTERN.exec(before);
-    if (m == null) return fail('Unknown place to carry on from', 400);
+  const cursor = readCursor(params);
+  if (cursor === undefined) return fail('Unknown place to carry on from', 400);
+  if (cursor != null) {
     where.push('(date, created_at, id) < (?, ?, ?)');
-    values.push(m[1], Number(m[2]), m[3]);
+    values.push(...cursor);
   }
-
-  // One more than asked for says whether there's another page
-  const { results } = await db
-    .prepare(
-      `SELECT ${TRANSACTION_COLUMNS} FROM transactions
+  return pageOf(
+    db.prepare(
+      `SELECT ${transactionColumns()} FROM transactions
        WHERE ${where.join(' AND ')}
        ORDER BY date DESC, created_at DESC, id DESC
        LIMIT ?`,
-    )
-    .bind(...values, limit + 1)
-    .all<Transaction>();
+    ),
+    values,
+    limit,
+  );
+}
+
+/** How many a page holds, as asked (?limit=), PAGE_SIZE unless said; null when out of range */
+function readLimit(params: URLSearchParams): number | null {
+  const text = params.get('limit');
+  const limit = text == null ? PAGE_SIZE : Number(text);
+  return Number.isSafeInteger(limit) && limit >= 1 && limit <= MAX_PAGE_SIZE ? limit : null;
+}
+
+/**
+ * Where to carry on from (?before=): its day, time saved and id; null for the start,
+ * undefined when it isn't one
+ */
+function readCursor(params: URLSearchParams): [string, number, string] | null | undefined {
+  const before = params.get('before');
+  if (before == null) return null;
+  const m = CURSOR_PATTERN.exec(before);
+  return m == null ? undefined : [m[1], Number(m[2]), m[3]];
+}
+
+/** A page from `query`, which takes `values` and then how many (one more than `limit`) */
+async function pageOf(query: D1PreparedStatement, values: (string | number)[], limit: number) {
+  // One more than asked for says whether there's another page
+  const { results } = await query.bind(...values, limit + 1).all<Transaction>();
   const transactions = results.slice(0, limit);
   const more = results.length > limit;
   return json<TransactionPage>({
     transactions,
     nextBefore: more ? cursorOf(transactions[transactions.length - 1]) : null,
   });
+}
+
+/**
+ * GET /api/search: a page of the person's transactions on every account, newest first,
+ * found by shared/search.ts's rules (?q= words or an amount, ?account=, ?category= with its
+ * subcategories, ?from= and ?to= days), carrying on from ?before= as /api/transactions
+ * does. Someone else's account or category is answered as one that doesn't exist.
+ */
+export async function searchTransactions(
+  db: D1Database,
+  email: string,
+  params: URLSearchParams,
+): Promise<Response> {
+  const query = readSearch(params);
+  if ('error' in query) return fail(query.error, 400);
+  const limit = readLimit(params);
+  if (limit == null) return fail(`Ask for 1-${MAX_PAGE_SIZE} at a time`, 400);
+  const cursor = readCursor(params);
+  if (cursor === undefined) return fail('Unknown place to carry on from', 400);
+
+  const where = ['t.email = ?'];
+  const values: (string | number)[] = [email];
+  if (query.account != null) {
+    const found =
+      isRowId(query.account) &&
+      (await db
+        .prepare('SELECT 1 FROM accounts WHERE email = ? AND id = ?')
+        .bind(email, query.account)
+        .first());
+    if (!found) return fail('Account not found', 404);
+    where.push('(t.account_id = ? OR t.to_account_id = ?)');
+    values.push(query.account, query.account);
+  }
+  if (query.category != null) {
+    const categories = categoriesOrDefaults(await listCategories(db, email));
+    if (!categories.some((c) => c.id === query.category)) {
+      return fail('Category not found', 404);
+    }
+    const ids = [...categoriesIn(categories, query.category)];
+    where.push(`t.category_id IN (${ids.map(() => '?').join(', ')})`);
+    values.push(...ids);
+  }
+  if (query.from != null) {
+    where.push('t.date >= ?');
+    values.push(query.from);
+  }
+  if (query.to != null) {
+    where.push('t.date <= ?');
+    values.push(query.to);
+  }
+  if (query.q !== '') {
+    // Found anywhere in the text, every character as itself, with A to Z in either case:
+    // SQLite's lower() folds only those, as foldCase does. (Not a LIKE pattern: D1 refuses
+    // one over 50 bytes, and a search can be MAX_SEARCH_TEXT characters.)
+    const words = foldCase(query.q);
+    const found = ['t.payee', 't.note', 'c.name', 'p.name'].map(
+      (column) => `instr(lower(${column}), ?) > 0`,
+    );
+    values.push(words, words, words, words);
+    const cents = searchAmount(query.q);
+    if (cents != null) {
+      found.push('t.amount_cents = ?');
+      values.push(cents);
+    }
+    where.push(`(${found.join(' OR ')})`);
+  }
+  if (cursor != null) {
+    where.push('(t.date, t.created_at, t.id) < (?, ?, ?)');
+    values.push(...cursor);
+  }
+  return pageOf(
+    db.prepare(
+      `SELECT ${transactionColumns('t')} FROM transactions t
+       LEFT JOIN categories c ON c.email = t.email AND c.id = t.category_id
+       LEFT JOIN categories p ON p.email = c.email AND p.id = c.parent_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY t.date DESC, t.created_at DESC, t.id DESC
+       LIMIT ?`,
+    ),
+    values,
+    limit,
+  );
 }

@@ -63,6 +63,13 @@ export type TransactionKind = (typeof TRANSACTION_KINDS)[number];
 export const isTransactionKind = (v: unknown): v is TransactionKind =>
   (TRANSACTION_KINDS as readonly unknown[]).includes(v);
 
+/**
+ * The most transactions one change can move to another category or delete at once
+ * (recategoriseTransactions, removeTransactions): about 9 KB of ids, well within a request,
+ * and few enough that Undo puts every one back exactly
+ */
+export const MAX_BULK_TRANSACTIONS = 500;
+
 /** The longest a payee (who was paid, or who paid) can be, once trimmed */
 export const MAX_PAYEE = 80;
 

@@ -42,6 +42,15 @@ Release heading format:
 
 <!-- New features or capabilities. -->
 
+- Search: a Search row on Home opens a page (`?search`) that finds transactions on every
+  account, newest first, by payee, note, category name (a top-level name finds its
+  subcategories) or exact amount ("8.50"), narrowed by account, category and a date range.
+  Adds `GET /api/search`.
+- Search: Select (or a long press on a phone) ticks several found transactions to move
+  them to another category or delete them, up to 500 at once, after a preview ("Move 80
+  transactions from Other to Food"); each is one change, works offline, and Undo puts every
+  one back. Adds the `recategoriseTransactions` and `removeTransactions` changes; more than
+  500 is refused by the app and the Worker.
 - Offline and trust: while Home's balances or month come from the copy kept on the
   device (offline, or the server hasn't answered yet) a small "Updated 2 hours ago" line
   says how old they are, and a change the server saved whose answer was lost is no longer

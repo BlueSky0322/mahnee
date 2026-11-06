@@ -4,6 +4,7 @@ import type {
   ChangesBody,
   ErrorCode,
   ExportSummary,
+  PayeeCategories,
   Ledger,
   MonthSummary,
   Ok,
@@ -117,12 +118,20 @@ export const api = {
    */
   getTransactions: ({
     before,
+    limit,
     ...which
-  }: ({ account: string } | { month: string }) & { before: string | null }) => {
+  }: ({ account: string } | { month: string }) & { before: string | null; limit?: number }) => {
     const query = new URLSearchParams(which);
     if (before != null) query.set('before', before);
+    if (limit != null) query.set('limit', String(limit));
     return request<TransactionPage>('GET', `/api/transactions?${query.toString()}`);
   },
+  /**
+   * What each payee was last filed under, for spending and for income, what was filed on
+   * `account` first
+   */
+  getPayeeCategories: (account: string) =>
+    request<PayeeCategories>('GET', `/api/payee-categories?account=${encodeURIComponent(account)}`),
   /** How many transactions the export file holds, over which days */
   getExportSummary: () => request<ExportSummary>('GET', '/api/export/summary'),
   /**

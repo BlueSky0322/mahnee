@@ -54,6 +54,9 @@ hack-proof, and the limits below are real.
 - Exporting (`/api/export`) reads the person's transactions a page at a time and sends
   each as it's read, so the Worker never holds the whole history at once; a person has
   at most `MAX_ACCOUNTS` x `MAX_TRANSACTIONS_PER_ACCOUNT` of them.
+- `GET /api/payee-categories` answers each of the person's own payees with the category
+  it was last filed under, at most `MAX_PAYEE_CATEGORIES`; someone else's account is
+  answered as one that doesn't exist.
 - Exchange rates are fetched by the Worker, never the browser, from Wise and Frankfurter,
   with a 4-second time limit; the request names only the two currencies and the day.
 
@@ -84,6 +87,10 @@ hack-proof, and the limits below are real.
   Worker writes it as it's asked for, answers it with `Cache-Control: no-store`, and
   logs none of it; the service worker never keeps anything from `/api`. Once
   downloaded or shared it is wherever the person saved it, outside the app's care.
+- An imported file is read in the browser and never sent anywhere whole: only the
+  changes the person ticks go to the server, as any other change. The column mapping
+  remembered per account keeps column names only, in `localStorage` under the account's
+  email, let go on signing out.
 - Errors are logged by name and message only, never with what a person typed.
 
 ## Secrets and where they live

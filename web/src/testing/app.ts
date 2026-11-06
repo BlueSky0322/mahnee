@@ -20,6 +20,7 @@ import {
   DEFAULT_SETTINGS,
   EXPECTED_ACCOUNT_HEADER,
   MAX_CHANGES,
+  MAX_PAYEE_CATEGORIES,
   PENDING_CHANGES_HEADER,
   isRowId,
   readPendingIds,
@@ -148,7 +149,9 @@ export interface FakeServer {
    * The next save of the profile, or of ledger changes, answers with this status (and a
    * general explanation), or with this status and explanation
    */
-  failNext: Partial<Record<'profile' | 'changes', number | { status: number; error: string }>>;
+  failNext: Partial<
+    Record<'profile' | 'changes' | 'payeeCategories', number | { status: number; error: string }>
+  >;
   /**
    * The next ledger changes are saved, but the answer never reaches the app, as when the
    * connection drops on the way back
@@ -313,6 +316,12 @@ function answerNow(server: FakeServer) {
       });
     }
     if (path === '/api/export' && method === 'GET') return exportFile(server);
+    if (path === '/api/payee-categories' && method === 'GET') {
+      const failure = failing('payeeCategories');
+      if (failure) return failure;
+      const filed = payeeCategories(server, url.searchParams.get('account'));
+      return Array.isArray(filed) ? json({ error: filed[1] }, filed[0]) : json(filed);
+    }
     if (path === '/api/changes' && method === 'POST') {
       const failure = failing('changes');
       if (failure) return failure;
@@ -397,6 +406,45 @@ function exportFile(server: FakeServer) {
       },
     }),
   );
+}
+
+/**
+ * GET /api/payee-categories as the real one (worker/ledger/payees.ts) answers: each
+ * payee's latest category per kind, compared ignoring case, the account's own first, then
+ * newest first; someone else's account is answered as one that doesn't exist
+ */
+function payeeCategories(
+  server: FakeServer,
+  account: string | null,
+):
+  | { payees: { payee: string; kind: 'expense' | 'income'; categoryId: string }[] }
+  | [number, string] {
+  if (account == null) return [400, 'Ask for an account'];
+  if (!server.accounts.some((a) => a.id === account)) return [404, 'Account not found'];
+  const latest = new Map<string, Transaction>();
+  const filed = server.transactions
+    .filter((t) => t.kind !== 'transfer' && t.payee != null && t.categoryId != null)
+    .sort((a, b) =>
+      a.accountId === account && b.accountId !== account
+        ? -1
+        : b.accountId === account && a.accountId !== account
+          ? 1
+          : newestFirst(a, b),
+    );
+  for (const t of filed) {
+    const key = `${t.kind}|${t.payee!.toLowerCase()}`;
+    if (!latest.has(key)) latest.set(key, t);
+  }
+  return {
+    payees: [...latest.values()]
+      .sort(newestFirst)
+      .slice(0, MAX_PAYEE_CATEGORIES)
+      .map((t) => ({
+        payee: t.payee!,
+        kind: t.kind as 'expense' | 'income',
+        categoryId: t.categoryId!,
+      })),
+  };
 }
 
 /** Newest first, as the real server lists them: by day, time saved, then id */

@@ -17,6 +17,7 @@ in [AGENTS.md](../AGENTS.md).
 | [Transactions and quick entry](#transactions-and-quick-entry)  | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Month view](#month-view)                                      | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Export](#export)                                              | (none; read when asked)      | `ledger/`, `routes/ledger.ts`  |
+| [Import](#import)                                              | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Exchange rates](#exchange-rates)                              | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
 | [Offline start and installing](#offline-start-and-installing)  | `offline/`, `pwa/`           | (none; the API is the same)    |
 | [Pages, layouts and Back](#pages-layouts-and-back)             | `hooks/useRoute.ts`          | (none)                         |
@@ -476,6 +477,74 @@ number while text starting with "-" is guarded; the UTC day), and [Export.test.t
 days, downloading with today's name and the server's bytes, nothing logged yet, offline
 and changes still being saved, a failed download saving nothing; desktop and phone).
 
+## Import
+
+**What it is.** Bringing in a CSV file, on its own page (`?import`, from the Import row
+on Home under Export). Pick the account and the file; for a bank's file, say which column
+is the date, the amount (one column, below zero or in brackets for money out) or money in
+and money out, the payee and the note. The mapping is remembered per account on this
+device. Preview shows every row before anything is saved: money out as spending, money in
+as income, each in the category its payee was last filed under (`GET
+/api/payee-categories`; when that fails online the page says so), else Other or Other income, changeable per row. Dates are read day first, as the page says. A row with the
+same account, day, amount (money in and money out differ) and payee (trimmed, ignoring
+case; empty only matches empty) as a saved or waiting one says "Looks already saved" and
+is left unticked; it can be ticked anyway. A row it can't read, or that can't go where it
+says (an archived account), says why and can't be ticked; a payee or note cut to fit says
+so. Mahnee's own export (known by its header) needs no mapping: its accounts are found by
+name and those missing added (the file doesn't say their kinds, so each is asked), its
+categories by kind, name and parent and added when missing (one matched only archived
+falls back to Other), and an existing account's different opening balance is listed,
+unticked, and changes only if ticked. Export then import into a fresh account, then
+export again, gives the same file but for ids and the days accounts were added. A file of
+more than `MAX_IMPORT_ROWS` (5,000) rows is refused before the preview; the preview shows
+100 rows at a time. After a bank file the account's page opens; after an export, Home.
+
+**Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts): Import makes every change
+with `change()` (accounts, opening balances, categories, then transactions in the file's
+order), so it shows at once, works offline and goes through the outbox in batches of
+`MAX_CHANGES` / `MAX_CHANGES_BYTES` (5,000 rows is about 27 requests, sent one at a time;
+a 429 is kept and tried again), each change counted once by its id. `transactionsSince`
+there reads an account's transactions back to the file's first day (200 a page), with
+what was saved meanwhile and the changes still to send on top; offline, the pages this
+device has and the changes still to send. What the page works out before saving is its
+own: [components/import/import-plan.ts](../web/src/components/import/import-plan.ts)
+(`planBankFile`, `planExport`, `markSaved`, `importChanges`), and
+[remembered-mapping.ts](../web/src/components/import/remembered-mapping.ts) keeps the
+column names per email and account (`localStorage`, let go on signing out).
+
+**Parts.**
+
+- UI: [components/import/ImportPage.tsx](../web/src/components/import/ImportPage.tsx)
+  and the row on [HomePage.tsx](../web/src/components/home/HomePage.tsx).
+- API: `GET /api/payee-categories?account=` (`readPayeeCategories` in
+  [worker/ledger/payees.ts](../worker/ledger/payees.ts)): one query, the latest category
+  per kind and `lower(payee)`, that account's first, newest first, at most
+  `MAX_PAYEE_CATEGORIES`.
+- Shared: [shared/csv-import.ts](../shared/csv-import.ts) reads the file (`parseCsv`,
+  quoted cells and a byte-order mark), days (DD/MM/YYYY, YYYY-MM-DD, D MMM YYYY), amounts
+  in whole cents (commas, RM, brackets), bank rows by mapping, export lines (undoing the
+  export's formula guard), and which rows look already saved (`looksSaved`); `PayeeCategory`
+  in [shared/api.ts](../shared/api.ts).
+
+**Invariants.**
+
+- Nothing is saved until Import, and then only the rows ticked; every change is checked
+  by the Worker as any other.
+- New transaction ids are never the file's: one random prefix per import and a rising
+  count, so same-day rows keep the file's order.
+- A row is a duplicate of at most one saved or waiting transaction, so two alike in a file
+  are both new against one saved, and importing the same file twice adds nothing.
+- Amounts are read by their digits into whole cents, at most `MAX_TRANSACTION`.
+
+**Tests.** [shared/csv-import.test.ts](../shared/csv-import.test.ts) (cells, days,
+amounts, bank rows and what's wrong with them, export lines read back as written, the
+duplicate rule, the limit), [Import.test.tsx](../web/src/components/import/Import.test.tsx)
+(mapping and remembering it, money in and out, already saved and ticked anyway, the
+same file twice, categories from payees, shortened text, 5,001 refused, 5,000 on a phone
+with a lost answer counted once, offline, the export round trip, opening balances; desktop
+and phone), and the payee categories cases in
+[worker/test/api.test.ts](../worker/test/api.test.ts).
+
 ## Exchange rates
 
 **What it is.** Today's rate from one currency into another, or the rate on an earlier
@@ -614,10 +683,10 @@ when signed out),
 ## Pages, layouts and Back
 
 **What it is.** Which page shows, the layouts for phones, tablets and computers, and
-what Back does. There are three pages so far: the home page, with the month and the
+what Back does. There are four pages so far: the home page, with the month and the
 accounts on it (an earlier month as `?month=2026-10`), the categories page
-(`?categories`) and an account's page (`?account=<id>`), both of which go back up to
-Home.
+(`?categories`), the import page (`?import`) and an account's page (`?account=<id>`),
+each of which goes back up to Home.
 
 **Owner.**
 

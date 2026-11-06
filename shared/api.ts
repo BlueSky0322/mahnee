@@ -185,6 +185,26 @@ export interface ExportSummary {
   categories: number;
 }
 
+/** The category a payee was last filed under, for spending or for income */
+export interface PayeeCategory {
+  /** As it was last written */
+  payee: string;
+  kind: CategoryKind;
+  categoryId: string;
+}
+
+/**
+ * GET /api/payee-categories?account=<id>: each payee's latest category, per kind, payees
+ * compared trimmed and ignoring case; what was filed on that account comes first, then the
+ * person's other accounts. Newest first, at most MAX_PAYEE_CATEGORIES.
+ */
+export interface PayeeCategories {
+  payees: PayeeCategory[];
+}
+
+/** The most payees GET /api/payee-categories answers with, the latest filed first */
+export const MAX_PAYEE_CATEGORIES = 10_000;
+
 /** What a transaction is given when it's added: all of it but when it was saved */
 export type NewTransaction = Omit<Transaction, 'createdAt'>;
 

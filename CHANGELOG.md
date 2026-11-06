@@ -42,6 +42,17 @@ Release heading format:
 
 <!-- New features or capabilities. -->
 
+- Import: an Import row on Home opens a page to bring in a bank's CSV file: pick the
+  account and the file, say which column is the date, the amount (or money in and money
+  out), the payee and the note (remembered per account on this device; dates are read day first), then look over
+  every row before saving. Each goes in the category its payee was filed under before,
+  else Other or Other income, changeable per row (the page says so when those can't be looked up); a row with the same account, day,
+  amount and payee as one saved says "Looks already saved" and is left unticked, so the
+  same file imported twice adds nothing; rows it can't read say why. Mahnee's own export
+  is read directly (accounts, categories and transfers by name), so export then import
+  restores everything; an existing account's different opening balance changes only if
+  ticked. Up to 5,000 rows a file, saved through the outbox, so it works offline and
+  counts once. Adds `GET /api/payee-categories?account=`.
 - Offline and trust: while Home's balances or month come from the copy kept on the
   device (offline, or the server hasn't answered yet) a small "Updated 2 hours ago" line
   says how old they are, and a change the server saved whose answer was lost is no longer

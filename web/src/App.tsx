@@ -3,6 +3,7 @@ import { CloudSlash, SignIn } from '@phosphor-icons/react';
 import { useEffect } from 'react';
 import AccountPage from './components/accounts/AccountPage';
 import CategoriesPage from './components/categories/CategoriesPage';
+import ImportPage from './components/import/ImportPage';
 import HomePage from './components/home/HomePage';
 import SearchPage from './components/search/SearchPage';
 import StateCard from './components/ui/StateCard';
@@ -45,6 +46,7 @@ function App() {
     <AppLayout>
       {route.view === 'home' && <HomePage month={route.month} />}
       {route.view === 'categories' && <CategoriesPage />}
+      {route.view === 'import' && <ImportPage />}
       {route.view === 'search' && <SearchPage />}
       {route.view === 'account' && (
         <AccountPage

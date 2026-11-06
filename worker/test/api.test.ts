@@ -1476,6 +1476,83 @@ describe('transactions', () => {
     });
   });
 
+  describe('payee categories', () => {
+    const filed = (who: string, account: string) =>
+      api.call(who, 'GET', `/api/payee-categories?account=${account}`);
+
+    it("say each payee's latest category, per kind, trimmed and ignoring case", async () => {
+      const { me, wallet } = await withWallet();
+      const coffee = rowId();
+      await send(me, [
+        {
+          op: 'addCategory',
+          category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
+        },
+        add(rowId(), wallet, 800, { payee: 'Kopi Corner', date: '2025-10-01' }),
+        // Later, and filed elsewhere: this one counts
+        add(rowId(), wallet, 900, {
+          payee: '  KOPI corner ',
+          categoryId: coffee,
+          date: '2025-10-05',
+        }),
+        // Earlier than both, so it doesn't
+        add(rowId(), wallet, 700, {
+          payee: 'kopi corner',
+          categoryId: transport,
+          date: '2025-09-30',
+        }),
+        // Money in from the same payee is filed apart
+        add(rowId(), wallet, 5_000, {
+          kind: 'income',
+          categoryId: salary,
+          payee: 'Kopi Corner',
+          date: '2025-09-01',
+        }),
+        add(rowId(), wallet, 1_500, { payee: 'Grab', categoryId: transport, date: '2025-10-02' }),
+        // No payee: nothing to remember
+        add(rowId(), wallet, 300, { date: '2025-10-06' }),
+      ]);
+      const res = await filed(me, wallet);
+      expect(res.status).toBe(200);
+      const byPayee = (res.data.payees as { payee: string; kind: string; categoryId: string }[])
+        .map((p) => [p.payee.trim().toLowerCase(), p.kind, p.categoryId])
+        .sort((a, b) => (a.join() < b.join() ? -1 : 1));
+      expect(byPayee).toEqual([
+        ['grab', 'expense', transport],
+        ['kopi corner', 'expense', coffee],
+        ['kopi corner', 'income', salary],
+      ]);
+    });
+
+    it("prefer what was filed on the account asked about, then the person's other accounts", async () => {
+      const { me, wallet } = await withWallet();
+      const bank = rowId();
+      await send(me, [
+        addAccount(bank, 'bank', 0, 'Bank'),
+        add(rowId(), wallet, 800, { payee: 'Grab', categoryId: transport, date: '2025-10-01' }),
+        add(rowId(), bank, 800, { payee: 'Grab', date: '2025-10-09' }),
+        add(rowId(), bank, 4_000, { payee: 'Tesco', date: '2025-10-03' }),
+      ]);
+      const category = async (account: string, payee: string) =>
+        ((await filed(me, account)).data.payees as { payee: string; categoryId: string }[]).find(
+          (p) => p.payee.trim().toLowerCase() === payee.toLowerCase(),
+        )?.categoryId;
+      expect(await category(wallet, 'Grab')).toBe(transport);
+      expect(await category(bank, 'Grab')).toBe(food);
+      // Only ever filed on the bank, still known on the wallet
+      expect(await category(wallet, 'Tesco')).toBe(food);
+    });
+
+    it("never say someone else's, and refuse an account that isn't theirs", async () => {
+      const { me, wallet } = await withWallet();
+      await send(me, [add(rowId(), wallet, 800, { payee: 'Kopi Corner' })]);
+      const { me: other, wallet: theirs } = await withWallet();
+      expect(await filed(other, theirs)).toEqual({ status: 200, data: { payees: [] } });
+      expect((await filed(other, wallet)).status).toBe(404);
+      expect((await api.call(me, 'GET', '/api/payee-categories')).status).toBe(400);
+    });
+  });
+
   describe("a month's totals", () => {
     const summary = (who: string, month: string) =>
       api.call(who, 'GET', `/api/summary?month=${month}`);

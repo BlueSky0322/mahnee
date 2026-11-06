@@ -1,5 +1,12 @@
 import { Button } from '@mantine/core';
-import { CaretRight, DownloadSimple, MagnifyingGlass, SignOut, Tag } from '@phosphor-icons/react';
+import {
+  CaretRight,
+  DownloadSimple,
+  MagnifyingGlass,
+  SignOut,
+  Tag,
+  UploadSimple,
+} from '@phosphor-icons/react';
 import { useState } from 'react';
 import AccountList from '../accounts/AccountList';
 import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
@@ -19,10 +26,10 @@ import { useConfirmSignOut } from './useConfirmSignOut';
 
 // The first screen. It says how old the numbers are when they came from this device. Then
 // the month at a glance (`month`, an earlier one; null for this one), the person's
-// accounts, the ways to search their transactions, to their categories and to export
-// everything, then who's signed in and the way out. Add, floating over it, opens the entry
-// sheet once there's an account to put a transaction on. Until the first account is added
-// there's no month to show.
+// accounts, the ways to search their transactions, to their categories, to export
+// everything and to import a file, then who's signed in and the way out. Add, floating
+// over it, opens the entry sheet once there's an account to put a transaction on. Until
+// the first account is added there's no month to show.
 const HomePage = ({ month }: { month: string | null }) => {
   const { profile } = useProfile();
   const { askToSignOut, dialog } = useConfirmSignOut();
@@ -82,6 +89,21 @@ const HomePage = ({ month }: { month: string | null }) => {
           <DownloadSimple size={20} />
         </span>
         <span className={classes.linkText}>Export</span>
+        <CaretRight
+          size={16}
+          className={classes.linkCaret}
+          aria-hidden
+        />
+      </button>
+      <button
+        type="button"
+        className={classes.link}
+        onClick={() => navigate('?import')}
+      >
+        <span className={classes.linkIcon}>
+          <UploadSimple size={20} />
+        </span>
+        <span className={classes.linkText}>Import</span>
         <CaretRight
           size={16}
           className={classes.linkCaret}

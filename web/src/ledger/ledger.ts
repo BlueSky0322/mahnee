@@ -431,6 +431,60 @@ export async function fetchTransactionPage(
   return applyToPages([page], missed, belongsTo(key), savedTransaction)[0];
 }
 
+/** The most a page of transactions holds (worker/ledger/read.ts MAX_PAGE_SIZE) */
+const LARGEST_PAGE = 200;
+
+/**
+ * An account's transactions back to `fromDay` (a few older ones too), as shown: what the
+ * server has, with what was saved meanwhile and the changes still to send on top. For an
+ * import to tell which of a file's rows look already saved. Offline, what this device
+ * has: the account's pages loaded or kept, and the changes still to send.
+ */
+export async function transactionsSince(
+  accountId: string,
+  fromDay: string,
+): Promise<Transaction[]> {
+  const key = accountTransactionsKey(accountId);
+  const savedBefore = savedCount;
+  let held: Transaction[] = [];
+  try {
+    let before: string | null = null;
+    do {
+      const page: TransactionPage = await api.getTransactions({
+        account: accountId,
+        before,
+        limit: LARGEST_PAGE,
+      });
+      held.push(...page.transactions);
+      before = page.nextBefore;
+      const last = page.transactions.at(-1);
+      if (last != null && last.date < fromDay) break;
+    } while (before != null);
+    held = applyToPages(
+      [{ transactions: held, nextBefore: null }],
+      savedLog.filter((s) => s.n > savedBefore).flatMap((s) => s.changes),
+      belongsTo(key),
+      savedTransaction,
+    )[0].transactions;
+  } catch (err) {
+    if (!isOfflineFailure(err)) throw err;
+    const kept = await readCache<TransactionPage>(pageCacheKey(accountId));
+    const loaded = queryClient.getQueryData<Pages>(key)?.pages ?? [];
+    const byId = new Map(
+      [...(kept?.transactions ?? []), ...loaded.flatMap((p) => p.transactions)].map((t) => [
+        t.id,
+        t,
+      ]),
+    );
+    held = [...byId.values()];
+  }
+  return shownPages(
+    key,
+    { pages: [{ transactions: held, nextBefore: null }], pageParams: [null] },
+    queue.pending(),
+  );
+}
+
 /**
  * A list's transactions as shown, newest first: as the server has them, with the changes
  * still to send on top. Each once, should two pages both hold one.

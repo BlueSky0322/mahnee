@@ -8,11 +8,11 @@
 //   - currency/: exchange rates;
 //   - ledger/: the money a person tracks: their cash, bank, card and e-wallet accounts
 //     with balances, their categories, and their transactions a page at a time
-//     (read.ts), a month's spending and income (summary.ts), every transaction as a CSV
-//     file to take away (export.ts), the category each payee was last filed under, for
-//     importing (payees.ts), saving the app's batches of changes all or nothing
-//     (changes.ts), and the receipts that make a change sent again count once
-//     (receipts.ts).
+//     (read.ts), a month's spending and income (summary.ts) and the 12 months up to it
+//     (trend.ts), every transaction as a CSV file to take away (export.ts), the
+//     category each payee was last filed under, for importing (payees.ts), saving the
+//     app's batches of changes all or nothing (changes.ts), and the receipts that make a
+//     change sent again count once (receipts.ts).
 // Reading requests and answering is in http.ts.
 
 import type { AuthEnv } from './accounts/auth';

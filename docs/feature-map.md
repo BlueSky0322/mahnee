@@ -353,10 +353,15 @@ when more was spent than came in it says "Over", in the negative colour, with a 
 saying by how much. Spent and Received sit beneath it, then spending by top-level
 category, largest first, each with a bar for its share of the month's spending. A
 category with subcategories opens to show each one's amount and what was filed under
-the category itself; income by category is folded under Received. Budgets, when the
-month has any, are listed after Spent and Received (see Budgets). Placeholders show
-until the month arrives; an empty month says so. It isn't shown until the first account
-is added.
+the category itself; income by category is folded under Received. Every category row
+(spending and income), Spent and Received open in place to their last 12 months, ending
+at the month shown: one bar a month with its amount, the month shown highlighted, then
+the average of the 11 months before it ("Average RM 4.13 a month (previous 11)") and
+how the month shown compares ("This month RM 6.87 above average", or "the same as
+average"); Spent shows all spending, Received all income after its categories.
+Budgets, when the month has any, are listed after Spent and Received (see Budgets).
+Placeholders show until the month arrives; an empty month says so. It isn't shown until
+the first account is added.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), as for transactions. A
 month's totals are a query keyed by month (`summaryKey`), fetched from the server
@@ -368,16 +373,26 @@ again. [ledger/summary.ts](../web/src/ledger/summary.ts) (`applyToSummary`) does
 counting the way the server sums; [ledger/derive.ts](../web/src/ledger/derive.ts)
 (`rollUp`) puts subcategories inside their top-level category for showing. Screens read
 through `useMonthSummary(month)` in [ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
+The 12 months up to the month shown are a query of their own (`trendKey`, fetched with
+the card by `fetchTrend`, device copy `trend-v1:<month>`), kept and counted the same way
+(`shownTrend`, `applyToTrend`, each change in whichever of the 12 it falls in); screens
+read them through `useMonthTrend(month)`. The card never waits on them.
 
 **Parts.**
 
-- UI: [components/home/MonthCard.tsx](../web/src/components/home/MonthCard.tsx), on
+- UI: [components/home/MonthCard.tsx](../web/src/components/home/MonthCard.tsx) and
+  [TwelveMonths.tsx](../web/src/components/home/TwelveMonths.tsx) (a row's 12 months), on
   [HomePage.tsx](../web/src/components/home/HomePage.tsx); months in
   [utils/date-input.ts](../web/src/utils/date-input.ts) (`thisMonth`, `addMonths`,
   `monthHeading`).
 - API: `GET /api/summary?month=2026-11` (`readSummary` in
   [worker/ledger/summary.ts](../worker/ledger/summary.ts)): one grouped SQL sum.
-- Shared: `MonthSummary` and `CategoryTotal` in [shared/api.ts](../shared/api.ts);
+  `GET /api/summary/trend?month=2026-11` (`readTrend` in
+  [worker/ledger/trend.ts](../worker/ledger/trend.ts)): the 12 months ending there, each
+  in the month's shape, in one grouped SQL sum over a fixed window.
+- Shared: `MonthSummary`, `MonthTrend` and `CategoryTotal` in
+  [shared/api.ts](../shared/api.ts); the 12 months, the average and the comparison in
+  [shared/trend.ts](../shared/trend.ts);
   `isMonth` in [shared/ledger.ts](../shared/ledger.ts).
 
 **Flow.** The server sums the person's spending and income in the month (by the day a
@@ -389,6 +404,10 @@ a subcategory moved under another category moves its spending with it.
 
 - Only spending and income count. A transfer is never spending or income, and is left
   out by name in the SQL and in `applyToSummary`.
+- The 12 months are the month shown and the 11 before it; the average is over those 11, in
+  whole cents rounded half up, and the difference is from the average as shown. Each
+  month of the 12 is summed exactly as the month's totals are, so the month shown's bar is
+  the card's figure.
 - Every total is exact: at most `MAX_ACCOUNTS` x `MAX_TRANSACTIONS_PER_ACCOUNT` x
   `MAX_TRANSACTION_CENTS` (5e15 cents) per person, under what a number holds exactly;
   each list has at most one row per category (`MAX_CATEGORIES`). Left is received less
@@ -410,9 +429,15 @@ and months, deleting and Undo, spending to income, transfers, unknown ones),
 categories), [MonthCard.test.tsx](../web/src/components/home/MonthCard.test.tsx) (left,
 spent, received, Food opened to Coffee and Food itself, income under Received, earlier
 months and Back, over, placeholders, offline through a reload and once saved, each
-change counted at once while an earlier one is being saved; desktop and phone), and the month's totals cases in
+change counted at once while an earlier one is being saved; desktop and phone),
+[Trends.test.tsx](../web/src/components/home/Trends.test.tsx) (every row, Spent and
+Received opened to 12 months, averages, an earlier month, nothing in a year, a read that
+fails, answers out of order, closing, offline through a reload and once saved),
+[shared/trend.test.ts](../shared/trend.test.ts) (the months, rounding, the comparison),
+and the month's totals and last 12 months cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (spending, income, a transfer,
-subcategories under their own id, other months and other people, bad months).
+subcategories under their own id, other months and other people, the window's edges, bad
+months).
 
 ## Budgets
 

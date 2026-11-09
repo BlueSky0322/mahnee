@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-09
+
+- Added: tap a category, Spent or Received on Home to see its last 12 months [#?]
+
 ## 2026-11-06
 
 - Added: repeating bills and income, logged from Home, and what to expect at month end [#17]

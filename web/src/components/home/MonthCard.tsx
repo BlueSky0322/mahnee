@@ -1,18 +1,21 @@
 import { ActionIcon, Button } from '@mantine/core';
 import { CaretDown, CaretLeft, CaretRight } from '@phosphor-icons/react';
-import { useId, useState } from 'react';
-import type { Category, CategoryTotal, MonthSummary } from '@shared/api';
+import { useId, useMemo, useState } from 'react';
+import type { Category, CategoryTotal, MonthSummary, MonthTrend } from '@shared/api';
 import { DEFAULT_CURRENCY, FIRST_DAY } from '@shared/ledger';
 import { navigate } from '../../hooks/useRoute';
 import type { BudgetLine } from '../../ledger/budgets';
 import { budgetLines } from '../../ledger/budgets';
 import type { CategoryRollUp } from '../../ledger/derive';
 import { rollUp } from '../../ledger/derive';
-import { useCategories, useMonthSummary } from '../../ledger/useLedger';
+import type { Trend } from '../../ledger/useLedger';
+import { useCategories, useMonthSummary, useMonthTrend } from '../../ledger/useLedger';
 import { addMonths, monthHeading, thisMonth } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import classes from './MonthCard.module.css';
+import type { MonthAmount } from './TwelveMonths';
+import TwelveMonths from './TwelveMonths';
 
 /** The earliest month a transaction can be in */
 const FIRST_MONTH = FIRST_DAY.slice(0, 7);
@@ -28,12 +31,17 @@ const showMonth = (month: string) => navigate(month >= thisMonth() ? '' : `?mont
 // The top of Home: a month at a glance. What's left (received less spent) is the
 // largest number, then what was spent and received, then where the spending went, by
 // top-level category with its subcategories inside. Each budgeted category says what's left
-// of its budget, or how far over it is. The arrows step between months, up
-// to this one; an earlier month is in the address (?month=2026-10), so Back returns.
+// of its budget, or how far over it is. Every category row, Spent and Received open in
+// place to their last 12 months, ending at the month shown. The arrows step between
+// months, up to this one; an earlier month is in the address (?month=2026-10), so Back
+// returns.
 export default function MonthCard({ month }: { month: string | null }) {
   const current = thisMonth();
   const shown = month ?? current;
   const { summary, failed, retry } = useMonthSummary(shown);
+  // Read with the month, so it's there at once when a row is opened, and offline; the
+  // month never waits on it
+  const trend = useMonthTrend(shown);
   const { categories } = useCategories();
   const titleId = useId();
 
@@ -91,6 +99,7 @@ export default function MonthCard({ month }: { month: string | null }) {
           key={shown}
           summary={summary}
           categories={categories}
+          trend={trend}
           isCurrent={shown === current}
         />
       )}
@@ -152,20 +161,87 @@ function Placeholder() {
   );
 }
 
+/** Spending or income: which of a month's totals a row counts */
+type Side = 'spent' | 'income';
+
+/**
+ * The 12 months ending at the month shown, as the card reads them: each month's spending
+ * and income in total, and by top-level category rolled up as the month's own rows are
+ * (rollUp), so the month shown is the card's figures
+ */
+interface Year {
+  months: string[];
+  total: Record<Side, number[]>;
+  byCategory: Record<Side, CategoryRollUp[][]>;
+}
+
+function readYear(trend: MonthTrend, categories: Category[]): Year {
+  return {
+    months: trend.months.map((m) => m.month),
+    total: {
+      spent: trend.months.map((m) => m.spentCents),
+      income: trend.months.map((m) => m.incomeCents),
+    },
+    byCategory: {
+      spent: trend.months.map((m) => rollUp(m.spentByCategory, categories)),
+      income: trend.months.map((m) => rollUp(m.incomeByCategory, categories)),
+    },
+  };
+}
+
+/** What one row opens to: its 12 months once read, and how to ask again */
+interface Over {
+  /** A top-level category's 12 months, or all of a side's when `categoryId` is null */
+  amounts: (side: Side, categoryId: string | null) => MonthAmount[] | null;
+  failed: boolean;
+  retry: () => void;
+}
+
+function useOver(trend: Trend, categories: Category[]): Over {
+  const year = useMemo(
+    () => (trend.trend == null ? null : readYear(trend.trend, categories)),
+    [trend.trend, categories],
+  );
+  return {
+    amounts: (side, categoryId) =>
+      year == null
+        ? null
+        : year.months.map((month, i) => ({
+            month,
+            cents:
+              categoryId == null
+                ? year.total[side][i]
+                : year.byCategory[side][i].find((top) => top.id === categoryId)?.cents ?? 0,
+          })),
+    failed: trend.failed,
+    retry: trend.retry,
+  };
+}
+
 function Totals({
   summary,
   categories,
+  trend,
   isCurrent,
 }: {
   summary: MonthSummary;
   categories: Category[];
+  trend: Trend;
   isCurrent: boolean;
 }) {
+  const [showSpent, setShowSpent] = useState(false);
   const [showIncome, setShowIncome] = useState(false);
-  const ids = { left: useId(), spent: useId(), received: useId(), income: useId() };
+  const ids = {
+    left: useId(),
+    spent: useId(),
+    received: useId(),
+    spending: useId(),
+    income: useId(),
+  };
+  const over = useOver(trend, categories);
   const name = monthHeading(summary.month, { short: true });
-  const over = summary.leftCents < 0;
-  const leftLabel = `${over ? 'Over' : 'Left'} ${isCurrent ? 'this month' : `in ${name}`}`;
+  const isOver = summary.leftCents < 0;
+  const leftLabel = `${isOver ? 'Over' : 'Left'} ${isCurrent ? 'this month' : `in ${name}`}`;
   const nothing = summary.spentCents === 0 && summary.incomeCents === 0;
 
   return (
@@ -179,12 +255,12 @@ function Totals({
         </span>
         <span
           aria-labelledby={ids.left}
-          className={over ? `${classes.leftAmount} ${classes.negative}` : classes.leftAmount}
+          className={isOver ? `${classes.leftAmount} ${classes.negative}` : classes.leftAmount}
         >
-          {over && '−'}
+          {isOver && '−'}
           {money(Math.abs(summary.leftCents))}
         </span>
-        {over && (
+        {isOver && (
           <span className={classes.caption}>
             {money(-summary.leftCents)} more was spent than came in.
           </span>
@@ -192,82 +268,59 @@ function Totals({
       </div>
 
       <div className={classes.figures}>
-        <div className={classes.figure}>
-          <span
-            id={ids.spent}
-            className={classes.figureLabel}
-          >
-            Spent
-          </span>
-          <span
-            aria-labelledby={ids.spent}
-            className={classes.figureAmount}
-          >
-            {money(summary.spentCents)}
-          </span>
-        </div>
-        {summary.incomeByCategory.length === 0 ? (
-          <div className={classes.figure}>
-            <span
-              id={ids.received}
-              className={classes.figureLabel}
-            >
-              Received
-            </span>
-            <span
-              aria-labelledby={ids.received}
-              className={classes.figureAmount}
-            >
-              {money(summary.incomeCents)}
-            </span>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className={`${classes.figure} ${classes.figureButton}`}
-            aria-expanded={showIncome}
-            aria-controls={ids.income}
-            onClick={() => setShowIncome((shown) => !shown)}
-          >
-            <span
-              id={ids.received}
-              className={classes.figureLabel}
-            >
-              Received
-              {showIncome ? (
-                <CaretDown
-                  size={12}
-                  aria-hidden
-                />
-              ) : (
-                <CaretRight
-                  size={12}
-                  aria-hidden
-                />
-              )}
-            </span>
-            <span
-              aria-labelledby={ids.received}
-              className={classes.figureAmount}
-            >
-              {money(summary.incomeCents)}
-            </span>
-          </button>
-        )}
+        <Figure
+          label="Spent"
+          labelId={ids.spent}
+          cents={summary.spentCents}
+          open={showSpent}
+          controls={ids.spending}
+          onToggle={() => setShowSpent((shown) => !shown)}
+        />
+        <Figure
+          label="Received"
+          labelId={ids.received}
+          cents={summary.incomeCents}
+          open={showIncome}
+          controls={ids.income}
+          onToggle={() => setShowIncome((shown) => !shown)}
+        />
       </div>
 
-      <Budgets lines={budgetLines(summary, categories)} />
+      {showSpent && (
+        <TwelveMonths
+          id={ids.spending}
+          name="Spending"
+          months={over.amounts('spent', null)}
+          failed={over.failed}
+          retry={over.retry}
+        />
+      )}
 
       {showIncome && (
-        <div id={ids.income}>
-          <CategoryRows
-            label="Income by category"
-            totals={summary.incomeByCategory}
-            ofCents={summary.incomeCents}
-            categories={categories}
+        <div
+          id={ids.income}
+          className={classes.group}
+        >
+          {summary.incomeByCategory.length > 0 && (
+            <CategoryRows
+              label="Income by category"
+              side="income"
+              totals={summary.incomeByCategory}
+              ofCents={summary.incomeCents}
+              categories={categories}
+              over={over}
+            />
+          )}
+          <TwelveMonths
+            name="Income"
+            months={over.amounts('income', null)}
+            failed={over.failed}
+            retry={over.retry}
           />
         </div>
       )}
+
+      <Budgets lines={budgetLines(summary, categories)} />
 
       {nothing ? (
         <p className={classes.muted}>
@@ -282,29 +335,87 @@ function Totals({
       ) : (
         <CategoryRows
           label="Spending by category"
+          side="spent"
           totals={summary.spentByCategory}
           ofCents={summary.spentCents}
           categories={categories}
+          over={over}
         />
       )}
     </div>
   );
 }
 
+/** Spent or Received: its amount for the month, opening to more beneath the figures */
+function Figure({
+  label,
+  labelId,
+  cents,
+  open,
+  controls,
+  onToggle,
+}: {
+  label: string;
+  labelId: string;
+  cents: number;
+  open: boolean;
+  controls: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`${classes.figure} ${classes.figureButton}`}
+      aria-expanded={open}
+      aria-controls={controls}
+      onClick={onToggle}
+    >
+      <span
+        id={labelId}
+        className={classes.figureLabel}
+      >
+        {label}
+        {open ? (
+          <CaretDown
+            size={12}
+            aria-hidden
+          />
+        ) : (
+          <CaretRight
+            size={12}
+            aria-hidden
+          />
+        )}
+      </span>
+      <span
+        aria-labelledby={labelId}
+        className={classes.figureAmount}
+      >
+        {money(cents)}
+      </span>
+    </button>
+  );
+}
+
 /**
- * Top-level categories, largest first, each with a bar for its share of `ofCents`. One
- * with subcategories opens to show them, and what was filed under it directly.
+ * Top-level categories, largest first, each with a bar for its share of `ofCents`. Each
+ * opens to show its subcategories (if any) and what was filed under it directly, then its
+ * last 12 months.
  */
 function CategoryRows({
   label,
+  side,
   totals,
   ofCents,
   categories,
+  over,
 }: {
   label: string;
+  side: Side;
   totals: CategoryTotal[];
   ofCents: number;
   categories: Category[];
+  over: Over;
 }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const toggle = (id: string) =>
@@ -333,6 +444,8 @@ function CategoryRows({
               ofCents={ofCents}
               open={open.has(top.id)}
               onToggle={() => toggle(top.id)}
+              months={open.has(top.id) ? over.amounts(side, top.id) : null}
+              over={over}
             />
           </li>
         ))}
@@ -346,23 +459,35 @@ function CategoryRow({
   ofCents,
   open,
   onToggle,
+  months,
+  over,
 }: {
   top: CategoryRollUp;
   ofCents: number;
   open: boolean;
   onToggle: () => void;
+  /** Its last 12 months, when open and read */
+  months: MonthAmount[] | null;
+  over: Over;
 }) {
   const insideId = useId();
   // A share of the bar's width, for drawing only: the amounts themselves stay in cents
   const share = ofCents > 0 ? Math.max(1, Math.round((top.cents / ofCents) * 100)) : 0;
-  const content = (
+  return (
     <>
-      <span className={classes.rowLine}>
-        <span className={classes.rowName}>{top.name}</span>
-        <span className="sr-only">, </span>
-        <span className={classes.rowAmount}>{money(top.cents)}</span>
-        {top.subcategories.length > 0 &&
-          (open ? (
+      <button
+        type="button"
+        className={`${classes.row} ${classes.rowButton}`}
+        aria-label={`${top.name}, ${money(top.cents)}`}
+        aria-expanded={open}
+        aria-controls={insideId}
+        onClick={onToggle}
+      >
+        <span className={classes.rowLine}>
+          <span className={classes.rowName}>{top.name}</span>
+          <span className="sr-only">, </span>
+          <span className={classes.rowAmount}>{money(top.cents)}</span>
+          {open ? (
             <CaretDown
               size={14}
               className={classes.caret}
@@ -374,56 +499,54 @@ function CategoryRow({
               className={classes.caret}
               aria-hidden
             />
-          ))}
-      </span>
-      <span
-        className={classes.track}
-        aria-hidden
-      >
+          )}
+        </span>
         <span
-          className={classes.bar}
-          style={{ width: `${share}%` }}
-        />
-      </span>
-    </>
-  );
-  if (top.subcategories.length === 0) return <div className={classes.row}>{content}</div>;
-  return (
-    <>
-      <button
-        type="button"
-        className={`${classes.row} ${classes.rowButton}`}
-        aria-label={`${top.name}, ${money(top.cents)}`}
-        aria-expanded={open}
-        aria-controls={insideId}
-        onClick={onToggle}
-      >
-        {content}
+          className={classes.track}
+          aria-hidden
+        >
+          <span
+            className={classes.bar}
+            style={{ width: `${share}%` }}
+          />
+        </span>
       </button>
       {open && (
-        <ul
+        <div
           id={insideId}
-          className={classes.inside}
-          aria-label={`In ${top.name}`}
+          className={classes.opened}
         >
-          {top.subcategories.map((sub) => (
-            <li
-              key={sub.id}
-              className={classes.insideRow}
+          {top.subcategories.length > 0 && (
+            <ul
+              className={classes.inside}
+              aria-label={`In ${top.name}`}
             >
-              <span className={classes.rowName}>{sub.name}</span>
-              <span className="sr-only">, </span>
-              <span className={classes.insideAmount}>{money(sub.cents)}</span>
-            </li>
-          ))}
-          {top.ownCents > 0 && (
-            <li className={classes.insideRow}>
-              <span className={classes.rowName}>Filed under {top.name} itself</span>
-              <span className="sr-only">, </span>
-              <span className={classes.insideAmount}>{money(top.ownCents)}</span>
-            </li>
+              {top.subcategories.map((sub) => (
+                <li
+                  key={sub.id}
+                  className={classes.insideRow}
+                >
+                  <span className={classes.rowName}>{sub.name}</span>
+                  <span className="sr-only">, </span>
+                  <span className={classes.insideAmount}>{money(sub.cents)}</span>
+                </li>
+              ))}
+              {top.ownCents > 0 && (
+                <li className={classes.insideRow}>
+                  <span className={classes.rowName}>Filed under {top.name} itself</span>
+                  <span className="sr-only">, </span>
+                  <span className={classes.insideAmount}>{money(top.ownCents)}</span>
+                </li>
+              )}
+            </ul>
           )}
-        </ul>
+          <TwelveMonths
+            name={top.name}
+            months={months}
+            failed={over.failed}
+            retry={over.retry}
+          />
+        </div>
       )}
     </>
   );

@@ -7,6 +7,7 @@ import type {
   PayeeCategories,
   Ledger,
   MonthSummary,
+  MonthTrend,
   Ok,
   Profile as ApiProfile,
   ProfilePatch,
@@ -168,6 +169,17 @@ export const api = {
     request<MonthSummary>(
       'GET',
       `/api/summary?month=${encodeURIComponent(month)}`,
+      undefined,
+      naming(pending),
+    ),
+  /**
+   * What was spent and received in each of the 12 months ending at `month`, by category,
+   * and which of the `pending` change ids it counts already
+   */
+  getTrend: (month: string, pending: string[] = []) =>
+    request<MonthTrend>(
+      'GET',
+      `/api/summary/trend?month=${encodeURIComponent(month)}`,
       undefined,
       naming(pending),
     ),

@@ -250,3 +250,87 @@
 .barOver {
   background: var(--sf-negative);
 }
+
+.twelve {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 4px 8px;
+}
+
+.twelveTitle {
+  margin: 0;
+  color: var(--sf-text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.twelveBars {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Month, bar, amount on one line; the bar takes what's left and the line wraps at big text */
+.twelveRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  padding: 2px 0;
+  color: var(--sf-text-secondary);
+  font-size: 13px;
+}
+
+.twelveMonth {
+  flex: none;
+  min-width: 5.5em;
+}
+
+.twelveTrack {
+  display: block;
+  flex: 1 1 60px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--sf-tag);
+}
+
+.twelveBar {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--sf-text-muted);
+}
+
+.twelveAmount {
+  flex: none;
+  min-width: 5.5em;
+  margin-left: auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.twelveShown {
+  color: inherit;
+  font-weight: 600;
+}
+
+.twelveShown .twelveBar {
+  background: var(--sf-accent);
+}
+
+.twelveLine {
+  margin: 4px 0 0;
+  color: var(--sf-text-secondary);
+  font-size: 14px;
+}
+
+.opened {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

@@ -1,6 +1,6 @@
 // A person's ledger: reading their accounts, categories and transactions (searching them
-// too) and a month's totals, what each payee was last filed under, taking all of it out
-// as a file, and saving the app's changes to them
+// too), a month's totals and the 12 months up to it, what each payee was last filed
+// under, taking all of it out as a file, and saving the app's changes to them
 
 import { Hono } from 'hono';
 import type { ChangesBody, ExportSummary, Ledger } from '../../shared/api';
@@ -12,6 +12,7 @@ import { exportTransactions, readExportSummary } from '../ledger/export';
 import { readPayeeCategories } from '../ledger/payees';
 import { listTransactions, readLedger, searchTransactions } from '../ledger/read';
 import { readSummary } from '../ledger/summary';
+import { readTrend } from '../ledger/trend';
 
 const ledger = new Hono<AppEnv>();
 
@@ -41,6 +42,12 @@ ledger.get('/summary', (c) => {
   const pending = pendingIds(c.req.header(PENDING_CHANGES_HEADER));
   if (pending instanceof Response) return pending;
   return readSummary(c.env.DB, c.var.email, new URL(c.req.url).searchParams, pending);
+});
+
+ledger.get('/summary/trend', (c) => {
+  const pending = pendingIds(c.req.header(PENDING_CHANGES_HEADER));
+  if (pending instanceof Response) return pending;
+  return readTrend(c.env.DB, c.var.email, new URL(c.req.url).searchParams, pending);
 });
 
 ledger.get('/export', (c) =>

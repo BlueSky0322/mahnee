@@ -5,6 +5,7 @@ import type {
   Category,
   Ledger,
   MonthSummary,
+  MonthTrend,
   Transaction,
   TransactionPage,
 } from '@shared/api';
@@ -18,14 +19,17 @@ import {
   dataAge,
   fetchLedger,
   fetchSummary,
+  fetchTrend,
   fetchTransactionPage,
   searchTransactionsKey,
   pendingChanges,
   pendingWithIds,
   shownPages,
   shownSummary,
+  shownTrend,
   showKeptCopy,
   summaryKey,
+  trendKey,
   subscribeDataAge,
   subscribeUnsaved,
   unsavedState,
@@ -210,6 +214,30 @@ export function useMonthSummary(month: string): Summary {
     networkMode: 'offlineFirst',
   });
   return { summary: data ?? null, failed: isError && data == null, retry: () => void refetch() };
+}
+
+export interface Trend {
+  /** The 12 months ending at the month, changes still to send included; null until loaded */
+  trend: MonthTrend | null;
+  failed: boolean;
+  retry: () => void;
+}
+
+/**
+ * What was spent and received in each of the 12 months ending at `month` (2026-11), by
+ * category: one read for all 12
+ */
+export function useMonthTrend(month: string): Trend {
+  const pending = useSyncExternalStore(subscribeUnsaved, pendingWithIds);
+  const select = useCallback((data: MonthTrend) => shownTrend(data, pending), [pending]);
+  const { data, isError, refetch } = useQuery({
+    queryKey: trendKey(month),
+    queryFn: () => fetchTrend(month),
+    select,
+    // Asked for offline too, so the copy kept on the device shows
+    networkMode: 'offlineFirst',
+  });
+  return { trend: data ?? null, failed: isError && data == null, retry: () => void refetch() };
 }
 
 /**

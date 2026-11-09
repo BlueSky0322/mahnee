@@ -195,6 +195,25 @@ export interface MonthSummary {
   alreadySaved?: string[];
 }
 
+/** A month's spending and income in total and by category, as a month's totals have them */
+export type MonthTotals = Omit<MonthSummary, 'budgets' | 'alreadySaved'>;
+
+/**
+ * GET /api/summary/trend: a person's spending and income in each of the 12 months ending at
+ * a month (shared/trend.ts), oldest first, each summed as GET /api/summary sums one month
+ * (each category under its own id, largest first), a month with nothing in it included
+ */
+export interface MonthTrend {
+  /** The last of the 12, as asked */
+  month: string;
+  months: MonthTotals[];
+  /**
+   * Of the change ids the read named (PENDING_CHANGES_HEADER), the ones counted in already;
+   * only when it named any
+   */
+  alreadySaved?: string[];
+}
+
 /**
  * GET /api/export/summary: what the export file (GET /api/export) holds, so the app can
  * say so before it's downloaded. Accounts and categories are every one the person has,
@@ -403,11 +422,11 @@ export const CLIENT_ID_HEADER = 'X-Client-Id';
 export const EXPECTED_ACCOUNT_HEADER = 'X-Expected-Account';
 
 /**
- * On a read of balances or a month's totals (GET /api/accounts, /api/summary): the ids of
- * changes the app still has waiting that may have been saved already (sent, but the answer
- * never came), comma-separated, at most MAX_CHANGES (about 3.4 KB). The answer's
- * `alreadySaved` says which of them it holds, read together with the figures, so the app
- * never counts one of them on top a second time.
+ * On a read of balances or months' totals (GET /api/accounts, /api/summary and
+ * /api/summary/trend): the ids of changes the app still has waiting that may have been saved
+ * already (sent, but the answer never came), comma-separated, at most MAX_CHANGES (about
+ * 3.4 KB). The answer's `alreadySaved` says which of them it holds, read together with the
+ * figures, so the app never counts one of them on top a second time.
  */
 export const PENDING_CHANGES_HEADER = 'X-Pending-Changes';
 

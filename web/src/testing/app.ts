@@ -14,6 +14,7 @@ import type {
   ChangesBody,
   LedgerChange,
   MonthSummary,
+  MonthTrend,
   Profile,
   Recurring,
   Transaction,
@@ -89,6 +90,7 @@ import {
   scheduleDayRange,
 } from '@shared/recurring';
 import { matchesSearch, readSearch } from '@shared/search';
+import { trendMonths } from '@shared/trend';
 import { Root } from '../Root';
 import { queryClient } from '../query-client';
 import { clearCache } from '../offline/cache';
@@ -186,6 +188,11 @@ export interface FakeServer {
    * connection drops on the way back
    */
   loseNext: { changes?: boolean };
+  /**
+   * Paths answered 500 for as long as they're listed, as when one part of the server is
+   * down and the rest still answers
+   */
+  pathsDown: Set<string>;
   /** Answers being held back until a test releases them (see holdNext) */
   held: { method: string; path: string; release: Promise<void> }[];
 }
@@ -283,6 +290,7 @@ function answerNow(server: FakeServer) {
     if (method !== 'GET' && expected != null && expected !== server.me.email) {
       return json({ error: 'Signed in as someone else.', code: 'account_mismatch' }, 409);
     }
+    if (server.pathsDown.has(path)) return json({ error: 'Internal error' }, 500);
     if (path === '/api/me' && method === 'GET') return json(server.me);
     const failing = (kind: keyof FakeServer['failNext']) => {
       const failure = server.failNext[kind];
@@ -312,7 +320,10 @@ function answerNow(server: FakeServer) {
       pending != null && pending.length > 0
         ? { alreadySaved: pending.filter((id) => server.receipts.has(id)) }
         : {};
-    if ((path === '/api/accounts' || path === '/api/summary') && pending == null) {
+    if (
+      (path === '/api/accounts' || path === '/api/summary' || path === '/api/summary/trend') &&
+      pending == null
+    ) {
       return json({ error: `Name up to ${MAX_CHANGES} change ids` }, 400);
     }
     if (path === '/api/accounts' && method === 'GET') {
@@ -338,6 +349,12 @@ function answerNow(server: FakeServer) {
       const month = url.searchParams.get('month');
       return isMonth(month)
         ? json({ ...summarize(server, month), ...alreadySaved() })
+        : json({ error: 'Give a month from 2000, like 2026-11' }, 400);
+    }
+    if (path === '/api/summary/trend' && method === 'GET') {
+      const month = url.searchParams.get('month');
+      return isMonth(month)
+        ? json({ ...trendOf(server, month), ...alreadySaved() })
         : json({ error: 'Give a month from 2000, like 2026-11' }, 400);
     }
     if (path === '/api/export/summary' && method === 'GET') {
@@ -439,6 +456,21 @@ function summarize(server: FakeServer, month: string): MonthSummary {
     spentByCategory,
     incomeByCategory,
     ...(budgets.length > 0 && { budgets }),
+  };
+}
+
+/**
+ * GET /api/summary/trend as the real one (worker/ledger/trend.ts) answers: the 12 months
+ * ending at `month`, oldest first, each summed as GET /api/summary sums a month, without
+ * its budgets
+ */
+function trendOf(server: FakeServer, month: string): MonthTrend {
+  return {
+    month,
+    months: trendMonths(month).map((m) => {
+      const { budgets: _budgets, ...totals } = summarize(server, m);
+      return totals;
+    }),
   };
 }
 
@@ -1059,6 +1091,7 @@ export function fakeServer(): FakeServer {
     receipts: new Map(),
     failNext: {},
     loseNext: {},
+    pathsDown: new Set(),
     held: [],
   };
 }

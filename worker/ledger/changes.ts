@@ -707,6 +707,7 @@ function changeStatements(
         'schedule',
         'day',
         'startDate',
+        'nextDue',
       ]);
       if (!isRowId(r.id)) throw new Refused(400, 'Invalid repeating item id');
       if (model.recurring.has(r.id)) throw new Refused(409, 'That repeating item already exists');
@@ -721,8 +722,14 @@ function changeStatements(
       // Set up from a transaction, so any day a transaction can be on
       const startDate = readDay(r.startDate, now);
       if (model.recurring.size >= MAX_RECURRING) throw new Refused(409, TOO_MANY_RECURRING);
-      // The day it was set up from is its first occurrence: the next is due after it
-      const nextDue = nextAfter(schedule, day, startDate);
+      // Its first due date as the app worked it out (the first after the person's today, or
+      // an imported one's), checked as a moved one is: on its schedule and within a year, but
+      // never against today, so a change sent days later from an offline device still applies.
+      // From an app from before: the day it was set up from was the first occurrence.
+      const nextDue =
+        'nextDue' in r
+          ? readNextDue(schedule, day, r.nextDue, now)
+          : nextAfter(schedule, day, startDate);
       model.recurring.set(r.id, {
         kind,
         accountId,
@@ -815,11 +822,7 @@ function changeStatements(
         throw new Refused(400, 'Say when it is next due');
       }
       if ('nextDue' in change) {
-        const nextDue = change.nextDue;
-        if (!isCalendarDay(nextDue) || nextDue < FIRST_DAY || !fallsOn(schedule, day, nextDue)) {
-          throw new Refused(400, OFF_SCHEDULE);
-        }
-        if (nextDue > latestDue(now)) throw new Refused(400, 'Next due has to be within a year');
+        const nextDue = readNextDue(schedule, day, change.nextDue, now);
         set('schedule', schedule);
         set('day', day);
         set('next_due', nextDue);
@@ -906,6 +909,18 @@ const readScheduleDay = (schedule: Schedule, value: unknown): number => {
   if (!isScheduleDay(schedule, value)) throw new Refused(400, scheduleDayRange(schedule));
   return value;
 };
+
+/**
+ * A next due date: a calendar day from 2000 that falls on the schedule, at most a year from
+ * now (MAX_DUE_AHEAD_DAYS). No lower bound on today: it may have passed by the time it's sent.
+ */
+function readNextDue(schedule: Schedule, day: number, value: unknown, now: number): string {
+  if (!isCalendarDay(value) || value < FIRST_DAY || !fallsOn(schedule, day, value)) {
+    throw new Refused(400, OFF_SCHEDULE);
+  }
+  if (value > latestDue(now)) throw new Refused(400, 'Next due has to be within a year');
+  return value;
+}
 
 /**
  * The transactions a change to many names (`ids`): a list of 1 to MAX_BULK_TRANSACTIONS,

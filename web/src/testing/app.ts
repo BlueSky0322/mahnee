@@ -68,6 +68,7 @@ import {
   exportCells,
   exportFileName,
   openingCells,
+  repeatingLines,
 } from '@shared/export';
 import type { BudgetRow } from '@shared/budgets';
 import {
@@ -444,8 +445,9 @@ function summarize(server: FakeServer, month: string): MonthSummary {
 
 /**
  * GET /api/export as the real one (worker/ledger/export.ts) writes it: under a header
- * line, each account's opening balance in the person's order, then every transaction,
- * oldest first (by day, time saved, then id), with names as they are
+ * line, each account's opening balance in the person's order, then each repeating item
+ * still running in the order set up, then every transaction, oldest first (by day, time
+ * saved, then id), with names as they are
  */
 function exportFile(server: FakeServer) {
   const names = {
@@ -458,14 +460,18 @@ function exportFile(server: FakeServer) {
   const lines = [...server.transactions]
     .sort((a, b) => -newestFirst(a, b))
     .map((t) => csvLine(exportCells(t, names)));
+  const repeating = repeatingLines(server.recurring, names);
   return Promise.resolve(
-    new Response(CSV_BOM + csvLine(EXPORT_COLUMNS) + openings.join('') + lines.join(''), {
-      headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${exportFileName(rateDay(Date.now()))}"`,
-        'Cache-Control': 'no-store',
+    new Response(
+      CSV_BOM + csvLine(EXPORT_COLUMNS) + openings.join('') + repeating + lines.join(''),
+      {
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${exportFileName(rateDay(Date.now()))}"`,
+          'Cache-Control': 'no-store',
+        },
       },
-    }),
+    ),
   );
 }
 
@@ -987,11 +993,17 @@ function saveRecurringChange(
     if (recurring.length >= MAX_RECURRING) {
       return [409, `You can have up to ${MAX_RECURRING} repeating items, stopped ones included`];
     }
+    // Given, it's checked as a moved one is, and never against today; else worked out
+    const given = 'nextDue' in r;
+    if (given && !isNextDue(r.schedule, r.day, r.nextDue)) {
+      return [400, 'Next due has to fall on its schedule'];
+    }
+    if (given && r.nextDue! > latestDue()) return [400, 'Next due has to be within a year'];
     const payee = readOptionalText(r.payee, MAX_PAYEE) ?? null;
     recurring.push({
       ...r,
       payee,
-      nextDue: nextAfter(r.schedule, r.day, r.startDate),
+      nextDue: given ? r.nextDue! : nextAfter(r.schedule, r.day, r.startDate),
       archived: false,
     });
     return null;
@@ -1016,11 +1028,7 @@ function saveRecurringChange(
     if (('schedule' in fields || 'day' in fields) && !('nextDue' in fields)) {
       return [400, 'Say when it is next due'];
     }
-    if (
-      !isCalendarDay(next.nextDue) ||
-      next.nextDue < '2000-01-01' ||
-      !fallsOn(next.schedule, next.day, next.nextDue)
-    ) {
+    if (!isNextDue(next.schedule, next.day, next.nextDue)) {
       return [400, 'Next due has to fall on its schedule'];
     }
     if (next.nextDue > latestDue()) return [400, 'Next due has to be within a year'];
@@ -1044,6 +1052,10 @@ function saveRecurringChange(
   saved.nextDue = nextAfter(saved.schedule, saved.day, saved.nextDue);
   return null;
 }
+
+/** Whether `nextDue` is a calendar day from 2000 on the schedule, as the real server checks */
+const isNextDue = (schedule: Recurring['schedule'], day: number, nextDue: unknown) =>
+  isCalendarDay(nextDue) && nextDue >= '2000-01-01' && fallsOn(schedule, day, nextDue);
 
 /** A fresh server with the signed-in account */
 export function fakeServer(): FakeServer {

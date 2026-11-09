@@ -42,6 +42,7 @@ export default function AccountList() {
           <Button
             variant="subtle"
             size="compact-md"
+            classNames={{ root: classes.addAccount, label: classes.addAccountLabel }}
             leftSection={<Plus size={16} />}
             onClick={add}
           >
@@ -172,18 +173,21 @@ function Rows({
             <span className={classes.icon}>
               <KindIcon kind={account.kind} />
             </span>
-            <span className={classes.rowText}>
-              <span className={classes.name}>{account.name}</span>
-              <span className={classes.kind}>{KIND_LABELS[account.kind]}</span>
-            </span>
-            <span
-              className={
-                account.kind !== 'card' && account.balanceCents < 0
-                  ? `${classes.balance} ${classes.negative}`
-                  : classes.balance
-              }
-            >
-              {balanceText(account)}
+            {/* The balance sits beside the name, or below it when large text leaves no room */}
+            <span className={classes.rowMain}>
+              <span className={classes.rowText}>
+                <span className={classes.name}>{account.name}</span>
+                <span className={classes.kind}>{KIND_LABELS[account.kind]}</span>
+              </span>
+              <span
+                className={
+                  account.kind !== 'card' && account.balanceCents < 0
+                    ? `${classes.balance} ${classes.negative}`
+                    : classes.balance
+                }
+              >
+                {balanceText(account)}
+              </span>
             </span>
           </button>
         </li>

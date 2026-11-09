@@ -261,8 +261,12 @@ export interface Recurring {
   archived: boolean;
 }
 
-/** What a repeating item is given when it's set up: its first due date is worked out */
-export type NewRecurring = Omit<Recurring, 'nextDue' | 'archived'>;
+/**
+ * What a repeating item is given when it's set up. `nextDue`, its first due date, is the
+ * app's to say (the first after the person's today, or an imported one's); without it (an
+ * app from before) it's the schedule's next day after startDate.
+ */
+export type NewRecurring = Omit<Recurring, 'nextDue' | 'archived'> & { nextDue?: string };
 
 /**
  * GET /api/accounts: the person's ledger, archived accounts and categories too, each in
@@ -337,7 +341,11 @@ export type LedgerChange =
       amountCents: number | null;
       carryOver: boolean;
     }
-  /** Sets one up; it's first due on its schedule's next day after startDate */
+  /**
+   * Sets one up, first due on nextDue (on its schedule, at most a year ahead, and never
+   * refused for having passed, so one sent from a device offline for days still applies);
+   * without nextDue, on its schedule's next day after startDate
+   */
   | { op: 'addRecurring'; recurring: NewRecurring }
   /**
    * Changes what it records or when it falls; its kind is fixed. A new schedule or day comes

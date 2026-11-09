@@ -351,6 +351,163 @@ describe("Mahnee's own export", () => {
   });
 });
 
+describe("an export's repeating lines", () => {
+  const HEADER = EXPORT_COLUMNS.join(',');
+  /** A file of the header and these lines, as the export writes them */
+  const fileOf = (...lines: string[]) =>
+    parseCsv(`${CSV_BOM}${HEADER}\r\n${lines.map((l) => `${l}\r\n`).join('')}`);
+  const ID = '1'.repeat(16);
+
+  it('reads each as the item it repeats: what it records, how often, and its next due date', () => {
+    const rows = readExportRows(
+      fileOf(
+        `2026-12-15,Repeating spent,Wallet,,1200.50,MYR,Coffee,Food,Rent,"Monthly, day 15",${ID}`,
+        `2026-11-25,Repeating received,Wallet,,5000.00,MYR,Salary,,'=Employer,"Monthly, day 25",${ID}`,
+        `2026-11-11,Repeating transfer,Wallet,Visa,300.00,MYR,,,,"Weekly, day 3",${ID}`,
+        // On a shorter month's last day
+        `2026-11-30,Repeating spent,Wallet,,10.00,MYR,Food,,Gym,"Monthly, day 31",${ID}`,
+        // A next due date that has passed is read as written
+        `2026-10-01,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+      ),
+      NOW,
+    );
+    expect(rows).toEqual([
+      {
+        row: 2,
+        kind: 'expense',
+        date: '2026-12-15',
+        account: 'Wallet',
+        toAccount: null,
+        cents: 120_050,
+        category: 'Coffee',
+        parentCategory: 'Food',
+        payee: 'Rent',
+        note: null,
+        repeat: { schedule: 'monthly', day: 15 },
+      },
+      {
+        row: 3,
+        kind: 'income',
+        date: '2026-11-25',
+        account: 'Wallet',
+        toAccount: null,
+        cents: 500_000,
+        category: 'Salary',
+        parentCategory: null,
+        payee: '=Employer',
+        note: null,
+        repeat: { schedule: 'monthly', day: 25 },
+      },
+      {
+        row: 4,
+        kind: 'transfer',
+        date: '2026-11-11',
+        account: 'Wallet',
+        toAccount: 'Visa',
+        cents: 30_000,
+        category: null,
+        parentCategory: null,
+        payee: null,
+        note: null,
+        repeat: { schedule: 'weekly', day: 3 },
+      },
+      {
+        row: 5,
+        kind: 'expense',
+        date: '2026-11-30',
+        account: 'Wallet',
+        toAccount: null,
+        cents: 1_000,
+        category: 'Food',
+        parentCategory: null,
+        payee: 'Gym',
+        note: null,
+        repeat: { schedule: 'monthly', day: 31 },
+      },
+      {
+        row: 6,
+        kind: 'expense',
+        date: '2026-10-01',
+        account: 'Wallet',
+        toAccount: null,
+        cents: 1_000,
+        category: 'Food',
+        parentCategory: null,
+        payee: null,
+        note: null,
+        repeat: { schedule: 'monthly', day: 1 },
+      },
+    ]);
+  });
+
+  it('says what is wrong with a day 0, an amount over the limit and a next due over a year ahead', () => {
+    const rows = readExportRows(
+      fileOf(
+        `2026-12-01,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 0",${ID}`,
+        `2026-11-09,Repeating spent,Wallet,,10.00,MYR,Food,,,"Weekly, day 0",${ID}`,
+        `2026-12-01,Repeating spent,Wallet,,10000000.01,MYR,Food,,,"Monthly, day 1",${ID}`,
+        // A year (366 days) from NOW is 7 November 2027: that day is read, the next isn't
+        `2027-11-07,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 7",${ID}`,
+        `2027-11-08,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 8",${ID}`,
+      ),
+      NOW,
+    );
+    expect(rows.map((r) => r.problem ?? null)).toEqual([
+      "Can't read the schedule",
+      "Can't read the schedule",
+      'The amount is over 10,000,000',
+      null,
+      'Next due has to be within a year',
+    ]);
+  });
+
+  it('reads an ordinary line as a transaction, not a repeating item', () => {
+    const [spent] = readExportRows(
+      fileOf(`2026-10-04,Spent,Wallet,,8.00,MYR,Food,,,"Monthly, day 1",${ID}`),
+      NOW,
+    );
+    expect(spent).not.toHaveProperty('repeat');
+    expect(spent).toMatchObject({ kind: 'expense', note: 'Monthly, day 1' });
+  });
+
+  it('says what is wrong with a repeating line it cannot import, and reads the rest', () => {
+    const rows = readExportRows(
+      fileOf(
+        `2026-12-01,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 32",${ID}`,
+        `2026-12-01,Repeating spent,Wallet,,10.00,MYR,Food,,,"Fortnightly, day 1",${ID}`,
+        `2026-12-01,Repeating spent,Wallet,,10.00,MYR,Food,,,,${ID}`,
+        `2026-11-09,Repeating spent,Wallet,,10.00,MYR,Food,,,"Weekly, day 8",${ID}`,
+        // 2 December is not the 1st; 12 November 2026 is a Thursday, not a Wednesday
+        `2026-12-02,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-11-12,Repeating transfer,Wallet,Visa,10.00,MYR,,,,"Weekly, day 3",${ID}`,
+        `soon,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,Repeating spent,Wallet,,0.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,Repeating spent,Wallet,,-10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,Repeating transfer,Wallet,,10.00,MYR,,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,Repeating spent,,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,Repeating,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+      ),
+      NOW,
+    );
+    expect(rows.map((r) => r.problem ?? null)).toEqual([
+      "Can't read the schedule",
+      "Can't read the schedule",
+      "Can't read the schedule",
+      "Can't read the schedule",
+      "The next due date isn't on the schedule",
+      "The next due date isn't on the schedule",
+      'Can\'t read the date "soon"',
+      "Can't read the amount",
+      "Can't read the amount",
+      'No account named to move it to',
+      'No account named',
+      'Unknown kind of line',
+      null,
+    ]);
+  });
+});
+
 describe('rows that look already saved', () => {
   const row = (
     more: Partial<{ accountId: string; date: string; cents: number; payee: string | null }> = {},

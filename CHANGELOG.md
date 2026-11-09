@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-09
+
+- Added: repeating bills in the export and import, a repeat starts from the next one, and account names wrap at large text [#?]
+
 ## 2026-11-06
 
 - Added: repeating bills and income, logged from Home, and what to expect at month end [#17]

@@ -22,7 +22,7 @@ import {
   readOptionalText,
 } from '@shared/ledger';
 import type { Schedule } from '@shared/recurring';
-import { dayFor, isSchedule } from '@shared/recurring';
+import { dayFor, isSchedule, nextAfter } from '@shared/recurring';
 import { navigate } from '../../hooks/useRoute';
 import { change } from '../../ledger/ledger';
 import { lastUsed, rememberUsed } from '../../ledger/last-used';
@@ -163,7 +163,9 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
       date,
     };
 
-    // Repeating from this one: it's the first occurrence, so the next is due after its day
+    // Repeating from this one, on its day: first due on the next one after the person's
+    // today, so setting one up from an old transaction never makes the weeks since due
+    const day = repeat === '' ? 0 : dayFor(repeat, date);
     const repeating: LedgerChange[] =
       repeat === ''
         ? []
@@ -179,8 +181,9 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
                 categoryId: fields.categoryId,
                 payee: fields.payee,
                 schedule: repeat,
-                day: dayFor(repeat, date),
+                day,
                 startDate: date,
+                nextDue: nextAfter(repeat, day, toDateInput(new Date())),
               },
             },
           ];

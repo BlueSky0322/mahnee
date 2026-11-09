@@ -3304,4 +3304,173 @@ describe('recurring', () => {
     expect(await send(me, [skip], [changeId])).toEqual({ status: 200, data: { ok: true } });
     expect(await nextDue(me, rent)).toBe('2025-12-01');
   });
+
+  describe('set up with its next due date given', () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const utc = (at: number) => new Date(at).toISOString().slice(0, 10);
+
+    it('takes a next due date on its schedule, after today or before it, and works it out when none is given', async () => {
+      const me = person('me');
+      const bank = rowId();
+      await send(me, [addAccount(bank)]);
+      // The 1st of a month about six weeks ahead: on Rent's schedule, within a year
+      const ahead = `${utc(Date.now() + 45 * DAY_MS).slice(0, 7)}-01`;
+      const [soon, late, plain] = [rowId(), rowId(), rowId()];
+      expect(
+        await send(me, [
+          repeat(soon, bank, 120_000, { nextDue: ahead }),
+          // Sent from a device that was offline for a while: its day has passed, still taken
+          repeat(late, bank, 120_000, { nextDue: '2025-09-01' }),
+          // From an app from before nextDue was given: worked out from the day it was set up from
+          repeat(plain, bank),
+        ]),
+      ).toEqual({ status: 200, data: { ok: true } });
+      expect(await nextDue(me, soon)).toBe(ahead);
+      expect(await nextDue(me, late)).toBe('2025-09-01');
+      expect(await nextDue(me, plain)).toBe('2025-11-01');
+      expect((await repeating(me)).find((r) => r.id === soon)).toMatchObject({
+        startDate: '2025-10-01',
+        schedule: 'monthly',
+        day: 1,
+      });
+    });
+
+    it.each([
+      ['off its schedule', '2025-11-02', 'Next due has to fall on its schedule'],
+      ['weekly, on another weekday', '2025-10-14', 'Next due has to fall on its schedule'],
+      ['not a real day', '2025-02-30', 'Next due has to fall on its schedule'],
+      ['before 2000', '1999-12-01', 'Next due has to fall on its schedule'],
+      ['not a day at all', 'soon', 'Next due has to fall on its schedule'],
+      // null is not "none given": it's refused, not worked out
+      ['null', null, 'Next due has to fall on its schedule'],
+      ['a number', 20251101, 'Next due has to fall on its schedule'],
+      ['empty', '', 'Next due has to fall on its schedule'],
+      ['more than a year ahead', '9999-12-01', 'Next due has to be within a year'],
+    ] as [string, unknown, string][])(
+      'refuses a next due date %s, saving nothing',
+      async (what, day, error) => {
+        const me = person('me');
+        const bank = rowId();
+        await send(me, [addAccount(bank)]);
+        // 13 October 2025 was a Monday: weekly on Mondays, so a Tuesday is off it
+        const more = what.startsWith('weekly')
+          ? { schedule: 'weekly', day: 1, startDate: '2025-10-13', nextDue: day }
+          : { nextDue: day };
+        expect(await send(me, [repeat(rowId(), bank, 1_000, more)])).toEqual({
+          status: 400,
+          data: { error },
+        });
+        expect(await repeating(me)).toEqual([]);
+      },
+    );
+
+    it('still refuses a field it does not know, next due given or not', async () => {
+      const me = person('me');
+      const bank = rowId();
+      await send(me, [addAccount(bank)]);
+      expect(
+        await send(me, [repeat(rowId(), bank, 1_000, { nextDue: '2025-11-01', colour: 'red' })]),
+      ).toEqual({ status: 400, data: { error: 'Unknown field colour' } });
+      expect(await repeating(me)).toEqual([]);
+    });
+
+    it('refuses a next due date a year and a month ahead', async () => {
+      const me = person('me');
+      const bank = rowId();
+      await send(me, [addAccount(bank)]);
+      const tooFar = `${utc(Date.now() + 400 * DAY_MS).slice(0, 7)}-01`;
+      expect(await send(me, [repeat(rowId(), bank, 1_000, { nextDue: tooFar })])).toEqual({
+        status: 400,
+        data: { error: 'Next due has to be within a year' },
+      });
+      expect(await repeating(me)).toEqual([]);
+    });
+  });
+
+  describe('in the export file', () => {
+    const HEADER =
+      'Date,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id\r\n';
+    const download = async (who: string) => {
+      const res = await api.raw(who, 'GET', '/api/export');
+      expect(res.status).toBe(200);
+      return new TextDecoder('utf-8', { ignoreBOM: true }).decode(await res.arrayBuffer());
+    };
+
+    it('writes each running item after the opening balances, in order, and leaves stopped ones out', async () => {
+      const me = person('me');
+      const [bank, card] = [rowId(), rowId()];
+      const [rent, gym, pay, topUp, paid] = [rowId(), rowId(), rowId(), rowId(), rowId()];
+      await send(me, [
+        addAccount(bank),
+        addAccount(card, 'Visa', 'card', 0),
+        // Set up before Rent, though due after it and with a later id: written first
+        repeat(pay, bank, 500_000, {
+          kind: 'income',
+          categoryId: salary,
+          payee: 'Employer',
+          day: 25,
+          startDate: '2025-10-25',
+        }),
+        repeat(rent, bank),
+        repeat(gym, bank, 9_900, { payee: 'Gym' }),
+        // Weekly on Wednesdays: 24 December 2025 was one
+        repeat(topUp, bank, 30_000, {
+          kind: 'transfer',
+          toAccountId: card,
+          categoryId: null,
+          payee: null,
+          schedule: 'weekly',
+          day: 3,
+          startDate: '2025-12-24',
+        }),
+        { op: 'addTransaction', transaction: logged(paid, bank, '2025-10-01') },
+      ]);
+      await send(me, [{ op: 'archiveRecurring', id: gym, archived: true }]);
+      // Someone else's are never in it
+      const other = person('other');
+      const theirs = rowId();
+      await send(other, [addAccount(theirs), repeat(rowId(), theirs)]);
+
+      const added = new Date().toISOString().slice(0, 10);
+      expect(await download(me)).toBe(
+        '﻿' +
+          HEADER +
+          `${added},Opening balance,Maybank,,3000.00,MYR,,,,,${bank}\r\n` +
+          `${added},Opening balance,Visa,,0.00,MYR,,,,,${card}\r\n` +
+          `2025-11-25,Repeating received,Maybank,,5000.00,MYR,Salary,,Employer,"Monthly, day 25",${pay}\r\n` +
+          `2025-11-01,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${rent}\r\n` +
+          `2025-12-31,Repeating transfer,Maybank,Visa,300.00,MYR,,,,"Weekly, day 3",${topUp}\r\n` +
+          `2025-10-01,Spent,Maybank,,1200.00,MYR,Bills,,Rent,,${paid}\r\n`,
+      );
+      // The dialog's counts are of transactions, accounts and categories, as before
+      expect((await api.call(me, 'GET', '/api/export/summary')).data).toEqual({
+        transactions: 1,
+        firstDate: '2025-10-01',
+        lastDate: '2025-10-01',
+        accounts: 2,
+        categories: 10,
+      });
+    });
+
+    it('writes at most 200, in the order they were set up', async () => {
+      const me = person('me');
+      const bank = rowId();
+      await send(me, [addAccount(bank)]);
+      // More than a person can set up, written straight to the database
+      await api.sql(
+        `WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 200)
+         INSERT INTO recurring (email, id, kind, account_id, amount_cents, category_id, schedule,
+                                day, start_date, next_due, position, created_at, updated_at)
+         SELECT ?, printf('%016x', i), 'expense', ?, 100, ?, 'monthly', 1, '2025-10-01',
+                '2025-11-01', i, 0, 0 FROM n`,
+        me,
+        bank,
+        bills,
+      );
+      const lines = (await download(me)).split('\r\n').filter((l) => l.includes('Repeating'));
+      expect(lines.map((l) => l.split(',').at(-1))).toEqual(
+        Array.from({ length: 200 }, (_, i) => i.toString(16).padStart(16, '0')),
+      );
+    });
+  });
 });

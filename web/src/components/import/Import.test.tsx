@@ -2,7 +2,7 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, onTestFinished, test, vi } from 'vitest';
-import type { Transaction } from '@shared/api';
+import type { Recurring, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import { CSV_BOM, EXPORT_COLUMNS, csvLine, exportCells, openingCells } from '@shared/export';
 import type { FakeServer } from '../../testing/app';
@@ -52,6 +52,8 @@ function saved(server: FakeServer, t: Partial<Transaction>) {
     ...t,
   });
 }
+
+const pause = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
 
 const csv = (text: string, name = 'statement.csv') => new File([text], name, { type: 'text/csv' });
 
@@ -734,4 +736,544 @@ describe("Mahnee's own export", () => {
       expect(server.transactions[0].payee).toBe('Kopi');
     },
   );
+});
+
+describe("repeating bills in Mahnee's export", () => {
+  /** The app's clock reads Friday 6 November 2026, mid-morning, and still ticks */
+  function onTheSixth() {
+    vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 10, 6, 10, 0, 0));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+  }
+
+  const repeating = (id: string, more: Partial<Recurring>): Recurring => ({
+    id: id.repeat(16),
+    kind: 'expense',
+    accountId: MAYBANK,
+    toAccountId: null,
+    amountCents: 120_000,
+    categoryId: categoryId('Bills'),
+    payee: 'Rent',
+    schedule: 'monthly',
+    day: 1,
+    startDate: '2026-10-01',
+    nextDue: '2026-12-01',
+    archived: false,
+    ...more,
+  });
+
+  /**
+   * Maybank and Wallet with two transactions; Rent due next on 1 Dec, Salary overdue since
+   * 25 Oct, Gym stopped
+   */
+  function withRepeating() {
+    const server = withAccounts();
+    saved(server, { payee: 'Kopi', date: '2026-10-01' });
+    saved(server, { payee: 'Mamak', date: '2026-10-02' });
+    server.recurring = [
+      repeating('1', {}),
+      repeating('2', {
+        payee: 'Gym',
+        amountCents: 9_900,
+        schedule: 'weekly',
+        day: 1,
+        nextDue: '2026-11-09',
+        archived: true,
+      }),
+      repeating('3', {
+        kind: 'income',
+        accountId: WALLET,
+        amountCents: 500_000,
+        categoryId: categoryId('Salary'),
+        payee: 'Salary',
+        day: 25,
+        startDate: '2026-09-25',
+        nextDue: '2026-10-25',
+      }),
+    ];
+    return server;
+  }
+
+  test.each(SIZES)(
+    'restores the running ones from a fresh start, moving a passed next due on, and adds them once (%s)',
+    async (size) => {
+      onTheSixth();
+      const before = withRepeating();
+      const files = catchDownloads();
+      renderApp(before, '/', { size });
+      const original = new TextDecoder().decode(await (await exportFromHome(files)).arrayBuffer());
+      // Each running one has its line, in the order they were set up; the stopped one has none
+      const rent = `2026-12-01,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${'1'.repeat(16)}\r\n`;
+      const salary = `2026-10-25,Repeating received,Wallet,,5000.00,MYR,Salary,,Salary,"Monthly, day 25",${'3'.repeat(16)}\r\n`;
+      expect(original).toContain(rent + salary);
+      expect(original).not.toMatch(/Gym/);
+
+      // Someone starting afresh, with nothing yet
+      await closeApp();
+      const after = fakeServer();
+      renderApp(after, '/', { size });
+      const user = await openImport();
+      await pickFile(user, new File([original], 'mahnee-2026-11-06.csv', { type: 'text/csv' }));
+      await screen.findByLabelText('Kind of Wallet');
+      await user.selectOptions(screen.getByLabelText('Kind of Wallet'), 'cash');
+      await user.click(
+        await screen.findByRole('button', { name: 'Import 2 transactions and 2 repeating items' }),
+      );
+      expect(await screen.findByText('Imported 2 transactions and 2 repeating items')).toBeTruthy();
+
+      await waitFor(() => expect(after.recurring).toHaveLength(2));
+      const id = (name: string) => after.accounts.find((a) => a.name === name)!.id;
+      expect(after.recurring).toEqual([
+        expect.objectContaining({
+          kind: 'expense',
+          accountId: id('Maybank'),
+          toAccountId: null,
+          amountCents: 120_000,
+          categoryId: categoryId('Bills'),
+          payee: 'Rent',
+          schedule: 'monthly',
+          day: 1,
+          // After today: as the file has it
+          nextDue: '2026-12-01',
+          archived: false,
+        }),
+        expect.objectContaining({
+          kind: 'income',
+          accountId: id('Wallet'),
+          amountCents: 500_000,
+          categoryId: categoryId('Salary'),
+          payee: 'Salary',
+          schedule: 'monthly',
+          day: 25,
+          // 25 October has passed: the next 25th after today
+          nextDue: '2026-11-25',
+          archived: false,
+        }),
+      ]);
+      // Nothing recorded for them: the file's two transactions are all there is
+      expect(after.transactions.map((t) => t.payee).sort()).toEqual(['Kopi', 'Mamak']);
+
+      // Imported again, it adds nothing
+      await openImport();
+      await pickFile(user, new File([original], 'mahnee-2026-11-06.csv', { type: 'text/csv' }));
+      // Both transactions and both repeating ones
+      await waitFor(() => expect(screen.getAllByText('Looks already saved')).toHaveLength(4));
+      expect(screen.getByRole('button', { name: /^Import / })).toHaveProperty('disabled', true);
+      expect(
+        screen.getByRole('button', { name: 'Import 0 transactions and 0 repeating items' }),
+      ).toBeTruthy();
+      expect(after.recurring).toHaveLength(2);
+
+      // The same details but for the amount: it's added
+      await pickFile(
+        user,
+        new File([original.replace('1200.00', '1300.00')], 'mahnee-2026-11-06.csv', {
+          type: 'text/csv',
+        }),
+      );
+      await waitFor(() => expect(screen.getAllByText('Looks already saved')).toHaveLength(3));
+      await user.click(screen.getByRole('button', { name: /^Import / }));
+      await waitFor(() => expect(after.recurring).toHaveLength(3));
+      expect(after.transactions).toHaveLength(2);
+      expect(after.recurring[2]).toMatchObject({
+        payee: 'Rent',
+        amountCents: 130_000,
+        nextDue: '2026-12-01',
+      });
+    },
+    30_000,
+  );
+
+  test.each(SIZES)(
+    'counts only running ones as already there: a stopped one of the same details is added again (%s)',
+    async (size) => {
+      onTheSixth();
+      const server = withAccounts();
+      server.recurring = [repeating('4', { archived: true })];
+      renderApp(server, '/', { size });
+      const user = await openImport();
+      const file =
+        CSV_BOM +
+        csvLine(EXPORT_COLUMNS) +
+        `2026-12-01,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${'4'.repeat(16)}\r\n`;
+      await pickFile(user, csv(file, 'mahnee-2026-11-06.csv'));
+      await screen.findByText(/Mahnee export/);
+      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await waitFor(() => expect(server.recurring).toHaveLength(2));
+      expect(server.recurring[1]).toMatchObject({
+        accountId: MAYBANK,
+        payee: 'Rent',
+        nextDue: '2026-12-01',
+        archived: false,
+      });
+    },
+  );
+});
+
+describe("repeating lines in Mahnee's export: dates, what's already there, and what they name", () => {
+  /** The app's clock reads `at` (local time), and still ticks */
+  function clockAt(at: Date) {
+    vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true });
+    vi.setSystemTime(at);
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+  }
+  /** Friday 6 November 2026, mid-morning */
+  const onTheSixth = () => clockAt(new Date(2026, 10, 6, 10, 0, 0));
+
+  let made = 0;
+  const repeating = (more: Partial<Recurring>): Recurring => ({
+    id: (++made).toString(16).padStart(16, '7'),
+    kind: 'expense',
+    accountId: MAYBANK,
+    toAccountId: null,
+    amountCents: 120_000,
+    categoryId: categoryId('Bills'),
+    payee: 'Rent',
+    schedule: 'monthly',
+    day: 1,
+    startDate: '2026-10-01',
+    nextDue: '2026-12-01',
+    archived: false,
+    ...more,
+  });
+
+  /** A Repeating line as the export writes it; Rent, RM 1,200 from Maybank on the 1st by default */
+  const line = ({
+    date = '2026-12-01',
+    kind = 'spent',
+    account = 'Maybank',
+    to = '',
+    amount = '1200.00',
+    category = 'Bills',
+    parent = '',
+    payee = 'Rent',
+    schedule = '"Monthly, day 1"',
+  } = {}) =>
+    `${date},Repeating ${kind},${account},${to},${amount},MYR,${category},${parent},${payee},${schedule},${'1'.repeat(16)}`;
+  const fileOf = (...lines: string[]) =>
+    csv(
+      CSV_BOM + csvLine(EXPORT_COLUMNS) + lines.map((l) => `${l}\r\n`).join(''),
+      'mahnee-2026-11-06.csv',
+    );
+
+  /** Opens Import on Home and picks `file`, an export */
+  async function importing(server: FakeServer, file: File, size: (typeof SIZES)[number]) {
+    renderApp(server, '/', { size });
+    const user = await openImport();
+    await pickFile(user, file);
+    await screen.findByText(/Mahnee export/);
+    return user;
+  }
+
+  test.each(SIZES)(
+    "keeps the file's next due when it's today or later, even a later occurrence; moves one that passed (%s)",
+    async (size) => {
+      onTheSixth();
+      const before = withAccounts();
+      saved(before, { payee: 'Kopi', date: '2026-10-01' });
+      saved(before, { payee: 'Mamak', date: '2026-10-02' });
+      before.recurring = [
+        // Not the next 1st (1 December) but the one after
+        repeating({ payee: 'Insurance', nextDue: '2027-01-01' }),
+        // Mondays: not the next (9 November) but the 23rd
+        repeating({ payee: 'Gym', schedule: 'weekly', day: 1, nextDue: '2026-11-23' }),
+        // Fridays: due today
+        repeating({ payee: 'Laundry', schedule: 'weekly', day: 5, nextDue: '2026-11-06' }),
+        // Thursdays: due yesterday, so the next Thursday
+        repeating({ payee: 'Badminton', schedule: 'weekly', day: 4, nextDue: '2026-11-05' }),
+      ];
+      const files = catchDownloads();
+      renderApp(before, '/', { size });
+      const original = new TextDecoder().decode(await (await exportFromHome(files)).arrayBuffer());
+      expect(original).toContain(
+        '2026-11-23,Repeating spent,Maybank,,1200.00,MYR,Bills,,Gym,"Weekly, day 1"',
+      );
+
+      await closeApp();
+      const after = fakeServer();
+      renderApp(after, '/', { size });
+      const user = await openImport();
+      await pickFile(user, new File([original], 'mahnee-2026-11-06.csv', { type: 'text/csv' }));
+      await screen.findByLabelText('Kind of Wallet');
+      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await waitFor(() => expect(after.recurring).toHaveLength(4));
+      expect(after.recurring.map((r) => [r.payee, r.schedule, r.day, r.nextDue])).toEqual([
+        ['Insurance', 'monthly', 1, '2027-01-01'],
+        ['Gym', 'weekly', 1, '2026-11-23'],
+        ['Laundry', 'weekly', 5, '2026-11-06'],
+        ['Badminton', 'weekly', 4, '2026-11-12'],
+      ]);
+      // Set up on the day it was imported
+      expect(after.recurring.map((r) => r.startDate)).toEqual(Array(4).fill('2026-11-06'));
+    },
+    30_000,
+  );
+
+  test.each(SIZES)(
+    "moves a passed next due on from the person's own day, not UTC's (%s)",
+    async (size) => {
+      const zone = process.env.TZ;
+      process.env.TZ = 'Asia/Kuala_Lumpur';
+      onTestFinished(() => {
+        process.env.TZ = zone;
+      });
+      // Saturday 7 November, 1 a.m. in Kuala Lumpur; still Friday the 6th in UTC
+      clockAt(new Date(2026, 10, 7, 1, 0, 0));
+      const server = withAccounts();
+      // Fridays, due the 6th: passed there, so the next Friday (UTC's day would keep the 6th)
+      const user = await importing(
+        server,
+        fileOf(line({ date: '2026-11-06', payee: 'Laundry', schedule: '"Weekly, day 5"' })),
+        size,
+      );
+      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await waitFor(() => expect(server.recurring).toHaveLength(1));
+      expect(server.recurring[0]).toMatchObject({ nextDue: '2026-11-13', startDate: '2026-11-07' });
+    },
+  );
+
+  test.each(SIZES)(
+    'counts as already there only the same account, amount, kind, schedule, day and payee (%s)',
+    async (size) => {
+      onTheSixth();
+      const server = withAccounts();
+      server.accounts.push({
+        id: VISA,
+        name: 'Visa',
+        kind: 'card',
+        currency: 'MYR',
+        openingCents: 0,
+        position: 2,
+        archived: false,
+      });
+      // Three Rents alike, each answering for one line, and a transfer to Wallet on the 28th
+      server.recurring = [
+        repeating({}),
+        repeating({}),
+        repeating({}),
+        repeating({
+          kind: 'transfer',
+          toAccountId: WALLET,
+          categoryId: null,
+          payee: null,
+          amountCents: 30_000,
+          day: 28,
+          nextDue: '2026-11-28',
+        }),
+      ];
+      const user = await importing(
+        server,
+        fileOf(
+          // Each differs in one detail the owner listed: added
+          line({ account: 'Wallet' }),
+          line({ kind: 'received', category: 'Salary' }),
+          line({ date: '2026-12-07', schedule: '"Weekly, day 1"' }),
+          line({ date: '2026-12-02', schedule: '"Monthly, day 2"' }),
+          line({ payee: 'Rental' }),
+          // Already there: the payee trimmed and ignoring case, another category, another next due
+          line({ payee: ' RENT ' }),
+          line({ category: 'Food' }),
+          line({ date: '2027-01-01' }),
+          // A transfer to another account, the rest the same: the to-account isn't compared
+          line({
+            date: '2026-11-28',
+            kind: 'transfer',
+            to: 'Visa',
+            amount: '300.00',
+            category: '',
+            payee: '',
+            schedule: '"Monthly, day 28"',
+          }),
+        ),
+        size,
+      );
+      await waitFor(() => expect(screen.getAllByText('Looks already saved')).toHaveLength(4));
+      for (const [n, saved] of [
+        [2, false],
+        [3, false],
+        [4, false],
+        [5, false],
+        [6, false],
+        [7, true],
+        [8, true],
+        [9, true],
+        [10, true],
+      ] as const) {
+        expect(screen.getByLabelText<HTMLInputElement>(`Import row ${n}`).checked).toBe(!saved);
+      }
+      await user.click(screen.getByRole('button', { name: /^Import / }));
+      await waitFor(() => expect(server.recurring).toHaveLength(9));
+      expect(
+        server.recurring.slice(4).map((r) => [r.accountId, r.kind, r.schedule, r.day, r.payee]),
+      ).toEqual([
+        [WALLET, 'expense', 'monthly', 1, 'Rent'],
+        [MAYBANK, 'income', 'monthly', 1, 'Rent'],
+        [MAYBANK, 'expense', 'weekly', 1, 'Rent'],
+        [MAYBANK, 'expense', 'monthly', 2, 'Rent'],
+        [MAYBANK, 'expense', 'monthly', 1, 'Rental'],
+      ]);
+    },
+    30_000,
+  );
+
+  test.each([
+    ['none saved: both added', [], 2],
+    ['one running: one added', [{}], 1],
+    ['one stopped only: both added', [{ archived: true }], 2],
+    ['one running and one stopped: one added', [{}, { archived: true }], 1],
+  ] as const)('two alike in a file, %s', async (_what, saved, added) => {
+    onTheSixth();
+    const server = withAccounts();
+    server.recurring = saved.map((more) => repeating(more));
+    const user = await importing(server, fileOf(line(), line()), 'desktop');
+    await user.click(await screen.findByRole('button', { name: /^Import / }));
+    await waitFor(() => expect(server.recurring).toHaveLength(saved.length + added));
+    await pause(50);
+    expect(server.recurring).toHaveLength(saved.length + added);
+  });
+
+  test.each(SIZES)(
+    'restores what each names: a transfer, new categories and subcategories, an archived one as Other (%s)',
+    async (size) => {
+      onTheSixth();
+      const server = withAccounts();
+      const gifts = '8'.repeat(16);
+      server.categories.push({
+        id: gifts,
+        name: 'Gifts',
+        kind: 'expense',
+        parentId: null,
+        position: 8,
+        archived: true,
+      });
+      const user = await importing(
+        server,
+        fileOf(
+          line({
+            date: '2026-11-28',
+            kind: 'transfer',
+            to: 'Wallet',
+            amount: '300.00',
+            category: '',
+            payee: '',
+            schedule: '"Monthly, day 28"',
+          }),
+          line({
+            date: '2026-12-03',
+            amount: '50.00',
+            category: 'Pets',
+            payee: 'Vet',
+            schedule: '"Monthly, day 3"',
+          }),
+          line({
+            date: '2026-12-04',
+            amount: '20.00',
+            category: 'Netflix',
+            parent: 'Bills',
+            payee: 'Netflix',
+            schedule: '"Monthly, day 4"',
+          }),
+          line({
+            date: '2026-12-05',
+            amount: '30.00',
+            category: 'Gifts',
+            payee: 'Mum',
+            schedule: '"Monthly, day 5"',
+          }),
+          // Neither the person's account nor one the file adds
+          line({ account: 'CIMB', payee: 'Loan' }),
+        ),
+        size,
+      );
+      expect(await screen.findByText('CIMB is not an account here or in this file')).toBeTruthy();
+      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await waitFor(() => expect(server.recurring).toHaveLength(4));
+      const named = (name: string, parentId: string | null) =>
+        server.categories.find((c) => c.name === name && c.parentId === parentId)?.id;
+      expect(named('Pets', null)).toBeTruthy();
+      expect(named('Netflix', categoryId('Bills'))).toBeTruthy();
+      expect(
+        server.recurring.map((r) => [r.kind, r.accountId, r.toAccountId, r.categoryId]),
+      ).toEqual([
+        ['transfer', MAYBANK, WALLET, null],
+        ['expense', MAYBANK, null, named('Pets', null)],
+        ['expense', MAYBANK, null, named('Netflix', categoryId('Bills'))],
+        ['expense', MAYBANK, null, categoryId('Other')],
+      ]);
+      expect(server.recurring.some((r) => r.payee === 'Loan')).toBe(false);
+    },
+    30_000,
+  );
+
+  test.each(SIZES)(
+    'adds up to the limit of 200, stopped ones counted, and says so on the line past it (%s)',
+    async (size) => {
+      onTheSixth();
+      const server = withAccounts();
+      server.recurring = Array.from({ length: 199 }, (_, i) =>
+        repeating({ payee: `Bill ${i}`, archived: i < 10 }),
+      );
+      const user = await importing(
+        server,
+        fileOf(line({ payee: 'Water' }), line({ payee: 'Power' })),
+        size,
+      );
+      expect(
+        await screen.findByText('You can have up to 200 repeating items, stopped ones included'),
+      ).toBeTruthy();
+      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await waitFor(() => expect(server.recurring).toHaveLength(200));
+      expect(server.recurring[199].payee).toBe('Water');
+      await pause(50);
+      expect(server.recurring).toHaveLength(200);
+    },
+    30_000,
+  );
+
+  test.each(SIZES)(
+    "says on its row why a line can't be read, and imports the rest (%s)",
+    async (size) => {
+      onTheSixth();
+      const server = withAccounts();
+      const user = await importing(
+        server,
+        fileOf(line({ schedule: '"Fortnightly, day 1"', payee: 'Odd' }), line({ payee: 'Water' })),
+        size,
+      );
+      expect(await screen.findByText("Can't read the schedule")).toBeTruthy();
+      expect(screen.getByLabelText<HTMLInputElement>('Import row 2').disabled).toBe(true);
+      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await waitFor(() => expect(server.recurring).toHaveLength(1));
+      expect(server.recurring[0].payee).toBe('Water');
+    },
+  );
+
+  test('the stand-in refuses a start after tomorrow in UTC, as the server does', async () => {
+    const server = withAccounts();
+    renderApp(server, '/');
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const utcDay = (days: number) =>
+      new Date(Date.now() + days * DAY_MS).toISOString().slice(0, 10);
+    const send = (startDate: string) =>
+      fetch('/api/changes', {
+        method: 'POST',
+        body: JSON.stringify({
+          changes: [
+            {
+              op: 'addRecurring',
+              recurring: { ...repeating({ startDate }), nextDue: undefined, archived: undefined },
+            },
+          ],
+          ids: [(++made).toString(16).padStart(16, '6')],
+        }),
+      });
+    const refused = await send(utcDay(2));
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: 'Give a day from 2000 up to today' });
+    expect((await send(utcDay(1))).status).toBe(200);
+  });
 });

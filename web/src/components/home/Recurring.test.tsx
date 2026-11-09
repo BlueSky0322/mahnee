@@ -706,8 +706,208 @@ describe('repeating items: edges, refusals and the order of answers', () => {
     20_000,
   );
 
+  /**
+   * Opens Rent (RM 1,200 on Maybank, on `date`) on Maybank's page and sets it repeating
+   * `schedule` from its sheet, as the person would
+   */
+  async function repeatRentFrom(
+    server: FakeServer,
+    date: string,
+    schedule: 'Monthly' | 'Weekly',
+    size: (typeof SIZES)[number],
+  ) {
+    server.transactions.push({
+      id: 'a'.repeat(16),
+      kind: 'expense',
+      accountId: BANK,
+      toAccountId: null,
+      amountCents: 120_000,
+      categoryId: BILLS,
+      payee: 'Rent',
+      note: null,
+      date,
+      createdAt: 1,
+    });
+    renderApp(server, `/?account=${BANK}`, { size });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Bills, Rent, −RM 1,200.00' }));
+    const sheet = within(await screen.findByRole('dialog', { name: 'Edit transaction' }));
+    if (sheet.getByRole('button', { name: 'More' }).getAttribute('aria-expanded') !== 'true') {
+      await user.click(sheet.getByRole('button', { name: 'More' }));
+    }
+    await user.selectOptions(sheet.getByLabelText('Repeat'), schedule);
+    await user.click(sheet.getByRole('button', { name: 'Save' }));
+    return user;
+  }
+
   test.each(SIZES)(
-    'set up from an old transaction, the months since are due at once, each to log or skip (%s)',
+    'set up from an old transaction, it starts from the next one after today: nothing missed is due (%s)',
+    async (size) => {
+      onTheSixth();
+      const server = withAccounts([]);
+      await repeatRentFrom(server, '2026-08-15', 'Monthly', size);
+      await waitFor(() =>
+        expect(server.recurring).toEqual([
+          expect.objectContaining({
+            schedule: 'monthly',
+            day: 15,
+            startDate: '2026-08-15',
+            nextDue: '2026-11-15',
+          }),
+        ]),
+      );
+      await reloadApp(server, '/', { size });
+      // RM 3,000 less the RM 1,200 paid in August, less RM 500 owed, less Rent on the 15th
+      await waitFor(() => expect(expected()).toBe(total('RM 100.00')));
+      expect(screen.queryByText(/Due: Rent/)).toBeNull();
+      // Nothing was recorded for the months since
+      expect(server.transactions.map((t) => t.date)).toEqual(['2026-08-15']);
+    },
+    20_000,
+  );
+
+  test.each(SIZES)(
+    'shows the first due date after today at once, before the server has it (%s)',
+    async (size) => {
+      onTheSixth();
+      const server = withAccounts([]);
+      const held = holdNext(server, 'POST', '/api/changes');
+      onTestFinished(() => held.release());
+      const user = await repeatRentFrom(server, '2026-08-15', 'Monthly', size);
+      await user.click(await screen.findByRole('button', { name: /^Home$/ }));
+      // RM 3,000 less the RM 1,200 paid in August, less RM 500 owed, less Rent on the 15th
+      await waitFor(() => expect(expected()).toBe(total('RM 100.00')));
+      expect(screen.queryByText(/Due: Rent/)).toBeNull();
+      held.release();
+      await waitFor(() => expect(nextDueOn(server, 'Rent')).toBe('2026-11-15'));
+      expect(screen.queryByText(/Due: Rent/)).toBeNull();
+    },
+    20_000,
+  );
+
+  test.each(SIZES)(
+    'set up weekly from an old transaction, it starts from the next of its weekday after today (%s)',
+    async (size) => {
+      onTheSixth();
+      const server = withAccounts([]);
+      // Wednesday 7 October; the next Wednesday after Friday the 6th is the 11th
+      await repeatRentFrom(server, '2026-10-07', 'Weekly', size);
+      await waitFor(() =>
+        expect(server.recurring).toEqual([
+          expect.objectContaining({
+            schedule: 'weekly',
+            day: 3,
+            startDate: '2026-10-07',
+            nextDue: '2026-11-11',
+          }),
+        ]),
+      );
+      await reloadApp(server, '/', { size });
+      await screen.findByRole('button', { name: /^Expected at month end/ });
+      expect(screen.queryByText(/Due: Rent/)).toBeNull();
+    },
+    20_000,
+  );
+
+  test.each(SIZES)(
+    'set up from an old transaction on the day of the month it is today, it starts next month (%s)',
+    async (size) => {
+      onTheSixth();
+      const server = withAccounts([]);
+      // The 6th, as today is: today's isn't due, the first is 6 December
+      await repeatRentFrom(server, '2026-10-06', 'Monthly', size);
+      await waitFor(() =>
+        expect(server.recurring).toEqual([
+          expect.objectContaining({
+            schedule: 'monthly',
+            day: 6,
+            startDate: '2026-10-06',
+            nextDue: '2026-12-06',
+          }),
+        ]),
+      );
+      await reloadApp(server, '/', { size });
+      // RM 3,000 less the RM 1,200 paid in October, less RM 500 owed: nothing more this month
+      await waitFor(() => expect(expected()).toBe(total('RM 1,300.00')));
+      expect(screen.queryByText(/Due: Rent/)).toBeNull();
+    },
+    20_000,
+  );
+
+  test.each(SIZES)(
+    'one set up before still asks about each occurrence it missed (%s)',
+    async (size) => {
+      onTheSixth();
+      const server = withAccounts([
+        repeating('Rent', {
+          amountCents: 120_000,
+          day: 15,
+          startDate: '2026-08-15',
+          nextDue: '2026-09-15',
+        }),
+      ]);
+      renderApp(server, '/', { size });
+      const user = userEvent.setup();
+      let row = await dueRow('Due: Rent RM 1,200.00 from Maybank');
+      await user.click(row.getByRole('button', { name: 'Log it' }));
+      await waitFor(() => expect(nextDueOn(server, 'Rent')).toBe('2026-10-15'));
+      row = await dueRow('Due: Rent RM 1,200.00 from Maybank');
+      await user.click(row.getByRole('button', { name: 'Skip' }));
+      await waitFor(() => expect(nextDueOn(server, 'Rent')).toBe('2026-11-15'));
+      // 15 November isn't due yet
+      await waitFor(() => expect(screen.queryByText(/Due: Rent/)).toBeNull());
+      expect(server.transactions.map((t) => t.date)).toEqual(['2026-09-15']);
+    },
+    20_000,
+  );
+
+  /** The person is in `zone` for this test; set before its clock is built */
+  function inZone(zone: string) {
+    const before = process.env.TZ;
+    process.env.TZ = zone;
+    onTestFinished(() => {
+      process.env.TZ = before;
+    });
+  }
+
+  test.each(SIZES)(
+    "counts after the person's own day, not UTC's: past midnight in Kuala Lumpur (%s)",
+    async (size) => {
+      inZone('Asia/Kuala_Lumpur');
+      // Saturday 7 November, 1 a.m. there; still the 6th in UTC
+      clockAt(new Date(2026, 10, 7, 1, 0, 0));
+      const server = withAccounts([]);
+      await repeatRentFrom(server, '2026-10-07', 'Monthly', size);
+      // After the 7th: 7 December (after UTC's 6th it would be 7 November)
+      await waitFor(() =>
+        expect(server.recurring).toEqual([
+          expect.objectContaining({ day: 7, startDate: '2026-10-07', nextDue: '2026-12-07' }),
+        ]),
+      );
+    },
+    20_000,
+  );
+
+  test.each(SIZES)(
+    "counts after the person's own day, not UTC's: an evening in Los Angeles (%s)",
+    async (size) => {
+      inZone('America/Los_Angeles');
+      // Friday 6 November, 8 p.m. there; already the 7th in UTC
+      clockAt(new Date(2026, 10, 6, 20, 0, 0));
+      const server = withAccounts([]);
+      await repeatRentFrom(server, '2026-10-07', 'Monthly', size);
+      // After the 6th: 7 November (after UTC's 7th it would be 7 December)
+      await waitFor(() =>
+        expect(server.recurring).toEqual([
+          expect.objectContaining({ day: 7, startDate: '2026-10-07', nextDue: '2026-11-07' }),
+        ]),
+      );
+    },
+    20_000,
+  );
+
+  test.each(SIZES)(
+    'set up offline, it keeps the first due date it had when set up, saved once back (%s)',
     async (size) => {
       onTheSixth();
       const server = withAccounts([]);
@@ -730,26 +930,17 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       if (sheet.getByRole('button', { name: 'More' }).getAttribute('aria-expanded') !== 'true') {
         await user.click(sheet.getByRole('button', { name: 'More' }));
       }
+      const backOnline = goOffline(server);
       await user.selectOptions(sheet.getByLabelText('Repeat'), 'Monthly');
       await user.click(sheet.getByRole('button', { name: 'Save' }));
-      await waitFor(() =>
-        expect(server.recurring).toEqual([
-          expect.objectContaining({ day: 15, startDate: '2026-08-15', nextDue: '2026-09-15' }),
-        ]),
-      );
-      await reloadApp(server, '/', { size });
-      let row = await dueRow('Due: Rent RM 1,200.00 from Maybank');
-      await user.click(row.getByRole('button', { name: 'Log it' }));
-      await waitFor(() => expect(nextDueOn(server, 'Rent')).toBe('2026-10-15'));
-      row = await dueRow('Due: Rent RM 1,200.00 from Maybank');
-      await user.click(row.getByRole('button', { name: 'Log it' }));
-      await waitFor(() => expect(nextDueOn(server, 'Rent')).toBe('2026-11-15'));
-      // 15 November isn't due yet
-      await waitFor(() => expect(screen.queryByText(/Due: Rent/)).toBeNull());
-      expect(server.transactions.map((t) => t.date).sort()).toEqual([
-        '2026-08-15',
-        '2026-09-15',
-        '2026-10-15',
+      await pause(100);
+      expect(server.recurring).toEqual([]);
+      // Back online on the 20th: the 15th it was set up with has passed, and is due
+      vi.setSystemTime(new Date(2026, 10, 20, 10, 0, 0));
+      backOnline();
+      await waitFor(() => expect(nextDueOn(server, 'Rent')).toBe('2026-11-15'), { timeout: 8000 });
+      expect(server.recurring).toEqual([
+        expect.objectContaining({ day: 15, startDate: '2026-08-15', nextDue: '2026-11-15' }),
       ]);
     },
     20_000,

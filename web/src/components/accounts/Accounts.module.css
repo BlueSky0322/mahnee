@@ -6,9 +6,23 @@
 
 .sectionHeader {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 4px 12px;
   min-height: 32px;
+}
+
+/* Grows taller rather than cutting its words off when the text is large */
+.addAccount {
+  height: auto;
+  min-height: 30px;
+  padding-block: 4px;
+}
+
+.addAccountLabel {
+  overflow: visible;
+  white-space: normal;
 }
 
 .sectionTitle {
@@ -104,20 +118,30 @@ button.row:hover {
   color: var(--sf-text-secondary);
 }
 
-.rowText {
+/* The name and the balance: side by side, the balance moving below once the name would have
+   less than about seven characters' room */
+.rowMain {
   display: flex;
   flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  min-width: 0;
+}
+
+.rowText {
+  display: flex;
+  flex: 1 1 7em;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
 }
 
+/* Wraps onto more lines so every word shows; a word longer than the row breaks */
 .name {
-  overflow: hidden;
   font-size: 15px;
   font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .kind {
@@ -127,9 +151,11 @@ button.row:hover {
 
 .balance {
   flex: none;
+  margin-left: auto;
   font-size: 15px;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .negative {

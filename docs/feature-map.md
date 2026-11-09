@@ -609,8 +609,9 @@ someone else's, refusals with their messages, a resend counted once, 500 at once
 month's last day past its end) or weekly on a weekday. Set one up with Repeat (Monthly or
 Weekly) under More in the entry sheet, adding or changing a transaction: it repeats on that
 transaction's day of the month or weekday, and its first due date is the next one after
-that day (so one set up from an old transaction has the occurrences since due at once,
-each to log or skip). Each one due (its next due date today or before, the person's own
+the person's own today, so one set up from an old transaction never has the occurrences
+since due (they're taken as handled); one already set up keeps asking about each it missed,
+as those may be real unpaid bills. Each one due (its next due date today or before, the person's own
 day) is at the top of Home, "Due: Rent RM 1,200.00 from Maybank" (income "into Maybank",
 a transfer "from Maybank to Visa"; with no payee, its category's name), with Log it, which
 records it as a transaction on the day it was due and moves it on to its next date, and
@@ -664,6 +665,10 @@ shown, read through `useWholeLedger()`.
   transfer another listed one), a listed category of its kind, an amount of 1 cent to
   `MAX_TRANSACTION`, a payee of at most `MAX_PAYEE`. Its start is a day a transaction can be
   on (up to tomorrow in UTC). Its kind never changes.
+- Its first due date comes with it from the app (`nextDue`: the next after the person's own
+  today, or an imported one's) and is checked as a moved one is, on its schedule and within a
+  year, but never against today, so a change sent days later from an offline device still
+  applies. Without it (an app from before) it's the next after its start.
 - `next_due` always falls on its schedule, and is moved at most a year ahead
   (`MAX_DUE_AHEAD_DAYS`). A new schedule or day comes with the next due
   date, worked out by the app as the first it falls on from the old one.
@@ -683,10 +688,12 @@ the server has it, a log steady and a skip raising the total, applied twice),
 [Recurring.test.tsx](../web/src/components/home/Recurring.test.tsx) (due at the top in
 words, the total and its list, below zero and zero, Log it, Skip and Undo, overdue weekly,
 a lost answer across a reload, set up from adding and changing a transaction and from an
-old one, changing and stopping, a refusal put back, a double tap, offline, the person's own
+old one (first due after today, monthly and weekly, a day that falls today, shown at once,
+set up offline, by the person's own day in Kuala Lumpur and Los Angeles), one set up before
+still asking about each it missed, changing and stopping, a refusal put back, a double tap, offline, the person's own
 day in Kuala Lumpur; desktop and phone), and the repeating cases in
-[worker/test/api.test.ts](../worker/test/api.test.ts) (setting up, each schedule, logging
-and skipping once, refusals with their messages, someone else's, all or nothing, the limit).
+[worker/test/api.test.ts](../worker/test/api.test.ts) (setting up, with its first due date
+given or not and each refusal of one, each schedule, logging and skipping once, refusals with their messages, someone else's, all or nothing, the limit).
 
 ## Export
 
@@ -696,10 +703,15 @@ file holds before it's downloaded ("1,284 transactions from 3 Jan 2026 to 5 Nov 
 accounts, 23 categories", counted by the server), and Download saves it as
 `mahnee-2026-11-05.csv`: first each account's opening balance (Kind "Opening balance",
 dated the day the account was added, in UTC, signed, so what's owed on a card is
-negative), in the person's order, then every transaction, oldest first, one line each.
-Columns: Date, Kind (Opening balance, Spent, Received, Transfer), Account, To account,
-Amount, Currency, Category, Parent category, Payee, Note, Id (the account's id on an
-opening line). Every balance can be worked out again from the file. Archived accounts
+negative), in the person's order, then each bill or income still repeating, in the order
+set up, then every transaction, oldest first, one line each. Columns: Date, Kind (Opening
+balance, Spent, Received, Transfer, Repeating spent, Repeating received, Repeating
+transfer), Account, To account, Amount, Currency, Category, Parent category, Payee, Note, Id
+(the account's id on an opening line, the item's on a repeating one). A repeating line is
+dated its next due date, its amount unsigned like a transaction's, and its Note says how
+often it falls ("Monthly, day 15", or "Weekly, day 3" with Monday as 1); stopped ones are
+left out. Every balance can be worked out again from the file, and importing it sets the
+repeating items up again. The dialog's counts are of transactions, accounts and categories. Archived accounts
 (and accounts with no transactions) and categories are in it like any other, with the
 names they have now. On phones and tablets the share sheet opens where the device has one for
 files (Save to Files on an iPhone), else it downloads. Offline the button says "Connect
@@ -724,7 +736,8 @@ opens and as waiting changes are saved (`useUnsaved`).
   Worker and the test stand-in both write lines with.
 
 **Flow.** The Worker reads the person's accounts and category names, answers at once
-with the header line and the opening balances, then reads transactions `EXPORT_PAGE_SIZE` at a time, oldest first
+with the header line, the opening balances and the repeating items still running (read
+with the names, at most `MAX_RECURRING`), then reads transactions `EXPORT_PAGE_SIZE` at a time, oldest first
 by day, time saved and id, carrying on after the last one read, and sends each page as
 it's read (a `ReadableStream`). The app reads the whole answer before saving it.
 
@@ -742,17 +755,20 @@ it's read (a `ReadableStream`). The app reads the whole answer before saving it.
   in CRLF.
 - The answer is `Cache-Control: no-store`, and nothing in it is logged or kept by the
   Worker or the service worker (which leaves `/api` alone).
-- Bounded by `MAX_ACCOUNTS` x `MAX_TRANSACTIONS_PER_ACCOUNT` rows. A very long history
+- Bounded by `MAX_ACCOUNTS` x `MAX_TRANSACTIONS_PER_ACCOUNT` rows, and at most
+  `MAX_RECURRING` repeating lines. A very long history
   is still subject to the Worker's per-request limits (CPU time, and D1 queries per
   request: one per `EXPORT_PAGE_SIZE` transactions).
 
 **Tests.** The export cases in [worker/test/api.test.ts](../worker/test/api.test.ts)
 (the exact file: opening balances, a card's negative one and an account with no
 transactions among them, then spending, income, a transfer, a subcategory, a renamed and
-an archived account, quoting, the formula guard, another person left out; the header alone
+an archived account, quoting, the formula guard, another person left out; the repeating
+items still running, in the order set up, at most 200; the header alone
 for someone with nothing; paging past 2,000 rows on one day and time; the counts and
 days), [shared/export.test.ts](../shared/export.test.ts) (a negative amount stays a
-number while text starting with "-" is guarded; the UTC day), and [Export.test.tsx](../web/src/components/home/Export.test.tsx) (counts and
+number while text starting with "-" is guarded; the UTC day; repeating lines, stopped ones
+left out, read back as written), and [Export.test.tsx](../web/src/components/home/Export.test.tsx) (counts and
 days, downloading with today's name and the server's bytes, nothing logged yet, offline
 and changes still being saved, a failed download saving nothing; desktop and phone).
 
@@ -773,14 +789,22 @@ so. Mahnee's own export (known by its header) needs no mapping: its accounts are
 name and those missing added (the file doesn't say their kinds, so each is asked), its
 categories by kind, name and parent and added when missing (one matched only archived
 falls back to Other), and an existing account's different opening balance is listed,
-unticked, and changes only if ticked. Export then import into a fresh account, then
+unticked, and changes only if ticked. Its repeating lines set those items up again, on an
+account the person has or the file adds (any other is said on its row), their categories
+found or added as a transaction's, first due on the file's next due date or, when that has
+passed, the next one after the person's own today; set up that day. One with the same
+account, kind, amount, schedule, day and payee (trimmed, ignoring case) as one still running
+looks already saved and is left unticked, each running one answering for one line; stopped
+ones never count, and the category and where a transfer goes aren't compared. Past 200
+items, stopped ones included, a line says so. The Import button then says how many of each
+("Import 2 transactions and 2 repeating items"). Export then import into a fresh account, then
 export again, gives the same file but for ids and the days accounts were added. A file of
 more than `MAX_IMPORT_ROWS` (5,000) rows is refused before the preview; the preview shows
 100 rows at a time. After a bank file the account's page opens; after an export, Home.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts): Import makes every change
-with `change()` (accounts, opening balances, categories, then transactions in the file's
-order), so it shows at once, works offline and goes through the outbox in batches of
+with `change()` (accounts, opening balances, categories, transactions in the file's
+order, then repeating items, each `addRecurring` with its first due date), so it shows at once, works offline and goes through the outbox in batches of
 `MAX_CHANGES` / `MAX_CHANGES_BYTES` (5,000 rows is about 27 requests, sent one at a time;
 a 429 is kept and tried again), each change counted once by its id. `transactionsSince`
 there reads an account's transactions back to the file's first day (200 a page), with
@@ -817,12 +841,14 @@ column names per email and account (`localStorage`, let go on signing out).
 - Amounts are read by their digits into whole cents, at most `MAX_TRANSACTION`.
 
 **Tests.** [shared/csv-import.test.ts](../shared/csv-import.test.ts) (cells, days,
-amounts, bank rows and what's wrong with them, export lines read back as written, the
-duplicate rule, the limit), [Import.test.tsx](../web/src/components/import/Import.test.tsx)
+amounts, bank rows and what's wrong with them, export lines read back as written,
+repeating lines and what's wrong with them, the duplicate rule, the limit), [Import.test.tsx](../web/src/components/import/Import.test.tsx)
 (mapping and remembering it, money in and out, already saved and ticked anyway, the
 same file twice, categories from payees, shortened text, 5,001 refused, 5,000 on a phone
 with a lost answer counted once, offline, the export round trip, opening balances, an
-export picked before the accounts load; desktop and phone), and the payee categories cases in
+export picked before the accounts load; repeating items: the round trip, a next due kept
+or moved on by the person's own day, what counts as already there, two alike, what each
+names, the limit of 200, a line it can't read; desktop and phone), and the payee categories cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts).
 
 ## Exchange rates

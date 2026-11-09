@@ -1,13 +1,15 @@
 // Reading a CSV file into rows to import: a bank's statement, mapped column by column by
 // the person, or Mahnee's own export (shared/export.ts), which is known by its header and
-// read back whole. Nothing here saves anything: the app turns the rows into ledger changes
+// read back whole, its repeating items too. Nothing here saves anything: the app turns the rows into ledger changes
 // once the person has looked them over, and the Worker checks each change as ever.
 //
 // Amounts are read digit by digit into whole cents, never through floating point.
 
-import { CSV_BOM, EXPORT_COLUMNS, EXPORT_KINDS, OPENING_KIND } from './export';
+import { CSV_BOM, EXPORT_COLUMNS, EXPORT_KINDS, OPENING_KIND, REPEATING_KINDS } from './export';
 import type { TransactionKind } from './ledger';
 import { MAX_NOTE, MAX_PAYEE, MAX_TRANSACTION_CENTS, isDay } from './ledger';
+import type { Schedule } from './recurring';
+import { fallsOn, isScheduleDay, latestDue } from './recurring';
 
 /** The most rows one file may hold (its header aside); a longer one is refused whole */
 export const MAX_IMPORT_ROWS = 5000;
@@ -59,6 +61,11 @@ export interface ExportRow {
   parentCategory: string | null;
   payee: string | null;
   note: string | null;
+  /**
+   * Only on a repeating item's line: how often it falls. Its `date` is then its next due
+   * date, `kind` what it records, and it has no note.
+   */
+  repeat?: { schedule: Schedule; day: number };
 }
 
 /** What two rows are compared by, to see whether one looks already saved */
@@ -259,6 +266,20 @@ const KIND_BY_NAME = new Map<string, ExportRow['kind']>([
   ...Object.entries(EXPORT_KINDS).map(([kind, name]) => [name, kind as TransactionKind] as const),
 ]);
 
+/** A repeating item's line, by its kind ("Repeating spent"): what it records */
+const REPEATING_BY_NAME = new Map(
+  Object.entries(REPEATING_KINDS).map(([kind, name]) => [name, kind as TransactionKind] as const),
+);
+
+/** "Monthly, day 15" or "Weekly, day 3" (1 is Monday) read back, or null */
+function readSchedule(text: string): ExportRow['repeat'] | null {
+  const m = /^(Monthly|Weekly), day (\d{1,2})$/.exec(text.trim());
+  if (m == null) return null;
+  const schedule: Schedule = m[1] === 'Monthly' ? 'monthly' : 'weekly';
+  const day = Number(m[2]);
+  return isScheduleDay(schedule, day) ? { schedule, day } : null;
+}
+
 type Column = (typeof EXPORT_COLUMNS)[number];
 
 /** Each line of Mahnee's export (header first), or why it can't be imported */
@@ -267,6 +288,8 @@ export function readExportRows(table: string[][], now = Date.now()): Read<Export
     const row = i + 2;
     const raw = (name: Column) => cells[EXPORT_COLUMNS.indexOf(name)] ?? '';
     const text = (name: Column) => textOf(unguarded(raw(name)));
+    const repeats = REPEATING_BY_NAME.get(raw('Kind').trim());
+    if (repeats != null) return readRepeating(row, repeats, raw, text, now);
     const kind = KIND_BY_NAME.get(raw('Kind').trim());
     if (kind == null) return { row, problem: 'Unknown kind of line' };
     const account = text('Account');
@@ -296,6 +319,50 @@ export function readExportRows(table: string[][], now = Date.now()): Read<Export
       note: kind === 'opening' ? null : fit(text('Note'), MAX_NOTE)[0],
     };
   });
+}
+
+/**
+ * A repeating item's line: dated its next due date, which may well be after today (so read
+ * as any day, as an opening balance is), and must fall on the schedule its Note gives
+ */
+function readRepeating(
+  row: number,
+  kind: TransactionKind,
+  raw: (name: Column) => string,
+  text: (name: Column) => string | null,
+  now: number,
+): Read<ExportRow> {
+  const account = text('Account');
+  if (account == null) return { row, problem: 'No account named' };
+  const toAccount = kind === 'transfer' ? text('To account') : null;
+  if (kind === 'transfer' && toAccount == null) {
+    return { row, problem: 'No account named to move it to' };
+  }
+  const date = readDay(raw('Date'));
+  if (date == null) return { row, problem: `Can't read the date "${raw('Date').trim()}"` };
+  const repeat = readSchedule(raw('Note'));
+  if (repeat == null) return { row, problem: "Can't read the schedule" };
+  if (!fallsOn(repeat.schedule, repeat.day, date)) {
+    return { row, problem: "The next due date isn't on the schedule" };
+  }
+  if (date > latestDue(now)) return { row, problem: 'Next due has to be within a year' };
+  const cents = readCents(raw('Amount'));
+  if (cents == null || cents <= 0) return { row, problem: NO_AMOUNT };
+  if (cents > MAX_TRANSACTION_CENTS) return { row, problem: AMOUNT_RANGE };
+  const categorised = kind !== 'transfer';
+  return {
+    row,
+    kind,
+    date,
+    account,
+    toAccount,
+    cents,
+    category: categorised ? text('Category') : null,
+    parentCategory: categorised ? text('Parent category') : null,
+    payee: fit(text('Payee'), MAX_PAYEE)[0],
+    note: null,
+    repeat,
+  };
 }
 
 /** A payee as rows are compared by: trimmed, ignoring case; none is empty */

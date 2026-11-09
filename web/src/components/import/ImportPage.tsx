@@ -20,14 +20,16 @@ import { change, loadedLedger, transactionsSince } from '../../ledger/ledger';
 import { isOfflineFailure } from '../../offline/network';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
 import { useProfile } from '../../profile/ProfileContext';
-import { dayText } from '../../utils/date-input';
+import { dayText, toDateInput } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
 import { showError } from '../../utils/notify';
 import { KIND_LABELS } from '../accounts/account-text';
 import { categoryName } from '../common/category-name';
+import { scheduleText } from '../home/recurring-text';
 import type { Plan, PlannedRow } from './import-plan';
 import {
   accountsToCheck,
+  adds,
   earliestDay,
   importChanges,
   markSaved,
@@ -42,8 +44,9 @@ import classes from './Import.module.css';
 // saved: the category each goes in (the one its payee was filed under before, else
 // Other), the ones that look already saved (left unticked) and the ones that can't be
 // imported, and why. Mahnee's own export needs no mapping: it names its accounts and
-// categories. Import makes every change through the ledger's change(), so it shows at
-// once, works offline and is saved through the outbox, counted once.
+// categories, and sets its repeating items up again. Import makes every change through the
+// ledger's change(), so it shows at once, works offline and is saved through the outbox,
+// counted once.
 
 /** How many rows the preview shows at first, and each time it's asked for more */
 const ROWS_AT_A_TIME = 100;
@@ -74,6 +77,14 @@ interface Choices {
 
 const count = (n: number) =>
   `${n.toLocaleString('en')} ${n === 1 ? 'transaction' : 'transactions'}`;
+
+/** "3 transactions", or with a file's repeating items "3 transactions and 2 repeating items" */
+const countOf = (transactions: number, repeating: number | null) =>
+  repeating == null
+    ? count(transactions)
+    : `${count(transactions)} and ${repeating.toLocaleString('en')} ${
+        repeating === 1 ? 'repeating item' : 'repeating items'
+      }`;
 
 export default function ImportPage() {
   const { profile } = useProfile();
@@ -185,7 +196,14 @@ export default function ImportPage() {
       if (loaded.isExport) {
         // A file picked before the accounts and categories have loaded waits for them
         const ledger = await loadedLedger();
-        next = planExport(readExportRows(loaded.table), ledger.accounts, ledger.categories);
+        // The person's own day, for when a repeating item's next due date has passed
+        next = planExport(
+          readExportRows(loaded.table),
+          ledger.accounts,
+          ledger.categories,
+          ledger.recurring ?? [],
+          toDateInput(new Date()),
+        );
       } else {
         if (account == null || categories == null || mapping == null) return;
         rememberMapping(email, account.id, mapping);
@@ -215,9 +233,7 @@ export default function ImportPage() {
       setPlan(next);
       setFiledUnknown(lookupFailed);
       setChoices({
-        ticked: new Set(
-          next.rows.filter((r) => r.transaction != null && !r.looksSaved).map((r) => r.row),
-        ),
+        ticked: new Set(next.rows.filter((r) => adds(r) && !r.looksSaved).map((r) => r.row)),
         categoryOf: new Map(),
         kinds: new Map(),
         openingsTicked: new Set(),
@@ -230,6 +246,13 @@ export default function ImportPage() {
   }
 
   const tickedRows = plan?.rows.filter((r) => choices?.ticked.has(r.row)).length ?? 0;
+  const tickedRepeating =
+    plan?.rows.filter((r) => r.recurring != null && choices?.ticked.has(r.row)).length ?? 0;
+  // How many of each, once the file has repeating items: none is said as 0 of each
+  const toImport = countOf(
+    tickedRows - tickedRepeating,
+    plan?.rows.some((r) => r.recurring != null) ? tickedRepeating : null,
+  );
   const canImport =
     plan != null &&
     choices != null &&
@@ -239,7 +262,7 @@ export default function ImportPage() {
   function importNow() {
     if (plan == null || choices == null || !canImport) return;
     change(...importChanges(plan, choices));
-    if (tickedRows > 0) notifications.show({ message: `Imported ${count(tickedRows)}` });
+    if (tickedRows > 0) notifications.show({ message: `Imported ${toImport}` });
     if (plan.source === 'bank' && account != null) {
       navigate(`?account=${account.id}`, { replace: true });
     } else goUp('');
@@ -412,10 +435,11 @@ export default function ImportPage() {
           <Button
             size="md"
             fullWidth
+            classNames={{ root: classes.importButton, label: classes.importButtonLabel }}
             disabled={!canImport}
             onClick={importNow}
           >
-            Import {count(tickedRows)}
+            Import {toImport}
           </Button>
         </div>
       )}
@@ -583,7 +607,8 @@ function PreviewRow({
   onTick,
   onCategory,
 }: RowProps) {
-  const t = planned.transaction;
+  const t = planned.transaction ?? planned.recurring ?? null;
+  const repeats = planned.recurring;
   return (
     <li className={classes.row}>
       <input
@@ -609,7 +634,9 @@ function PreviewRow({
               </span>
             </span>
             <span className={classes.detail}>
-              {dayText(t.date)}
+              {repeats != null
+                ? `Repeating: ${scheduleText(repeats)}, next due ${dayText(repeats.nextDue)}`
+                : dayText(planned.transaction!.date)}
               {planned.names != null &&
                 ` · ${planned.names.account}${
                   planned.names.toAccount != null ? ` to ${planned.names.toAccount}` : ''
@@ -622,7 +649,7 @@ function PreviewRow({
                       ? categoryName(categories, t.categoryId)
                       : planned.names?.category ?? ''
                   }`}
-              {t.note != null && ` · ${t.note}`}
+              {planned.transaction?.note != null && ` · ${planned.transaction.note}`}
             </span>
           </>
         )}

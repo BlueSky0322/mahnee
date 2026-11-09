@@ -71,7 +71,8 @@ hack-proof, and the limits below are real.
   never applied twice.
 - Exporting (`/api/export`) reads the person's transactions a page at a time and sends
   each as it's read, so the Worker never holds the whole history at once; a person has
-  at most `MAX_ACCOUNTS` x `MAX_TRANSACTIONS_PER_ACCOUNT` of them.
+  at most `MAX_ACCOUNTS` x `MAX_TRANSACTIONS_PER_ACCOUNT` of them, and at most
+  `MAX_RECURRING` repeating items, read in one query.
 - `GET /api/payee-categories` answers each of the person's own payees with the category
   it was last filed under, at most `MAX_PAYEE_CATEGORIES`; someone else's account is
   answered as one that doesn't exist.
@@ -100,8 +101,8 @@ hack-proof, and the limits below are real.
   and offers to sign in. Whoever holds the device can read what was kept until someone
   signs in or signs out: an unlocked shared device is a risk, as with any app that opens
   offline.
-- The export file holds the person's whole financial history: every transaction, with
-  amounts, payees, notes and account names. The app doesn't store it anywhere: the
+- The export file holds the person's whole financial history: every transaction and the
+  bills still repeating, with amounts, payees, notes and account names. The app doesn't store it anywhere: the
   Worker writes it as it's asked for, answers it with `Cache-Control: no-store`, and
   logs none of it; the service worker never keeps anything from `/api`. Once
   downloaded or shared it is wherever the person saved it, outside the app's care.

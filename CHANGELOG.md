@@ -14,6 +14,9 @@ For agents:
 
 ## 2026-11-09
 
+- Added: repeating bills are in the export and come back on import [#21]
+- Changed: a repeat set up from an old transaction starts from its next date [#21]
+- Fixed: account names and Add account wrap at large text instead of being cut off [#21]
 - Added: tap a category, Spent or Received on Home to see its last 12 months [#20]
 
 ## 2026-11-06
@@ -66,3 +69,4 @@ For agents:
 [#17]: https://github.com/BlueSky0322/mahnee/pull/17
 [#18]: https://github.com/BlueSky0322/mahnee/pull/18
 [#20]: https://github.com/BlueSky0322/mahnee/pull/20
+[#21]: https://github.com/BlueSky0322/mahnee/pull/21

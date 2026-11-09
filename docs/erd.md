@@ -87,7 +87,7 @@ erDiagram
     TEXT payee "null, or 1 to 80 characters"
     TEXT schedule "monthly or weekly"
     INTEGER day "1 to 31 of a month, or 1 (Monday) to 7"
-    TEXT start_date "the day it was set up from"
+    TEXT start_date "the day it was set up from, or imported"
     TEXT next_due "the next occurrence not logged or skipped"
     INTEGER position "set up in this order, first at 0"
     INTEGER archived "0 or 1: stopped repeating"

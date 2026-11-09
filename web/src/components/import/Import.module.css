@@ -179,3 +179,16 @@
   background: var(--sf-bg);
   box-shadow: 0 -1px 0 var(--sf-divider);
 }
+
+/* "Import 2 transactions and 2 repeating items" wraps rather than being cut off */
+.importButton {
+  height: auto;
+  min-height: 42px;
+  padding-block: 8px;
+}
+
+.importButtonLabel {
+  overflow: visible;
+  white-space: normal;
+  text-align: center;
+}

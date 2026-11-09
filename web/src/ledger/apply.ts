@@ -224,8 +224,9 @@ function applyToRecurring(recurring: Recurring[], change: LedgerChange): Recurri
     case 'addRecurring': {
       const r = change.recurring;
       if (recurring.some((found) => found.id === r.id)) return recurring;
-      // The day it was set up from is its first occurrence: the next is due after it
-      const nextDue = nextAfter(r.schedule, r.day, r.startDate);
+      // First due when the app said (the first after the person's today); a change from an
+      // app from before says nothing, and the server works it out from the day set up from
+      const nextDue = r.nextDue ?? nextAfter(r.schedule, r.day, r.startDate);
       return [...recurring, { ...r, nextDue, archived: false }];
     }
     case 'updateRecurring': {

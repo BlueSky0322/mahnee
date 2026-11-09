@@ -1,13 +1,16 @@
 // The file a person downloads to take their whole history with them: each account's
-// opening balance, then every transaction, one line each of a CSV file, which Excel,
-// Numbers and Google Sheets open. Every balance can be worked out again from it. The Worker
+// opening balance, each bill or income still repeating, then every transaction, one line
+// each of a CSV file, which Excel, Numbers and Google Sheets open. Every balance can be
+// worked out again from it, and importing it sets the repeating ones up again. The Worker
 // writes it (worker/ledger/export.ts) and the app's test stand-in the same way.
 //
 // Names are written as they are now: an account renamed since shows its new name on
 // every line. Archived accounts and categories are written like any other.
 
-import type { Transaction } from './api';
+import type { Recurring, Transaction } from './api';
 import type { TransactionKind } from './ledger';
+import type { Schedule } from './recurring';
+import { MAX_RECURRING } from './recurring';
 
 /** The file's first line: what each column holds */
 export const EXPORT_COLUMNS = [
@@ -33,6 +36,18 @@ export const EXPORT_KINDS: Record<TransactionKind, string> = {
 
 /** The kind written on an account's opening balance line */
 export const OPENING_KIND = 'Opening balance';
+
+/**
+ * How each kind of repeating item is written: "Repeating spent", "Repeating received",
+ * "Repeating transfer", so a spreadsheet can filter them and tell them apart
+ */
+export const REPEATING_KINDS = Object.fromEntries(
+  Object.entries(EXPORT_KINDS).map(([kind, name]) => [kind, `Repeating ${name.toLowerCase()}`]),
+) as Record<TransactionKind, string>;
+
+/** How often a repeating item falls, as its line's Note says: "Monthly, day 15", "Weekly, day 3" */
+export const scheduleText = (schedule: Schedule, day: number) =>
+  `${schedule === 'monthly' ? 'Monthly' : 'Weekly'}, day ${day}`;
 
 /**
  * Written first, before the header. Excel takes a CSV file without it for the computer's
@@ -147,3 +162,30 @@ export function exportCells(
     t.id,
   ];
 }
+
+/**
+ * A repeating item's cells, in EXPORT_COLUMNS' order: dated its next due date, its kind as
+ * REPEATING_KINDS writes it, what it records as a transaction's line has it (the amount
+ * unsigned), how often it falls in the Note (Monday is day 1) and its own id
+ */
+export function repeatingCells(r: Omit<Recurring, 'startDate'>, names: ExportNames): Cell[] {
+  const cells = exportCells({ ...r, note: null, date: r.nextDue }, names);
+  cells[1] = REPEATING_KINDS[r.kind];
+  cells[9] = scheduleText(r.schedule, r.day);
+  return cells;
+}
+
+/**
+ * The lines of a person's repeating items still running, in the order given (the order
+ * they were set up), at most MAX_RECURRING; stopped ones are left out, as they don't come
+ * back with an import
+ */
+export const repeatingLines = (
+  items: readonly Omit<Recurring, 'startDate'>[],
+  names: ExportNames,
+): string =>
+  items
+    .filter((r) => !r.archived)
+    .slice(0, MAX_RECURRING)
+    .map((r) => csvLine(repeatingCells(r, names)))
+    .join('');

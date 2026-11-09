@@ -81,3 +81,9 @@ export function monthHeading(month: string, { short = false } = {}) {
     ...(!short && { year: 'numeric' }),
   });
 }
+
+/** A month as one bar of a year is labelled: "Dec 2025" */
+export function monthLabel(month: string) {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+}

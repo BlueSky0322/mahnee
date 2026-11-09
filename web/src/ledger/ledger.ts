@@ -1,5 +1,12 @@
 import type { InfiniteData } from '@tanstack/react-query';
-import type { Ledger, LedgerChange, MonthSummary, Transaction, TransactionPage } from '@shared/api';
+import type {
+  Ledger,
+  LedgerChange,
+  MonthSummary,
+  MonthTrend,
+  Transaction,
+  TransactionPage,
+} from '@shared/api';
 import { MAX_CHANGES } from '@shared/api';
 import { categoriesOrDefaults } from '@shared/categories';
 import { isOnAccount } from '@shared/ledger';
@@ -28,7 +35,7 @@ import {
   oneByOne,
 } from './apply';
 import { createSaveQueue } from './save-queue';
-import { applyToSummary } from './summary';
+import { applyToSummary, applyToTrend } from './summary';
 
 // A person's ledger (their accounts, categories and repeating items, and their
 // transactions a page at a time), kept in the query cache so every screen shows the same copy. change() is the
@@ -44,7 +51,8 @@ import { applyToSummary } from './summary';
 // (shownPages), so a list loaded a page at a time never has to be put back. A month's
 // totals are kept the same way: as the server summed them, with each batch counted in
 // once it's saved, and the changes still to send counted on top as they're shown
-// (shownSummary).
+// (shownSummary); and so are the 12 months up to a month (shownTrend), each change in
+// whichever of them it falls in.
 //
 // A change the server saved whose answer never came back is still waiting here, and a
 // fresh copy may hold it already. So a read of the balances or a month's totals names the
@@ -101,6 +109,12 @@ export const SUMMARY_KEY = ['summary'] as const;
 export const summaryKey = (month: string) => ['summary', month] as const;
 /** A month's totals, kept on the device for opening offline */
 const summaryCacheKey = (month: string) => `summary-v1:${month}`;
+/** Every 12 months' totals */
+export const TREND_KEY = ['trend'] as const;
+/** The totals of the 12 months ending at a month (2026-11) */
+export const trendKey = (month: string) => ['trend', month] as const;
+/** The same, kept on the device for opening offline */
+const trendCacheKey = (month: string) => `trend-v1:${month}`;
 
 /** The first page of an account's transactions, kept on the device for opening offline */
 const pageCacheKey = (accountId: string) => `transactions-v1:${accountId}`;
@@ -248,6 +262,11 @@ const queue = createSaveQueue({
       const counted = notHeld(changes, ids, new Set(summary.alreadySaved));
       queryClient.setQueryData(key, applyToSummary(summary, counted, savedTransaction));
     }
+    for (const [key, trend] of queryClient.getQueriesData<MonthTrend>({ queryKey: TREND_KEY })) {
+      if (trend == null) continue;
+      const counted = notHeld(changes, ids, new Set(trend.alreadySaved));
+      queryClient.setQueryData(key, applyToTrend(trend, counted, savedTransaction));
+    }
     // Saved, so part of every list as the server has it
     for (const [key, data] of listsInCache()) {
       if (data == null) continue;
@@ -268,6 +287,7 @@ const queue = createSaveQueue({
       (old) => old && apply(old, changes, savedTransaction),
     );
     void queryClient.invalidateQueries({ queryKey: SUMMARY_KEY });
+    void queryClient.invalidateQueries({ queryKey: TREND_KEY });
   },
   failed: (err) => {
     showError(err, "Couldn't save that change.");
@@ -277,6 +297,7 @@ const queue = createSaveQueue({
     void reloadLedger();
     void queryClient.invalidateQueries({ queryKey: TRANSACTIONS_KEY });
     void queryClient.invalidateQueries({ queryKey: SUMMARY_KEY });
+    void queryClient.invalidateQueries({ queryKey: TREND_KEY });
   },
 });
 
@@ -291,6 +312,7 @@ onCacheCleared(() => {
   recentlySaved.clear();
   ledgerFetched = false;
   fromDevice.clear();
+  trendsFromDevice.clear();
   ageChanged();
 });
 
@@ -350,7 +372,16 @@ function refreshKeptSummaries() {
       void queryClient.invalidateQueries({ queryKey: summaryKey(what.slice('summary:'.length)) });
     }
   }
+  for (const month of trendsFromDevice) {
+    void queryClient.invalidateQueries({ queryKey: trendKey(month) });
+  }
 }
+
+/**
+ * The 12 months' totals shown from the device, by the month they end at: fetched again
+ * once the server answers. Not part of how old Home says its figures are (dataAge).
+ */
+const trendsFromDevice = new Set<string>();
 
 /** How many changes are waiting to be saved, and whether sending waits on signing in */
 export const unsavedState = () => queue.state();
@@ -586,6 +617,41 @@ export function shownSummary(summary: MonthSummary, pending: Queued[]) {
   const holds = new Set(summary.alreadySaved);
   const waiting = pending.filter((q) => !holds.has(q.cid)).map((q) => q.change);
   return applyToSummary(summary, waiting, savedTransaction);
+}
+
+/**
+ * The 12 months' totals ending at `month` from the server; offline, the copy kept on this
+ * device. Like a month's totals, one fetched while a batch was saved leaves what's shown
+ * until the totals fetched once nothing is left to send.
+ */
+export async function fetchTrend(month: string): Promise<MonthTrend> {
+  const named = await idsToName();
+  const savedBefore = savedCount;
+  let trend: MonthTrend;
+  try {
+    trend = await api.getTrend(month, named);
+  } catch (err) {
+    if (!isOfflineFailure(err)) throw err;
+    const kept = await readCache<MonthTrend>(trendCacheKey(month));
+    if (kept == null) throw err;
+    trendsFromDevice.add(month);
+    return kept;
+  }
+  void writeCache(trendCacheKey(month), trend);
+  const shown = queryClient.getQueryData<MonthTrend>(trendKey(month));
+  if (savedCount !== savedBefore && shown != null) return shown;
+  trendsFromDevice.delete(month);
+  return trend;
+}
+
+/**
+ * The 12 months' totals as shown: as the server summed them, with the changes still to
+ * send, but for those it counted already
+ */
+export function shownTrend(trend: MonthTrend, pending: Queued[]) {
+  const holds = new Set(trend.alreadySaved);
+  const waiting = pending.filter((q) => !holds.has(q.cid)).map((q) => q.change);
+  return applyToTrend(trend, waiting, savedTransaction);
 }
 
 /**

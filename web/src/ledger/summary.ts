@@ -3,6 +3,7 @@ import type {
   LedgerChange,
   MonthBudget,
   MonthSummary,
+  MonthTrend,
   Transaction,
 } from '@shared/api';
 import type { Lookup } from './apply';
@@ -15,6 +16,9 @@ import { changedTransaction, idOf, isTransactionChange, oneByOne, tracker } from
 // to another month or category moves out of one total and into the other. `lookup`
 // gives a transaction as it was before the changes; one not known isn't taken away, and
 // the totals catch up when they're next fetched.
+//
+// The 12 months up to a month (spending over time) are counted the same way, each month
+// on its own, so a change counts in whichever of the 12 it falls in.
 //
 // A budget set shows in the months it applies to: the month it's set from, and later ones.
 // What last month left stays as the server worked it out; a change to an earlier month's
@@ -111,4 +115,19 @@ function setBudget(
     budgets = was == null ? [...kept, set] : kept.map((b) => (b === was ? set : b));
   }
   return budgets.length === 0 ? rest : { ...rest, budgets };
+}
+
+/**
+ * The 12 months up to a month with `changes` made to them, in order, each month counted as
+ * a month's totals are; budgets play no part. The one passed in is left as it was.
+ */
+export function applyToTrend(
+  trend: MonthTrend,
+  changes: LedgerChange[],
+  lookup: Lookup,
+): MonthTrend {
+  const counted = changes.filter((change) => change.op !== 'setBudget');
+  if (counted.length === 0) return trend;
+  const months = trend.months.map((month) => applyToSummary(month, counted, lookup));
+  return months.every((month, i) => month === trend.months[i]) ? trend : { ...trend, months };
 }

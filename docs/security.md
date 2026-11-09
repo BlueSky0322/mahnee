@@ -57,6 +57,10 @@ hack-proof, and the limits below are real.
   tomorrow's in UTC) gets no budgets and reads none, so the month-by-month walk is
   bounded by the months since 2000. A budget is whole cents from 1 to
   `MAX_BUDGET_CENTS` (`shared/budgets.ts`), set from a month no later than this one.
+- The 12 months up to a month (`/api/summary/trend`): one grouped sum of the person's own
+  spending and income over a fixed window, the checked month and the 11 before it, at
+  most one row per month, kind and category (12 x 2 x `MAX_CATEGORIES`); never a read per
+  month. Kept on the device per month, like a month's totals.
 - Changes to the ledger: at most `MAX_CHANGES` in one request, saved all or nothing. A
   change to many transactions names at most `MAX_BULK_TRANSACTIONS` (500), each the
   person's own. A person has at most `MAX_RECURRING` (200) repeating items, stopped ones

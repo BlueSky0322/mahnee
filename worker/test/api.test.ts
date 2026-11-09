@@ -1629,6 +1629,163 @@ describe('transactions', () => {
     });
   });
 
+  // Spending over time: the 12 months ending at a month, each summed as a month's totals
+  // are, in one read, so the month card can show each category's last 12 months
+  describe('the last 12 months', () => {
+    const trend = (who: string, query: string, headers?: Record<string, string>) =>
+      api.call(who, 'GET', `/api/summary/trend${query}`, undefined, headers);
+    /** November 2024 to October 2025, oldest first */
+    const TO_OCTOBER = [
+      '2024-11',
+      '2024-12',
+      '2025-01',
+      '2025-02',
+      '2025-03',
+      '2025-04',
+      '2025-05',
+      '2025-06',
+      '2025-07',
+      '2025-08',
+      '2025-09',
+      '2025-10',
+    ];
+    /** A month with nothing spent or received in it */
+    const nothingIn = (month: string) => ({
+      month,
+      incomeCents: 0,
+      spentCents: 0,
+      leftCents: 0,
+      spentByCategory: [],
+      incomeByCategory: [],
+    });
+
+    it('sums each of the 12 months ending at the month by category; transfers, months either side and other people never count', async () => {
+      const { me, wallet } = await withWallet();
+      const [bank, coffee] = [rowId(), rowId()];
+      await send(me, [
+        addAccount(bank, 'bank', 0, 'Bank'),
+        {
+          op: 'addCategory',
+          category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
+        },
+        add(rowId(), wallet, 800, { date: '2025-10-01' }),
+        add(rowId(), bank, 300, { date: '2025-10-31', categoryId: coffee }),
+        add(rowId(), wallet, 120, { date: '2025-10-15', categoryId: transport }),
+        add(rowId(), bank, 5_000, { kind: 'income', categoryId: salary, date: '2025-10-25' }),
+        add(rowId(), wallet, 7_000, { date: '2025-09-30' }),
+        add(rowId(), bank, 4_000, { kind: 'income', categoryId: salary, date: '2025-03-10' }),
+        // The first day of the 12 months, and either side of them
+        add(rowId(), wallet, 50, { date: '2024-11-01' }),
+        add(rowId(), wallet, 9_999, { date: '2024-10-31' }),
+        add(rowId(), wallet, 9_000, { date: '2025-11-01' }),
+      ]);
+      await api.sql(
+        `INSERT INTO transactions (email, id, kind, account_id, to_account_id, amount_cents,
+                                   category_id, date, created_at, updated_at)
+         VALUES (?, ?, 'transfer', ?, ?, 40000, NULL, '2025-10-10', 0, 0)`,
+        me,
+        rowId(),
+        wallet,
+        bank,
+      );
+      const other = person('other');
+      const theirs = rowId();
+      await send(other, [addAccount(theirs), add(rowId(), theirs, 6_600, { date: '2025-10-15' })]);
+
+      const filled: Record<string, object> = {
+        '2024-11': {
+          month: '2024-11',
+          incomeCents: 0,
+          spentCents: 50,
+          leftCents: -50,
+          spentByCategory: [{ categoryId: food, cents: 50 }],
+          incomeByCategory: [],
+        },
+        '2025-03': {
+          month: '2025-03',
+          incomeCents: 4_000,
+          spentCents: 0,
+          leftCents: 4_000,
+          spentByCategory: [],
+          incomeByCategory: [{ categoryId: salary, cents: 4_000 }],
+        },
+        '2025-09': {
+          month: '2025-09',
+          incomeCents: 0,
+          spentCents: 7_000,
+          leftCents: -7_000,
+          spentByCategory: [{ categoryId: food, cents: 7_000 }],
+          incomeByCategory: [],
+        },
+        '2025-10': {
+          month: '2025-10',
+          incomeCents: 5_000,
+          spentCents: 1_220,
+          leftCents: 3_780,
+          // A subcategory's spending under its own id, as a month's totals have it
+          spentByCategory: [
+            { categoryId: food, cents: 800 },
+            { categoryId: coffee, cents: 300 },
+            { categoryId: transport, cents: 120 },
+          ],
+          incomeByCategory: [{ categoryId: salary, cents: 5_000 }],
+        },
+      };
+      expect(await trend(me, '?month=2025-10')).toEqual({
+        status: 200,
+        data: { month: '2025-10', months: TO_OCTOBER.map((m) => filled[m] ?? nothingIn(m)) },
+      });
+      // The shown month is exactly that month's totals
+      const october = await api.call(me, 'GET', '/api/summary?month=2025-10');
+      expect((await trend(me, '?month=2025-10')).data.months[11]).toEqual(october.data);
+      // Someone else's are theirs alone
+      expect((await trend(other, '?month=2025-10')).data.months).toEqual([
+        ...TO_OCTOBER.slice(0, 11).map(nothingIn),
+        {
+          month: '2025-10',
+          incomeCents: 0,
+          spentCents: 6_600,
+          leftCents: -6_600,
+          spentByCategory: [{ categoryId: food, cents: 6_600 }],
+          incomeByCategory: [],
+        },
+      ]);
+    });
+
+    it('says which of the changes it names it counts already', async () => {
+      const { me, wallet } = await withWallet();
+      const [saved, waiting] = [rowId(), rowId()];
+      await send(me, [add(rowId(), wallet, 800, { date: '2025-10-14' })], [saved]);
+      const res = await trend(me, '?month=2025-10', {
+        'X-Pending-Changes': [waiting, saved].join(','),
+      });
+      expect(res.status).toBe(200);
+      expect(res.data.alreadySaved).toEqual([saved]);
+      expect(res.data.months[11]).toMatchObject({ spentCents: 800 });
+      // Naming none, the answer says nothing of them
+      expect((await trend(me, '?month=2025-10')).data).not.toHaveProperty('alreadySaved');
+    });
+
+    it.each([
+      ['no month', ''],
+      ['a month of the wrong shape', '?month=2025-13'],
+      ['a day instead of a month', '?month=2025-10-01'],
+      ['a month before 2000', '?month=1999-12'],
+    ])('refuses %s', async (_what, query) => {
+      expect(await trend(person('me'), query)).toEqual({
+        status: 400,
+        data: { error: 'Give a month from 2000, like 2026-11' },
+      });
+    });
+
+    it('refuses more than 200 changes named', async () => {
+      const ids = Array.from({ length: 201 }, () => rowId());
+      expect(
+        await trend(person('me'), '?month=2025-10', { 'X-Pending-Changes': ids.join(',') }),
+      ).toEqual({ status: 400, data: { error: 'Name up to 200 change ids' } });
+    });
+  });
+
   describe('budgets', () => {
     const summary = async (who: string, month: string) => {
       const res = await api.call(who, 'GET', `/api/summary?month=${month}`);

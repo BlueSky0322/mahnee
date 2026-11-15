@@ -1,0 +1,53 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 1.375rem;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.badge[data-tone='due'] {
+  background: var(--due-tint);
+  color: var(--due);
+}
+
+.badge[data-tone='neg'] {
+  background: var(--neg-tint);
+  color: var(--neg);
+}
+
+.badge[data-tone='soft'] {
+  background: var(--sunk);
+  color: var(--ink-2);
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--neg);
+  color: var(--surface);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.new {
+  display: inline-flex;
+  align-items: center;
+  height: 1.25rem;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}

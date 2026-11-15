@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-15
+
+- Changed: a new look, on a paper ground in Geist with filled cobalt buttons [#22]
+
 ## 2026-11-09
 
 - Added: repeating bills are in the export and come back on import [#21]
@@ -70,3 +74,4 @@ For agents:
 [#18]: https://github.com/BlueSky0322/mahnee/pull/18
 [#20]: https://github.com/BlueSky0322/mahnee/pull/20
 [#21]: https://github.com/BlueSky0322/mahnee/pull/21
+[#22]: https://github.com/BlueSky0322/mahnee/pull/22

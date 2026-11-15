@@ -1,21 +1,21 @@
 .fab {
   position: fixed;
   right: 16px;
-  /* Above the bottom tabs where there are some */
-  bottom: calc(16px + var(--sf-chrome-bottom, calc(18px + var(--sf-safe-bottom))));
+  /* Clear of the phone's home bar */
+  bottom: calc(34px + var(--sf-safe-bottom));
   z-index: 150;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   height: 56px;
   padding: 0 20px;
-  border-radius: 16px;
-  border: 1px solid var(--sf-accent);
-  background: var(--mantine-color-accent-8);
-  color: #fff;
+  border-radius: 18px;
+  border: 0;
+  background: var(--accent);
+  color: var(--accent-ink);
   font-size: 15px;
   font-weight: 500;
-  box-shadow: var(--sf-shadow-lg);
+  box-shadow: var(--shadow-float);
 }
 
 .fab:active {

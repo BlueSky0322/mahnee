@@ -66,7 +66,8 @@ export default function BulkDialogs({
               Cancel
             </Button>
             <Button
-              color="red"
+              variant="default"
+              className="sf-danger-outline"
               onClick={onDelete}
             >
               Delete

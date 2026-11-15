@@ -252,8 +252,8 @@ export default function SearchPage() {
                 </Button>
                 <Button
                   size="compact-md"
-                  color="red"
-                  variant="light"
+                  variant="default"
+                  className="sf-danger-outline"
                   disabled={chosen.length === 0}
                   onClick={() => start('delete')}
                 >

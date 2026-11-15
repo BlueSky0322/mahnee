@@ -3,9 +3,9 @@
   flex-direction: column;
   gap: 12px;
   padding: 12px 16px 20px;
-  border-radius: 16px;
-  background: var(--sf-surface);
-  box-shadow: var(--sf-shadow-sm);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .header {
@@ -37,7 +37,7 @@
 }
 
 .leftLabel {
-  color: var(--sf-text-secondary);
+  color: var(--ink-2);
   font-size: 14px;
 }
 
@@ -49,11 +49,11 @@
 }
 
 .negative {
-  color: var(--sf-negative);
+  color: var(--neg);
 }
 
 .caption {
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 13px;
 }
 
@@ -70,7 +70,7 @@
   gap: 2px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: var(--sf-tint);
+  background: var(--sunk);
 }
 
 .figureButton {
@@ -82,14 +82,14 @@
 }
 
 .figureButton:hover {
-  background: var(--sf-hover);
+  background: var(--sunk);
 }
 
 .figureLabel {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 13px;
 }
 
@@ -108,7 +108,7 @@
 .groupTitle {
   margin: 0;
   padding: 0 4px;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 13px;
   font-weight: 500;
 }
@@ -141,7 +141,7 @@
 }
 
 .rowButton:hover {
-  background: var(--sf-hover);
+  background: var(--sunk);
 }
 
 .rowLine {
@@ -168,22 +168,22 @@
 
 .caret {
   flex: none;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
 }
 
 .track {
   display: block;
   height: 6px;
   overflow: hidden;
-  border-radius: 3px;
-  background: var(--sf-tag);
+  border-radius: 999px;
+  background: var(--sunk);
 }
 
 .bar {
   display: block;
   height: 100%;
-  border-radius: 3px;
-  background: var(--sf-accent);
+  border-radius: 999px;
+  background: var(--ink);
 }
 
 .inside {
@@ -191,7 +191,7 @@
   flex-direction: column;
   margin: 0 0 4px 16px;
   padding: 0 0 0 12px;
-  border-left: 2px solid var(--sf-divider);
+  border-left: 2px solid var(--line);
   list-style: none;
 }
 
@@ -200,7 +200,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 4px;
-  color: var(--sf-text-secondary);
+  color: var(--ink-2);
 }
 
 .insideAmount {
@@ -229,7 +229,7 @@
 
 .muted {
   margin: 0;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 14px;
 }
 
@@ -242,13 +242,13 @@
 
 .budgetCarried {
   margin-top: -4px;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 13px;
   text-align: right;
 }
 
 .barOver {
-  background: var(--sf-negative);
+  background: var(--neg);
 }
 
 .twelve {
@@ -260,7 +260,7 @@
 
 .twelveTitle {
   margin: 0;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 13px;
   font-weight: 500;
 }
@@ -281,7 +281,7 @@
   align-items: center;
   column-gap: 8px;
   padding: 2px 0;
-  color: var(--sf-text-secondary);
+  color: var(--ink-2);
   font-size: 13px;
 }
 
@@ -296,14 +296,14 @@
   height: 8px;
   overflow: hidden;
   border-radius: 4px;
-  background: var(--sf-tag);
+  background: var(--sunk);
 }
 
 .twelveBar {
   display: block;
   height: 100%;
   border-radius: 4px;
-  background: var(--sf-text-muted);
+  background: var(--ink-3);
 }
 
 .twelveAmount {
@@ -320,12 +320,12 @@
 }
 
 .twelveShown .twelveBar {
-  background: var(--sf-accent);
+  background: var(--ink);
 }
 
 .twelveLine {
   margin: 4px 0 0;
-  color: var(--sf-text-secondary);
+  color: var(--ink-2);
   font-size: 14px;
 }
 

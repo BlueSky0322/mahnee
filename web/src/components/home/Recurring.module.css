@@ -11,9 +11,9 @@
   justify-content: space-between;
   gap: 8px 12px;
   padding: 14px 16px;
-  border-radius: 16px;
-  background: var(--sf-surface);
-  box-shadow: var(--sf-shadow-sm);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .dueText {
@@ -28,7 +28,7 @@
 }
 
 .dueDay {
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 13px;
   font-weight: 400;
 }
@@ -55,9 +55,9 @@
   min-height: 60px;
   padding: 12px 16px;
   border: none;
-  border-radius: 16px;
-  background: var(--sf-surface);
-  box-shadow: var(--sf-shadow-sm);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
   color: inherit;
   font: inherit;
   text-align: left;
@@ -65,7 +65,7 @@
 }
 
 .totalButton:hover {
-  background: color-mix(in srgb, var(--sf-surface), var(--sf-text) 4%);
+  background: color-mix(in srgb, var(--surface), var(--ink) 4%);
 }
 
 .totalLabel {
@@ -80,18 +80,18 @@
 }
 
 .negative {
-  color: var(--sf-negative);
+  color: var(--neg);
 }
 
 .belowZero {
   margin: 0 16px;
-  color: var(--sf-negative);
+  color: var(--neg);
   font-size: 13px;
 }
 
 .listTitle {
   margin: 16px 0 8px;
-  color: var(--sf-text-secondary);
+  color: var(--ink-2);
   font-size: 13px;
   font-weight: 600;
 }
@@ -116,7 +116,7 @@
 .itemDay {
   flex: none;
   width: 64px;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
 }
 
 .itemName {
@@ -139,7 +139,7 @@
 
 .muted {
   margin: 0;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 14px;
 }
 
@@ -158,7 +158,7 @@
 }
 
 .repeatingDetail {
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 13px;
 }
 

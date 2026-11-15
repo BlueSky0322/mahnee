@@ -173,7 +173,7 @@ function Fields({ recurring: r, onDone }: { recurring: Recurring; onDone: () => 
       <div className={classes.actions}>
         <Button
           variant="subtle"
-          color="red"
+          className="sf-danger"
           leftSection={<StopCircle size={16} />}
           onClick={stop}
         >

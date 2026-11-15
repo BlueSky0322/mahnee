@@ -46,7 +46,13 @@ describe('the first screen', () => {
 
   test("uses the app's own backgrounds, as the iPhone launch screens do", () => {
     const tokens = read('../src/theme/tokens.css');
-    const [dark, light] = [...tokens.matchAll(/--sf-bg:\s*(#[0-9a-f]{6})/g)].map((m) => m[1]);
+    // Each theme's ground from its own rule: light on :root, dark under the dark scheme
+    const ground = (selector: string) => {
+      const block = new RegExp(`^${selector} \\{([^}]*)\\}`, 'm').exec(tokens)?.[1] ?? '';
+      return /^\s*--ground:\s*(#[0-9a-f]{6});/m.exec(block)?.[1];
+    };
+    const light = ground(':root');
+    const dark = ground(":root\\[data-mantine-color-scheme='dark'\\]");
     expect(LAUNCH_BACKGROUNDS).toEqual({ dark, light });
     expect(indexHtml).toContain(`background: ${dark}`);
     expect(indexHtml).toContain(`background: ${light}`);

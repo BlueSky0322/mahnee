@@ -50,9 +50,9 @@
   z-index: 2;
   top: 0;
   padding: 8px 12px;
-  border-radius: 16px;
-  background: var(--sf-surface);
-  box-shadow: var(--sf-shadow-sm);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .count {
@@ -73,9 +73,9 @@
   align-items: flex-start;
   gap: 8px;
   padding: 20px;
-  border-radius: 16px;
-  background: var(--sf-surface);
-  box-shadow: var(--sf-shadow-sm);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .emptyTitle {
@@ -86,7 +86,7 @@
 
 .muted {
   margin: 0 0 8px;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 14px;
 }
 
@@ -104,7 +104,7 @@
 
 .dayTitle {
   margin: 0 0 0 4px;
-  color: var(--sf-text-secondary);
+  color: var(--ink-2);
   font-size: 13px;
   font-weight: 600;
 }
@@ -115,9 +115,9 @@
   margin: 0;
   padding: 4px 0;
   list-style: none;
-  border-radius: 16px;
-  background: var(--sf-surface);
-  box-shadow: var(--sf-shadow-sm);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .row {
@@ -144,11 +144,11 @@ button.row,
 
 button.row:hover,
 .tickRow:hover {
-  background: var(--sf-hover);
+  background: var(--sunk);
 }
 
 .list li + li .row {
-  border-top: 1px solid var(--sf-divider);
+  border-top: 1px solid var(--line);
 }
 
 .tick {
@@ -156,7 +156,7 @@ button.row:hover,
   width: 20px;
   height: 20px;
   margin: 0;
-  accent-color: var(--sf-accent);
+  accent-color: var(--accent);
 }
 
 .rowText {
@@ -177,7 +177,7 @@ button.row:hover,
 
 .detail {
   overflow: hidden;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -191,7 +191,7 @@ button.row:hover,
 }
 
 .income {
-  color: var(--sf-positive);
+  color: var(--pos);
 }
 
 .loadMore {

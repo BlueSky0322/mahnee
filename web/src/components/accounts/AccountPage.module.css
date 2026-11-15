@@ -41,8 +41,8 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: var(--sf-tag);
-  color: var(--sf-text-secondary);
+  background: var(--sunk);
+  color: var(--ink-2);
 }
 
 .titleText {
@@ -63,7 +63,7 @@
 }
 
 .kind {
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 14px;
 }
 
@@ -75,7 +75,7 @@
 }
 
 .negative {
-  color: var(--sf-negative);
+  color: var(--neg);
 }
 
 .card {
@@ -84,9 +84,9 @@
   align-items: flex-start;
   gap: 8px;
   padding: 20px;
-  border-radius: 16px;
-  background: var(--sf-surface);
-  box-shadow: var(--sf-shadow-sm);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .emptyIcon {
@@ -96,8 +96,8 @@
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: var(--sf-accent-tint);
-  color: var(--sf-accent);
+  background: var(--accent-tint);
+  color: var(--accent);
 }
 
 .emptyTitle {
@@ -108,7 +108,7 @@
 
 .muted {
   margin: 0 0 8px;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 14px;
 }
 
@@ -126,7 +126,7 @@
 
 .dayTitle {
   margin: 0 0 0 4px;
-  color: var(--sf-text-secondary);
+  color: var(--ink-2);
   font-size: 13px;
   font-weight: 600;
 }
@@ -137,9 +137,9 @@
   margin: 0;
   padding: 4px 0;
   list-style: none;
-  border-radius: 16px;
-  background: var(--sf-surface);
-  box-shadow: var(--sf-shadow-sm);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .row {
@@ -161,11 +161,11 @@ button.row {
 }
 
 button.row:hover {
-  background: var(--sf-hover);
+  background: var(--sunk);
 }
 
 .list li + li .row {
-  border-top: 1px solid var(--sf-divider);
+  border-top: 1px solid var(--line);
 }
 
 .rowText {
@@ -186,7 +186,7 @@ button.row:hover {
 
 .detail {
   overflow: hidden;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -200,7 +200,7 @@ button.row:hover {
 }
 
 .income {
-  color: var(--sf-positive);
+  color: var(--pos);
 }
 
 .loadMore {

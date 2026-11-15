@@ -1,100 +1,73 @@
-/* Nocturne tokens. Colours that change with the theme live here; the accent comes
-   from Mantine's primary colour, which follows the user's accent setting. */
+/* "Paper ledger": a warm paper ground and ink text, one cobalt accent for what you can tap,
+   and every amount in Geist's even-width figures. Light is the default; the dark theme
+   follows Mantine's colour scheme. The names are the design's own (paper-ledger.css). */
 
-:root,
-:root[data-mantine-color-scheme='dark'] {
-  --sf-bg: #161826;
-  --sf-surface: #232532;
-  --sf-text: #e9e9ed;
-  --sf-positive: #76cf8a;
-  --sf-negative: #f28881;
-  /* People's names in their colours (split/person-colors.ts), 4.6:1 on bg and surface */
-  --sf-person-0-text: #478fe7;
-  --sf-person-1-text: #c98500;
-  --sf-person-2-text: #20a174;
-  --sf-person-3-text: #da6891;
-  --sf-person-4-text: #9085e9;
-  --sf-person-5-text: #de6f42;
-  /* Places: the red of a map's pin, apart from people's colours and the accent */
-  --sf-place: #f2555a;
-  --sf-shadow-sm: 0 0 0 1px #3f424d;
-  --sf-shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0, 0, 0, 0.55);
-  --sf-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, 0.65);
-  /* The spending chart's slices, in ring order (components/split/balances/Spending.tsx):
-     blue, orange, aqua, yellow, magenta, stepped for each surface and checked apart
-     under colour-vision deficiency, neighbours and the wrap included */
-  --sf-series-0: #3987e5;
-  --sf-series-1: #d95926;
-  --sf-series-2: #199e70;
-  --sf-series-3: #c98500;
-  --sf-series-4: #d55181;
-  color-scheme: dark;
-}
-
-:root[data-mantine-color-scheme='light'] {
-  --sf-bg: #eceef6;
-  --sf-surface: #f8f9fd;
-  --sf-text: #1e202b;
-  --sf-positive: #298646;
-  --sf-negative: #bd413f;
-  --sf-person-0-text: #2d6bb5;
-  --sf-person-1-text: #916000;
-  --sf-person-2-text: #137a56;
-  --sf-person-3-text: #b1436b;
-  --sf-person-4-text: #6961aa;
-  --sf-person-5-text: #b44a20;
-  --sf-place: #d6383e;
-  --sf-shadow-sm: 0 0 0 1px #cfd3e5;
-  --sf-shadow-md: 0 0 0 1px #b2b6ca, 0 6px 18px rgba(30, 32, 43, 0.12);
-  --sf-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(30, 32, 43, 0.18);
-  --sf-series-0: #2a78d6;
-  --sf-series-1: #eb6834;
-  --sf-series-2: #1baf7a;
-  --sf-series-3: #eda100;
-  --sf-series-4: #e87ba4;
+:root {
+  --ground: #f3f1ec;
+  --surface: #ffffff;
+  --sunk: #ebe8e1;
+  --ink: #15161a;
+  --ink-2: #44454b;
+  --ink-3: #66665f;
+  --line: #e2ded5;
+  --line-2: #d3cec2;
+  --accent: #2d4bd8;
+  --accent-ink: #ffffff;
+  --accent-tint: #e7ebfb;
+  --pos: #1b7346;
+  --neg: #b1392a;
+  --neg-tint: #f8e4e0;
+  --due: #8a5300;
+  --due-tint: #f7ecd8;
+  /* Category colours, from each category's place in the list (utils/category-colour.ts) */
+  --c1: #3b6fd8;
+  --c2: #d2652c;
+  --c3: #17876a;
+  --c4: #b8487a;
+  --c5: #b58300;
+  --c6: #7b62d0;
   color-scheme: light;
 }
 
+:root[data-mantine-color-scheme='dark'] {
+  --ground: #0f1012;
+  --surface: #18191c;
+  --sunk: #222327;
+  --ink: #edece7;
+  --ink-2: #c2c1bb;
+  --ink-3: #96958f;
+  --line: #2a2b30;
+  --line-2: #3a3b41;
+  --accent: #93a5ff;
+  --accent-ink: #0f1012;
+  --accent-tint: #1f2440;
+  --pos: #62c993;
+  --neg: #f28b7c;
+  --neg-tint: #3a1f1b;
+  --due: #e8b25a;
+  --due-tint: #33280f;
+  --c1: #6f9bf0;
+  --c2: #ef8a55;
+  --c3: #45b896;
+  --c4: #e07aa6;
+  --c5: #d9a826;
+  --c6: #a28ef0;
+  color-scheme: dark;
+}
+
 :root {
-  --sf-accent: var(--mantine-primary-color-filled);
-  --sf-badge: #e24947;
-  --sf-badge-text: #f3f5fe;
-  --sf-divider: color-mix(in srgb, var(--sf-text) 16%, transparent);
-  --sf-border: color-mix(in srgb, var(--sf-text) 22%, transparent);
-  --sf-text-label: color-mix(in srgb, var(--sf-text) 50%, transparent);
-  --sf-text-muted: color-mix(in srgb, var(--sf-text) 58%, transparent);
-  --sf-text-secondary: color-mix(in srgb, var(--sf-text) 70%, transparent);
-  --sf-hover: color-mix(in srgb, var(--sf-text) 6%, transparent);
-  --sf-tint: color-mix(in srgb, var(--sf-text) 5%, transparent);
-  --sf-tag: color-mix(in srgb, var(--sf-text) 9%, transparent);
-  --sf-accent-tint: color-mix(in srgb, var(--sf-accent) 14%, transparent);
-  /* The spending chart's "everything else" slice: a quiet gray, never a hue */
-  --sf-series-rest: color-mix(in srgb, var(--sf-text) 30%, transparent);
-  --sf-avatar: color-mix(in srgb, var(--sf-accent) 24%, var(--sf-surface));
-  /* A place's chip: its name in the text's colour on a wash of the pin's red */
-  --sf-place-tint: color-mix(in srgb, var(--sf-place) 14%, transparent);
-  /* People's colours (split/person-colors.ts): blue, amber, aqua and pink stay apart
-     side by side, then violet and orange. Avatar fills, the same in both themes, each
-     with the dark ink at 4.5:1 or more; names use the -text shades above. */
-  --sf-person-0: #3987e5;
-  --sf-person-1: #c98500;
-  --sf-person-2: #199e70;
-  --sf-person-3: #d55181;
-  --sf-person-4: #9085e9;
-  --sf-person-5: #d95926;
-  --sf-person-ink: #161826;
+  /* A card's edge, drawn as a ring so it takes no room */
+  --shadow-card: 0 0 0 1px var(--line);
+  /* Something floating over the page: a toast, the Add button */
+  --shadow-float: 0 8px 24px rgba(15, 16, 18, 0.25);
   --sf-safe-bottom: env(safe-area-inset-bottom, 0px);
-  /* Amounts: Geist's even, tabular digits */
-  --sf-font-num: Geist, Inter, system-ui, sans-serif;
 }
 
 body {
-  background: var(--sf-bg);
-  color: var(--sf-text);
-  font-family: Inter, system-ui, sans-serif;
-  /* Inter's display cut at large sizes, its text cut at small ones */
-  font-optical-sizing: auto;
-  letter-spacing: -0.006em;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: Geist, 'Helvetica Neue', Arial, sans-serif;
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -106,14 +79,6 @@ h3,
   letter-spacing: -0.02em;
 }
 
-/* A split being dragged into a new place (useSortableSplit); a swipe between tabs is
-   data-swiping, which must not look like this */
-[data-dragging] {
-  cursor: grabbing;
-  background: var(--sf-surface);
-  box-shadow: var(--sf-shadow-lg);
-}
-
 /* A segmented control's highlight and labels stay layered inside it, so sticky footers
    (the item form's Add item and Save) pass over it when the form scrolls */
 .mantine-SegmentedControl-root {
@@ -121,39 +86,53 @@ h3,
 }
 
 :focus-visible {
-  outline: 2px solid var(--sf-accent);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* Primary buttons are an accent outline, not a fill. --button-bg and --ai-bg are only
-   set when a colour is passed, so the accent is the fallback. */
-.mantine-Button-root[data-variant='filled'] {
-  --sf-fill: var(--button-bg, var(--mantine-primary-color-filled));
+/* Buttons: 40px pills (34px small), 14px. The primary one is filled with the accent, a
+   quiet one sits on the sunk colour, and the default is a thin line. */
+.mantine-Button-root {
+  --button-height-sm: 2.5rem;
+  --button-height-xs: 2.125rem;
+  --button-padding-x-sm: 1rem;
+  --button-padding-x-xs: 0.875rem;
+  --button-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
-.mantine-ActionIcon-root[data-variant='filled'] {
-  --sf-fill: var(--ai-bg, var(--mantine-primary-color-filled));
-}
+
 .mantine-Button-root[data-variant='filled'],
 .mantine-ActionIcon-root[data-variant='filled'] {
-  background: transparent;
-  border: 1px solid var(--sf-fill);
-  color: var(--sf-fill);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 0;
 }
 .mantine-Button-root[data-variant='filled']:where(:not(:disabled, [data-disabled])):hover,
 .mantine-ActionIcon-root[data-variant='filled']:where(:not(:disabled, [data-disabled])):hover {
-  background: color-mix(in srgb, var(--sf-fill) 12%, transparent);
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
 }
 
-/* Secondary buttons are a neutral outline */
+/* Text buttons are links: the accent, in both themes */
+.mantine-Button-root[data-variant='subtle'] {
+  color: var(--accent);
+}
+
+.mantine-Button-root[data-variant='light'] {
+  background: var(--sunk);
+  color: var(--ink);
+}
+
 .mantine-Button-root[data-variant='default'],
 .mantine-ActionIcon-root[data-variant='default'] {
   background: transparent;
-  border: 1px solid var(--sf-border);
-  color: var(--sf-text);
+  border: 1px solid var(--line-2);
+  color: var(--ink);
 }
 .mantine-Button-root[data-variant='default']:where(:not(:disabled, [data-disabled])):hover,
-.mantine-ActionIcon-root[data-variant='default']:where(:not(:disabled, [data-disabled])):hover {
-  background: color-mix(in srgb, var(--sf-accent) 10%, transparent);
+.mantine-ActionIcon-root[data-variant='default']:where(:not(:disabled, [data-disabled])):hover,
+.mantine-Button-root[data-variant='light']:where(:not(:disabled, [data-disabled])):hover {
+  background: color-mix(in srgb, var(--sunk) 70%, var(--line-2));
 }
 
 .mantine-Button-root:disabled,
@@ -161,74 +140,79 @@ h3,
 .mantine-ActionIcon-root:disabled,
 .mantine-ActionIcon-root[data-disabled] {
   opacity: 0.45;
+}
+.mantine-ActionIcon-root:not([data-variant='filled']):disabled,
+.mantine-ActionIcon-root:not([data-variant='filled'])[data-disabled] {
   background: transparent;
+}
+
+/* Icon buttons are round */
+.mantine-ActionIcon-root {
+  --ai-radius: 999px;
 }
 
 /* Destructive text buttons use the app's red in both themes */
 .sf-danger.mantine-Button-root {
-  color: var(--sf-negative);
+  color: var(--neg);
 }
 .sf-danger.mantine-Button-root:where(:not(:disabled, [data-disabled])):hover {
-  background: color-mix(in srgb, var(--sf-negative) 12%, transparent);
+  background: var(--neg-tint);
 }
 
-/* Destructive buttons: a red outline and red text, never a fill */
+/* Destructive buttons: red text on a faint red line, never a fill */
 .sf-danger-outline.mantine-Button-root,
 .sf-danger-outline.mantine-ActionIcon-root {
-  border-color: var(--sf-negative);
-  color: var(--sf-negative);
+  border-color: color-mix(in srgb, var(--neg) 40%, transparent);
+  color: var(--neg);
 }
 .sf-danger-outline.mantine-Button-root:where(:not(:disabled, [data-disabled])):hover,
 .sf-danger-outline.mantine-ActionIcon-root:where(:not(:disabled, [data-disabled])):hover {
-  background: color-mix(in srgb, var(--sf-negative) 14%, transparent);
+  background: var(--neg-tint);
 }
 
 /* Text helpers */
 .sf-tabular {
-  font-family: var(--sf-font-num);
   font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: -0.01em;
 }
 .sf-muted {
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
 }
 .sf-label {
-  font-size: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--sf-text-label);
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
 }
 .sf-positive {
-  color: var(--sf-positive);
+  color: var(--pos);
 }
 .sf-negative {
-  color: var(--sf-negative);
+  color: var(--neg);
 }
 
-/* A raised surface */
+/* A card: the surface, edged with a line */
 .sf-card {
-  background: var(--sf-surface);
-  border-radius: 14px;
-  box-shadow: var(--sf-shadow-sm);
+  background: var(--surface);
+  border-radius: 18px;
+  box-shadow: var(--shadow-card);
 }
 
-/* A 1px rule that fades out at both ends */
+/* A 1px rule */
 .sf-rule {
   height: 1px;
   border: 0;
-  background: linear-gradient(
-    to right,
-    transparent,
-    var(--sf-divider) 48px,
-    var(--sf-divider) calc(100% - 48px),
-    transparent
-  );
+  background: var(--line);
 }
 
 .sf-tag {
-  font-size: 12px;
+  font-size: 0.75rem;
   padding: 2px 8px;
   border-radius: 6px;
-  background: var(--sf-tag);
+  background: var(--sunk);
+  color: var(--ink-2);
 }
 
 .sf-count-badge {
@@ -239,61 +223,60 @@ h3,
   height: 18px;
   padding: 0 5px;
   border-radius: 999px;
-  background: var(--sf-badge);
-  color: var(--sf-badge-text);
-  font-size: 11px;
+  background: var(--neg);
+  color: var(--surface);
+  font-size: 0.6875rem;
   font-weight: 600;
   line-height: 1;
 }
 
-/* Buttons: a little more compact and lighter than Mantine's defaults */
-.mantine-Button-root {
-  --button-height-sm: 34px;
-  --button-padding-x-sm: 14px;
-  font-weight: 500;
+/* Fields: 44px, a thin line and a 12px corner, 15px text */
+.mantine-Input-input {
+  --input-height: 2.75rem;
+  --input-radius: 0.75rem;
+  background: var(--surface);
+  font-size: 0.9375rem;
 }
 
 /* Field labels are small and quiet; the value is what matters */
 .mantine-InputWrapper-label {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 400;
-  color: var(--sf-text-secondary);
+  color: var(--ink-2);
   margin-bottom: 6px;
 }
 
 .mantine-InputWrapper-description {
-  font-size: 12px;
-  color: var(--sf-text-muted);
+  font-size: 0.75rem;
+  color: var(--ink-3);
   margin-top: 6px;
 }
 
-/* Segmented controls are an outlined row of options, the chosen one tinted */
+/* Segmented controls: a pill track on the sunk colour, the chosen option a raised pill */
 .mantine-SegmentedControl-root {
-  background: transparent;
-  padding: 0;
-  border-radius: 8px;
-  box-shadow: inset 0 0 0 1px var(--sf-border);
-  overflow: hidden;
+  background: var(--sunk);
+  padding: 3px;
+  border-radius: 999px;
 }
 
 .mantine-SegmentedControl-indicator {
-  background: var(--sf-tag);
-  box-shadow: none;
-  border-radius: 0;
-}
-
-.mantine-SegmentedControl-control::before {
-  background-color: var(--sf-border);
+  background: var(--surface);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(20, 20, 20, 0.12);
 }
 
 .mantine-SegmentedControl-label {
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--sf-text-secondary);
-  padding: 7px 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--ink-2);
+  min-height: 2.125rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
 }
 
 .mantine-SegmentedControl-label[data-active],
 .mantine-SegmentedControl-label[data-active]:hover {
-  color: var(--sf-text);
+  color: var(--ink);
 }

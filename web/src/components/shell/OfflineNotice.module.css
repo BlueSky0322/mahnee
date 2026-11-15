@@ -11,8 +11,8 @@
   max-width: calc(100vw - 32px);
   padding: 8px 14px;
   border-radius: 18px;
-  background: var(--sf-text);
-  color: var(--sf-bg);
+  background: var(--ink);
+  color: var(--ground);
   font-size: 13px;
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
   pointer-events: none;

@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-15
+
+- Changed: a new look, on a paper ground in Geist with filled cobalt buttons [#?]
+
 ## 2026-11-09
 
 - Added: repeating bills are in the export and come back on import [#21]

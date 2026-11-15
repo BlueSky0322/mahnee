@@ -32,7 +32,9 @@ App paths are under `web/src/`, Worker paths under `worker/`.
 **What it is.** Cloudflare Access signs people in before the app loads. The home page
 says who is signed in and offers Sign out; the theme switch saves the account's choice
 of light or dark. The profile also holds a display name, an accent colour and where
-exchange rates come from, which nothing on screen changes yet.
+exchange rates come from, which nothing on screen changes yet. The accent is kept but not
+drawn: every accent shows as the design's cobalt until the setting's choices are rebuilt
+with the redesign's colours.
 
 **Owner.** [profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx) loads
 the profile, keeps a device copy, and owns every change through
@@ -49,7 +51,7 @@ preference and explains a failure itself.
   and [worker/accounts/profiles.ts](../worker/accounts/profiles.ts) stores the profile
   and settings.
 - Shared: `Settings`, `DEFAULT_SETTINGS` and the profile shapes in
-  [shared/api.ts](../shared/api.ts); the accent colours in
+  [shared/api.ts](../shared/api.ts); the cobalt the app is drawn in (`COBALT_RAMP`) in
   [shared/accents.ts](../shared/accents.ts).
 
 **Invariants.**
@@ -62,6 +64,10 @@ preference and explains a failure itself.
 - A stale save answer never overwrites a newer change (`ProfileContext.tsx`).
 - Theme and accent are also kept in `localStorage` (`sf-appearance`), so the first
   screen paints in the right colours before the profile loads.
+- Every stored accent is drawn cobalt ([theme/theme.ts](../web/src/theme/theme.ts));
+  [theme/paper-ledger.test.tsx](../web/src/theme/paper-ledger.test.tsx) checks all six. The
+  change that rebuilds the accent setting, where a stored green maps to green, amends that
+  test's green case as the owner's decision, not as a weakened test.
 
 **Tests.** [worker/accounts/auth.test.ts](../worker/accounts/auth.test.ts) (tokens,
 keys, configuration, 401 versus 500), [App.test.tsx](../web/src/App.test.tsx) (who's
@@ -206,6 +212,12 @@ arranges them as listed. Screens read through `useCategories()` in
   limits, the defaults (`DEFAULT_CATEGORIES`, fixed ids), what can sit under what
   (`whyNotUnder`, `whyStaysOnTop`) and how siblings are ordered (`siblingsOf`,
   `nextPosition`, `reorder`) in [shared/categories.ts](../shared/categories.ts).
+- Colours: [utils/category-colour.ts](../web/src/utils/category-colour.ts) works out each
+  category's colour from the list, nothing stored. Top-level spending categories take
+  `--c1` to `--c6` in place order (ties by id), archived ones keeping their place, then
+  repeat; a subcategory wears its parent's; "Other" (the top-level spending category named
+  exactly that, where import puts unsorted spending) is `--line-2` and takes no colour from
+  the rest; income, at any level, is `--pos`; an id not in the list is `--line-2`.
 
 **Flow.** Nothing is saved for a person until their first change of any kind (an account
 added, say), which saves the defaults first, in the same D1 batch, with an insert that does
@@ -1014,6 +1026,15 @@ account's page (`?account=<id>`), each of which goes back up to Home.
   a dialog elsewhere.
 - [Skeleton](../web/src/components/ui/Skeleton.tsx): the shimmering placeholders a page
   shows until its data arrives.
+- The look, "Paper ledger": the colours, light and dark, under the design's own names
+  (`--ground`, `--ink-3`, `--accent`, ...) in [theme/tokens.css](../web/src/theme/tokens.css),
+  dark under Mantine's colour scheme; Geist and Geist Mono from Google Fonts; Mantine's
+  buttons, fields, segmented controls and sheets restyled there and in
+  [theme/theme.ts](../web/src/theme/theme.ts). The parts screens are built from are in
+  `components/ui/`: `Chip`, `Bar` (a budget bar with a today marker), `Badge`, `CountBadge`
+  and `NewTag`, `Tile`, `ListRow` and `IconButton`. The first screen and the iPhone launch
+  images use the same grounds ([web/build/launch-images.ts](../web/build/launch-images.ts),
+  `index.html`).
 
 **Invariants.**
 
@@ -1021,8 +1042,16 @@ account's page (`?account=<id>`), each of which goes back up to Home.
   `ResponsiveDialog` or `useBackDismiss`, so Back closes the top one first.
 - Until a page's data arrives it shows placeholders the size of what will replace them,
   never an empty or zero state that then changes.
+- Every CSS variable the app uses is defined (in `tokens.css`, the app's own styles and
+  code, or Mantine's), and the earlier look's `--sf-` colour names are gone; only
+  `--sf-safe-bottom` and `--sf-keyboard`, which aren't colours, keep that prefix.
 
 **Tests.** [App.test.tsx](../web/src/App.test.tsx), with phone cases
 (`{ size: 'phone' }`), and
 [isolation.test.tsx](../web/src/testing/isolation.test.tsx) (each screen test starts
-from nothing).
+from nothing). The look: [theme/paper-ledger.test.tsx](../web/src/theme/paper-ledger.test.tsx)
+(every colour light and dark, the ground, Geist, filled primary buttons whatever accent is
+saved), [theme/tokens-used.test.ts](../web/src/theme/tokens-used.test.ts),
+[components/ui/parts.test.tsx](../web/src/components/ui/parts.test.tsx) and
+[build/paper-ledger-launch.test.ts](../web/build/paper-ledger-launch.test.ts); tests read
+colours through the cascade with [testing/css.ts](../web/src/testing/css.ts).

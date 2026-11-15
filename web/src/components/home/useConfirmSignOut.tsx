@@ -43,7 +43,8 @@ export function useConfirmSignOut() {
             Stay signed in
           </Button>
           <Button
-            color="red"
+            variant="default"
+            className="sf-danger-outline"
             onClick={() => {
               setAsking(false);
               void signOut();

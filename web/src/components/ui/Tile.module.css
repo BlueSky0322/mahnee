@@ -1,0 +1,18 @@
+.tile {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 11px;
+  background-color: var(--sunk);
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.tile[data-tone='category'] {
+  background-color: color-mix(in srgb, var(--tile) 14%, var(--surface));
+  color: var(--tile);
+}

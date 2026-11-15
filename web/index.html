@@ -9,7 +9,7 @@
     <title>Mahnee</title>
     <meta
       name="theme-color"
-      content="#161826"
+      content="#f3f1ec"
     />
     <link
       rel="icon"
@@ -46,14 +46,14 @@
     />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..600&family=Geist:wght@400..600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap"
       crossorigin
     />
     <!--
       The first screen, shown before the app's code has loaded: the background of the
       theme this device last used (or the phone's own, on Auto) and the logo drawing
       itself. main.tsx fades it out once the app is up. The saved theme's key and the
-      colours are the app's own (sf-appearance in profile/ProfileContext.tsx, --sf-bg in
+      colours are the app's own (sf-appearance in profile/ProfileContext.tsx, --ground in
       theme/tokens.css); launch-screen.test.ts keeps them in step.
     -->
     <script>
@@ -68,15 +68,15 @@
         }
         document.documentElement.setAttribute('data-launch', theme);
         var bar = document.querySelector('meta[name="theme-color"]');
-        if (bar) bar.setAttribute('content', theme === 'light' ? '#eceef6' : '#161826');
+        if (bar) bar.setAttribute('content', theme === 'light' ? '#f3f1ec' : '#0f1012');
       })();
     </script>
     <style>
       html {
-        background: #161826;
+        background: #f3f1ec;
       }
-      html[data-launch='light'] {
-        background: #eceef6;
+      html[data-launch='dark'] {
+        background: #0f1012;
       }
       #launch {
         position: fixed;
@@ -84,11 +84,11 @@
         z-index: 1000;
         display: grid;
         place-items: center;
-        background: #161826;
+        background: #f3f1ec;
         transition: opacity 0.2s ease-out;
       }
-      html[data-launch='light'] #launch {
-        background: #eceef6;
+      html[data-launch='dark'] #launch {
+        background: #0f1012;
       }
       #launch[data-done] {
         opacity: 0;
@@ -101,7 +101,7 @@
       }
       #launch path {
         fill: none;
-        stroke: #9184d9;
+        stroke: #2d4bd8;
         stroke-width: 24;
         stroke-linecap: round;
         stroke-linejoin: round;
@@ -109,8 +109,8 @@
         stroke-dashoffset: 1;
         animation: launch-draw 0.32s ease-out forwards;
       }
-      html[data-launch='light'] #launch path {
-        stroke: #6a5db3;
+      html[data-launch='dark'] #launch path {
+        stroke: #93a5ff;
       }
       /* The M in one stroke: up the left side, down and up the middle, down the right */
       #launch .middle {

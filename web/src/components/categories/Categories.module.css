@@ -49,14 +49,14 @@
   align-items: flex-start;
   gap: 8px;
   padding: 20px;
-  border-radius: 16px;
-  background: var(--sf-surface);
-  box-shadow: var(--sf-shadow-sm);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .muted {
   margin: 0 0 8px;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 14px;
 }
 
@@ -66,9 +66,9 @@
   margin: 0;
   padding: 4px 0;
   list-style: none;
-  border-radius: 16px;
-  background: var(--sf-surface);
-  box-shadow: var(--sf-shadow-sm);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .mutedList {
@@ -83,7 +83,7 @@
 
 .list > li + li,
 .subList > li {
-  border-top: 1px solid var(--sf-divider);
+  border-top: 1px solid var(--line);
 }
 
 .row {
@@ -100,7 +100,7 @@
 
 .subMark {
   flex: none;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
 }
 
 .rowMain {
@@ -126,7 +126,7 @@
 }
 
 .rowMain:hover {
-  background: var(--sf-hover);
+  background: var(--sunk);
 }
 
 .name {
@@ -142,7 +142,7 @@
 }
 
 .detail {
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 13px;
 }
 
@@ -169,6 +169,6 @@
 
 .hint {
   margin: -8px 0 0;
-  color: var(--sf-text-muted);
+  color: var(--ink-3);
   font-size: 13px;
 }

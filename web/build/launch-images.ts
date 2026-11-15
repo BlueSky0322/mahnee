@@ -7,8 +7,8 @@ import type { Plugin } from 'vite';
 // draws the logo on the same colour. Made at build time; Android takes its launch screen
 // from manifest.webmanifest instead.
 
-/** The app's backgrounds (--sf-bg in theme/tokens.css), as index.html uses them too */
-export const LAUNCH_BACKGROUNDS = { dark: '#161826', light: '#eceef6' } as const;
+/** The app's grounds (--ground in theme/tokens.css), as index.html uses them too */
+export const LAUNCH_BACKGROUNDS = { light: '#f3f1ec', dark: '#0f1012' } as const;
 
 /** iPhones by screen, in CSS pixels and pixel ratio */
 const IPHONES: [width: number, height: number, ratio: number][] = [

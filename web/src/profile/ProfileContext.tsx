@@ -143,13 +143,7 @@ export async function signOut() {
   window.location.href = '/cdn-cgi/access/logout';
 }
 
-export function ProfileProvider({
-  children,
-  onAccentChange,
-}: {
-  children: ReactNode;
-  onAccentChange: (accent: Accent) => void;
-}) {
+export function ProfileProvider({ children }: { children: ReactNode }) {
   const fromDevice = useRef(false);
   const [signInToSync, setSignInToSync] = useState(false);
   // Whose saved copies were shown while the server couldn't say who's signed in
@@ -240,19 +234,19 @@ export function ProfileProvider({
   }, []);
   const { setColorScheme } = useMantineColorScheme();
 
-  // Only touch the colour scheme and accent when they change: re-applying them on every
-  // settings change restyles the whole page
+  // Only touch the colour scheme when it changes: re-applying it on every settings change
+  // restyles the whole page. The accent is kept on the device too, though every accent is
+  // drawn cobalt for now (theme/theme.ts).
   const applied = useRef<{ theme: ThemeSetting; accent: Accent } | null>(null);
   const apply = useCallback(
     (next: Profile) => {
       const { theme, accent } = next.settings;
       if (applied.current?.theme === theme && applied.current?.accent === accent) return;
       if (applied.current?.theme !== theme) setColorScheme(theme);
-      if (applied.current?.accent !== accent) onAccentChange(accent);
       applied.current = { theme, accent };
       saveAppearance({ theme, accent });
     },
-    [setColorScheme, onAccentChange],
+    [setColorScheme],
   );
 
   const profileRef = useRef(profile);

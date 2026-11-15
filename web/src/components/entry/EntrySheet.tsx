@@ -389,7 +389,7 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
         {editing != null && (
           <Button
             variant="subtle"
-            color="red"
+            className="sf-danger"
             leftSection={<Trash size={16} />}
             onClick={remove}
           >

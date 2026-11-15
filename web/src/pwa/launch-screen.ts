@@ -29,7 +29,7 @@ export function hideLaunchScreen() {
  */
 export function syncStatusBar(scheme: 'light' | 'dark') {
   const bar = document.querySelector('meta[name="theme-color"]');
-  const background = getComputedStyle(document.documentElement).getPropertyValue('--sf-bg');
+  const background = getComputedStyle(document.documentElement).getPropertyValue('--ground');
   if (bar != null && background.trim() !== '') bar.setAttribute('content', background.trim());
   document.documentElement.setAttribute('data-launch', scheme);
 }

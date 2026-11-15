@@ -7,16 +7,17 @@ import { Notifications } from '@mantine/notifications';
 import '@mantine/notifications/styles.css';
 import { IconContext } from '@phosphor-icons/react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import App from './App';
 import classes from './Root.module.css';
 import './index.css';
 import { ProfileProvider, readAppearance } from './profile/ProfileContext';
 import { syncStatusBar } from './pwa/launch-screen';
 import { queryClient } from './query-client';
-import type { Accent } from '@shared/api';
 import { buildTheme, cssVariablesResolver } from './theme/theme';
 import './theme/tokens.css';
+
+const theme = buildTheme();
 
 /** The phone's status bar follows the theme the app is showing */
 function StatusBar() {
@@ -32,8 +33,6 @@ function StatusBar() {
 export function Root() {
   // What this device saved, so the app paints in the right colours before the profile loads
   const [initialAppearance] = useState(readAppearance);
-  const [accent, setAccent] = useState<Accent>(initialAppearance.accent);
-  const theme = useMemo(() => buildTheme(accent), [accent]);
 
   return (
     <MantineProvider
@@ -44,7 +43,7 @@ export function Root() {
       <StatusBar />
       <IconContext.Provider value={{ size: 20, weight: 'regular' }}>
         <QueryClientProvider client={queryClient}>
-          <ProfileProvider onAccentChange={setAccent}>
+          <ProfileProvider>
             <Notifications classNames={{ root: classes.notifications }} />
             <App />
           </ProfileProvider>

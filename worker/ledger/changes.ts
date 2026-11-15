@@ -369,6 +369,17 @@ function changeStatements(
         db
           .prepare('UPDATE accounts SET archived = ?, updated_at = ? WHERE email = ? AND id = ?')
           .bind(change.archived ? 1 : 0, now, email, change.id),
+        // Add no longer starts on an archived account, but on the last one used
+        ...(change.archived
+          ? [
+              db
+                .prepare(
+                  `UPDATE user_settings SET default_account_id = NULL, updated_at = ?
+                   WHERE email = ? AND default_account_id = ?`,
+                )
+                .bind(now, email, change.id),
+            ]
+          : []),
       ];
     }
     case 'addCategory': {
@@ -836,6 +847,7 @@ function changeStatements(
              WHERE email = ?1 AND id = ?${values.push(change.id as string)}`,
           )
           .bind(...values),
+        ...(saved.schedule === 'monthly' ? [] : [monthOffPay(db, email, change.id as string, now)]),
       ];
     }
     case 'archiveRecurring': {
@@ -849,6 +861,7 @@ function changeStatements(
         db
           .prepare('UPDATE recurring SET archived = ?, updated_at = ? WHERE email = ? AND id = ?')
           .bind(change.archived ? 1 : 0, now, email, change.id),
+        ...(change.archived ? [monthOffPay(db, email, change.id as string, now)] : []),
       ];
     }
     case 'logRecurring':
@@ -892,6 +905,18 @@ function changeStatements(
       throw new Refused(400, 'Unknown change');
   }
 }
+
+/**
+ * A month that starts on payday goes back to starting on its day once its pay stops or
+ * is no longer monthly. The pay is kept, to offer again.
+ */
+const monthOffPay = (db: D1Database, email: string, payId: string, now: number) =>
+  db
+    .prepare(
+      `UPDATE user_settings SET month_start_mode = 'date', updated_at = ?
+       WHERE email = ? AND month_start_mode = 'payday' AND month_start_pay_id = ?`,
+    )
+    .bind(now, email, payId);
 
 /** One of the person's repeating items, by id */
 function readRecurring(model: Model, id: unknown): RecurringState {

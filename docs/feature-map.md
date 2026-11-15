@@ -31,10 +31,13 @@ App paths are under `web/src/`, Worker paths under `worker/`.
 
 **What it is.** Cloudflare Access signs people in before the app loads. The home page
 says who is signed in and offers Sign out; the theme switch saves the account's choice
-of light or dark. The profile also holds a display name, an accent colour and where
-exchange rates come from, which nothing on screen changes yet. The accent is kept but not
-drawn: every accent shows as the design's cobalt until the setting's choices are rebuilt
-with the redesign's colours.
+of light or dark. The profile also holds a display name, an accent colour, where
+exchange rates come from, and the redesign's settings (week and month start, start
+screen, Home density, what Add asks first, the account Add starts on, suggestions, a
+time on entries, expense colour, carry-over for new budgets, reminders) with the
+person's time zone. Nothing on screen changes those yet; the settings pages come with
+the redesign. The accent is kept but not drawn: every accent shows as the design's
+cobalt until the accent setting is offered.
 
 **Owner.** [profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx) loads
 the profile, keeps a device copy, and owns every change through
@@ -51,7 +54,9 @@ preference and explains a failure itself.
   and [worker/accounts/profiles.ts](../worker/accounts/profiles.ts) stores the profile
   and settings.
 - Shared: `Settings`, `DEFAULT_SETTINGS` and the profile shapes in
-  [shared/api.ts](../shared/api.ts); the cobalt the app is drawn in (`COBALT_RAMP`) in
+  [shared/api.ts](../shared/api.ts); what each setting takes in
+  [shared/settings.ts](../shared/settings.ts), read by the Worker and the test stand-in;
+  the cobalt the app is drawn in (`COBALT_RAMP`) in
   [shared/accents.ts](../shared/accents.ts).
 
 **Invariants.**
@@ -60,19 +65,52 @@ preference and explains a failure itself.
   local dev user is set (`getUserEmail` in `accounts/auth.ts`).
 - A new settings row takes every value from `DEFAULT_SETTINGS`, so defaults change in
   `shared/api.ts` alone (`accounts/profiles.ts`). A setting or value it doesn't know is
-  refused, and nothing in that request is saved.
+  refused, and nothing in that request is saved. Each setting's column has a CHECK
+  holding what `shared/settings.ts` takes (`worker/test/migrations.test.ts`).
+- `defaultAccountId` is one of the person's own accounts, not archived, or null for the
+  last one used; archiving it puts it back to null. `monthStartPayId` is one of their own
+  running monthly incomes, and payday needs one; when that pay stops or turns weekly the
+  month goes back to `monthStartDay`, the pay kept. Both follow-ups ride in the same
+  batch as the ledger change (`ledger/changes.ts`); the app's profile shows them on its
+  next load, so the pieces that draw these settings refresh it after such a change.
+- The account and pay a setting names are checked before its save, not in the same
+  batch, so an archive or stop landing in between can leave a stale choice saved. What
+  uses these settings falls back the same way: an archived default account is read as
+  the last one used, and a pay that no longer fits as the month on `monthStartDay`.
+- `monthStartDay` is 1 to 28, or 31 (`LAST_DAY_OF_MONTH`) for each month's last day;
+  `scheduledReminderDays` is 1 to 7, or null for none; `reminderTime` is any `HH:MM` on
+  the person's clock (reminders come from a cron every 15 minutes, so a time between
+  slots comes at the next one). These are this change's readings of the boards, which
+  draw only "The 1st", "Last day", "1 day before" and "9:00 PM".
+- The app sends the device's time zone (`Intl.DateTimeFormat().resolvedOptions()`) once
+  a start, after a fresh `/api/me` answer (never from the device copy), when it differs
+  from the saved one; a failure is silent and left for the next start. Only a named zone
+  the runtime knows, in its own letters, is saved (`isTimeZone`), never an offset. The
+  server has no zone for someone until their app has started once since.
+- Reminders are on by default, as drawn, but nothing sends one yet. The change that sends
+  them must: choose whom to remind from push subscriptions (no subscription, no push,
+  whatever the setting; no time zone, skipped); make a subscription only in the
+  permission flow, from the person's tap, never on load; and show the reminder rows as
+  they really are while permission isn't granted or the device can't receive pushes.
+- A profile kept on the device from before a setting existed opens with that setting's
+  default (`ProfileContext.tsx`).
 - A stale save answer never overwrites a newer change (`ProfileContext.tsx`).
 - Theme and accent are also kept in `localStorage` (`sf-appearance`), so the first
   screen paints in the right colours before the profile loads.
 - Every stored accent is drawn cobalt ([theme/theme.ts](../web/src/theme/theme.ts));
-  [theme/paper-ledger.test.tsx](../web/src/theme/paper-ledger.test.tsx) checks all six. The
-  change that rebuilds the accent setting, where a stored green maps to green, amends that
-  test's green case as the owner's decision, not as a weakened test.
+  [theme/paper-ledger.test.tsx](../web/src/theme/paper-ledger.test.tsx) checks all five.
+  Migration 0007 mapped the old accents to the redesign's: green stayed green, every
+  other became cobalt. The change that offers the accent setting draws a stored green
+  green, and amends that test's green case as the owner's decision, not as a weakened
+  test.
 
 **Tests.** [worker/accounts/auth.test.ts](../worker/accounts/auth.test.ts) (tokens,
 keys, configuration, 401 versus 500), [App.test.tsx](../web/src/App.test.tsx) (who's
-signed in, signed out, unreachable, saving the theme and undoing a failed save), and the
-profile cases in [worker/test/api.test.ts](../worker/test/api.test.ts).
+signed in, signed out, unreachable, saving the theme and undoing a failed save),
+[profile/time-zone.test.tsx](../web/src/profile/time-zone.test.tsx) (the time zone sent
+at start), the profile cases in [worker/test/api.test.ts](../worker/test/api.test.ts), and
+[worker/test/migrations.test.ts](../worker/test/migrations.test.ts) (0007 on rows from
+before, and every CHECK against what the API takes).
 
 ## Accounts
 
@@ -851,6 +889,10 @@ column names per email and account (`localStorage`, let go on signing out).
 - A row is a duplicate of at most one saved or waiting transaction, so two alike in a file
   are both new against one saved, and importing the same file twice adds nothing.
 - Amounts are read by their digits into whole cents, at most `MAX_TRANSACTION`.
+- The database has a place for each import (`imports`, and `transactions.import_id`;
+  docs/erd.md) for recent imports and Undo on every device, which nothing writes yet. An
+  import is recorded before its transactions name it (a trigger refuses an import that
+  isn't the person's own), and letting one go keeps its transactions.
 
 **Tests.** [shared/csv-import.test.ts](../shared/csv-import.test.ts) (cells, days,
 amounts, bank rows and what's wrong with them, export lines read back as written,

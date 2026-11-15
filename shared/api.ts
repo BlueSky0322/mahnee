@@ -9,29 +9,93 @@ import type { Schedule } from './recurring';
 // ---------- Account ----------
 
 export const THEMES = ['dark', 'light', 'auto'] as const;
-export const ACCENTS = ['blurple', 'blue', 'teal', 'green', 'amber', 'rose'] as const;
+/** The redesign's accents; every one is drawn cobalt until the accent setting is offered */
+export const ACCENTS = ['cobalt', 'green', 'plum', 'rust', 'graphite'] as const;
 /** Where an account's exchange rates come from first (see RATE_PROVIDERS) */
 export const RATE_PREFERENCES = ['wise', 'ecb'] as const;
+export const WEEK_STARTS = ['monday', 'sunday'] as const;
+/** A month starts on a day of the month, or on the day a scheduled pay is due */
+export const MONTH_START_MODES = ['date', 'payday'] as const;
+export const START_SCREENS = ['home', 'activity', 'plan'] as const;
+/** Home with the month end and what needs the person only, or everything */
+export const HOME_DENSITIES = ['essentials', 'everything'] as const;
+/** What Add asks for first */
+export const START_WITH = ['amount', 'category'] as const;
+/** Spending in ink or in red; income is always green */
+export const EXPENSE_COLOURS = ['ink', 'red'] as const;
 
 export type ThemeSetting = (typeof THEMES)[number];
 export type Accent = (typeof ACCENTS)[number];
 export type RatePreference = (typeof RATE_PREFERENCES)[number];
+export type WeekStart = (typeof WEEK_STARTS)[number];
+export type MonthStartMode = (typeof MONTH_START_MODES)[number];
+export type StartScreen = (typeof START_SCREENS)[number];
+export type HomeDensity = (typeof HOME_DENSITIES)[number];
+export type StartWith = (typeof START_WITH)[number];
+export type ExpenseColour = (typeof EXPENSE_COLOURS)[number];
 
 /** The longest display name an account can have */
 export const MAX_DISPLAY_NAME = 32;
 
-/** Private preferences that follow the account between devices */
+/**
+ * Private preferences that follow the account between devices. What each takes is in
+ * shared/settings.ts.
+ */
 export interface Settings {
   theme: ThemeSetting;
   accent: Accent;
   ratePreference: RatePreference;
+  weekStart: WeekStart;
+  monthStartMode: MonthStartMode;
+  /** 1 to 28, or LAST_DAY_OF_MONTH (31) for each month's last day */
+  monthStartDay: number;
+  /**
+   * The scheduled pay (a running monthly income) that payday follows; kept when the month
+   * goes back to a date, and needed while it starts on payday
+   */
+  monthStartPayId: string | null;
+  startScreen: StartScreen;
+  homeDensity: HomeDensity;
+  startWith: StartWith;
+  /** The account Add starts on; null for the last one used */
+  defaultAccountId: string | null;
+  suggestAsYouType: boolean;
+  /** Whether Add asks for a time of day */
+  askForTime: boolean;
+  expenseColour: ExpenseColour;
+  /** Whether a new budget carries over */
+  carryOverDefault: boolean;
+  /** A reminder on days with nothing added, at reminderTime */
+  dailyReminder: boolean;
+  /** On the person's own clock, as 21:00 */
+  reminderTime: string;
+  /** How many days before a scheduled entry to remind, 1 to 7; null for not at all */
+  scheduledReminderDays: number | null;
+  /** The person's time zone as their device names it, sent by the app; null until then */
+  timeZone: string | null;
 }
 
-/** Settings before anyone changes them */
+/** Settings before anyone changes them: as the redesign's settings pages draw them */
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'auto',
-  accent: 'blurple',
+  accent: 'cobalt',
   ratePreference: 'wise',
+  weekStart: 'monday',
+  monthStartMode: 'date',
+  monthStartDay: 1,
+  monthStartPayId: null,
+  startScreen: 'home',
+  homeDensity: 'everything',
+  startWith: 'amount',
+  defaultAccountId: null,
+  suggestAsYouType: true,
+  askForTime: false,
+  expenseColour: 'ink',
+  carryOverDefault: true,
+  dailyReminder: true,
+  reminderTime: '21:00',
+  scheduledReminderDays: 1,
+  timeZone: null,
 };
 
 /** The signed-in account and its private settings */

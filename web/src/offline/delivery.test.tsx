@@ -6,6 +6,7 @@ import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Account, ChangesBody } from '@shared/api';
 import type { FakeServer } from '../testing/app';
 import {
+  OFFLINE_NOTICE,
   fakeServer,
   holdNext,
   openSettings,
@@ -24,7 +25,8 @@ setupAppTests();
 
 const RYAN = 'ryan@example.com';
 const SIZES = ['desktop', 'phone'] as const;
-const OFFLINE = "Offline. Changes are kept on this device and saved when you're back.";
+/** The freshness label, under Home's title on phones and in the sidebar on a computer */
+const waiting = (n: number) => `Offline · ${n} ${n === 1 ? 'change' : 'changes'} waiting to save`;
 
 function seed(server: FakeServer, account: Partial<Account> & Pick<Account, 'id' | 'name'>) {
   server.accounts.push({
@@ -104,14 +106,16 @@ describe('changes made offline', () => {
       goOffline(server);
       await addAccount('Savings');
       expect(await row('Savings')).toBeTruthy();
-      expect(await screen.findByText(`${OFFLINE} 1 change waiting.`)).toBeTruthy();
+      expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
+      expect(await screen.findByText(waiting(1))).toBeTruthy();
       await waitFor(async () => expect(await keptForRyan()).toHaveLength(1));
 
       // Reloaded while still offline: the page starts from what the device kept
       await reloadApp(server, '/', { size });
       expect(await row('Savings')).toBeTruthy();
       expect(await row('Wallet')).toBeTruthy();
-      expect(await screen.findByText(`${OFFLINE} 1 change waiting.`)).toBeTruthy();
+      expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
+      expect(await screen.findByText(waiting(1))).toBeTruthy();
       expect(server.accounts.map((a) => a.name)).toEqual(['Wallet']);
 
       // Back online, the server saves it, but its answer is lost on the way back
@@ -144,7 +148,8 @@ describe('changes made offline', () => {
     await addAccount('Made on top');
     await reloadApp(server);
     expect(await row('Purse')).toBeTruthy();
-    expect(await screen.findByText(`${OFFLINE} 2 changes waiting.`)).toBeTruthy();
+    expect(await screen.findByText(OFFLINE_NOTICE.desktop)).toBeTruthy();
+    expect(await screen.findByText(waiting(2))).toBeTruthy();
 
     server.failNext.changes = { status: 409, error: 'Changed somewhere else at the same time.' };
     const back = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
@@ -177,7 +182,10 @@ describe('changes made offline', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Wallet,/ })).toBeNull());
     await user.click(await screen.findByRole('button', { name: 'Undo' }));
     expect(await row('Wallet')).toBeTruthy();
-    expect(await screen.findByText(`${OFFLINE} 2 changes waiting.`)).toBeTruthy();
+    expect(await screen.findByText(OFFLINE_NOTICE.phone)).toBeTruthy();
+    // Accounts says how many wait, and the device keeps both
+    expect(await screen.findByText(waiting(2))).toBeTruthy();
+    await waitFor(async () => expect(await keptForRyan()).toHaveLength(2));
 
     back();
     await waitFor(async () => expect(await keptForRyan()).toEqual([]));

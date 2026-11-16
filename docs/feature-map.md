@@ -147,7 +147,8 @@ sends them in order, one request at a time, in batches of at most `MAX_CHANGES` 
   changing one, in a `ResponsiveDialog`);
   [account-text.ts](../web/src/components/accounts/account-text.ts) reads balances out
   and opening balances in; Undo is
-  [components/common/undo-toast.tsx](../web/src/components/common/undo-toast.tsx).
+  [components/common/undo-toast.tsx](../web/src/components/common/undo-toast.tsx), the
+  design's toast (ink, an underlined Undo, no close button, gone after 6 seconds).
 - API: [worker/routes/ledger.ts](../worker/routes/ledger.ts) serves `GET /api/accounts`
   (the `Ledger`: accounts and categories, and `alreadySaved` when the read names changes
   in `X-Pending-Changes`) and `POST /api/changes`;
@@ -202,6 +203,11 @@ worker's background sync sends the outbox (see Offline start).
   stored.
 - The app checks a change with the same shared rules before making it; the Worker is the
   authority.
+- When the first load of the ledger fails with nothing kept on the device, the tab bar or
+  sidebar still shows and each screen says so with Try again. A screen opening then reads
+  the failure as it stands and doesn't ask again by itself (`retryOnMount: false` in
+  `useLedger.ts`), so the places never drop behind a loading state; Try again, the
+  connection coming back, the page shown again and a saved change still ask.
 - A change leaves the outbox only once the server has saved it (or refused it), and is
   sent by one sender at a time (the outbox lock); one sent again after its answer was
   lost is counted once by its id, by the server and in the balances shown
@@ -217,7 +223,9 @@ answer, a refusal once back, Undo offline, signed out, storage full, hidden page
 signing out, another person signing in),
 [Accounts.test.tsx](../web/src/components/accounts/Accounts.test.tsx) (adding,
 cards, renaming and archiving from an account's page, Undo, refusals put back, a failing server tried again,
-answers out of order, at desktop and phone sizes), and the accounts cases in
+answers out of order, at desktop and phone sizes),
+[FailedLoad.test.tsx](../web/src/components/shell/FailedLoad.test.tsx) (a failed first load
+keeping the places, asking no more until Try again), and the accounts cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (every refusal, another person's
 account, receipts, all or nothing).
 
@@ -1063,13 +1071,29 @@ through the query cache, keyed by the pair, the account's rate source and the da
 ## Offline start and installing
 
 **What it is.** The app installs as an app and opens offline or on a bad connection,
-showing what this device last loaded with the changes made since on top. While Home's
-balances or month come from that copy (offline, or the server hasn't answered yet), a
-small line under the title says how old they are ("Updated 2 hours ago"); fresh from the
-server it says nothing. Changes made
-offline are kept on the device and saved once the connection is back, even with the
-app closed. The offline notice says so, with how many are waiting; it offers Sign in
-when the session ran out, and warns when the device can't keep changes.
+showing what this device last loaded with the changes made since on top. How fresh the
+figures are is always said, by a freshness label: "Up to date" (a green dot) once the
+server has confirmed them and nothing waits; "From this device, 3 h old" (amber) while the
+balances or the month come from that copy (offline, or the server hasn't answered yet);
+"Offline · 2 changes waiting to save" while changes wait without a connection. This
+replaces the old rule that fresh from the server it said nothing (the redesign's
+"Freshness, always labelled"). The design doesn't draw these, so they're the run's
+defaults: "Offline" (offline, nothing waiting, figures fetched earlier), "Saving 2
+changes" (online, the server answering, changes on their way), "Signed out · 2 changes
+waiting to save", and "From this device" alone when the copy's time isn't known. Ages read
+"less than a minute", "5 min", "3 h", "2 d", rounded down, and keep counting while shown.
+The label sits under Home's title on phones and tablets, beside "Mahnee" in a computer's
+sidebar, and at the foot of Settings ("Mahnee · Up to date"); on a phone's or tablet's
+other pages, and at the foot of Settings' own pages there, it shows only when it isn't
+"Up to date", so changes waiting are never out of sight (Settings' own pages show it always
+on a computer, as the settings boards draw). It judges the balances and Home's open month,
+or this month off Home; nothing shows until the balances first load, and Home keeps its
+line meanwhile. Changes made offline are kept on the device and saved once the connection
+is back, even with the app closed. The offline notice says so on the due tint ("Offline.
+Your changes are kept on this phone.", "this device" from 768px, "this computer" from
+1024px, by width as the layout goes; the tablet word is the run's); how many wait is the
+label's to say. It offers Sign in when the session ran out, and warns when the device can't
+keep changes, those two with how many are waiting.
 
 **Owner.**
 
@@ -1079,7 +1103,9 @@ when the session ran out, and warns when the device can't keep changes.
 - [ledger/ledger.ts](../web/src/ledger/ledger.ts): which of the ledger and months'
   totals are shown from the device copy, and when the server last confirmed each
   (`dataAge`, read through `useDataAge` and shown by
-  [components/home/Staleness.tsx](../web/src/components/home/Staleness.tsx)); a fresh
+  [components/common/Freshness.tsx](../web/src/components/common/Freshness.tsx), whose
+  words come from [freshness-text.ts](../web/src/components/common/freshness-text.ts)
+  with the outbox's count, `useUnsaved`); a fresh
   answer clears it, and months shown from the device are fetched again once the ledger
   comes fresh.
 - [offline/outbox.ts](../web/src/offline/outbox.ts): each person's changes not yet saved
@@ -1154,8 +1180,11 @@ alike), [outbox.test.ts](../web/src/offline/outbox.test.ts) (the shared keys and
 another account's changes kept through sign-in and sign-out),
 [start.test.tsx](../web/src/offline/start.test.tsx) (starting from the device's copy, with
 how old it is, and once Access asks to sign in again),
-[Staleness.test.tsx](../web/src/components/home/Staleness.test.tsx) (nothing said when
-fresh, "Updated 2 hours ago" offline and while the server hasn't answered),
+[Freshness.test.tsx](../web/src/components/common/Freshness.test.tsx) (every label where
+it's drawn at each size, ages, which label wins, the offline notice's words, and the undo
+toast: announced, Undo its only button, gone after 6 seconds; refusals keep their close
+button), [freshness-text.test.ts](../web/src/components/common/freshness-text.test.ts)
+(age edges and the order of the labels),
 [first-read.test.tsx](../web/src/offline/first-read.test.tsx) (the first read of the
 balances goes while the server is slow to say who's signed in, and never waits for good
 when signed out),
@@ -1172,7 +1201,7 @@ on computers (with Mahnee, New entry and, at its foot, Settings). Moving between
 takes the page's place in history, so Back never walks through them. An account's page
 keeps the places, with Accounts marked; Settings, its sections and Import cover them,
 and so does the first run, before there is an account, and a phone or tablet selecting on
-Activity (`&select`). For now Plan is the month card and the month-end total, and Accounts
+Activity (`&select`), which then has no freshness strip either: its own bar is at the foot. For now Plan is the month card and the month-end total, and Accounts
 is the list of accounts.
 
 **Addresses.** Later pieces link to these; each is a query string read by `readRoute`.

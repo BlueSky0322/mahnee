@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { get } from 'idb-keyval';
 import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Category } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
 import {
+  OFFLINE_NOTICE,
   fakeServer,
   holdNext,
   openSettings,
@@ -13,11 +15,15 @@ import {
   renderApp,
   setupAppTests,
 } from '../../testing/app';
+import { outboxKey } from '../../offline/outbox';
 
 setupAppTests();
 
 const SIZES = ['desktop', 'phone'] as const;
-const OFFLINE = "Offline. Changes are kept on this device and saved when you're back.";
+
+/** What's still waiting on this device for Ryan, as kept there */
+const keptForRyan = async () =>
+  (await get<{ email: string; value: unknown[] }>(outboxKey('ryan@example.com')))?.value ?? [];
 
 const id = (name: string) => DEFAULT_CATEGORIES.find((c) => c.name === name)!.id;
 const COFFEE = 'e'.repeat(16);
@@ -333,11 +339,16 @@ describe('categories offline', () => {
       await user.selectOptions(form.getByLabelText('Under'), 'Food');
       await user.click(form.getByRole('button', { name: 'Add category' }));
       expect(await screen.findByRole('button', { name: 'Coffee, in Food' })).toBeTruthy();
-      expect(await screen.findByText(`${OFFLINE} 1 change waiting.`)).toBeTruthy();
+      expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
+      // The foot of the page says it waits, and the device keeps it
+      expect(await screen.findByText('Mahnee · Offline · 1 change waiting to save')).toBeTruthy();
+      await waitFor(async () => expect(await keptForRyan()).toHaveLength(1));
 
       await reloadApp(server, '/?categories', { size });
       expect(await screen.findByRole('button', { name: 'Coffee, in Food' })).toBeTruthy();
-      expect(await screen.findByText(`${OFFLINE} 1 change waiting.`)).toBeTruthy();
+      expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
+      expect(await screen.findByText('Mahnee · Offline · 1 change waiting to save')).toBeTruthy();
+      expect(await keptForRyan()).toHaveLength(1);
       expect(server.categories).toEqual([]);
 
       const back = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);

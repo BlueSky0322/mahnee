@@ -37,6 +37,7 @@ import {
   subscribeUnsaved,
   unsavedState,
 } from './ledger';
+import { queryClient } from '../query-client';
 
 // The ledger for the screens that show it (see ledger.ts, which changes it)
 
@@ -56,6 +57,11 @@ function useLedgerPart<T>(select: (ledger: Ledger) => T): Loaded<T> {
     queryKey: LEDGER_KEY,
     queryFn: ({ signal }) => fetchLedger({ signal }),
     select,
+    // A page opening after the first load failed, with nothing kept, says so and offers to
+    // try again rather than asking by itself: asking would show it loading, and take the
+    // tab bar or sidebar away, until it failed again. Try again, coming back online, a
+    // return to the app and a saved change still ask.
+    retryOnMount: false,
   });
   return { data: data ?? null, failed: isError && data == null, retry: () => void refetch() };
 }
@@ -102,6 +108,17 @@ const pickLedger = (ledger: Ledger) => ledger;
 export function useWholeLedger(): Loaded<Ledger> {
   return useLedgerPart(pickLedger);
 }
+
+const subscribeLedgerShown = (listener: () => void) =>
+  queryClient.getQueryCache().subscribe(listener);
+const ledgerShown = () => queryClient.getQueryData(LEDGER_KEY) !== undefined;
+
+/**
+ * Whether the balances are showing yet, from the server or the device's copy, for what
+ * waits on them without showing them itself: it neither asks for them nor shows the copy
+ */
+export const useLedgerShown = (): boolean =>
+  useSyncExternalStore(subscribeLedgerShown, ledgerShown);
 
 /**
  * Changes made on this device the server hasn't saved yet (offline, say), and whether

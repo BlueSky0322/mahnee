@@ -17,3 +17,14 @@
 .layout[data-shell='tabs'] .main {
   padding-bottom: var(--tabbar-h);
 }
+
+/* How fresh the figures are, on a phone's or tablet's page other than Home, when not up to date */
+.freshness {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 16px 0;
+}
+
+.freshness:empty {
+  display: none;
+}

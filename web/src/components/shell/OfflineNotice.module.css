@@ -7,14 +7,18 @@
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  box-sizing: border-box;
+  width: max-content;
   max-width: calc(100vw - 32px);
-  padding: 8px 14px;
-  border-radius: 18px;
-  background: var(--ink);
-  color: var(--ground);
-  font-size: 13px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+  min-height: 52px;
+  padding: 4px 16px;
+  border-radius: 16px;
+  /* The design's offline toast: the due tint, in ink */
+  background: var(--due-tint);
+  color: var(--ink);
+  font-size: 0.875rem;
+  box-shadow: var(--shadow-float);
   pointer-events: none;
 }
 

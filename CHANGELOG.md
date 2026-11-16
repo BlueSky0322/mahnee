@@ -15,6 +15,7 @@ For agents:
 ## 2026-11-16
 
 - Added: Activity lists every entry by day or in a register, with filters, totals and changing many at once [#28]
+- Fixed: Undo reached from the keyboard right after a dialog closes now undoes, instead of opening the dialog again [#29]
 - Fixed: after the accounts fail to load, opening a page no longer hides the tab bar or sidebar [#27]
 - Changed: the figures always say how fresh they are, and the offline and Undo messages have the new look [#26]
 - Added: Home, Activity, Plan and Accounts a tap away in a tab bar or sidebar, with Settings [#24]
@@ -86,3 +87,4 @@ For agents:
 [#26]: https://github.com/BlueSky0322/mahnee/pull/26
 [#27]: https://github.com/BlueSky0322/mahnee/pull/27
 [#28]: https://github.com/BlueSky0322/mahnee/pull/28
+[#29]: https://github.com/BlueSky0322/mahnee/pull/29

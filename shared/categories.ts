@@ -59,6 +59,23 @@ export const DEFAULT_CATEGORIES: readonly Category[] = [
 ];
 
 /**
+ * Other, the default catch-all spending category: what Tidy up counts, with the categories
+ * under it. Its id never changes, renamed or not.
+ */
+export const OTHER_EXPENSE_ID = DEFAULT_CATEGORIES.find(
+  (c) => c.kind === 'expense' && c.name === 'Other',
+)!.id;
+
+/**
+ * The first day Tidy up counts from, for a month's totals: the first of the month before
+ * (2026-10-01 for November 2026). With a month start day this becomes the period's start.
+ */
+export function tidyUpFrom(month: string): string {
+  const [year, m] = month.split('-').map(Number);
+  return m === 1 ? `${year - 1}-12-01` : `${year}-${String(m - 1).padStart(2, '0')}-01`;
+}
+
+/**
  * A person's categories: the ones saved, or the defaults while none are. Nothing is
  * saved until their first change of any kind, which saves the defaults with it, and
  * archived categories are never deleted, so none saved means they've never had any.

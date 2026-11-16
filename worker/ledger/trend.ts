@@ -3,7 +3,8 @@
 // category's last 12 months. One grouped sum over a fixed window, never a read per month.
 //
 // Each month is summed as GET /api/summary sums one (summary.ts): spending and income only,
-// never a transfer, each category under its own id, largest first; the app rolls
+// never a transfer, each category under its own id with how many transactions make it
+// and a lone one's payee, largest first (without the month's own days or Tidy up); the app rolls
 // subcategories up into their parent as it does for the month itself, so the month shown
 // is exactly the card's figures.
 //
@@ -24,6 +25,9 @@ interface TrendRow {
   kind: 'expense' | 'income';
   categoryId: string;
   cents: number;
+  entries: number;
+  /** Only for a category with one transaction in the month, when it names one */
+  payee: string | null;
 }
 
 /** GET /api/summary/trend?month=2026-11: the 12 months ending at November 2026 */
@@ -42,7 +46,8 @@ export async function readTrend(
     db
       .prepare(
         `SELECT substr(date, 1, 7) AS month, kind, category_id AS categoryId,
-                SUM(amount_cents) AS cents
+                SUM(amount_cents) AS cents, COUNT(*) AS entries,
+                CASE WHEN COUNT(*) = 1 THEN MAX(payee) END AS payee
          FROM transactions
          WHERE email = ? AND date >= ? AND date < ? AND kind IN ('expense', 'income')
          GROUP BY month, kind, category_id
@@ -58,7 +63,12 @@ export async function readTrend(
   const byKind = (m: string, kind: TrendRow['kind']): CategoryTotal[] =>
     rows
       .filter((r) => r.month === m && r.kind === kind)
-      .map(({ categoryId, cents }) => ({ categoryId, cents }));
+      .map(({ categoryId, cents, entries, payee }) => ({
+        categoryId,
+        cents,
+        entries,
+        ...(payee != null && { payee }),
+      }));
   return json<MonthTrend>({
     month,
     months: months.map((m): MonthTotals => {

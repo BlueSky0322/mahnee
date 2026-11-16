@@ -19,6 +19,7 @@ import {
   writeCache,
 } from '../offline/cache';
 import { isAccent } from '@shared/accents';
+import { isTimeZone } from '@shared/settings';
 import {
   DEFAULT_SETTINGS,
   THEMES,
@@ -154,7 +155,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     const email = assumeLastUser();
     if (email == null) return undefined;
     assumed.current = email;
-    return readCache<Profile>(ME_CACHE_KEY);
+    const saved = await readCache<Profile>(ME_CACHE_KEY);
+    // Kept before some settings existed: those have their defaults
+    return saved && { ...saved, settings: { ...DEFAULT_SETTINGS, ...saved.settings } };
   }, []);
 
   // Loaded once: after that, this device's changes are the latest, and a refetch
@@ -296,6 +299,18 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       ),
     [change],
   );
+
+  // The server needs the person's own day, and only the device knows its time zone: sent
+  // once a start, after the server has said who's signed in (never from the copy kept on
+  // the device), whenever it isn't the one saved. A failure is left for the next start.
+  const zoneSent = useRef(false);
+  useEffect(() => {
+    if (profile == null || fromDevice.current || zoneSent.current) return;
+    zoneSent.current = true;
+    const zone = quietly(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+    if (!isTimeZone(zone) || zone === profile.settings.timeZone) return;
+    void update({ settings: { timeZone: zone } }).catch(() => {});
+  }, [profile, update]);
 
   const patch = useCallback(
     (change: (profile: Profile) => Profile) => {

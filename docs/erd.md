@@ -16,6 +16,11 @@ erDiagram
   profiles ||--o{ change_receipts : "has"
   categories ||--o{ budgets : "has"
   profiles ||--o{ recurring : "has"
+  profiles ||--o{ imports : "has"
+  imports |o--o{ transactions : "added"
+  accounts |o--o{ imports : "went into"
+  accounts |o--o{ user_settings : "Add starts on"
+  recurring |o--o{ user_settings : "month starts on"
   accounts ||--o{ recurring : "repeats on"
   categories ||--o{ recurring : "sorts"
   profiles {
@@ -27,8 +32,24 @@ erDiagram
   user_settings {
     TEXT email PK "and FK to profiles"
     TEXT theme "dark, light or auto"
-    TEXT accent "blurple, blue, teal, green, amber or rose"
+    TEXT accent "cobalt, green, plum, rust or graphite"
     TEXT rate_preference "wise or ecb"
+    TEXT week_start "monday or sunday"
+    TEXT month_start_mode "date or payday"
+    INTEGER month_start_day "1 to 28, or 31 for the last day"
+    TEXT month_start_pay_id "FK with email to recurring; needed on payday"
+    TEXT start_screen "home, activity or plan"
+    TEXT home_density "essentials or everything"
+    TEXT start_with "amount or category"
+    TEXT default_account_id "FK with email to accounts; null for the last used"
+    INTEGER suggest_as_you_type "0 or 1"
+    INTEGER ask_for_time "0 or 1"
+    TEXT expense_colour "ink or red"
+    INTEGER carry_over_default "0 or 1"
+    INTEGER daily_reminder "0 or 1"
+    TEXT reminder_time "the person's clock, 00:00 to 23:59"
+    INTEGER scheduled_reminder_days "null for none, or 1 to 7"
+    TEXT time_zone "null until the app sends it, as Asia/Kuala_Lumpur"
     INTEGER updated_at "ms"
   }
   accounts {
@@ -65,8 +86,20 @@ erDiagram
     TEXT payee "null, or 1 to 80 characters"
     TEXT note "null, or 1 to 500 characters"
     TEXT date "the person's own day, as 2026-11-05"
+    TEXT time "null, or the person's clock, as 20:12"
+    TEXT import_id "null, or one of the person's imports"
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
+  }
+  imports {
+    TEXT email PK "and FK to profiles"
+    TEXT id PK "16 hex characters, made by the app"
+    TEXT file_name "1 to 255 characters"
+    TEXT account_id "FK with email to accounts; null for a Mahnee export"
+    INTEGER added_count "0 to 5,000"
+    INTEGER skipped_count "0 to 5,000"
+    INTEGER created_at "ms"
+    INTEGER undone_at "ms, or null"
   }
   budgets {
     TEXT email PK "and FK to profiles"
@@ -111,7 +144,17 @@ erDiagram
   devices. A first row is written with every setting, the changed ones and the defaults
   from `DEFAULT_SETTINGS` in `shared/api.ts` for the rest, so the defaults live in one
   place; the columns' own defaults are only a fallback. Deleting a profile deletes its
-  settings.
+  settings. Each column has a CHECK holding what `shared/settings.ts` takes (the migration
+  test keeps them in step). Two name the person's own rows, by foreign keys with the
+  email: `default_account_id`, the account Add starts on (null for the last one used),
+  and `month_start_pay_id`, the scheduled pay a month on payday follows (a running monthly
+  income, which the Worker checks; the table needs one while `month_start_mode` is
+  `payday`). Archiving that account sets `default_account_id` back to null, and a pay
+  that stops or turns weekly puts the month back on `month_start_day`, the pay kept, in
+  the same batch as the change. `month_start_day` 31 means each month's last day.
+  `time_zone` is sent by the app at start, from the device, and is null until then.
+  Migration 0007 rebuilt the table with the redesign's settings, mapping every accent to
+  cobalt except green.
 - **`accounts`**: where a person's money is, or what they owe on a card (a card's
   opening balance is below zero). Keyed by email and then id, so an id is only looked up
   among the person's own. Archived, never deleted; at most 50 per person, archived ones
@@ -138,9 +181,12 @@ erDiagram
   row is saved. Deleted for good when
   the person deletes one (Undo adds it again with the same id). An account's balance is
   its opening balance plus its income and transfers in, less its spending and transfers
-  out, summed when read. Indexed for an account's newest first (by `account_id`; the
-  transfers into an account are found by scanning the person's rows) and for a month
-  across accounts.
+  out, summed when read. Indexed for an account's newest first, by day and then time
+  (by `account_id`; the transfers into an account are found by scanning the person's rows)
+  and for a month across accounts. `time` is the time of day on the person's clock when
+  they add times, null otherwise (and for everything from before). `import_id` names the
+  import it came in with; triggers refuse one that isn't the person's own (SQLite can't
+  add a foreign key with the email to an existing table), and are indexed to undo one.
 - **`budgets`**: a monthly amount a person means to spend in a top-level spending
   category, its subcategories counting toward it. One row per category and month it was
   set in (`from_month`): the amount applies from that month on, until a later row, so
@@ -162,6 +208,11 @@ erDiagram
   checked again as each row is saved. Keyed by email and then id, its accounts and category
   foreign keys with the email. Read with the accounts (`GET /api/accounts`, only for someone
   who has any).
+- **`imports`**: one row per file imported, so every device lists recent imports: the
+  file's name, the account a bank's file went into (null for a Mahnee export, which names
+  its accounts), how many rows were added and left out (each at most `MAX_IMPORT_ROWS`),
+  when, and when it was undone. Keyed by email and then id. Deleting one keeps its
+  transactions, their `import_id` set back to null.
 - **`change_receipts`**: one per change the app saved through `POST /api/changes`, by
   the id the app gave it, with the change's fingerprint, saved in the same batch as the
   change. A change sent again counts once; the same id with a different change is

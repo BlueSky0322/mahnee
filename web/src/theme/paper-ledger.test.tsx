@@ -39,7 +39,7 @@ beforeEach(() => {
 });
 
 /** The app open on Home in `theme`, with `accent` saved to the account and on the device */
-async function openIn(theme: 'light' | 'dark', accent: (typeof ACCENTS)[number] = 'blurple') {
+async function openIn(theme: 'light' | 'dark', accent: (typeof ACCENTS)[number] = 'cobalt') {
   const server = fakeServer();
   server.me.settings.theme = theme;
   server.me.settings.accent = accent;

@@ -23,6 +23,35 @@ afterEach(() => api.rates.reset());
 
 afterAll(() => api?.stop(), 30_000);
 
+/**
+ * Every setting as the redesign's boards draw it before anything is chosen (R-Set-Money,
+ * R-Set-Adding, R-Set-Look, R-Set-Budgets): month from the 1st, week from Monday, keypad
+ * first, the last account used, suggestions on, no time on entries, cobalt, expenses in
+ * ink, everything on Home, Home first, carry-over on, the daily reminder on at 9:00 PM and
+ * one day before a scheduled entry; no time zone until the app sends one
+ */
+const DESIGN_DEFAULTS = {
+  theme: 'auto',
+  accent: 'cobalt',
+  ratePreference: 'wise',
+  weekStart: 'monday',
+  monthStartMode: 'date',
+  monthStartDay: 1,
+  monthStartPayId: null,
+  startScreen: 'home',
+  homeDensity: 'everything',
+  startWith: 'amount',
+  defaultAccountId: null,
+  suggestAsYouType: true,
+  askForTime: false,
+  expenseColour: 'ink',
+  carryOverDefault: true,
+  dailyReminder: true,
+  reminderTime: '21:00',
+  scheduledReminderDays: 1,
+  timeZone: null,
+};
+
 describe('the profile', () => {
   it('starts with the defaults, before anything is saved', async () => {
     const me = person('me');
@@ -31,7 +60,7 @@ describe('the profile', () => {
     expect(data).toEqual({
       email: me,
       displayName: null,
-      settings: { theme: 'auto', accent: 'blurple', ratePreference: 'wise' },
+      settings: DESIGN_DEFAULTS,
     });
   });
 
@@ -45,10 +74,10 @@ describe('the profile', () => {
     expect(saved.status).toBe(200);
     expect(saved.data).toMatchObject({ displayName: 'Mei', settings: { theme: 'light' } });
     // A later change keeps what it doesn't name
-    await api.call(me, 'PATCH', '/api/me', { settings: { accent: 'teal' } });
+    await api.call(me, 'PATCH', '/api/me', { settings: { accent: 'plum' } });
     expect((await api.call(me, 'GET', '/api/me')).data).toMatchObject({
       displayName: 'Mei',
-      settings: { theme: 'light', accent: 'teal', ratePreference: 'wise' },
+      settings: { theme: 'light', accent: 'plum', ratePreference: 'wise' },
     });
     expect((await api.call(other, 'GET', '/api/me')).data.displayName).toBeNull();
     // An empty name clears it
@@ -73,6 +102,283 @@ describe('the profile', () => {
       displayName: 'Mei',
       settings: { theme: 'auto', ratePreference: 'wise' },
     });
+  });
+
+  describe("the redesign's settings", () => {
+    let ids = 0;
+    /** A fresh row id, as the app makes them: 16 hex characters */
+    const rowId = () => (++ids).toString(16).padStart(16, 'e');
+    /** Sends ledger changes as `who`, each saved or the test stops there */
+    const send = async (who: string, changes: unknown[]) => {
+      const res = await api.call(who, 'POST', '/api/changes', {
+        changes,
+        ids: changes.map(() => rowId()),
+      });
+      expect(res).toEqual({ status: 200, data: { ok: true } });
+    };
+    const settings = async (who: string) => (await api.call(who, 'GET', '/api/me')).data.settings;
+    const save = (who: string, patch: Record<string, unknown>) =>
+      api.call(who, 'PATCH', '/api/me', { settings: patch });
+    const addAccount = (id: string) => ({
+      op: 'addAccount',
+      account: { id, name: 'Maybank', kind: 'bank', openingCents: 0 },
+    });
+    /** A scheduled item repeating on the 25th, salary unless told otherwise */
+    const addScheduled = (id: string, accountId: string, more: Record<string, unknown> = {}) => ({
+      op: 'addRecurring',
+      recurring: {
+        id,
+        kind: 'income',
+        accountId,
+        toAccountId: null,
+        amountCents: 500_000,
+        categoryId: DEFAULT_CATEGORIES.find((c) => c.name === 'Salary')!.id,
+        payee: 'Salary',
+        schedule: 'monthly',
+        day: 25,
+        startDate: '2025-10-25',
+        ...more,
+      },
+    });
+
+    it('saves every one of them, each read back as saved', async () => {
+      const me = person('me');
+      const chosen = {
+        accent: 'graphite',
+        weekStart: 'sunday',
+        monthStartDay: 31,
+        startScreen: 'activity',
+        homeDensity: 'essentials',
+        startWith: 'category',
+        suggestAsYouType: false,
+        askForTime: true,
+        expenseColour: 'red',
+        carryOverDefault: false,
+        dailyReminder: false,
+        reminderTime: '07:45',
+        scheduledReminderDays: null,
+        timeZone: 'Asia/Kathmandu',
+      };
+      const saved = await save(me, chosen);
+      expect(saved.status).toBe(200);
+      expect(saved.data.settings).toEqual({ ...DESIGN_DEFAULTS, ...chosen });
+      expect(await settings(me)).toEqual({ ...DESIGN_DEFAULTS, ...chosen });
+      // A later change keeps what it doesn't name, and someone else still has the defaults
+      await save(me, { monthStartDay: 28, scheduledReminderDays: 7, startScreen: 'plan' });
+      expect(await settings(me)).toEqual({
+        ...DESIGN_DEFAULTS,
+        ...chosen,
+        monthStartDay: 28,
+        scheduledReminderDays: 7,
+        startScreen: 'plan',
+      });
+      expect(await settings(person('other'))).toEqual(DESIGN_DEFAULTS);
+    });
+
+    it.each<[string, Record<string, unknown>]>([
+      ['the accent green', { accent: 'green' }],
+      ['the accent plum', { accent: 'plum' }],
+      ['the accent rust', { accent: 'rust' }],
+      ['the month from the 28th', { monthStartDay: 28 }],
+      ['the reminder at midnight', { reminderTime: '00:00' }],
+      ['the reminder at 11:59 PM', { reminderTime: '23:59' }],
+      ['the time zone UTC', { timeZone: 'UTC' }],
+      ['the time zone Asia/Kuala_Lumpur', { timeZone: 'Asia/Kuala_Lumpur' }],
+      [
+        'the time zone America/Argentina/Buenos_Aires',
+        { timeZone: 'America/Argentina/Buenos_Aires' },
+      ],
+    ])('saves %s', async (_what, patch) => {
+      const me = person('me');
+      expect((await save(me, patch)).status).toBe(200);
+      expect(await settings(me)).toEqual({ ...DESIGN_DEFAULTS, ...patch });
+    });
+
+    it.each<[string, Record<string, unknown>]>([
+      ['an accent from before the redesign', { accent: 'blurple' }],
+      ['another accent from before the redesign', { accent: 'teal' }],
+      ['a week starting on Saturday', { weekStart: 'saturday' }],
+      ['a month starting some other way', { monthStartMode: 'weekly' }],
+      ['a month starting on day 0', { monthStartDay: 0 }],
+      ['a month starting on the 29th', { monthStartDay: 29 }],
+      ['a month starting on the 30th', { monthStartDay: 30 }],
+      ['a month starting on the 32nd', { monthStartDay: 32 }],
+      ['a month starting on day 1.5', { monthStartDay: 1.5 }],
+      ['a month starting on the day as text', { monthStartDay: '1' }],
+      ['a pay that is not a row id', { monthStartPayId: 'salary' }],
+      ['a start screen that does not exist', { startScreen: 'accounts' }],
+      ['a Home that is neither', { homeDensity: 'compact' }],
+      ['a keypad starting on the payee', { startWith: 'payee' }],
+      ['an account that is not a row id', { defaultAccountId: 'wallet' }],
+      ['suggestions as text', { suggestAsYouType: 'yes' }],
+      ['suggestions as a number', { suggestAsYouType: 1 }],
+      ['asking for a time as nothing', { askForTime: null }],
+      ['expenses in blue', { expenseColour: 'blue' }],
+      ['carry-over as a number', { carryOverDefault: 0 }],
+      ['the daily reminder as text', { dailyReminder: 'on' }],
+      ['a reminder at 24:00', { reminderTime: '24:00' }],
+      ['a reminder at 9:00', { reminderTime: '9:00' }],
+      ['a reminder at 21:60', { reminderTime: '21:60' }],
+      ['a reminder with seconds', { reminderTime: '21:00:00' }],
+      ['a reminder time as a number', { reminderTime: 2100 }],
+      ['a reminder 0 days before', { scheduledReminderDays: 0 }],
+      ['a reminder 8 days before', { scheduledReminderDays: 8 }],
+      ['a reminder 1.5 days before', { scheduledReminderDays: 1.5 }],
+      ['a time zone that does not exist', { timeZone: 'Mars/Olympus_Mons' }],
+      ['a time zone written as an offset', { timeZone: '+05:45' }],
+      ['an empty time zone', { timeZone: '' }],
+      ['a time zone that is too long', { timeZone: `Asia/${'x'.repeat(60)}` }],
+      ['a time zone as a number', { timeZone: 545 }],
+      ['no time zone', { timeZone: null }],
+      ['a good setting beside a bad one', { weekStart: 'sunday', reminderTime: '25:00' }],
+    ])('refuses %s and saves nothing', async (_what, patch) => {
+      const me = person('me');
+      await save(me, { theme: 'dark' });
+      const res = await save(me, patch);
+      expect(res.status).toBe(400);
+      expect(typeof res.data.error).toBe('string');
+      expect(await settings(me)).toEqual({ ...DESIGN_DEFAULTS, theme: 'dark' });
+    });
+
+    it('uses one of your own accounts by default, but not an archived one', async () => {
+      const me = person('me');
+      const other = person('other');
+      const [mine, archived, theirs] = [rowId(), rowId(), rowId()];
+      await send(me, [addAccount(mine), addAccount(archived)]);
+      await send(me, [{ op: 'archiveAccount', id: archived, archived: true }]);
+      await send(other, [addAccount(theirs)]);
+
+      const notFound = { status: 404, data: { error: 'Account not found' } };
+      expect(await save(me, { defaultAccountId: theirs })).toEqual(notFound);
+      expect(await save(me, { defaultAccountId: rowId() })).toEqual(notFound);
+      expect(await save(me, { defaultAccountId: archived })).toEqual({
+        status: 400,
+        data: { error: 'That account is archived' },
+      });
+      expect((await settings(me)).defaultAccountId).toBeNull();
+
+      expect((await save(me, { defaultAccountId: mine })).status).toBe(200);
+      expect((await settings(me)).defaultAccountId).toBe(mine);
+      // Back to the last one used
+      expect((await save(me, { defaultAccountId: null })).status).toBe(200);
+      expect((await settings(me)).defaultAccountId).toBeNull();
+    });
+
+    it('goes back to the last account used once the chosen one is archived', async () => {
+      const me = person('me');
+      const [chosen, kept] = [rowId(), rowId()];
+      await send(me, [addAccount(chosen), addAccount(kept)]);
+      expect((await save(me, { defaultAccountId: chosen })).status).toBe(200);
+      // Archiving another account leaves the choice alone
+      await send(me, [{ op: 'archiveAccount', id: kept, archived: true }]);
+      expect((await settings(me)).defaultAccountId).toBe(chosen);
+      await send(me, [{ op: 'archiveAccount', id: chosen, archived: true }]);
+      expect((await settings(me)).defaultAccountId).toBeNull();
+      // and bringing it back doesn't choose it again
+      await send(me, [{ op: 'archiveAccount', id: chosen, archived: false }]);
+      expect((await settings(me)).defaultAccountId).toBeNull();
+    });
+
+    it('starts the month on payday only from one of your own running monthly pays', async () => {
+      const me = person('me');
+      const other = person('other');
+      const [account, theirAccount] = [rowId(), rowId()];
+      const [pay, bill, weekly, stopped, theirs] = [rowId(), rowId(), rowId(), rowId(), rowId()];
+      await send(me, [
+        addAccount(account),
+        addScheduled(pay, account),
+        addScheduled(bill, account, {
+          kind: 'expense',
+          categoryId: DEFAULT_CATEGORIES.find((c) => c.name === 'Bills')!.id,
+          payee: 'TNB',
+        }),
+        addScheduled(weekly, account, { schedule: 'weekly', day: 5, startDate: '2025-10-24' }),
+        addScheduled(stopped, account),
+      ]);
+      await send(me, [{ op: 'archiveRecurring', id: stopped, archived: true }]);
+      await send(other, [addAccount(theirAccount), addScheduled(theirs, theirAccount)]);
+
+      const refused = (error: string) => ({ status: 400, data: { error } });
+      // Payday needs a pay to follow
+      expect(await save(me, { monthStartMode: 'payday' })).toEqual(
+        refused('Pick the pay the month starts on'),
+      );
+      // Someone else's, or none at all, is not found; a bill, a weekly pay or a stopped
+      // one can't start the month, each for its own reason
+      const notFound = { status: 404, data: { error: 'Repeating item not found' } };
+      expect(await save(me, { monthStartMode: 'payday', monthStartPayId: theirs })).toEqual(
+        notFound,
+      );
+      expect(await save(me, { monthStartPayId: rowId() })).toEqual(notFound);
+      expect(await save(me, { monthStartMode: 'payday', monthStartPayId: bill })).toEqual(
+        refused('The month can start only on income'),
+      );
+      expect(await save(me, { monthStartMode: 'payday', monthStartPayId: weekly })).toEqual(
+        refused('The month can start only on a monthly pay'),
+      );
+      expect(await save(me, { monthStartMode: 'payday', monthStartPayId: stopped })).toEqual(
+        refused('That pay no longer repeats'),
+      );
+      expect(await settings(me)).toEqual(DESIGN_DEFAULTS);
+
+      // The pay and the mode together
+      expect((await save(me, { monthStartMode: 'payday', monthStartPayId: pay })).status).toBe(200);
+      expect(await settings(me)).toMatchObject({ monthStartMode: 'payday', monthStartPayId: pay });
+      // While the month starts on payday, its pay can't be taken away
+      expect((await save(me, { monthStartPayId: null })).status).toBe(400);
+      // Back to a date, which keeps the pay picked for next time
+      expect((await save(me, { monthStartMode: 'date' })).status).toBe(200);
+      expect(await settings(me)).toMatchObject({
+        monthStartMode: 'date',
+        monthStartDay: 1,
+        monthStartPayId: pay,
+      });
+      // and then on payday again with no pay named
+      expect((await save(me, { monthStartMode: 'payday' })).status).toBe(200);
+      expect((await settings(me)).monthStartMode).toBe('payday');
+    });
+
+    it.each<[string, (pay: string) => unknown]>([
+      ['stops', (pay) => ({ op: 'archiveRecurring', id: pay, archived: true })],
+      [
+        'changes to weekly',
+        (pay) => ({
+          op: 'updateRecurring',
+          id: pay,
+          schedule: 'weekly',
+          day: 5,
+          nextDue: '2025-10-24',
+        }),
+      ],
+    ])(
+      'starts the month on its day again once the pay %s, keeping the pay',
+      async (_what, change) => {
+        const me = person('me');
+        const [account, pay, other] = [rowId(), rowId(), rowId()];
+        await send(me, [
+          addAccount(account),
+          addScheduled(pay, account),
+          addScheduled(other, account),
+        ]);
+        expect(
+          (await save(me, { monthStartMode: 'payday', monthStartPayId: pay, monthStartDay: 15 }))
+            .status,
+        ).toBe(200);
+        // Another pay changing leaves it alone
+        await send(me, [change(other)]);
+        expect((await settings(me)).monthStartMode).toBe('payday');
+
+        await send(me, [change(pay)]);
+        expect(await settings(me)).toMatchObject({
+          monthStartMode: 'date',
+          monthStartDay: 15,
+          monthStartPayId: pay,
+        });
+        // Payday can't come back while its pay no longer fits
+        expect((await save(me, { monthStartMode: 'payday' })).status).toBe(400);
+        expect((await settings(me)).monthStartMode).toBe('date');
+      },
+    );
   });
 });
 

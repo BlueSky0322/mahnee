@@ -9,7 +9,9 @@ import { notifications } from '@mantine/notifications';
 import { onlineManager } from '@tanstack/react-query';
 import { createElement } from 'react';
 import { afterEach, beforeEach, onTestFinished, vi } from 'vitest';
+import { isTimeZone, readSettingChanges } from '@shared/settings';
 import type {
+  Settings,
   Account,
   Category,
   ChangesBody,
@@ -265,7 +267,7 @@ function serve(server: FakeServer) {
  * saving, for a few turns in a row (work often waits on the device's storage between
  * requests). Gives up after a few seconds, for an answer a test never releases.
  */
-async function settle() {
+export async function settle() {
   if (vi.isFakeTimers()) return;
   const giveUpAt = Date.now() + 3000;
   for (let quiet = 0; quiet < 5 && Date.now() < giveUpAt; ) {
@@ -306,10 +308,12 @@ function answerNow(server: FakeServer) {
       const failure = failing('profile');
       if (failure) return failure;
       const patch = body as Partial<Profile>;
+      const settings = 'settings' in patch ? readSettingsPatch(server, patch.settings) : {};
+      if (Array.isArray(settings)) return json({ error: settings[1] }, settings[0]);
       server.me = {
         ...server.me,
         ...('displayName' in patch ? { displayName: patch.displayName ?? null } : {}),
-        settings: { ...server.me.settings, ...patch.settings },
+        settings: { ...server.me.settings, ...settings },
       };
       return json(server.me);
     }
@@ -761,9 +765,52 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
     server.transactions = transactions;
     server.recurring = recurring;
     server.budgets = budgets;
+    settingsAfterChanges(server);
   }
   ids.forEach((id, i) => server.receipts.set(id, prints[i]));
   return null;
+}
+
+/**
+ * As the real server does with the same changes: an archived default account goes back
+ * to the last one used, and a month on payday goes back to its day once its pay stops or
+ * is no longer monthly
+ */
+function settingsAfterChanges(server: FakeServer) {
+  const settings = server.me.settings;
+  const account = server.accounts.find((a) => a.id === settings.defaultAccountId);
+  if (account?.archived) settings.defaultAccountId = null;
+  const pay = server.recurring.find((r) => r.id === settings.monthStartPayId);
+  if (settings.monthStartMode === 'payday' && (pay?.archived || pay?.schedule !== 'monthly')) {
+    settings.monthStartMode = 'date';
+  }
+}
+
+/**
+ * Settings checked as the real server checks them: each on its own, then the account and
+ * pay they name among the person's own; the changes, or the refusal
+ */
+function readSettingsPatch(server: FakeServer, raw: unknown): Partial<Settings> | [number, string] {
+  const changes = readSettingChanges(raw);
+  if ('error' in changes) return [400, changes.error];
+  if (changes.defaultAccountId != null) {
+    const account = server.accounts.find((a) => a.id === changes.defaultAccountId);
+    if (account == null) return [404, 'Account not found'];
+    if (account.archived) return [400, 'That account is archived'];
+  }
+  const saved = server.me.settings;
+  const mode = changes.monthStartMode ?? saved.monthStartMode;
+  const payId =
+    changes.monthStartPayId !== undefined ? changes.monthStartPayId : saved.monthStartPayId;
+  if (mode === 'payday' && payId == null) return [400, 'Pick the pay the month starts on'];
+  if (payId != null && (changes.monthStartPayId != null || mode === 'payday')) {
+    const pay = server.recurring.find((r) => r.id === payId);
+    if (pay == null) return [404, 'Repeating item not found'];
+    if (pay.kind !== 'income') return [400, 'The month can start only on income'];
+    if (pay.schedule !== 'monthly') return [400, 'The month can start only on a monthly pay'];
+    if (pay.archived) return [400, 'That pay no longer repeats'];
+  }
+  return changes;
 }
 
 /**
@@ -1090,11 +1137,21 @@ function saveRecurringChange(
 const isNextDue = (schedule: Recurring['schedule'], day: number, nextDue: unknown) =>
   isCalendarDay(nextDue) && nextDue >= '2000-01-01' && fallsOn(schedule, day, nextDue);
 
+const deviceTimeZone = () => {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return isTimeZone(zone) ? zone : null;
+};
+
 /** A fresh server with the signed-in account */
 export function fakeServer(): FakeServer {
   return {
     health: 'up',
-    me: { email: EMAIL, displayName: 'Ryan', settings: { ...DEFAULT_SETTINGS } },
+    // With this device's time zone saved, so the app has none to send at start
+    me: {
+      email: EMAIL,
+      displayName: 'Ryan',
+      settings: { ...DEFAULT_SETTINGS, timeZone: deviceTimeZone() },
+    },
     rates: new Map(),
     accounts: [],
     transactions: [],

@@ -51,7 +51,7 @@ The Worker is laid out by feature:
 
 ## Running it
 
-Needs Node 22.12 or later (Vite 8 and Vitest 5); CI uses Node 22.
+Needs Node 22.13 or later (Vite 8, Vitest 5, and `node:sqlite` for the migration tests); CI uses Node 22.
 
 ```sh
 yarn install

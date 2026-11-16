@@ -101,8 +101,8 @@ describe('the tab bar on phones and tablets', () => {
   test('each place shows what it holds today', async () => {
     renderApp(withAccounts(), '/?accounts', { size: 'phone' });
     // Accounts: the accounts with their balances
-    expect(await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Bank, Bank, RM 500\.00$/ })).toBeTruthy();
+    expect(await screen.findByRole('link', { name: /^Wallet, Cash, 100\.00$/ })).toBeTruthy();
+    expect(screen.getByRole('link', { name: /^Bank, Bank, 500\.00$/ })).toBeTruthy();
     // Activity: every entry; with none yet, says so (R-Empty-Activity)
     const user = userEvent.setup();
     await user.click(within(await mainNav()).getByRole('link', { name: 'Activity' }));
@@ -136,7 +136,7 @@ describe('the tab bar on phones and tablets', () => {
   test("an account's page goes back up to Accounts", async () => {
     renderApp(withAccounts(), '/?accounts', { size: 'phone' });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('button', { name: /^Bank, Bank,/ }));
+    await user.click(await screen.findByRole('link', { name: /^Bank, Bank,/ }));
     await user.click(await screen.findByRole('button', { name: 'Accounts' }));
     expect(await pageTitle('Accounts')).toBeTruthy();
     expect(window.location.search).toBe('?accounts');
@@ -155,7 +155,7 @@ describe('the tab bar on phones and tablets', () => {
     const server = withAccounts();
     server.accounts[0].archived = true;
     renderApp(server, `/?account=${WALLET}`, { size: 'phone' });
-    expect(await screen.findByText('Cash, archived')).toBeTruthy();
+    expect(await screen.findByText('Cash · archived')).toBeTruthy();
     const user = userEvent.setup();
     await user.click(within(await mainNav()).getByRole('button', { name: 'Add' }));
     const form = await addForm();
@@ -311,7 +311,7 @@ describe('the sidebar on computers', () => {
     const server = withAccounts();
     server.accounts[0].archived = true;
     renderApp(server, `/?account=${WALLET}`);
-    expect(await screen.findByText('Cash, archived')).toBeTruthy();
+    expect((await screen.findAllByText('Cash · archived')).length).toBeGreaterThan(0);
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'New entry' }));
     expect((await addForm()).getByRole('button', { name: /^From Bank/ })).toBeTruthy();

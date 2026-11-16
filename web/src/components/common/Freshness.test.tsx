@@ -47,7 +47,15 @@ function withWallet() {
   return server;
 }
 
-const wallet = () => screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ });
+/** Wallet's row: a button on Home, a link on Accounts */
+const wallet = () =>
+  waitFor(() => {
+    const found =
+      screen.queryByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ }) ??
+      screen.queryByRole('link', { name: /^Wallet, Cash, 100\.00$/ });
+    expect(found).not.toBeNull();
+    return found!;
+  });
 const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
 
 /**

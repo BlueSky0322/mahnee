@@ -341,7 +341,11 @@ function answerNow(server: FakeServer) {
     if (path === '/api/accounts' && method === 'GET') {
       const accounts = [...server.accounts]
         .sort((a, b) => a.position - b.position)
-        .map(({ createdAt: _added, ...a }) => ({ ...a, balanceCents: balanceOf(server, a) }));
+        .map(({ createdAt: _added, ...a }) => ({
+          ...a,
+          archivedAt: a.archivedAt ?? null,
+          balanceCents: balanceOf(server, a),
+        }));
       const categories = [...server.categories].sort(
         (a, b) => a.position - b.position || (a.id < b.id ? -1 : 1),
       );
@@ -813,6 +817,12 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
     if (account == null) return [404, 'Account not found'];
     if (change.op === 'archiveAccount') {
       if (typeof change.archived !== 'boolean') return [400, 'Say whether it is archived'];
+      // As the real one: the day it was first archived, kept while archived; none once back
+      account.archivedAt = change.archived
+        ? account.archived
+          ? account.archivedAt ?? null
+          : Date.now()
+        : null;
       account.archived = change.archived;
       continue;
     }

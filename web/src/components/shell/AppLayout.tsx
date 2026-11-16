@@ -38,6 +38,12 @@ export default function AppLayout({ route, children }: { route: Route; children:
     const here = route.view === 'account' && running?.some((a) => a.id === route.id);
     setEntry(here ? { accountId: route.id } : {});
   };
+  // A page's own request (an account's Add here or Transfer), else as Add opens
+  const addFor = (request?: AddRequest) => {
+    if (!addable) return;
+    if (request == null) add();
+    else setEntry(request);
+  };
   // The keys work from the start, but for the first run, which has nowhere to go
   useShortcuts({ 'n': add, '/': focusSearch }, place != null && accounts?.length !== 0);
 
@@ -68,7 +74,9 @@ export default function AppLayout({ route, children }: { route: Route; children:
             />
           </div>
         )}
-        <AddEntryContext.Provider value={addable ? add : null}>{children}</AddEntryContext.Provider>
+        <AddEntryContext.Provider value={addable ? addFor : null}>
+          {children}
+        </AddEntryContext.Provider>
       </main>
       {shell === 'tabs' && place != null && (
         <TabBar

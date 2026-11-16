@@ -421,7 +421,7 @@ the first account is added.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), as for transactions. A
 month's totals are a query keyed by month (`summaryKey`), fetched from the server
-(`fetchSummary`) with a device copy (`summary-v1:<month>`) shown offline. They're kept
+(`fetchSummary`) with a device copy (`summary-v2:<month>`) shown offline. They're kept
 as the server summed them, with each saved batch counted in (before the lists take it,
 so an edited transaction is taken out as it was), and the changes still to send counted
 on top as they're shown (`shownSummary`). Once nothing is left to send they're fetched
@@ -430,7 +430,7 @@ counting the way the server sums; [ledger/derive.ts](../web/src/ledger/derive.ts
 (`rollUp`) puts subcategories inside their top-level category for showing. Screens read
 through `useMonthSummary(month)` in [ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
 The 12 months up to the month shown are a query of their own (`trendKey`, fetched with
-the card by `fetchTrend`, device copy `trend-v1:<month>`), kept and counted the same way
+the card by `fetchTrend`, device copy `trend-v2:<month>`), kept and counted the same way
 (`shownTrend`, `applyToTrend`, each change in whichever of the 12 it falls in); screens
 read them through `useMonthTrend(month)`. The card never waits on them.
 
@@ -457,6 +457,45 @@ transaction is on) across every account, grouped by each category's own id, larg
 first. The app rolls subcategories up into their parent by the categories it has now, so
 a subcategory moved under another category moves its spending with it.
 
+Each category's total also says how many transactions make it (`entries`) and, when it's
+one transaction naming a payee, that payee (`payee`, for Plan's "Rent" rather than "1
+entry"); the 12 months' rows say the same. A month's totals (not the 12 months) also hold,
+for the redesign's Home and Plan, which draw nothing from them yet:
+
+- `spentByDay`: spending by day, oldest first, only days with any (at most 31), for Home's
+  calendar. [ledger/day-by-day.ts](../web/src/ledger/day-by-day.ts) (`dayByDay`) lays out
+  the period's days against the middle day so far: the median of each day's spending from
+  the period's first day to today, a day with nothing counting as 0, an even count taking
+  the mean of the two middle days in whole cents rounded half up; a day above it is
+  "more", at or below it "less", a day still to come neither.
+- `tidyUp { from, entries, categoryIds }`: how many spending transactions from the first
+  of the month before (`tidyUpFrom` in [shared/categories.ts](../shared/categories.ts)) to
+  the month's last day are in Other (`OTHER_EXPENSE_ID`, the default's fixed id, renamed
+  or not) or a category under it, archived ones included, with those categories' ids so
+  changes still to send are counted on top. It runs to the month's end, not today: an entry
+  dated after this month counts on no month's Home, though an Activity filter with only
+  `from` would still list it. A category moved under Other while changes wait counts once
+  the totals are fetched again.
+
+A budget's pace is `budgetPace` in [shared/budgets.ts](../shared/budgets.ts): over when
+more is spent than is available (carried amount included), "faster than the month" when
+spent x days is more than available x day (`periodDay`: day N of M, 0 before the period,
+M once it's over), else on track. `periodDay` and `periodDays` take the period's first
+and last day, never assuming the 1st, and work in calendar days from the digits, never a
+Date in the device's zone; they move to a period module of their own with the month
+start day, and nothing else should import them from `budgets.ts`. Callers pass today as the person's own
+day, `toDateInput(new Date())` ([utils/date-input.ts](../web/src/utils/date-input.ts)),
+never `toISOString()`, and screen tests pin the clock at a time where the local and UTC
+days differ.
+
+For the pieces that draw these: Home names the budget "running fast" by the largest lead
+spent x days - available x day (exact, at most about 6e13), never by comparing two
+budgets' ratios by cross-multiplying (about 4e24, past exact whole numbers), with its
+tie-break pinned; Home shows Tidy up for this month only. Plan's roll-up (`rollUp` in
+`derive.ts`) sums `entries` into the top-level category and keeps a payee only when the
+category and its subcategories hold one transaction in all. The month start day moves
+Tidy up's `from` to the period's start, on the server alone.
+
 **Invariants.**
 
 - Only spending and income count. A transfer is never spending or income, and is left
@@ -476,12 +515,30 @@ a subcategory moved under another category moves its spending with it.
   `alreadySaved`), is neither counted on top of them nor counted in again when it's saved.
 - Archived categories still count; an amount in a category the app doesn't know is shown
   as "Unknown category" rather than dropped.
+- Days, entries, payees and Tidy up are summed by the server in the same D1 batch as the
+  totals, each one grouped query scoped by the email and bounded (31 days; one row per
+  category; one count and at most `MAX_CATEGORIES` ids), counted on top by
+  `applyToSummary` the same way, and answered alike by the test stand-in. A category's
+  payee is known on top only while it has one entry: one taken out of two leaves none
+  named (it reads "1 entry") until the totals are fetched again.
+- The device copies are `summary-v2` and `trend-v2`, since copies from before days,
+  entries and Tidy up are in an older shape: those (`summary-v1`, `trend-v1`) are never
+  read, and stay unused on the device. The service worker keeps no copy of these keys or
+  shapes (it knows only the outbox, whose it is, the shell and assets), so it doesn't
+  change with them.
 
 **Tests.** [double-count.test.tsx](../web/src/ledger/double-count.test.tsx) (a save whose
 answer was lost, with fresh balances and totals fetched before it's sent again, and across
 a reload: never counted twice, at any moment),
 [summary.test.ts](../web/src/ledger/summary.test.ts) (adding, moving across categories
-and months, deleting and Undo, spending to income, transfers, unknown ones),
+and months, deleting and Undo, spending to income, transfers, unknown ones; days, entries
+and a lone payee, Tidy up's window; the 12 months without days or Tidy up),
+[day-by-day.test.ts](../web/src/ledger/day-by-day.test.ts) (the middle day, zeros, even
+counts rounded half up, days to come, other periods, two time zones),
+[summary-copies.test.tsx](../web/src/ledger/summary-copies.test.tsx) (v2 copies kept,
+older ones never read offline),
+[summary-stand-in.test.tsx](../web/src/testing/summary-stand-in.test.tsx) (the stand-in
+answers as the Worker does, and its 12 months match),
 [derive.test.ts](../web/src/ledger/derive.test.ts) (roll-up, unknown parents and
 categories), [MonthCard.test.tsx](../web/src/components/home/MonthCard.test.tsx) (left,
 spent, received, Food opened to Coffee and Food itself, income under Received, earlier
@@ -494,7 +551,8 @@ fails, answers out of order, closing, offline through a reload and once saved),
 and the month's totals and last 12 months cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (spending, income, a transfer,
 subcategories under their own id, other months and other people, the window's edges, bad
-months).
+months; days, entries and lone payees, Tidy up's window, Other's subcategories archived or
+not, someone else's).
 
 ## Budgets
 
@@ -533,7 +591,8 @@ stand-in alike.
   of `GET /api/summary` in [worker/ledger/summary.ts](../worker/ledger/summary.ts); table
   `budgets` ([migrations/0005_budgets.sql](../migrations/0005_budgets.sql)).
 - Shared: `MonthBudget` and the change shape in [shared/api.ts](../shared/api.ts); the
-  rule, limits and sums in [shared/budgets.ts](../shared/budgets.ts).
+  rule, limits and sums in [shared/budgets.ts](../shared/budgets.ts), with a budget's pace
+  against the month (`budgetPace`, `periodDay`; see Month view).
 
 **Flow.** `setBudget { categoryId, fromMonth, amountCents | null, carryOver }` saves a row
 for that category and month (null: none from then on, kept as its own row so earlier
@@ -574,7 +633,8 @@ totals do), which is expected, not a fault.
   totals).
 
 **Tests.** [shared/budgets.test.ts](../shared/budgets.test.ts) (the sum, the chain, taken
-away, order, the longest chain exact),
+away, order, the longest chain exact; day N of M and the pace, on track, faster and over,
+in other periods and two time zones),
 [ledger/budgets.test.ts](../web/src/ledger/budgets.test.ts) (left, over, exactly spent,
 carried both ways, order, archived and moved, set before saving, applied twice),
 [Budgets.test.tsx](../web/src/components/home/Budgets.test.tsx) (the card's lines, over in

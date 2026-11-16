@@ -212,6 +212,33 @@ export interface CategoryTotal {
   categoryId: string;
   /** Whole cents, above zero */
   cents: number;
+  /** How many transactions make it, at least 1 */
+  entries: number;
+  /**
+   * Who was paid (or paid) when it is a single transaction naming one, as Plan's rows say
+   * "Rent" rather than "1 entry"; left out otherwise
+   */
+  payee?: string;
+}
+
+/** What was spent on one day (2026-11-05) */
+export interface DayTotal {
+  date: string;
+  /** Whole cents, above zero */
+  cents: number;
+}
+
+/**
+ * Tidy up: how many spending transactions since a day are still in Other, the catch-all
+ * spending category (OTHER_EXPENSE_ID), or in a category under it
+ */
+export interface TidyUp {
+  /** The first day counted (the first of the month before), as 2026-10-01 */
+  from: string;
+  /** Spending transactions from `from` to the month's last day in those categories */
+  entries: number;
+  /** Other first, then the categories under it now, so changes can be counted on top */
+  categoryIds: string[];
 }
 
 /**
@@ -246,6 +273,9 @@ export interface MonthSummary {
   leftCents: number;
   spentByCategory: CategoryTotal[];
   incomeByCategory: CategoryTotal[];
+  /** Spending by day, oldest first, only days with any: at most one per day of the month */
+  spentByDay: DayTotal[];
+  tidyUp: TidyUp;
   /**
    * The month's budgets, in the categories' order, on categories at the top level now;
    * only when there are any. What's left of each is worked out where it's shown
@@ -259,8 +289,11 @@ export interface MonthSummary {
   alreadySaved?: string[];
 }
 
-/** A month's spending and income in total and by category, as a month's totals have them */
-export type MonthTotals = Omit<MonthSummary, 'budgets' | 'alreadySaved'>;
+/**
+ * A month's spending and income in total and by category, as a month's totals have them,
+ * without the month's own days, Tidy up and budgets
+ */
+export type MonthTotals = Omit<MonthSummary, 'budgets' | 'alreadySaved' | 'spentByDay' | 'tidyUp'>;
 
 /**
  * GET /api/summary/trend: a person's spending and income in each of the 12 months ending at

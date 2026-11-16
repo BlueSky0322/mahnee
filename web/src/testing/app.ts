@@ -34,7 +34,9 @@ import {
 import {
   MAX_CATEGORIES,
   MAX_CATEGORY_NAME,
+  OTHER_EXPENSE_ID,
   categoriesOrDefaults,
+  tidyUpFrom,
   isCategoryKind,
   nextPosition,
   readCategoryName,
@@ -412,18 +414,54 @@ const balanceOf = (server: FakeServer, account: Pick<Account, 'id' | 'openingCen
 
 /**
  * GET /api/summary as the real one (worker/ledger/summary.ts) sums a month: spending and
- * income only (never a transfer), by each category's own id, largest first then by id
+ * income only (never a transfer), by each category's own id with how many transactions
+ * make it and a lone one's payee, largest first then by id; spending by day, oldest first;
+ * and Tidy up, spending from the first of the month before in Other or under it
  */
 function summarize(server: FakeServer, month: string): MonthSummary {
+  const inMonth = (t: Transaction) => t.date.startsWith(`${month}-`);
   const totals = (kind: 'expense' | 'income') => {
-    const byId = new Map<string, number>();
+    const byId = new Map<string, Transaction[]>();
     for (const t of server.transactions) {
-      if (t.kind !== kind || !t.date.startsWith(`${month}-`) || t.categoryId == null) continue;
-      byId.set(t.categoryId, (byId.get(t.categoryId) ?? 0) + t.amountCents);
+      if (t.kind !== kind || !inMonth(t) || t.categoryId == null) continue;
+      byId.set(t.categoryId, [...(byId.get(t.categoryId) ?? []), t]);
     }
     return [...byId]
-      .map(([categoryId, cents]) => ({ categoryId, cents }))
+      .map(([categoryId, list]) => ({
+        categoryId,
+        cents: list.reduce((all, t) => all + t.amountCents, 0),
+        entries: list.length,
+        ...(list.length === 1 && list[0].payee != null && { payee: list[0].payee }),
+      }))
       .sort((a, b) => b.cents - a.cents || (a.categoryId < b.categoryId ? -1 : 1));
+  };
+  const spentOn = new Map<string, number>();
+  for (const t of server.transactions) {
+    if (t.kind !== 'expense' || !inMonth(t)) continue;
+    spentOn.set(t.date, (spentOn.get(t.date) ?? 0) + t.amountCents);
+  }
+  const spentByDay = [...spentOn]
+    .map(([date, cents]) => ({ date, cents }))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+  const from = tidyUpFrom(month);
+  const categoryIds = [
+    OTHER_EXPENSE_ID,
+    ...server.categories
+      .filter((c) => c.parentId === OTHER_EXPENSE_ID)
+      .map((c) => c.id)
+      .sort(),
+  ];
+  const tidyUp = {
+    from,
+    entries: server.transactions.filter(
+      (t) =>
+        t.kind === 'expense' &&
+        t.categoryId != null &&
+        categoryIds.includes(t.categoryId) &&
+        t.date >= from &&
+        t.date <= `${month}-31`,
+    ).length,
+    categoryIds,
   };
   const sum = (list: { cents: number }[]) => list.reduce((all, t) => all + t.cents, 0);
   const spentByCategory = totals('expense');
@@ -461,6 +499,8 @@ function summarize(server: FakeServer, month: string): MonthSummary {
     leftCents: incomeCents - spentCents,
     spentByCategory,
     incomeByCategory,
+    spentByDay,
+    tidyUp,
     ...(budgets.length > 0 && { budgets }),
   };
 }
@@ -468,13 +508,18 @@ function summarize(server: FakeServer, month: string): MonthSummary {
 /**
  * GET /api/summary/trend as the real one (worker/ledger/trend.ts) answers: the 12 months
  * ending at `month`, oldest first, each summed as GET /api/summary sums a month, without
- * its budgets
+ * its budgets, days or Tidy up
  */
 function trendOf(server: FakeServer, month: string): MonthTrend {
   return {
     month,
     months: trendMonths(month).map((m) => {
-      const { budgets: _budgets, ...totals } = summarize(server, m);
+      const {
+        budgets: _budgets,
+        spentByDay: _days,
+        tidyUp: _tidyUp,
+        ...totals
+      } = summarize(server, m);
       return totals;
     }),
   };

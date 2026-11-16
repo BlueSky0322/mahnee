@@ -36,7 +36,7 @@ const largestFirst = <T extends { cents: number; name: string }>(a: T, b: T) =>
  * its own, and a category not known at all is UNKNOWN_CATEGORY.
  */
 export function rollUp(
-  totals: readonly CategoryTotal[],
+  totals: readonly Pick<CategoryTotal, 'categoryId' | 'cents'>[],
   categories: readonly Category[],
 ): CategoryRollUp[] {
   const byId = new Map(categories.map((c) => [c.id, c]));

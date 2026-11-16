@@ -1862,6 +1862,9 @@ describe('transactions', () => {
   describe("a month's totals", () => {
     const summary = (who: string, month: string) =>
       api.call(who, 'GET', `/api/summary?month=${month}`);
+    const [other, otherIncome] = ['Other', 'Other income'].map(
+      (name) => DEFAULT_CATEGORIES.find((c) => c.name === name)!.id,
+    );
 
     it('sums spending and income by category; transfers, other months and other people never count', async () => {
       const { me, wallet } = await withWallet();
@@ -1892,9 +1895,12 @@ describe('transactions', () => {
         wallet,
         bank,
       );
-      const other = person('other');
+      const someoneElse = person('other');
       const theirs = rowId();
-      await send(other, [addAccount(theirs), add(rowId(), theirs, 6_600, { date: '2025-10-15' })]);
+      await send(someoneElse, [
+        addAccount(theirs),
+        add(rowId(), theirs, 6_600, { date: '2025-10-15' }),
+      ]);
 
       expect(await summary(me, '2025-10')).toEqual({
         status: 200,
@@ -1905,11 +1911,18 @@ describe('transactions', () => {
           leftCents: 3_580,
           // A subcategory's spending under its own id, never added into its parent's
           spentByCategory: [
-            { categoryId: food, cents: 800 },
-            { categoryId: coffee, cents: 500 },
-            { categoryId: transport, cents: 120 },
+            { categoryId: food, cents: 800, entries: 1 },
+            { categoryId: coffee, cents: 500, entries: 2 },
+            { categoryId: transport, cents: 120, entries: 1 },
           ],
-          incomeByCategory: [{ categoryId: salary, cents: 5_000 }],
+          incomeByCategory: [{ categoryId: salary, cents: 5_000, entries: 1 }],
+          spentByDay: [
+            { date: '2025-10-01', cents: 800 },
+            { date: '2025-10-15', cents: 120 },
+            { date: '2025-10-20', cents: 200 },
+            { date: '2025-10-31', cents: 300 },
+          ],
+          tidyUp: { from: '2025-09-01', entries: 0, categoryIds: [other] },
         },
       });
       // A month with nothing in it, and more spent than came in
@@ -1920,8 +1933,144 @@ describe('transactions', () => {
         leftCents: 0,
         spentByCategory: [],
         incomeByCategory: [],
+        spentByDay: [],
+        tidyUp: { from: '2025-07-01', entries: 0, categoryIds: [other] },
       });
       expect((await summary(me, '2025-11')).data).toMatchObject({ leftCents: -9_000 });
+    });
+
+    // What Home's calendar, Plan's rows and Tidy up read from a month's totals (design
+    // digest 4.1, 4.2, 4.4): spending by day, how many entries make each category's total
+    // and the payee of a lone one, and how much spending since the first of the month
+    // before is still in Other
+
+    it('sums spending by day, oldest first; income, transfers, other months and other people never count', async () => {
+      const { me, wallet } = await withWallet();
+      const [bank, coffee] = [rowId(), rowId()];
+      await send(me, [
+        addAccount(bank, 'bank', 0, 'Bank'),
+        {
+          op: 'addCategory',
+          category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
+        },
+        add(rowId(), wallet, 800, { date: '2025-10-14' }),
+        add(rowId(), bank, 300, { date: '2025-10-14', categoryId: coffee }),
+        add(rowId(), wallet, 120, { date: '2025-10-01', categoryId: transport }),
+        add(rowId(), wallet, 4_500, { date: '2025-10-31' }),
+        add(rowId(), bank, 5_000, { kind: 'income', categoryId: salary, date: '2025-10-20' }),
+        move(rowId(), wallet, bank, 40_000, { date: '2025-10-20' }),
+        add(rowId(), wallet, 7_000, { date: '2025-09-30' }),
+        add(rowId(), wallet, 9_000, { date: '2025-11-01' }),
+      ]);
+      const someoneElse = person('other');
+      const theirs = rowId();
+      await send(someoneElse, [
+        addAccount(theirs),
+        add(rowId(), theirs, 6_600, { date: '2025-10-05' }),
+      ]);
+
+      const october = (await summary(me, '2025-10')).data;
+      expect(october.spentByDay).toEqual([
+        { date: '2025-10-01', cents: 120 },
+        { date: '2025-10-14', cents: 1_100 },
+        { date: '2025-10-31', cents: 4_500 },
+      ]);
+      // The days add up to the month's spending
+      expect(october.spentCents).toBe(5_720);
+      expect((await summary(me, '2025-08')).data.spentByDay).toEqual([]);
+      expect((await summary(someoneElse, '2025-10')).data.spentByDay).toEqual([
+        { date: '2025-10-05', cents: 6_600 },
+      ]);
+    });
+
+    it("counts the entries in each category's total, naming the payee of a lone one", async () => {
+      const { me, wallet } = await withWallet();
+      const coffee = rowId();
+      await send(me, [
+        {
+          op: 'addCategory',
+          category: { id: coffee, name: 'Coffee', kind: 'expense', parentId: food },
+        },
+        add(rowId(), wallet, 800, { date: '2025-10-02', payee: 'Kopi Corner' }),
+        add(rowId(), wallet, 200, { date: '2025-10-03', payee: 'Kopi Corner' }),
+        add(rowId(), wallet, 120, { date: '2025-10-04', categoryId: transport, payee: ' Grab ' }),
+        add(rowId(), wallet, 300, { date: '2025-10-05', categoryId: coffee }),
+        add(rowId(), wallet, 5_000, {
+          kind: 'income',
+          categoryId: salary,
+          date: '2025-10-25',
+          payee: 'Acme',
+        }),
+        // Another month's never makes Transport two
+        add(rowId(), wallet, 90, { date: '2025-09-30', categoryId: transport, payee: 'Bus' }),
+      ]);
+      const october = (await summary(me, '2025-10')).data;
+      expect(october.spentByCategory).toEqual([
+        // Two entries name no single payee, even the same one twice
+        { categoryId: food, cents: 1_000, entries: 2 },
+        // A lone entry with no payee names none
+        { categoryId: coffee, cents: 300, entries: 1 },
+        { categoryId: transport, cents: 120, entries: 1, payee: 'Grab' },
+      ]);
+      expect(october.incomeByCategory).toEqual([
+        { categoryId: salary, cents: 5_000, entries: 1, payee: 'Acme' },
+      ]);
+    });
+
+    it('counts spending since the first of the month before still in Other or under it', async () => {
+      const { me, wallet } = await withWallet();
+      const [oddJobs, sorted] = [rowId(), rowId()];
+      await send(me, [
+        {
+          op: 'addCategory',
+          category: { id: oddJobs, name: 'Odd jobs', kind: 'expense', parentId: other },
+        },
+        // The first day of the month before counts, and the month's last
+        add(rowId(), wallet, 100, { categoryId: other, date: '2025-09-01' }),
+        add(rowId(), wallet, 100, { categoryId: oddJobs, date: '2025-10-20' }),
+        add(sorted, wallet, 100, { categoryId: other, date: '2025-10-31' }),
+        // Before then, after the month, in another category, or income: none count
+        add(rowId(), wallet, 100, { categoryId: other, date: '2025-08-31' }),
+        add(rowId(), wallet, 100, { categoryId: other, date: '2025-11-01' }),
+        add(rowId(), wallet, 100, { categoryId: food, date: '2025-10-05' }),
+        add(rowId(), wallet, 100, { kind: 'income', categoryId: otherIncome, date: '2025-10-05' }),
+      ]);
+      const theirs = person('other');
+      const theirWallet = rowId();
+      await send(theirs, [
+        addAccount(theirWallet),
+        add(rowId(), theirWallet, 100, { categoryId: other, date: '2025-10-05' }),
+      ]);
+
+      expect((await summary(me, '2025-10')).data.tidyUp).toEqual({
+        from: '2025-09-01',
+        entries: 3,
+        categoryIds: [other, oddJobs],
+      });
+      // Sorted into Food, it no longer counts
+      await send(me, [{ op: 'recategoriseTransactions', ids: [sorted], categoryId: food }]);
+      expect((await summary(me, '2025-10')).data.tidyUp).toMatchObject({ entries: 2 });
+      // Archived, a category under Other still counts until its entries are sorted
+      expect(
+        (await send(me, [{ op: 'archiveCategory', id: oddJobs, archived: true }])).status,
+      ).toBe(200);
+      expect((await summary(me, '2025-10')).data.tidyUp).toEqual({
+        from: '2025-09-01',
+        entries: 2,
+        categoryIds: [other, oddJobs],
+      });
+      // Each month looks back to the first of the month before it
+      expect((await summary(me, '2025-11')).data.tidyUp).toEqual({
+        from: '2025-10-01',
+        entries: 2,
+        categoryIds: [other, oddJobs],
+      });
+      // Someone else's are theirs alone, under their own Other
+      expect((await summary(theirs, '2025-10')).data.tidyUp).toEqual({
+        from: '2025-09-01',
+        entries: 1,
+        categoryIds: [other],
+      });
     });
 
     it.each([
@@ -1976,7 +2125,7 @@ describe('transactions', () => {
         },
         add(rowId(), wallet, 800, { date: '2025-10-01' }),
         add(rowId(), bank, 300, { date: '2025-10-31', categoryId: coffee }),
-        add(rowId(), wallet, 120, { date: '2025-10-15', categoryId: transport }),
+        add(rowId(), wallet, 120, { date: '2025-10-15', categoryId: transport, payee: 'Grab' }),
         add(rowId(), bank, 5_000, { kind: 'income', categoryId: salary, date: '2025-10-25' }),
         add(rowId(), wallet, 7_000, { date: '2025-09-30' }),
         add(rowId(), bank, 4_000, { kind: 'income', categoryId: salary, date: '2025-03-10' }),
@@ -2004,7 +2153,7 @@ describe('transactions', () => {
           incomeCents: 0,
           spentCents: 50,
           leftCents: -50,
-          spentByCategory: [{ categoryId: food, cents: 50 }],
+          spentByCategory: [{ categoryId: food, cents: 50, entries: 1 }],
           incomeByCategory: [],
         },
         '2025-03': {
@@ -2013,14 +2162,14 @@ describe('transactions', () => {
           spentCents: 0,
           leftCents: 4_000,
           spentByCategory: [],
-          incomeByCategory: [{ categoryId: salary, cents: 4_000 }],
+          incomeByCategory: [{ categoryId: salary, cents: 4_000, entries: 1 }],
         },
         '2025-09': {
           month: '2025-09',
           incomeCents: 0,
           spentCents: 7_000,
           leftCents: -7_000,
-          spentByCategory: [{ categoryId: food, cents: 7_000 }],
+          spentByCategory: [{ categoryId: food, cents: 7_000, entries: 1 }],
           incomeByCategory: [],
         },
         '2025-10': {
@@ -2030,20 +2179,23 @@ describe('transactions', () => {
           leftCents: 3_780,
           // A subcategory's spending under its own id, as a month's totals have it
           spentByCategory: [
-            { categoryId: food, cents: 800 },
-            { categoryId: coffee, cents: 300 },
-            { categoryId: transport, cents: 120 },
+            { categoryId: food, cents: 800, entries: 1 },
+            { categoryId: coffee, cents: 300, entries: 1 },
+            // A lone entry's payee, as a month's totals name it
+            { categoryId: transport, cents: 120, entries: 1, payee: 'Grab' },
           ],
-          incomeByCategory: [{ categoryId: salary, cents: 5_000 }],
+          incomeByCategory: [{ categoryId: salary, cents: 5_000, entries: 1 }],
         },
       };
       expect(await trend(me, '?month=2025-10')).toEqual({
         status: 200,
         data: { month: '2025-10', months: TO_OCTOBER.map((m) => filled[m] ?? nothingIn(m)) },
       });
-      // The shown month is exactly that month's totals
+      // The shown month is exactly that month's totals (its days and Tidy up are the
+      // month's own, not the 12 months')
       const october = await api.call(me, 'GET', '/api/summary?month=2025-10');
-      expect((await trend(me, '?month=2025-10')).data.months[11]).toEqual(october.data);
+      const { spentByDay: _days, tidyUp: _tidyUp, ...octoberTotals } = october.data;
+      expect((await trend(me, '?month=2025-10')).data.months[11]).toEqual(octoberTotals);
       // Someone else's are theirs alone
       expect((await trend(other, '?month=2025-10')).data.months).toEqual([
         ...TO_OCTOBER.slice(0, 11).map(nothingIn),
@@ -2052,7 +2204,7 @@ describe('transactions', () => {
           incomeCents: 0,
           spentCents: 6_600,
           leftCents: -6_600,
-          spentByCategory: [{ categoryId: food, cents: 6_600 }],
+          spentByCategory: [{ categoryId: food, cents: 6_600, entries: 1 }],
           incomeByCategory: [],
         },
       ]);
@@ -2274,6 +2426,8 @@ describe('transactions', () => {
           leftCents: 0,
           spentByCategory: [],
           incomeByCategory: [],
+          spentByDay: [],
+          tidyUp: { from: '2999-11-01', entries: 0, categoryIds: [other] },
         },
       });
     });

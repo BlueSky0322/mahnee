@@ -1609,7 +1609,12 @@ describe('focus once Add closes', () => {
     // Focus moves on the moment Add closes, before it would have handed focus back
     act(() => close.click());
     act(() => elsewhere.focus());
-    await act(() => new Promise((done) => setTimeout(done, 100)));
+    // Past the closing transition (150 ms on a computer), then past the 10 ms a dialog
+    // waits before handing focus back
+    await waitFor(() =>
+      expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull(),
+    );
+    await act(() => new Promise((done) => setTimeout(done, 50)));
     expect(document.activeElement).toBe(elsewhere);
   });
 

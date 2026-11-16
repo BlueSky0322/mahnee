@@ -8,7 +8,13 @@
 // most MAX_TRANSACTIONS_PER_ACCOUNT transactions of at most MAX_TRANSACTION_CENTS, so a
 // month's spending or income is at most 50 x 100,000 x 1e9 = 5e15 cents, under the 9e15
 // a number holds as a whole number exactly. Each list has at most one row per category,
-// so at most MAX_CATEGORIES.
+// so at most MAX_CATEGORIES, each with how many transactions make it (at most 5e6) and,
+// for a category with only one, its payee.
+//
+// With them, for Home's calendar and Tidy up: spending by day, one grouped sum over the
+// month, so at most 31 rows; and how many spending transactions from the first of the
+// month before to the month's end are in Other (OTHER_EXPENSE_ID) or a category under it,
+// one count over that window, with those categories' ids (at most MAX_CATEGORIES).
 //
 // A month's budgets come with it (shared/budgets.ts): the budgets kept on the person's
 // top-level spending categories, and, to work out what each month before left, their
@@ -19,9 +25,10 @@
 // month at most, about 330 months in 2027, and the spending read is at most one row per
 // such month and category.
 
-import type { CategoryTotal, MonthSummary } from '../../shared/api';
+import type { CategoryTotal, DayTotal, MonthSummary } from '../../shared/api';
 import type { BudgetRow } from '../../shared/budgets';
 import { isBudgetMonth, monthBudgets } from '../../shared/budgets';
+import { OTHER_EXPENSE_ID, tidyUpFrom } from '../../shared/categories';
 import { isMonth } from '../../shared/ledger';
 import { fail, json } from '../http';
 import { savedIdsStatement } from './receipts';
@@ -40,6 +47,15 @@ interface TotalRow {
   kind: 'expense' | 'income';
   categoryId: string;
   cents: number;
+  entries: number;
+  /** Only for a category with one transaction, when it names one */
+  payee: string | null;
+}
+
+/** Tidy up as read: a category under Other (no count), or the count (no category) */
+interface TidyRow {
+  categoryId: string | null;
+  entries: number | null;
 }
 
 /**
@@ -61,21 +77,47 @@ export async function readSummary(
   const withBudgets = isBudgetMonth(month);
   // In one batch with which of `pending` are saved, and the budgets, so all of it describes
   // the same moment
-  const answers = await db.batch<TotalRow | KeptBudget | SpentRow | { id: string }>([
+  const from = tidyUpFrom(month);
+  const answers = await db.batch<
+    TotalRow | DayTotal | TidyRow | KeptBudget | SpentRow | { id: string }
+  >([
     db
       .prepare(
-        `SELECT kind, category_id AS categoryId, SUM(amount_cents) AS cents
+        `SELECT kind, category_id AS categoryId, SUM(amount_cents) AS cents,
+                COUNT(*) AS entries, CASE WHEN COUNT(*) = 1 THEN MAX(payee) END AS payee
        FROM transactions
        WHERE email = ? AND date BETWEEN ? AND ? AND kind IN ('expense', 'income')
        GROUP BY kind, category_id
        ORDER BY cents DESC, category_id`,
       )
       .bind(email, `${month}-01`, `${month}-31`),
+    db
+      .prepare(
+        `SELECT date, SUM(amount_cents) AS cents
+         FROM transactions
+         WHERE email = ? AND date BETWEEN ? AND ? AND kind = 'expense'
+         GROUP BY date
+         ORDER BY date`,
+      )
+      .bind(email, `${month}-01`, `${month}-31`),
+    // Other's subcategories now, and the count, each row one or the other
+    db
+      .prepare(
+        `SELECT id AS categoryId, NULL AS entries
+         FROM categories WHERE email = ?1 AND parent_id = ?2
+         UNION ALL
+         SELECT NULL, COUNT(*)
+         FROM transactions
+         WHERE email = ?1 AND kind = 'expense' AND date BETWEEN ?3 AND ?4
+           AND (category_id = ?2 OR category_id IN
+                 (SELECT id FROM categories WHERE email = ?1 AND parent_id = ?2))`,
+      )
+      .bind(email, OTHER_EXPENSE_ID, from, `${month}-31`),
     ...(withBudgets ? budgetStatements(db, email, month) : []),
     ...(pending.length > 0 ? [savedIdsStatement(db, email, pending)] : []),
   ]);
-  const totals = answers[0];
-  const [budgetRows, budgetSpending] = withBudgets ? [answers[1], answers[2]] : [];
+  const [totals, byDay, tidy] = answers;
+  const [budgetRows, budgetSpending] = withBudgets ? [answers[3], answers[4]] : [];
   const saved = pending.length > 0 ? answers[answers.length - 1] : undefined;
   const results = totals.results as TotalRow[];
   const spentBefore = new Map(
@@ -94,7 +136,15 @@ export async function readSummary(
   );
 
   const byKind = (kind: TotalRow['kind']): CategoryTotal[] =>
-    results.filter((r) => r.kind === kind).map(({ categoryId, cents }) => ({ categoryId, cents }));
+    results
+      .filter((r) => r.kind === kind)
+      .map(({ categoryId, cents, entries, payee }) => ({
+        categoryId,
+        cents,
+        entries,
+        ...(payee != null && { payee }),
+      }));
+  const tidyRows = tidy.results as TidyRow[];
   const sum = (totals: CategoryTotal[]) => totals.reduce((all, t) => all + t.cents, 0);
   const spentByCategory = byKind('expense');
   const incomeByCategory = byKind('income');
@@ -107,6 +157,17 @@ export async function readSummary(
     leftCents: incomeCents - spentCents,
     spentByCategory,
     incomeByCategory,
+    spentByDay: byDay.results as DayTotal[],
+    tidyUp: {
+      from,
+      entries: tidyRows.find((r) => r.categoryId == null)?.entries ?? 0,
+      categoryIds: [
+        OTHER_EXPENSE_ID,
+        ...tidyRows
+          .flatMap((r) => (r.categoryId == null ? [] : [r.categoryId]))
+          .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+      ],
+    },
     // Only when there are any
     ...(budgets.length > 0 && { budgets }),
     // Only for a read that named any

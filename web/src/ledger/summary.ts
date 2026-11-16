@@ -1,8 +1,10 @@
 import type {
   CategoryTotal,
+  DayTotal,
   LedgerChange,
   MonthBudget,
   MonthSummary,
+  MonthTotals,
   MonthTrend,
   Transaction,
 } from '@shared/api';
@@ -11,14 +13,23 @@ import { changedTransaction, idOf, isTransactionChange, oneByOne, tracker } from
 
 // A month's totals with changes made to them before the server has them, worked out the
 // way the server sums them (worker/ledger/summary.ts): spending and income in the month,
-// by category; transfers never count. A change takes away what the transaction was (if
-// it was in this month) and adds what it is now (if it is in this month), so one moved
-// to another month or category moves out of one total and into the other. `lookup`
-// gives a transaction as it was before the changes; one not known isn't taken away, and
-// the totals catch up when they're next fetched.
+// by category, with how many entries make each and the payee of a lone one; spending by
+// day; and Tidy up's count of spending since the first of the month before still in Other
+// or under it. Transfers never count. A change takes away what the transaction was (if
+// it counted) and adds what it is now (if it counts), so one moved to another month or
+// category moves out of one total and into the other. `lookup` gives a transaction as it
+// was before the changes; one not known isn't taken away, and the totals catch up when
+// they're next fetched.
+//
+// A category's payee is known only while it has one entry: a first entry brings its own, a
+// second leaves none named, and one taken out of two leaves none named until the totals
+// are fetched again (which one is left isn't known here), so it reads "1 entry" meanwhile.
+// Tidy up counts in the categories the server listed; one moved under Other since counts
+// once the totals are fetched again.
 //
 // The 12 months up to a month (spending over time) are counted the same way, each month
-// on its own, so a change counts in whichever of the 12 it falls in.
+// on its own, so a change counts in whichever of the 12 it falls in; they have no days or
+// Tidy up of their own.
 //
 // A budget set shows in the months it applies to: the month it's set from, and later ones.
 // What last month left stays as the server worked it out; a change to an earlier month's
@@ -30,47 +41,89 @@ function countsIn(t: Transaction | null | undefined, month: string) {
   return t.kind === 'expense' ? 'spent' : t.kind === 'income' ? 'income' : null;
 }
 
-/** `totals` with `cents` added to a category's (taken away when below zero) */
-function addTo(totals: CategoryTotal[], categoryId: string, cents: number) {
-  const found = totals.some((t) => t.categoryId === categoryId);
-  const next = found
-    ? totals.map((t) => (t.categoryId === categoryId ? { ...t, cents: t.cents + cents } : t))
-    : [...totals, { categoryId, cents }];
-  return next.filter((t) => t.cents > 0);
+/** `totals` with `t` added to its category's (`by` 1) or taken out (-1) */
+function addTo(totals: CategoryTotal[], t: Transaction & { categoryId: string }, by: 1 | -1) {
+  const was = totals.find((c) => c.categoryId === t.categoryId);
+  const entries = (was?.entries ?? 0) + by;
+  const { payee: _payee, ...rest } = was ?? { categoryId: t.categoryId, cents: 0, entries: 0 };
+  // A first entry names its own payee; any other count names none (see above)
+  const payee = was == null && by === 1 && t.payee != null ? { payee: t.payee } : {};
+  const next: CategoryTotal = {
+    ...rest,
+    cents: rest.cents + by * t.amountCents,
+    entries,
+    ...payee,
+  };
+  const others = totals.filter((c) => c !== was);
+  return next.cents > 0 && next.entries > 0 ? [...others, next] : others;
+}
+
+/** `days` with `cents` added to a day's (taken away when below zero), oldest first */
+function addToDay(days: DayTotal[], date: string, cents: number) {
+  const was = days.find((d) => d.date === date);
+  const next = { date, cents: (was?.cents ?? 0) + cents };
+  const others = days.filter((d) => d !== was);
+  return (next.cents > 0 ? [...others, next] : others).sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+  );
 }
 
 /** Largest first, then by id, as the server lists them */
 const largestFirst = (a: CategoryTotal, b: CategoryTotal) =>
   b.cents - a.cents || (a.categoryId < b.categoryId ? -1 : a.categoryId > b.categoryId ? 1 : 0);
 
-/** `summary` with `t` added to its totals (`by` 1) or taken out (-1) */
-function count(summary: MonthSummary, t: Transaction | null | undefined, by: 1 | -1) {
-  const which = countsIn(t, summary.month);
-  if (which == null || t?.categoryId == null) return summary;
+/** `totals` with `t` added to its totals (`by` 1) or taken out (-1) */
+function count<T extends MonthTotals>(totals: T, t: Transaction | null | undefined, by: 1 | -1): T {
+  const which = countsIn(t, totals.month);
+  if (which == null || t?.categoryId == null) return totals;
+  const counted = { ...t, categoryId: t.categoryId };
   const cents = by * t.amountCents;
   const next =
     which === 'spent'
       ? {
-          ...summary,
-          spentCents: summary.spentCents + cents,
-          spentByCategory: addTo(summary.spentByCategory, t.categoryId, cents),
+          ...totals,
+          spentCents: totals.spentCents + cents,
+          spentByCategory: addTo(totals.spentByCategory, counted, by),
         }
       : {
-          ...summary,
-          incomeCents: summary.incomeCents + cents,
-          incomeByCategory: addTo(summary.incomeByCategory, t.categoryId, cents),
+          ...totals,
+          incomeCents: totals.incomeCents + cents,
+          incomeByCategory: addTo(totals.incomeByCategory, counted, by),
         };
   return { ...next, leftCents: next.incomeCents - next.spentCents };
 }
 
-/** A month's totals with `changes` made to them, in order; the one passed in is left as it was */
-export function applyToSummary(
-  summary: MonthSummary,
+/** `summary` with `t` added to its days and Tidy up (`by` 1) or taken out (-1) */
+function countDays(summary: MonthSummary, t: Transaction | null | undefined, by: 1 | -1) {
+  if (t == null || t.kind !== 'expense' || t.categoryId == null) return summary;
+  let next = summary;
+  if (t.date.startsWith(`${summary.month}-`)) {
+    next = { ...next, spentByDay: addToDay(next.spentByDay, t.date, by * t.amountCents) };
+  }
+  const { tidyUp } = summary;
+  if (
+    tidyUp.categoryIds.includes(t.categoryId) &&
+    t.date >= tidyUp.from &&
+    t.date <= `${summary.month}-31`
+  ) {
+    next = { ...next, tidyUp: { ...tidyUp, entries: tidyUp.entries + by } };
+  }
+  return next;
+}
+
+/**
+ * `totals` with `changes` made to them, in order, `more` counting what else they hold;
+ * the one passed in is left as it was, and given back when nothing changed
+ */
+function applyTo<T extends MonthTotals>(
+  totals: T,
   changes: LedgerChange[],
   lookup: Lookup,
-): MonthSummary {
+  more: (totals: T, t: Transaction | null | undefined, by: 1 | -1) => T,
+  setBudget: (totals: T, change: Extract<LedgerChange, { op: 'setBudget' }>) => T,
+): T {
   const transactions = tracker(lookup);
-  let next = summary;
+  let next = totals;
   for (const change of oneByOne(changes)) {
     if (change.op === 'setBudget') {
       next = setBudget(next, change);
@@ -84,14 +137,23 @@ export function applyToSummary(
     const after = changedTransaction(change, before);
     if (after === undefined) continue;
     transactions.set(id, after);
-    next = count(count(next, before, -1), after, 1);
+    next = more(count(more(count(next, before, -1), before, -1), after, 1), after, 1);
   }
-  if (next === summary) return summary;
+  if (next === totals) return totals;
   return {
     ...next,
     spentByCategory: [...next.spentByCategory].sort(largestFirst),
     incomeByCategory: [...next.incomeByCategory].sort(largestFirst),
   };
+}
+
+/** A month's totals with `changes` made to them, in order; the one passed in is left as it was */
+export function applyToSummary(
+  summary: MonthSummary,
+  changes: LedgerChange[],
+  lookup: Lookup,
+): MonthSummary {
+  return applyTo(summary, changes, lookup, countDays, setBudget);
 }
 
 /** `summary` with a budget set from a month (shared/budgets.ts), if it applies to this one */
@@ -128,6 +190,14 @@ export function applyToTrend(
 ): MonthTrend {
   const counted = changes.filter((change) => change.op !== 'setBudget');
   if (counted.length === 0) return trend;
-  const months = trend.months.map((month) => applyToSummary(month, counted, lookup));
+  const months = trend.months.map((month) =>
+    applyTo(
+      month,
+      counted,
+      lookup,
+      (m) => m,
+      (m) => m,
+    ),
+  );
   return months.every((month, i) => month === trend.months[i]) ? trend : { ...trend, months };
 }

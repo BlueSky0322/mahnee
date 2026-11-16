@@ -107,14 +107,17 @@ export const monthTransactionsKey = (month: string): TransactionsKey => [
 export const SUMMARY_KEY = ['summary'] as const;
 /** A month's totals (2026-11) */
 export const summaryKey = (month: string) => ['summary', month] as const;
-/** A month's totals, kept on the device for opening offline */
-const summaryCacheKey = (month: string) => `summary-v1:${month}`;
+/**
+ * A month's totals, kept on the device for opening offline: v2 since they hold days,
+ * entries and Tidy up, so a copy in the older shape is never read
+ */
+const summaryCacheKey = (month: string) => `summary-v2:${month}`;
 /** Every 12 months' totals */
 export const TREND_KEY = ['trend'] as const;
 /** The totals of the 12 months ending at a month (2026-11) */
 export const trendKey = (month: string) => ['trend', month] as const;
 /** The same, kept on the device for opening offline */
-const trendCacheKey = (month: string) => `trend-v1:${month}`;
+const trendCacheKey = (month: string) => `trend-v2:${month}`;
 
 /** The first page of an account's transactions, kept on the device for opening offline */
 const pageCacheKey = (accountId: string) => `transactions-v1:${accountId}`;

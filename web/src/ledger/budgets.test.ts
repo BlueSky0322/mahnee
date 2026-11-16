@@ -36,11 +36,13 @@ const november = (budgets?: MonthSummary['budgets']): MonthSummary => ({
   spentCents: 23_000,
   leftCents: 177_000,
   spentByCategory: [
-    { categoryId: 'food', cents: 15_000 },
-    { categoryId: 'transport', cents: 5_000 },
-    { categoryId: 'coffee', cents: 3_000 },
+    { categoryId: 'food', cents: 15_000, entries: 1 },
+    { categoryId: 'transport', cents: 5_000, entries: 1 },
+    { categoryId: 'coffee', cents: 3_000, entries: 1 },
   ],
-  incomeByCategory: [{ categoryId: 'salary', cents: 200_000 }],
+  incomeByCategory: [{ categoryId: 'salary', cents: 200_000, entries: 1 }],
+  spentByDay: [{ date: '2026-11-05', cents: 23_000 }],
+  tidyUp: { from: '2026-10-01', entries: 0, categoryIds: ['c000000000000008'] },
   ...(budgets != null && { budgets }),
 });
 

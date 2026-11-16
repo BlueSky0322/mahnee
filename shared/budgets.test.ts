@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import type { BudgetRow } from './budgets';
-import { budgetFigures, monthBudgets } from './budgets';
+import { budgetFigures, budgetPace, monthBudgets, periodDay, periodDays } from './budgets';
 
 // The budget rule both the Worker and the app use (B1, B2): an amount from a month on until
 // changed; with Carry over, last month's leftover added (or its overspending taken away),
@@ -114,5 +114,140 @@ describe('monthBudgets', () => {
         lastMonthLeftCents: 309_000_000_000,
       },
     ]);
+  });
+});
+
+// How far through its period a month is, and how a budget is doing against it (R-Home,
+// R-Plan, R-Desk-Plan): the today marker sits at the share of the period gone, day N of M,
+// and a budget is "faster than the month" when more of it is spent than of the period is
+// gone, without being over. A period is given by its first and last day, so one that
+// isn't the calendar month (October 25 to November 24) works the same way.
+
+// Days are calendar days, wherever the device is: the same answers in a zone ahead of UTC
+// (the owner's) and in one with a daylight-saving change inside a month
+describe.each([
+  ['Asia/Kuala_Lumpur', -480],
+  ['America/New_York', 300],
+])('in %s', (zone, januaryOffset) => {
+  beforeAll(() => {
+    vi.stubEnv('TZ', zone);
+  });
+  afterAll(() => {
+    vi.unstubAllEnvs();
+  });
+
+  test('the zone is in effect', () => {
+    expect(new Date(2026, 0, 1).getTimezoneOffset()).toBe(januaryOffset);
+  });
+
+  describe('periodDay', () => {
+    test('is day N of M, counting the first and the last day', () => {
+      // A third of November gone
+      expect(periodDay('2026-11-01', '2026-11-30', '2026-11-10')).toEqual({ day: 10, days: 30 });
+      expect(periodDay('2026-11-01', '2026-11-30', '2026-11-01')).toEqual({ day: 1, days: 30 });
+      expect(periodDay('2026-11-01', '2026-11-30', '2026-11-30')).toEqual({ day: 30, days: 30 });
+      // A leap February
+      expect(periodDay('2028-02-01', '2028-02-29', '2028-02-29')).toEqual({ day: 29, days: 29 });
+    });
+
+    test('works for a period that is not the calendar month', () => {
+      // October 25 to November 24: 7 days of October, then 10 of November
+      expect(periodDay('2026-10-25', '2026-11-24', '2026-11-10')).toEqual({ day: 17, days: 31 });
+      // Across a year's end
+      expect(periodDay('2026-12-25', '2027-01-24', '2027-01-01')).toEqual({ day: 8, days: 31 });
+    });
+
+    test('is all of it once the period is over, and none of it before it starts', () => {
+      expect(periodDay('2026-10-01', '2026-10-31', '2026-11-10')).toEqual({ day: 31, days: 31 });
+      expect(periodDay('2026-12-01', '2026-12-31', '2026-11-10')).toEqual({ day: 0, days: 31 });
+    });
+
+    test('refuses a period that ends before it starts or runs past 31 days', () => {
+      expect(() => periodDay('2026-11-30', '2026-11-01', '2026-11-10')).toThrow(RangeError);
+      expect(() => periodDay('2026-11-01', '2026-12-02', '2026-11-10')).toThrow(RangeError);
+    });
+  });
+
+  describe('periodDays', () => {
+    test('lists every day of the period, first to last', () => {
+      expect(periodDays('2026-10-29', '2026-11-02')).toEqual([
+        '2026-10-29',
+        '2026-10-30',
+        '2026-10-31',
+        '2026-11-01',
+        '2026-11-02',
+      ]);
+      expect(periodDays('2026-02-01', '2026-02-28')).toHaveLength(28);
+      expect(periodDays('2026-11-05', '2026-11-05')).toEqual(['2026-11-05']);
+    });
+
+    test('refuses a period that ends before it starts or runs past 31 days', () => {
+      expect(() => periodDays('2026-11-02', '2026-11-01')).toThrow(RangeError);
+      expect(() => periodDays('2026-01-01', '2026-02-01')).toThrow(RangeError);
+    });
+  });
+
+  test('a month with a daylight-saving change is still whole days', () => {
+    expect(periodDays('2026-03-01', '2026-03-31')).toHaveLength(31);
+    expect(periodDays('2026-03-01', '2026-03-31')[7]).toBe('2026-03-08');
+    expect(periodDay('2026-03-01', '2026-03-31', '2026-03-31')).toEqual({ day: 31, days: 31 });
+    expect(periodDays('2026-10-31', '2026-11-02')).toEqual([
+      '2026-10-31',
+      '2026-11-01',
+      '2026-11-02',
+    ]);
+  });
+
+  test('refuses a day that is not one', () => {
+    expect(() => periodDay('2026-02-01', '2026-02-30', '2026-02-10')).toThrow(RangeError);
+    expect(() => periodDays('2026-02-01', 'February')).toThrow(RangeError);
+  });
+});
+
+describe('budgetPace', () => {
+  const tenOfThirty = { day: 10, days: 30 };
+
+  test('is on track while no more of the budget is spent than of the month is gone', () => {
+    expect(budgetPace(20_000, 80_000, tenOfThirty)).toBe('onTrack');
+    // Exactly a third of a budget a third of the way in
+    expect(budgetPace(10_000, 30_000, tenOfThirty)).toBe('onTrack');
+    expect(budgetPace(0, 30_000, tenOfThirty)).toBe('onTrack');
+  });
+
+  test('is faster than the month a cent past the share of the month gone', () => {
+    expect(budgetPace(10_001, 30_000, tenOfThirty)).toBe('faster');
+    expect(budgetPace(24_000, 30_000, tenOfThirty)).toBe('faster');
+    // All of it spent, but not over
+    expect(budgetPace(30_000, 30_000, tenOfThirty)).toBe('faster');
+  });
+
+  test('is over once more is spent than is available, carried amounts included', () => {
+    expect(budgetPace(30_001, 30_000, tenOfThirty)).toBe('over');
+    // Last month overspent by more than this month's amount: over before anything is spent
+    expect(budgetPace(0, -500, tenOfThirty)).toBe('over');
+  });
+
+  test('before the period starts, any spending is faster than the month', () => {
+    expect(budgetPace(1, 30_000, { day: 0, days: 30 })).toBe('faster');
+    expect(budgetPace(0, 30_000, { day: 0, days: 30 })).toBe('onTrack');
+  });
+
+  test('a budget of nothing with nothing spent is on track', () => {
+    expect(budgetPace(0, 0, tenOfThirty)).toBe('onTrack');
+  });
+
+  test('in a finished period a budget is on track or over, never faster', () => {
+    const allOf = { day: 30, days: 30 };
+    expect(budgetPace(30_000, 30_000, allOf)).toBe('onTrack');
+    expect(budgetPace(30_001, 30_000, allOf)).toBe('over');
+  });
+
+  test('compares whole cents exactly at the largest amounts', () => {
+    // Available just under 2e12 cents (the largest budget with a long chain carried in):
+    // 30 days in of 31, spent exactly 30/31 of it, then a cent more
+    const available = 31 * 60_000_000_000;
+    const at = { day: 30, days: 31 };
+    expect(budgetPace(30 * 60_000_000_000, available, at)).toBe('onTrack');
+    expect(budgetPace(30 * 60_000_000_000 + 1, available, at)).toBe('faster');
   });
 });

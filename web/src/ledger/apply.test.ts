@@ -480,10 +480,12 @@ describe('changing many transactions at once', () => {
     spentCents: 1_400,
     leftCents: 3_600,
     spentByCategory: [
-      { categoryId: 'food', cents: 800 },
-      { categoryId: 'other', cents: 600 },
+      { categoryId: 'food', cents: 800, entries: 1 },
+      { categoryId: 'other', cents: 600, entries: 3 },
     ],
-    incomeByCategory: [{ categoryId: 'salary', cents: 5_000 }],
+    incomeByCategory: [{ categoryId: 'salary', cents: 5_000, entries: 1 }],
+    spentByDay: [{ date: '2026-11-05', cents: 1_400 }],
+    tidyUp: { from: '2026-10-01', entries: 0, categoryIds: ['c000000000000008'] },
   };
   const pages: TransactionPage[] = [{ transactions: known, nextBefore: null }];
   const page = (changes: LedgerChange[], belongs: (t: Transaction) => boolean = () => true) =>
@@ -541,7 +543,7 @@ describe('changing many transactions at once', () => {
     const moved = applyToSummary(november, [toFood], lookup);
     expect(moved).toEqual({
       ...november,
-      spentByCategory: [{ categoryId: 'food', cents: 1_400 }],
+      spentByCategory: [{ categoryId: 'food', cents: 1_400, entries: 4 }],
     });
     // Undo is one move per category they came from
     const back = applyToSummary(
@@ -559,10 +561,12 @@ describe('changing many transactions at once', () => {
       spentCents: 1_000,
       leftCents: -1_000,
       spentByCategory: [
-        { categoryId: 'food', cents: 800 },
-        { categoryId: 'other', cents: 200 },
+        { categoryId: 'food', cents: 800, entries: 1 },
+        { categoryId: 'other', cents: 200, entries: 1 },
       ],
       incomeByCategory: [],
+      spentByDay: [{ date: '2026-11-05', cents: 1_000 }],
+      tidyUp: november.tidyUp,
     });
   });
 });

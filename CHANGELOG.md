@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-16
 
-- Added: Home, Activity, Plan and Accounts a tap away in a tab bar or sidebar, with Settings [#?]
+- Added: Home, Activity, Plan and Accounts a tap away in a tab bar or sidebar, with Settings [#24]
 
 ## 2026-11-15
 
@@ -79,3 +79,4 @@ For agents:
 [#20]: https://github.com/BlueSky0322/mahnee/pull/20
 [#21]: https://github.com/BlueSky0322/mahnee/pull/21
 [#22]: https://github.com/BlueSky0322/mahnee/pull/22
+[#24]: https://github.com/BlueSky0322/mahnee/pull/24

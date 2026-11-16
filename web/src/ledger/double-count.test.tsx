@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
 import { act, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { get } from 'idb-keyval';
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../testing/app';
 import {
-  addButton,
+  addEntry,
   fakeServer,
   holdNext,
   reloadApp,
@@ -125,16 +124,8 @@ function watchFigures() {
 const keptForRyan = async () =>
   (await get<{ email: string; value: unknown[] }>(outboxKey(RYAN)))?.value ?? [];
 
-/** Adds RM 8 on Food from Home's entry sheet */
-async function spendEight() {
-  const user = userEvent.setup();
-  await user.click(await addButton());
-  const form = within(await screen.findByRole('dialog'));
-  await waitFor(() => expect(document.activeElement).toBe(form.getByLabelText('Amount')));
-  await user.keyboard('8');
-  await user.click(form.getByRole('button', { name: 'Save' }));
-  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-}
+/** Adds RM 8 on Food with Add */
+const spendEight = () => addEntry('8');
 
 /** The RM 8 is saved on the server, but its answer is lost: it still waits on the device */
 async function savedWithAnswerLost(server: FakeServer) {

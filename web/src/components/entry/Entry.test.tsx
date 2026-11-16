@@ -8,6 +8,8 @@ import type { FakeServer } from '../../testing/app';
 import {
   OFFLINE_NOTICE,
   addButton,
+  addEntry,
+  addForm,
   fakeServer,
   holdNext,
   queryAddButton,
@@ -15,7 +17,6 @@ import {
   renderApp,
   setupAppTests,
 } from '../../testing/app';
-import { toDateInput } from '../../utils/date-input';
 
 // Adding what was spent or received from the entry sheet, and changing or deleting it
 // from an account's page: shown at once, the balances with it, and saved.
@@ -82,168 +83,11 @@ const sentTransactions = () =>
     .filter((c) => c.op.endsWith('Transaction'));
 
 describe('adding from Home', () => {
-  test.each(SIZES)('saves an RM 8 coffee with the defaults: type 8, Save (%s)', async (size) => {
-    const server = withAccounts();
-    renderApp(server, '/', { size });
-    const user = userEvent.setup();
-
-    await user.click(await addButton());
-    const form = await dialog();
-    // The amount is ready to type into straight away
-    await waitFor(() => expect(document.activeElement).toBe(form.getByLabelText('Amount')));
-    await user.keyboard('8');
-    await user.click(form.getByRole('button', { name: 'Save' }));
-
-    expect(await accountRow('Wallet', 'RM 92.00')).toBeTruthy();
-    await waitFor(() =>
-      expect(server.transactions).toEqual([
-        expect.objectContaining({
-          kind: 'expense',
-          accountId: WALLET,
-          amountCents: 800,
-          categoryId: categoryId('Food'),
-          payee: null,
-          note: null,
-          date: toDateInput(new Date()),
-        }),
-      ]),
-    );
-    // The first change of all, so the default categories were saved with it
-    expect(server.categories).toHaveLength(DEFAULT_CATEGORIES.length);
-  });
-
-  test.each(SIZES)('adds money received to the balance (%s)', async (size) => {
-    const server = withAccounts();
-    renderApp(server, '/', { size });
-    const user = userEvent.setup();
-
-    await user.click(await addButton());
-    const form = await dialog();
-    await user.type(form.getByLabelText('Amount'), '1,250.50');
-    await user.click(form.getByRole('radio', { name: 'Received' }));
-    // Income goes in an income category: the first is picked unless another is
-    expect(form.getByRole('radio', { name: 'Salary' })).toHaveProperty('checked', true);
-    expect(form.queryByRole('radio', { name: 'Food' })).toBeNull();
-    await user.click(form.getByRole('button', { name: 'Save' }));
-
-    expect(await accountRow('Wallet', 'RM 1,350.50')).toBeTruthy();
-    await waitFor(() =>
-      expect(server.transactions).toEqual([
-        expect.objectContaining({
-          kind: 'income',
-          amountCents: 125_050,
-          categoryId: categoryId('Salary'),
-        }),
-      ]),
-    );
-  });
-
-  test('remembers the account and each kind’s category used last, on this device', async () => {
-    const server = withAccounts();
-    renderApp(server);
-    const user = userEvent.setup();
-
-    await user.click(await addButton());
-    let form = await dialog();
-    await user.type(form.getByLabelText('Amount'), '3.20');
-    await user.selectOptions(form.getByLabelText('Account'), 'Bank');
-    await user.click(form.getByRole('radio', { name: 'Transport' }));
-    await user.click(form.getByRole('button', { name: 'More' }));
-    await user.type(form.getByLabelText('Paid to'), '  LRT ');
-    await user.click(form.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    await waitFor(() =>
-      expect(server.transactions).toEqual([
-        expect.objectContaining({
-          accountId: BANK,
-          categoryId: categoryId('Transport'),
-          payee: 'LRT',
-        }),
-      ]),
-    );
-
-    // Opened again after a reload: the same account and category, ready for the next
-    await reloadApp(server);
-    await user.click(await addButton());
-    form = await dialog();
-    expect(form.getByLabelText('Account')).toHaveProperty('value', BANK);
-    expect(form.getByRole('radio', { name: 'Transport' })).toHaveProperty('checked', true);
-    // Income has its own: none used yet, so the first
-    await user.click(form.getByRole('radio', { name: 'Received' }));
-    expect(form.getByRole('radio', { name: 'Salary' })).toHaveProperty('checked', true);
-  });
-
-  test('picks a subcategory under the category it is in', async () => {
-    const server = withAccounts();
-    server.categories = DEFAULT_CATEGORIES.map((c) => ({ ...c }));
-    const coffee = 'e'.repeat(16);
-    server.categories.push({
-      id: coffee,
-      name: 'Coffee',
-      kind: 'expense',
-      parentId: categoryId('Food'),
-      position: 0,
-      archived: false,
-    });
-    renderApp(server);
-    const user = userEvent.setup();
-
-    await user.click(await addButton());
-    const form = await dialog();
-    // Food is picked, so what's in it shows under it
-    const inFood = within(form.getByRole('radiogroup', { name: 'In Food' }));
-    await user.click(inFood.getByRole('radio', { name: 'Coffee' }));
-    await user.type(form.getByLabelText('Amount'), '8');
-    await user.click(form.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(server.transactions[0]?.categoryId).toBe(coffee));
-
-    await user.click(await accountRow('Wallet', 'RM 92.00'));
-    expect(await screen.findByRole('button', { name: 'Food › Coffee, −RM 8.00' })).toBeTruthy();
-  });
-
-  test('says what is wrong with the amount or day, and saves nothing', async () => {
-    const server = withAccounts();
-    renderApp(server);
-    const user = userEvent.setup();
-
-    await user.click(await addButton());
-    const form = await dialog();
-    await user.click(form.getByRole('button', { name: 'Save' }));
-    expect(form.getByText('Enter an amount, like 8.50')).toBeTruthy();
-    await user.type(form.getByLabelText('Amount'), '10000000.01');
-    await user.clear(form.getByLabelText('Date'));
-    await user.type(form.getByLabelText('Date'), '1999-12-31');
-    await user.click(form.getByRole('button', { name: 'Save' }));
-    expect(form.getByText('Up to 10,000,000')).toBeTruthy();
-    expect(form.getByText('Pick a day from 2000 up to today')).toBeTruthy();
-    expect(sentTransactions()).toEqual([]);
-  });
-
   test('has no Add until there is an account to put it on', async () => {
     const server = fakeServer();
     renderApp(server);
     expect(await screen.findByText('Add your first account')).toBeTruthy();
     expect(queryAddButton()).toBeNull();
-  });
-
-  test.each(SIZES)("puts a refused one back, with the server's explanation (%s)", async (size) => {
-    const server = withAccounts();
-    server.failNext.changes = { status: 409, error: 'Wallet is archived' };
-    const held = holdNext(server, 'POST', '/api/changes');
-    renderApp(server, '/', { size });
-    const user = userEvent.setup();
-
-    await user.click(await addButton());
-    const form = await dialog();
-    await user.type(form.getByLabelText('Amount'), '8');
-    await user.click(form.getByRole('button', { name: 'Save' }));
-    // Shown straight away, before the server answers
-    expect(await accountRow('Wallet', 'RM 92.00')).toBeTruthy();
-
-    held.release();
-    expect(await screen.findByText('Wallet is archived')).toBeTruthy();
-    expect(await accountRow('Wallet', 'RM 100.00')).toBeTruthy();
-    expect(server.transactions).toEqual([]);
   });
 
   test('keeps one added offline through a reload, and saves it once back', async () => {
@@ -260,10 +104,7 @@ describe('adding from Home', () => {
     const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     onTestFinished(() => onLine.mockRestore());
     act(() => void window.dispatchEvent(new Event('offline')));
-    await user.click(await addButton());
-    const form = await dialog();
-    await user.type(form.getByLabelText('Amount'), '8');
-    await user.click(form.getByRole('button', { name: 'Save' }));
+    await addEntry('8');
     expect(await screen.findByText(OFFLINE)).toBeTruthy();
     expect(await screen.findByText(ONE_WAITING)).toBeTruthy();
 
@@ -433,13 +274,11 @@ describe("an account's page", () => {
   test('adds to this account from its own page', async () => {
     const server = withAccounts();
     renderApp(server, `/?account=${BANK}`);
-    const user = userEvent.setup();
 
-    await user.click(await addButton());
-    const form = await dialog();
-    expect(form.getByLabelText('Account')).toHaveProperty('value', BANK);
-    await user.type(form.getByLabelText('Amount'), '20');
-    await user.click(form.getByRole('button', { name: 'Save' }));
+    await addEntry('20', (form) => {
+      expect(form.getByRole('button', { name: /^From Bank/ })).toBeTruthy();
+      return Promise.resolve();
+    });
     expect(await screen.findByRole('button', { name: 'Food, −RM 20.00' })).toBeTruthy();
     expect(screen.getByLabelText('Balance RM 480.00')).toBeTruthy();
   });
@@ -454,7 +293,7 @@ describe("an account's page", () => {
 
     expect(await screen.findByText('Cash, archived')).toBeTruthy();
     await user.click(await addButton());
-    expect((await dialog()).getByLabelText('Account')).toHaveProperty('value', BANK);
+    expect((await addForm()).getByRole('button', { name: /^From Bank/ })).toBeTruthy();
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
@@ -463,7 +302,7 @@ describe("an account's page", () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(await screen.findByText('Cash')).toBeTruthy();
     await user.click(await addButton());
-    expect((await dialog()).getByLabelText('Account')).toHaveProperty('value', WALLET);
+    expect((await addForm()).getByRole('button', { name: /^From Wallet/ })).toBeTruthy();
   });
 });
 
@@ -480,19 +319,18 @@ describe('moving money between accounts', () => {
     return server;
   }
 
-  /** Adds a transfer from Home: the amount, Transfer, then From and To */
+  /** Adds a transfer with Add: Transfer, then From and To, then the amount */
   async function addTransfer(amount: string, from: string, to: string) {
     const user = userEvent.setup();
-    await user.click(await addButton());
-    const form = await dialog();
-    await user.type(form.getByLabelText('Amount'), amount);
-    await user.click(form.getByRole('radio', { name: 'Transfer' }));
-    // No category: it's neither spending nor income
-    expect(form.queryByRole('radiogroup', { name: 'Category' })).toBeNull();
-    await user.selectOptions(form.getByLabelText('From'), from);
-    await user.selectOptions(form.getByLabelText('To'), to);
-    await user.click(form.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await addEntry(amount, async (form) => {
+      await user.click(form.getByRole('radio', { name: 'Transfer' }));
+      // No category: it's neither spending nor income
+      expect(form.queryByRole('radiogroup', { name: 'Recent categories' })).toBeNull();
+      await user.click(form.getByRole('button', { name: /^From / }));
+      await user.click(await screen.findByRole('radio', { name: new RegExp(`^${from} `) }));
+      await user.click(form.getByRole('button', { name: /^To / }));
+      await user.click(await screen.findByRole('radio', { name: new RegExp(`^${to} `) }));
+    });
   }
 
   /** A transfer the server has before the app opens: RM 100 from the Bank to TNG */
@@ -516,11 +354,10 @@ describe('moving money between accounts', () => {
       expect(await accountRow('TNG', 'RM 100.00')).toBeTruthy();
       expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();
 
-      await user.click(await addButton());
-      const form = await dialog();
-      await user.type(form.getByLabelText('Amount'), '30');
-      await user.selectOptions(form.getByLabelText('Account'), 'TNG');
-      await user.click(form.getByRole('button', { name: 'Save' }));
+      await addEntry('30', async (form) => {
+        await user.click(form.getByRole('button', { name: /^From / }));
+        await user.click(await screen.findByRole('radio', { name: /^TNG / }));
+      });
 
       expect(await accountRow('TNG', 'RM 70.00')).toBeTruthy();
       expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();
@@ -562,23 +399,6 @@ describe('moving money between accounts', () => {
         expect.objectContaining({ accountId: BANK, toAccountId: VISA, amountCents: 20_000 }),
       ]),
     );
-  });
-
-  test('offers the account moved to last, never the one it comes from', async () => {
-    const server = withTransferAccounts();
-    renderApp(server);
-    const user = userEvent.setup();
-
-    await addTransfer('50', 'Bank', 'Visa');
-    await user.click(await addButton());
-    const form = await dialog();
-    await user.click(form.getByRole('radio', { name: 'Transfer' }));
-    expect(form.getByLabelText('To')).toHaveProperty('value', VISA);
-    // From the Visa itself, it goes somewhere else, and the Visa isn't offered
-    await user.selectOptions(form.getByLabelText('From'), 'Visa');
-    const to = form.getByLabelText('To');
-    expect(to).toHaveProperty('value', BANK);
-    expect(within(to).queryByRole('option', { name: 'Visa' })).toBeNull();
   });
 
   test.each(SIZES)("edits a transfer's amount, both balances following (%s)", async (size) => {

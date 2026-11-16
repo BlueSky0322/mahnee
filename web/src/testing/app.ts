@@ -3,12 +3,13 @@
 
 // IndexedDB, for the offline cache
 import 'fake-indexeddb/auto';
-import { cleanup, configure, render, screen, within } from '@testing-library/react';
+import type { BoundFunctions, queries } from '@testing-library/react';
+import { cleanup, configure, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { notifications } from '@mantine/notifications';
 import { onlineManager } from '@tanstack/react-query';
 import { createElement } from 'react';
-import { afterEach, beforeEach, onTestFinished, vi } from 'vitest';
+import { afterEach, beforeEach, expect, onTestFinished, vi } from 'vitest';
 import { isTimeZone, readSettingChanges } from '@shared/settings';
 import type {
   Settings,
@@ -1227,6 +1228,57 @@ export const OFFLINE_NOTICE = {
  */
 export const addButton = () =>
   screen.findByRole('button', { name: screenSize === 'desktop' ? 'New entry' : 'Add' });
+
+/** Queries scoped to one element, as `within` gives them */
+export type Within = BoundFunctions<typeof queries>;
+
+/** Add's form, once it's open: full screen on phones and tablets, a dialog on computers */
+export const addForm = async () =>
+  within(await screen.findByRole('form', { name: 'Add a transaction' }));
+
+const KEY_NAMES: Record<string, string> = {
+  '.': 'Decimal point',
+  '+': 'Plus',
+  '-': 'Minus',
+  '*': 'Times',
+  '=': 'Work it out',
+};
+
+/**
+ * Types an amount or a sum ("8", "12.5+3") into Add: on its keypad on phones and tablets,
+ * in its Amount field on computers
+ */
+export async function typeAmount(form: Within, text: string) {
+  const user = userEvent.setup();
+  const keypad = form.queryByRole('group', { name: 'Keypad' });
+  if (keypad == null) {
+    await user.type(form.getByRole('textbox', { name: 'Amount' }), text);
+    return;
+  }
+  for (const c of text) {
+    await user.click(within(keypad).getByRole('button', { name: KEY_NAMES[c] ?? c }));
+  }
+}
+
+/** Add's Save button, whatever it says ("Save RM 8.00", "Move RM 8.00", "Type an amount") */
+export const addSaveButton = (form: Within) =>
+  form.getByRole('button', {
+    name: /^(Save |Move |Type an amount|The total is below zero|Up to |Pick a day from 2000)/,
+  });
+
+/**
+ * Adds an entry with Add: opens it, lets `choose` pick what's wanted (which way, the
+ * account, the category), types `amount` and saves; returns once Add has closed
+ */
+export async function addEntry(amount: string, choose?: (form: Within) => Promise<void>) {
+  const user = userEvent.setup();
+  await user.click(await addButton());
+  const form = await addForm();
+  await choose?.(form);
+  await typeAmount(form, amount);
+  await user.click(addSaveButton(form));
+  await waitFor(() => expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull());
+}
 
 /** The button that opens a new entry, if it's there now */
 export const queryAddButton = () =>

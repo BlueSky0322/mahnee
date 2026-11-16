@@ -6,7 +6,7 @@ import type { Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
 import {
-  addButton,
+  addEntry,
   fakeServer,
   holdNext,
   reloadApp,
@@ -404,14 +404,12 @@ describe('spending over time on the month card', () => {
     onTestFinished(() => onLine.mockRestore());
     act(() => void window.dispatchEvent(new Event('offline')));
     const spend = async (amount: string, date: string) => {
-      await user.click(await addButton());
-      const form = within(await screen.findByRole('dialog'));
-      await user.type(form.getByLabelText('Amount'), amount);
-      await user.click(form.getByRole('radio', { name: 'Transport' }));
-      await user.clear(form.getByLabelText('Date'));
-      await user.type(form.getByLabelText('Date'), date);
-      await user.click(form.getByRole('button', { name: 'Save' }));
-      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      await addEntry(amount, async (form) => {
+        await user.click(form.getByRole('radio', { name: 'Transport' }));
+        await user.click(form.getByRole('button', { name: 'Today' }));
+        await user.clear(form.getByLabelText('Date'));
+        await user.type(form.getByLabelText('Date'), date);
+      });
     };
     await spend('8', '2026-11-04');
     await spend('7', '2026-10-20');

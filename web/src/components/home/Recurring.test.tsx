@@ -7,7 +7,7 @@ import type { Recurring, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
 import {
-  addButton,
+  addEntry,
   fakeServer,
   goToPlace,
   holdNext,
@@ -959,17 +959,13 @@ describe('repeating items: edges, refusals and the order of answers', () => {
     const server = withAccounts([]);
     renderApp(server, '/', { size });
     const user = userEvent.setup();
-    await user.click(await addButton());
-    const sheet = within(await screen.findByRole('dialog', { name: 'Add transaction' }));
-    await waitFor(() => expect(document.activeElement).toBe(sheet.getByLabelText('Amount')));
-    await user.keyboard('80');
-    await user.selectOptions(sheet.getByLabelText('Account'), 'Maybank');
-    if (sheet.getByRole('button', { name: 'More' }).getAttribute('aria-expanded') !== 'true') {
-      await user.click(sheet.getByRole('button', { name: 'More' }));
-    }
-    await user.type(sheet.getByLabelText('Paid to'), 'Phone');
-    await user.selectOptions(sheet.getByLabelText('Repeat'), 'Monthly');
-    await user.click(sheet.getByRole('button', { name: 'Save' }));
+    await addEntry('80', async (form) => {
+      await user.click(form.getByRole('button', { name: /^From / }));
+      await user.click(await screen.findByRole('radio', { name: /^Maybank/ }));
+      await user.type(form.getByRole('textbox', { name: 'Payee or note' }), 'Phone');
+      await user.click(form.getByRole('button', { name: 'Repeat' }));
+      await user.click(await screen.findByRole('radio', { name: 'Monthly' }));
+    });
     await waitFor(() => expect(server.transactions).toHaveLength(1));
     expect(server.transactions[0]).toMatchObject({
       amountCents: 8_000,

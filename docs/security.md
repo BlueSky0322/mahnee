@@ -100,6 +100,13 @@ hack-proof, and the limits below are real.
   changes: those stay on the device, under its email, unread and unsent until it signs
   in here again. Signing out asks first when changes are waiting, then drops the leaving
   account's own.
+- What's typed in Add and closed without saving is kept as a draft in `localStorage`
+  (`mahnee:addDraft:<email>`): the amount or sum, the payee, which way it went, the account
+  and category picked, a new category's name, the day and the repeat. It's kept under the
+  account's email and read back only by that account, until it's saved or the account signs
+  out (another account signing in clears it too). Close, Back, Esc and Cancel all keep it;
+  an Add with nothing typed keeps none. Like the rest of what's kept, whoever holds an
+  unlocked device can read it.
 - Unsaved changes are sent only as the account they were made as (`X-Expected-Account`),
   by the app or, while it's closed, by the service worker's background sync, which sends
   only the outbox of the account the app last said is signed in. The server refuses one

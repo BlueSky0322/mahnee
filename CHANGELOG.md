@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-16
 
+- Changed: Add is a keypad that works sums out, with recent categories, a payee field, Today, Repeat and drafts [#?]
 - Fixed: after the accounts fail to load, opening a page no longer hides the tab bar or sidebar [#27]
 - Changed: the figures always say how fresh they are, and the offline and Undo messages have the new look [#26]
 - Added: Home, Activity, Plan and Accounts a tap away in a tab bar or sidebar, with Settings [#24]

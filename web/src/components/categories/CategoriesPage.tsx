@@ -14,6 +14,7 @@ import { DEFAULT_CURRENCY } from '@shared/ledger';
 import type { CategoryKind } from '@shared/categories';
 import { CATEGORY_KINDS, siblingsOf } from '@shared/categories';
 import { goUp } from '../../hooks/useRoute';
+import { useShortcuts } from '../../hooks/useShortcuts';
 import { change } from '../../ledger/ledger';
 import type { CategoryNode } from '../../ledger/category-tree';
 import { useCategories, useMonthSummary } from '../../ledger/useLedger';
@@ -31,6 +32,9 @@ const LOADING_ROWS = 6;
 // subcategories under it. Tap one to rename, move or archive it, or set its monthly budget
 // (top-level spending ones); the arrows put it higher or lower among the ones beside it.
 export default function CategoriesPage() {
+  // Back, or Esc, goes up to Settings
+  const toSettings = () => goUp('?settings');
+  useShortcuts({ Escape: toSettings });
   const { categories, tree, failed, retry } = useCategories();
   const [open, setOpen] = useState<OpenCategory | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -61,9 +65,9 @@ export default function CategoriesPage() {
           size="compact-md"
           className={classes.back}
           leftSection={<CaretLeft size={16} />}
-          onClick={() => goUp('')}
+          onClick={toSettings}
         >
-          Home
+          Settings
         </Button>
         <h1 className={classes.title}>Categories</h1>
       </header>

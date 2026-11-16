@@ -319,13 +319,13 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
             )}
           </Chip.Group>
           <Anchor
-            href="?categories"
+            href="?settings=categories"
             size="sm"
             className={classes.editCategories}
             onClick={(e) => {
               e.preventDefault();
               // The page moves on first, so closing the sheet doesn't step back from it
-              navigate('?categories');
+              navigate('?settings=categories');
               onDone();
             }}
           >

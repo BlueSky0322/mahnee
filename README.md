@@ -33,7 +33,7 @@ Inside `web/src`, what the app knows is kept apart from how it looks:
 | `ledger/`              | Shared state: accounts, categories and transactions, and saving them in order |
 | `components/<screen>/` | What a screen draws, reading from the folders above                           |
 | `components/common/`   | What more than one screen draws that knows the app (theme switch, Undo)       |
-| `components/shell/`    | What sits around every page: the offline and new-version notices              |
+| `components/shell/`    | What sits around every page: the tab bar or sidebar, and the notices          |
 | `components/ui/`       | Plain building blocks that know nothing of finances or accounts (dialogs)     |
 | `hooks/`, `utils/`     | What every feature leans on: screen sizes, the page address, money, dates     |
 | `pwa/`                 | Installing the app, its launch screen, and the on-screen keyboard             |

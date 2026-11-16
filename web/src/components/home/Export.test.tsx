@@ -5,7 +5,7 @@ import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, renderApp, setupAppTests } from '../../testing/app';
+import { addButton, fakeServer, openSettings, renderApp, setupAppTests } from '../../testing/app';
 import { dayText, toDateInput } from '../../utils/date-input';
 
 // Exporting from Home: what the file holds, downloading it, and what stops it.
@@ -85,8 +85,11 @@ function goOffline(server: FakeServer) {
   };
 }
 
+/** Opens Export from Settings, in Import and export */
 async function openExport() {
   const user = userEvent.setup();
+  await openSettings();
+  await user.click(screen.getByRole('link', { name: 'Import and export' }));
   await user.click(await screen.findByRole('button', { name: 'Export' }));
   return { user, dialog: within(await screen.findByRole('dialog', { name: 'Export' })) };
 }
@@ -139,7 +142,7 @@ describe('exporting', () => {
     const user = userEvent.setup();
     await screen.findByText('Wallet');
     const backOnline = goOffline(server);
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const form = within(await screen.findByRole('dialog'));
     await user.type(form.getByLabelText('Amount'), '8');
     await user.click(form.getByRole('button', { name: 'Save' }));

@@ -5,7 +5,14 @@ import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Category } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, holdNext, reloadApp, renderApp, setupAppTests } from '../../testing/app';
+import {
+  fakeServer,
+  holdNext,
+  openSettings,
+  reloadApp,
+  renderApp,
+  setupAppTests,
+} from '../../testing/app';
 
 setupAppTests();
 
@@ -55,12 +62,13 @@ const openCategories = (server: FakeServer, size: (typeof SIZES)[number] = 'desk
   renderApp(server, '/?categories', { size });
 
 describe('the categories page', () => {
-  test.each(SIZES)('opens from Home with the defaults, and goes back (%s)', async (size) => {
+  test.each(SIZES)('opens from Settings with the defaults, and goes back (%s)', async (size) => {
     const server = fakeServer();
     renderApp(server, '/', { size });
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('link', { name: 'Categories' }));
+    await openSettings();
+    await user.click(screen.getByRole('link', { name: 'Categories' }));
     expect(await screen.findByRole('heading', { name: 'Categories', level: 1 })).toBeTruthy();
     // Nothing saved yet: the defaults show, and nothing is sent just for looking
     await waitFor(async () =>
@@ -78,9 +86,10 @@ describe('the categories page', () => {
     expect(await shown('Income')).toEqual(['Salary', 'Other income']);
     expect(server.categories).toEqual([]);
 
-    await user.click(screen.getByRole('button', { name: 'Home' }));
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
     expect(await screen.findByRole('link', { name: 'Categories' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Categories' })).toBeNull();
+    expect(window.location.search).toBe('?settings');
   });
 
   test('shows placeholders until the ledger arrives', async () => {

@@ -5,7 +5,14 @@ import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, holdNext, reloadApp, renderApp, setupAppTests } from '../../testing/app';
+import {
+  addButton,
+  fakeServer,
+  holdNext,
+  reloadApp,
+  renderApp,
+  setupAppTests,
+} from '../../testing/app';
 
 // Spending over time on Home's month card: every category row, Spent and Received open
 // in place to the last 12 months ending at the month the card shows, one bar a month with
@@ -397,7 +404,7 @@ describe('spending over time on the month card', () => {
     onTestFinished(() => onLine.mockRestore());
     act(() => void window.dispatchEvent(new Event('offline')));
     const spend = async (amount: string, date: string) => {
-      await user.click(await screen.findByRole('button', { name: 'Add' }));
+      await user.click(await addButton());
       const form = within(await screen.findByRole('dialog'));
       await user.type(form.getByLabelText('Amount'), amount);
       await user.click(form.getByRole('radio', { name: 'Transport' }));

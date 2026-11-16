@@ -5,7 +5,14 @@ import { get } from 'idb-keyval';
 import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Account, ChangesBody } from '@shared/api';
 import type { FakeServer } from '../testing/app';
-import { fakeServer, holdNext, reloadApp, renderApp, setupAppTests } from '../testing/app';
+import {
+  fakeServer,
+  holdNext,
+  openSettings,
+  reloadApp,
+  renderApp,
+  setupAppTests,
+} from '../testing/app';
 import { outboxKey } from './outbox';
 
 // Changes made without a connection: shown at once, kept on the device through a reload,
@@ -74,7 +81,7 @@ async function edit(name: string) {
   return within(await dialog());
 }
 
-/** Renames an account on its page, and goes back to Home */
+/** Renames an account on its page, and goes back up to Accounts */
 async function rename(from: string, to: string) {
   const user = userEvent.setup();
   const form = await edit(from);
@@ -82,7 +89,7 @@ async function rename(from: string, to: string) {
   await user.type(form.getByLabelText('Name'), to);
   await user.click(form.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-  await user.click(screen.getByRole('button', { name: 'Home' }));
+  await user.click(screen.getByRole('button', { name: 'Accounts' }));
 }
 
 describe('changes made offline', () => {
@@ -166,7 +173,7 @@ describe('changes made offline', () => {
 
     await user.click((await edit('Wallet')).getByRole('button', { name: 'Archive' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    await user.click(screen.getByRole('button', { name: 'Home' }));
+    await user.click(screen.getByRole('button', { name: 'Accounts' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Wallet,/ })).toBeNull());
     await user.click(await screen.findByRole('button', { name: 'Undo' }));
     expect(await row('Wallet')).toBeTruthy();
@@ -287,6 +294,7 @@ describe('signing out', () => {
     await row('Wallet');
     goOffline(server);
     await rename('Wallet', 'Purse');
+    await openSettings();
     const sentTo = watchLeaving();
 
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
@@ -305,8 +313,8 @@ describe('signing out', () => {
 
   test('with nothing waiting, signs out straight away', async () => {
     const server = fakeServer();
-    renderApp(server);
-    await screen.findByText('Signed in as Ryan');
+    renderApp(server, '/?settings');
+    await screen.findByText('Ryan');
     const sentTo = watchLeaving();
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }));
     await waitFor(() => expect(sentTo).toEqual(['/cdn-cgi/access/logout']));
@@ -327,8 +335,9 @@ describe('someone else signing in on this device', () => {
     // Ann signs in on Ryan's device, online
     back();
     server.me = { ...server.me, email: 'ann@example.com', displayName: 'Ann' };
-    await reloadApp(server);
-    expect(await screen.findByText('Signed in as Ann')).toBeTruthy();
+    await reloadApp(server, '/?settings');
+    expect(await screen.findByText('Ann')).toBeTruthy();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Close settings' }));
     expect(await row('Wallet')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Ryan's savings,/ })).toBeNull();
     expect(screen.queryByRole('status')).toBeNull();

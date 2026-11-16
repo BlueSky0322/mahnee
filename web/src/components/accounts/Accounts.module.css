@@ -31,6 +31,11 @@
   font-weight: 600;
 }
 
+/* Titling the Accounts page */
+.pageTitle {
+  font-size: 22px;
+}
+
 .card {
   display: flex;
   flex-direction: column;

@@ -3,7 +3,7 @@
   /* Over the page, under dialogs and sheets, which cover it while open */
   z-index: 150;
   left: 50%;
-  bottom: calc(16px + var(--sf-safe-bottom));
+  bottom: calc(16px + max(var(--tabbar-h), var(--sf-safe-bottom)));
   transform: translateX(-50%);
   display: flex;
   align-items: center;

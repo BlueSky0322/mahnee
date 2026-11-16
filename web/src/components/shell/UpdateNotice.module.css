@@ -3,7 +3,7 @@
   position: fixed;
   z-index: 310;
   left: 50%;
-  bottom: calc(16px + var(--sf-safe-bottom));
+  bottom: calc(16px + max(var(--tabbar-h), var(--sf-safe-bottom)));
   transform: translateX(-50%);
   display: flex;
   align-items: center;

@@ -6,7 +6,15 @@ import { afterAll, describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Recurring, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, holdNext, reloadApp, renderApp, setupAppTests } from '../../testing/app';
+import {
+  addButton,
+  fakeServer,
+  goToPlace,
+  holdNext,
+  reloadApp,
+  renderApp,
+  setupAppTests,
+} from '../../testing/app';
 import { outboxKey } from '../../offline/outbox';
 
 // Bills and income that repeat. Each due one (next due today or before) is at the top of
@@ -773,8 +781,8 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       const server = withAccounts([]);
       const held = holdNext(server, 'POST', '/api/changes');
       onTestFinished(() => held.release());
-      const user = await repeatRentFrom(server, '2026-08-15', 'Monthly', size);
-      await user.click(await screen.findByRole('button', { name: /^Home$/ }));
+      await repeatRentFrom(server, '2026-08-15', 'Monthly', size);
+      await goToPlace('Home');
       // RM 3,000 less the RM 1,200 paid in August, less RM 500 owed, less Rent on the 15th
       await waitFor(() => expect(expected()).toBe(total('RM 100.00')));
       expect(screen.queryByText(/Due: Rent/)).toBeNull();
@@ -951,7 +959,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
     const server = withAccounts([]);
     renderApp(server, '/', { size });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const sheet = within(await screen.findByRole('dialog', { name: 'Add transaction' }));
     await waitFor(() => expect(document.activeElement).toBe(sheet.getByLabelText('Amount')));
     await user.keyboard('80');

@@ -5,7 +5,14 @@ import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, holdNext, reloadApp, renderApp, setupAppTests } from '../../testing/app';
+import {
+  addButton,
+  fakeServer,
+  holdNext,
+  reloadApp,
+  renderApp,
+  setupAppTests,
+} from '../../testing/app';
 import { addMonths, monthHeading, thisMonth } from '../../utils/date-input';
 
 // The month at the top of Home: what's left, spent and received, and where the spending
@@ -206,7 +213,7 @@ describe('the month on Home', () => {
       const card = await monthCard(NOW);
       await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 11.00'));
       const spend = async (amount: string) => {
-        await user.click(await screen.findByRole('button', { name: 'Add' }));
+        await user.click(await addButton());
         const form = within(await screen.findByRole('dialog'));
         await user.type(form.getByLabelText('Amount'), amount);
         await user.click(form.getByRole('button', { name: 'Save' }));
@@ -245,7 +252,7 @@ describe('the month on Home', () => {
     const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     onTestFinished(() => onLine.mockRestore());
     act(() => void window.dispatchEvent(new Event('offline')));
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const form = within(await screen.findByRole('dialog'));
     await user.type(form.getByLabelText('Amount'), '8');
     await user.click(form.getByRole('radio', { name: 'Transport' }));

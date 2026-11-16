@@ -6,7 +6,14 @@ import type { Recurring, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import { CSV_BOM, EXPORT_COLUMNS, csvLine, exportCells, openingCells } from '@shared/export';
 import type { FakeServer } from '../../testing/app';
-import { closeApp, fakeServer, holdNext, renderApp, setupAppTests } from '../../testing/app';
+import {
+  closeApp,
+  fakeServer,
+  holdNext,
+  openSettings,
+  renderApp,
+  setupAppTests,
+} from '../../testing/app';
 
 // Importing a CSV file from Home: a bank's file mapped by column, or Mahnee's own export;
 // rows that look already saved; categories from what a payee was filed under before; and
@@ -57,10 +64,28 @@ const pause = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
 
 const csv = (text: string, name = 'statement.csv') => new File([text], name, { type: 'text/csv' });
 
-/** From Home, the Import page */
-async function openImport() {
+/** Settings › Import and export, unless it's open already */
+async function openImportAndExport() {
   const user = userEvent.setup();
-  await user.click(await screen.findByRole('button', { name: 'Import' }));
+  if (screen.queryByRole('heading', { name: 'Import and export', level: 1 }) == null) {
+    await openSettings();
+    await user.click(screen.getByRole('link', { name: 'Import and export' }));
+  }
+  await screen.findByRole('heading', { name: 'Import and export', level: 1 });
+  return user;
+}
+
+/** Out of Settings to Home, from Import and export, where an import goes back to */
+async function settingsToHome() {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Settings' }));
+  await user.click(await screen.findByRole('button', { name: /^(Home|Close settings)$/ }));
+}
+
+/** The Import page, from Settings › Import and export */
+async function openImport() {
+  const user = await openImportAndExport();
+  await user.click(screen.getByRole('link', { name: 'Import' }));
   await screen.findByRole('heading', { name: 'Import' });
   return user;
 }
@@ -125,9 +150,9 @@ function catchDownloads() {
   return files;
 }
 
-/** Downloads the export from Home, as the person would, and gives its text */
-async function exportFromHome(files: Blob[]) {
-  const user = userEvent.setup();
+/** Downloads the export from Settings › Import and export, as the person would */
+async function exportFromSettings(files: Blob[]) {
+  const user = await openImportAndExport();
   const count = files.length;
   await user.click(await screen.findByRole('button', { name: 'Export' }));
   const dialog = within(await screen.findByRole('dialog', { name: 'Export' }));
@@ -190,7 +215,6 @@ describe("a bank's file", () => {
       expect(byPayee('Grab')).toMatchObject({ kind: 'expense', amountCents: 2_000 });
 
       // The next file for Maybank is mapped as before; another account's isn't
-      await user.click(screen.getByRole('button', { name: 'Home' }));
       await openImport();
       await pickFile(user, csv(BANK_FILE.replace('Kopi Corner', 'Kopi Place')), 'Maybank');
       expect(await screen.findByLabelText('Date')).toHaveProperty('value', 'Date');
@@ -307,7 +331,6 @@ describe('rows that look already saved', () => {
       await waitFor(() => expect(server.transactions).toHaveLength(3));
 
       // The same file again: everything in it is saved already, so nothing is added
-      await user.click(await screen.findByRole('button', { name: 'Home' }));
       await openImport();
       await pickFile(user, file, 'Maybank');
       await user.click(await screen.findByRole('button', { name: 'Preview' }));
@@ -461,7 +484,7 @@ describe('the limit', () => {
     await waitFor(() => expect(server.transactions).toHaveLength(5_000), { timeout: 45_000 });
     expect(new Set(server.transactions.map((t) => t.payee)).size).toBe(5_000);
     // Nothing is left waiting on the device: the export says so, counted by the server
-    await user.click(screen.getByRole('button', { name: 'Home' }));
+    await openImportAndExport();
     await user.click(await screen.findByRole('button', { name: 'Export' }));
     const dialog = within(await screen.findByRole('dialog', { name: 'Export' }));
     expect(
@@ -471,7 +494,10 @@ describe('the limit', () => {
       timeout: 10_000,
     });
     expect(server.transactions).toHaveLength(5_000);
-    expect(screen.getAllByText('−RM 4,000.00').length).toBeGreaterThan(0);
+    // And Home still says so
+    await user.keyboard('{Escape}');
+    await settingsToHome();
+    expect((await screen.findAllByText('−RM 4,000.00')).length).toBeGreaterThan(0);
   }, 90_000);
 
   test('imports offline, knows what it has imported, and saves it once back', async () => {
@@ -491,7 +517,6 @@ describe('the limit', () => {
     expect(await screen.findByText('RM 972.00')).toBeTruthy();
 
     // Imported again before it's saved: still known, so nothing is added twice
-    await user.click(screen.getByRole('button', { name: 'Home' }));
     await openImport();
     await pickFile(user, file, 'Maybank');
     await user.click(await screen.findByRole('button', { name: 'Preview' }));
@@ -585,7 +610,7 @@ describe("Mahnee's own export", () => {
       const before = withHistory();
       const files = catchDownloads();
       renderApp(before, '/', { size });
-      const exported = await exportFromHome(files);
+      const exported = await exportFromSettings(files);
       const original = new TextDecoder().decode(await exported.arrayBuffer());
 
       // Someone starting afresh, with nothing yet
@@ -611,7 +636,7 @@ describe("Mahnee's own export", () => {
       expect(after.accounts.map((a) => [a.name, a.kind, a.openingCents])).toEqual(
         before.accounts.map((a) => [a.name, a.kind, a.openingCents]),
       );
-      const restored = await exportFromHome(files);
+      const restored = await exportFromSettings(files);
       expect(comparable(new TextDecoder().decode(await restored.arrayBuffer()))).toBe(
         comparable(original),
       );
@@ -693,6 +718,8 @@ describe("Mahnee's own export", () => {
       await user.click(screen.getByRole('button', { name: 'Import 1 transaction' }));
       await waitFor(() => expect(server.transactions).toHaveLength(1));
       expect(server.accounts.find((a) => a.id === MAYBANK)?.openingCents).toBe(100_000);
+      // The import goes back to Import and export; Home shows the balance
+      await settingsToHome();
       expect(await screen.findByText('RM 992.00')).toBeTruthy();
 
       // Ticked, it's applied, once
@@ -705,6 +732,7 @@ describe("Mahnee's own export", () => {
         expect(server.accounts.find((a) => a.id === MAYBANK)?.openingCents).toBe(150_000),
       );
       expect(server.transactions).toHaveLength(1);
+      await settingsToHome();
       expect(await screen.findByText('RM 1,492.00')).toBeTruthy();
 
       // Now the same: nothing to say about it
@@ -722,7 +750,8 @@ describe("Mahnee's own export", () => {
       const server = withAccounts();
       // The accounts and categories are asked for twice as the app opens: both held
       const answers = [1, 2].map(() => holdNext(server, 'GET', '/api/accounts'));
-      renderApp(server, '/', { size });
+      // Settings' Import and export, as the places wait for the accounts
+      renderApp(server, '/?settings=data', { size });
       const user = await openImport();
       await pickFile(user, exportOf(150_000));
       expect(await screen.findByText(/Mahnee export/)).toBeTruthy();
@@ -803,7 +832,9 @@ describe("repeating bills in Mahnee's export", () => {
       const before = withRepeating();
       const files = catchDownloads();
       renderApp(before, '/', { size });
-      const original = new TextDecoder().decode(await (await exportFromHome(files)).arrayBuffer());
+      const original = new TextDecoder().decode(
+        await (await exportFromSettings(files)).arrayBuffer(),
+      );
       // Each running one has its line, in the order they were set up; the stopped one has none
       const rent = `2026-12-01,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${'1'.repeat(16)}\r\n`;
       const salary = `2026-10-25,Repeating received,Wallet,,5000.00,MYR,Salary,,Salary,"Monthly, day 25",${'3'.repeat(16)}\r\n`;
@@ -860,7 +891,7 @@ describe("repeating bills in Mahnee's export", () => {
       await pickFile(user, new File([original], 'mahnee-2026-11-06.csv', { type: 'text/csv' }));
       // Both transactions and both repeating ones
       await waitFor(() => expect(screen.getAllByText('Looks already saved')).toHaveLength(4));
-      expect(screen.getByRole('button', { name: /^Import / })).toHaveProperty('disabled', true);
+      expect(screen.getByRole('button', { name: /^Import \d/ })).toHaveProperty('disabled', true);
       expect(
         screen.getByRole('button', { name: 'Import 0 transactions and 0 repeating items' }),
       ).toBeTruthy();
@@ -874,7 +905,7 @@ describe("repeating bills in Mahnee's export", () => {
         }),
       );
       await waitFor(() => expect(screen.getAllByText('Looks already saved')).toHaveLength(3));
-      await user.click(screen.getByRole('button', { name: /^Import / }));
+      await user.click(screen.getByRole('button', { name: /^Import \d/ }));
       await waitFor(() => expect(after.recurring).toHaveLength(3));
       expect(after.transactions).toHaveLength(2);
       expect(after.recurring[2]).toMatchObject({
@@ -900,7 +931,7 @@ describe("repeating bills in Mahnee's export", () => {
         `2026-12-01,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${'4'.repeat(16)}\r\n`;
       await pickFile(user, csv(file, 'mahnee-2026-11-06.csv'));
       await screen.findByText(/Mahnee export/);
-      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(2));
       expect(server.recurring[1]).toMatchObject({
         accountId: MAYBANK,
@@ -988,7 +1019,9 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       ];
       const files = catchDownloads();
       renderApp(before, '/', { size });
-      const original = new TextDecoder().decode(await (await exportFromHome(files)).arrayBuffer());
+      const original = new TextDecoder().decode(
+        await (await exportFromSettings(files)).arrayBuffer(),
+      );
       expect(original).toContain(
         '2026-11-23,Repeating spent,Maybank,,1200.00,MYR,Bills,,Gym,"Weekly, day 1"',
       );
@@ -999,7 +1032,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       const user = await openImport();
       await pickFile(user, new File([original], 'mahnee-2026-11-06.csv', { type: 'text/csv' }));
       await screen.findByLabelText('Kind of Wallet');
-      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
       await waitFor(() => expect(after.recurring).toHaveLength(4));
       expect(after.recurring.map((r) => [r.payee, r.schedule, r.day, r.nextDue])).toEqual([
         ['Insurance', 'monthly', 1, '2027-01-01'],
@@ -1030,7 +1063,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
         fileOf(line({ date: '2026-11-06', payee: 'Laundry', schedule: '"Weekly, day 5"' })),
         size,
       );
-      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(1));
       expect(server.recurring[0]).toMatchObject({ nextDue: '2026-11-13', startDate: '2026-11-07' });
     },
@@ -1105,7 +1138,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       ] as const) {
         expect(screen.getByLabelText<HTMLInputElement>(`Import row ${n}`).checked).toBe(!saved);
       }
-      await user.click(screen.getByRole('button', { name: /^Import / }));
+      await user.click(screen.getByRole('button', { name: /^Import \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(9));
       expect(
         server.recurring.slice(4).map((r) => [r.accountId, r.kind, r.schedule, r.day, r.payee]),
@@ -1130,7 +1163,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
     const server = withAccounts();
     server.recurring = saved.map((more) => repeating(more));
     const user = await importing(server, fileOf(line(), line()), 'desktop');
-    await user.click(await screen.findByRole('button', { name: /^Import / }));
+    await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
     await waitFor(() => expect(server.recurring).toHaveLength(saved.length + added));
     await pause(50);
     expect(server.recurring).toHaveLength(saved.length + added);
@@ -1190,7 +1223,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
         size,
       );
       expect(await screen.findByText('CIMB is not an account here or in this file')).toBeTruthy();
-      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(4));
       const named = (name: string, parentId: string | null) =>
         server.categories.find((c) => c.name === name && c.parentId === parentId)?.id;
@@ -1225,7 +1258,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       expect(
         await screen.findByText('You can have up to 200 repeating items, stopped ones included'),
       ).toBeTruthy();
-      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(200));
       expect(server.recurring[199].payee).toBe('Water');
       await pause(50);
@@ -1246,7 +1279,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       );
       expect(await screen.findByText("Can't read the schedule")).toBeTruthy();
       expect(screen.getByLabelText<HTMLInputElement>('Import row 2').disabled).toBe(true);
-      await user.click(await screen.findByRole('button', { name: /^Import / }));
+      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(1));
       expect(server.recurring[0].payee).toBe('Water');
     },

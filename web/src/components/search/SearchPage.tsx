@@ -1,11 +1,11 @@
 import { Button, NativeSelect, TextInput } from '@mantine/core';
-import { CaretLeft, MagnifyingGlass } from '@phosphor-icons/react';
+import { MagnifyingGlass } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Account, Category, LedgerChange, Transaction } from '@shared/api';
 import { MAX_BULK_TRANSACTIONS } from '@shared/ledger';
 import type { SearchQuery } from '@shared/search';
 import { MAX_SEARCH_TEXT } from '@shared/search';
-import { goUp } from '../../hooks/useRoute';
+import { takeSearchFocus } from '../../hooks/useShortcuts';
 import { change } from '../../ledger/ledger';
 import { useAccounts, useCategories, useSearch } from '../../ledger/useLedger';
 import { dayHeading } from '../../utils/date-input';
@@ -29,7 +29,7 @@ const LOADING_ROWS = 5;
 
 const TOO_MANY = `You can change up to ${MAX_BULK_TRANSACTIONS} transactions at once`;
 
-// Search (?search): what's typed is found in payees, notes, category names and amounts on
+// Activity (?activity), for now today's search: what's typed is found in payees, notes, category names and amounts on
 // every account, newest first, narrowed by account, category and days (shared/search.ts).
 // Tap one to change it. Select (or a long press) ticks several, to move them to another
 // category or delete them in one change, after a preview, with Undo; up to
@@ -37,6 +37,8 @@ const TOO_MANY = `You can change up to ${MAX_BULK_TRANSACTIONS} transactions at 
 export default function SearchPage() {
   const { accounts } = useAccounts();
   const { categories, tree } = useCategories();
+  // Opened by / (hooks/useShortcuts.ts): the cursor starts in the search
+  const [searchFocused] = useState(takeSearchFocus);
   const [text, setText] = useState('');
   const [filters, setFilters] = useState<Omit<SearchQuery, 'q'>>({
     account: null,
@@ -145,17 +147,7 @@ export default function SearchPage() {
   return (
     <div className={classes.page}>
       <header className={classes.header}>
-        <Button
-          variant="subtle"
-          color="gray"
-          size="compact-md"
-          className={classes.back}
-          leftSection={<CaretLeft size={16} />}
-          onClick={() => goUp('')}
-        >
-          Home
-        </Button>
-        <h1 className={classes.title}>Search transactions</h1>
+        <h1 className={classes.title}>Activity</h1>
       </header>
 
       <section
@@ -165,6 +157,7 @@ export default function SearchPage() {
         <TextInput
           type="search"
           label="Search"
+          autoFocus={searchFocused}
           placeholder="Payee, note, category or amount"
           leftSection={<MagnifyingGlass size={16} />}
           maxLength={MAX_SEARCH_TEXT}

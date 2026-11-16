@@ -25,8 +25,8 @@ const LOADING_ROWS = 3;
 /** Every total here is in the one currency accounts are kept in for now */
 const money = (cents: number) => formatMoney(cents, DEFAULT_CURRENCY);
 
-/** Opens Home on `month`: this month's address names none */
-const showMonth = (month: string) => navigate(month >= thisMonth() ? '' : `?month=${month}`);
+/** Home's address for `month`: this month's names none */
+const homeAddress = (month: string | null) => (month == null ? '' : `?month=${month}`);
 
 // The top of Home: a month at a glance. What's left (received less spent) is the
 // largest number, then what was spent and received, then where the spending went, by
@@ -35,8 +35,16 @@ const showMonth = (month: string) => navigate(month >= thisMonth() ? '' : `?mont
 // place to their last 12 months, ending at the month shown. The arrows step between
 // months, up to this one; an earlier month is in the address (?month=2026-10), so Back
 // returns.
-export default function MonthCard({ month }: { month: string | null }) {
+export default function MonthCard({
+  month,
+  address = homeAddress,
+}: {
+  month: string | null;
+  /** The address of the page showing `month` (null for this one): Home's, or Plan's */
+  address?: (month: string | null) => string;
+}) {
   const current = thisMonth();
+  const showMonth = (to: string) => navigate(address(to >= current ? null : to));
   const shown = month ?? current;
   const { summary, failed, retry } = useMonthSummary(shown);
   // Read with the month, so it's there at once when a row is opened, and offline; the

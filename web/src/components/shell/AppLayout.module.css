@@ -1,0 +1,19 @@
+.layout {
+  min-height: 100dvh;
+}
+
+/* A computer's: the sidebar, then the page beside it */
+.layout[data-shell='sidebar'] {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  align-items: start;
+}
+
+.main {
+  min-width: 0;
+}
+
+/* Phones and tablets: the page's end scrolls clear of the tab bar */
+.layout[data-shell='tabs'] .main {
+  padding-bottom: var(--tabbar-h);
+}

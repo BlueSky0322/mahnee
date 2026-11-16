@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-16
+
+- Added: Home, Activity, Plan and Accounts a tap away in a tab bar or sidebar, with Settings [#?]
+
 ## 2026-11-15
 
 - Changed: a new look, on a paper ground in Geist with filled cobalt buttons [#22]

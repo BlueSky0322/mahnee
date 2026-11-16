@@ -265,7 +265,7 @@ export default function ImportPage() {
     if (tickedRows > 0) notifications.show({ message: `Imported ${toImport}` });
     if (plan.source === 'bank' && account != null) {
       navigate(`?account=${account.id}`, { replace: true });
-    } else goUp('');
+    } else goUp('?settings=data');
   }
 
   const update = (fn: (c: Choices) => void) =>
@@ -306,9 +306,9 @@ export default function ImportPage() {
           size="compact-md"
           className={classes.back}
           leftSection={<CaretLeft size={16} />}
-          onClick={() => goUp('')}
+          onClick={() => goUp('?settings=data')}
         >
-          Home
+          Import and export
         </Button>
         <h1 className={classes.title}>Import</h1>
       </header>

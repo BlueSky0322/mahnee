@@ -1598,3 +1598,32 @@ describe('Repeat, each way', () => {
     expect(server.recurring).toEqual([]);
   });
 });
+
+describe('focus once Add closes', () => {
+  test.each(SIZES)('stays where it went while Add is still closing (%s)', async (size) => {
+    renderApp(withAccounts(), '/', { size });
+    const user = userEvent.setup();
+    const form = await openAdd(user);
+    const close = form.getByRole('button', { name: 'Close, keeps what you typed as a draft' });
+    const elsewhere = screen.getAllByRole('link', { name: 'Activity', hidden: true })[0];
+    // Focus moves on the moment Add closes, before it would have handed focus back
+    act(() => close.click());
+    act(() => elsewhere.focus());
+    await act(() => new Promise((done) => setTimeout(done, 100)));
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  test.each(SIZES)('goes back to Add or New entry when nothing else took it (%s)', async (size) => {
+    renderApp(withAccounts(), '/', { size });
+    const user = userEvent.setup();
+    const form = await openAdd(user);
+    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', {
+          name: size === 'desktop' ? 'New entry' : 'Add',
+        }),
+      ),
+    );
+  });
+});

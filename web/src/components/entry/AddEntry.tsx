@@ -30,6 +30,7 @@ import { newId } from '../../utils/id';
 import { currencySymbol } from '../../utils/money';
 import { balanceText } from '../accounts/account-text';
 import Key from '../ui/Key';
+import { useReturnFocus } from '../ui/return-focus';
 import type { AddDraft } from './add-draft';
 import { dropDraft, keepDraft, readDraft } from './add-draft';
 import { LIMIT_TEXT, listedCategories, recentCategories, saveLabel } from './add-text';
@@ -64,10 +65,14 @@ export default function AddEntry({
   const isDesktop = useIsDesktop() === true;
   // Back closes it on phones and tablets, keeping the draft
   useBackDismiss(open != null, onClose, { tablets: true });
+  // Focus goes back to Add or New entry once it closes, unless it went somewhere since
+  const root = useReturnFocus(open != null);
 
   return (
     <Modal.Root
+      ref={root}
       opened={open != null}
+      returnFocus={false}
       onClose={onClose}
       fullScreen={!isDesktop}
       size={560}

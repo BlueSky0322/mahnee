@@ -7,6 +7,7 @@ import type { Profile } from '@shared/api';
 import { DEVICE_START_WAIT_MS } from '../profile/ProfileContext';
 import { LAST_EMAIL_KEY, OPENED_FROM_DEVICE, OPENED_SIGNED_OUT, SIGN_IN_PARAM } from './cache';
 import {
+  OFFLINE_NOTICE,
   type FakeServer,
   fakeServer,
   holdNext,
@@ -141,7 +142,8 @@ describe('starting with the server out of reach', () => {
     renderApp(server);
     await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ });
     await wait(100);
-    expect(screen.queryByText(/Updated .* ago/)).toBeNull();
+    expect(await screen.findByText('Up to date')).toBeTruthy();
+    expect(screen.queryByText(/^From this device/)).toBeNull();
 
     server.health = 'down';
     const done = openedFromDevice();
@@ -154,7 +156,8 @@ describe('starting with the server out of reach', () => {
       expect(
         await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ }),
       ).toBeTruthy();
-      expect(await screen.findByText(/Updated .* ago/)).toBeTruthy();
+      expect(await screen.findByText(/^From this device, .* old$/)).toBeTruthy();
+      expect(screen.queryByText('Up to date')).toBeNull();
     } finally {
       done();
     }
@@ -292,11 +295,7 @@ describe('starting once Access asks to sign in again', () => {
     try {
       renderApp(server);
       expect(await screen.findByText(RYAN)).toBeTruthy();
-      expect(
-        await screen.findByText(
-          "Offline. Changes are kept on this device and saved when you're back.",
-        ),
-      ).toBeTruthy();
+      expect(await screen.findByText(OFFLINE_NOTICE.desktop)).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
     } finally {
       onLine.mockRestore();

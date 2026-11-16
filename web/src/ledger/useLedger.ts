@@ -34,6 +34,7 @@ import {
   subscribeUnsaved,
   unsavedState,
 } from './ledger';
+import { queryClient } from '../query-client';
 
 // The ledger for the screens that show it (see ledger.ts, which changes it)
 
@@ -99,6 +100,17 @@ const pickLedger = (ledger: Ledger) => ledger;
 export function useWholeLedger(): Loaded<Ledger> {
   return useLedgerPart(pickLedger);
 }
+
+const subscribeLedgerShown = (listener: () => void) =>
+  queryClient.getQueryCache().subscribe(listener);
+const ledgerShown = () => queryClient.getQueryData(LEDGER_KEY) !== undefined;
+
+/**
+ * Whether the balances are showing yet, from the server or the device's copy, for what
+ * waits on them without showing them itself: it neither asks for them nor shows the copy
+ */
+export const useLedgerShown = (): boolean =>
+  useSyncExternalStore(subscribeLedgerShown, ledgerShown);
 
 /**
  * Changes made on this device the server hasn't saved yet (offline, say), and whether

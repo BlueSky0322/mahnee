@@ -1167,6 +1167,16 @@ export function fakeServer(): FakeServer {
 }
 
 /**
+ * The offline notice at each screen size, which names the device by its width as the
+ * layout does: a phone under 768px, a computer from 1024px, and in between a device
+ */
+export const OFFLINE_NOTICE = {
+  phone: 'Offline. Your changes are kept on this phone.',
+  tablet: 'Offline. Your changes are kept on this device.',
+  desktop: 'Offline. Your changes are kept on this computer.',
+} as const;
+
+/**
  * The button that opens a new entry: Add in the tab bar on phones and tablets, New entry
  * in the sidebar on computers
  */

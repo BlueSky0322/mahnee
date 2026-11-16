@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-16
 
+- Changed: the figures always say how fresh they are, and the offline and Undo messages have the new look [#?]
 - Added: Home, Activity, Plan and Accounts a tap away in a tab bar or sidebar, with Settings [#24]
 
 ## 2026-11-15

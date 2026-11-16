@@ -4,6 +4,8 @@ import type { ReactNode } from 'react';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { closeSettings, navigate } from '../../hooks/useRoute';
 import { useShortcuts } from '../../hooks/useShortcuts';
+import { thisMonth } from '../../utils/date-input';
+import { SettingsFooter } from '../common/Freshness';
 import { useConfirmSignOut } from '../common/useConfirmSignOut';
 import { useYou } from '../common/you';
 import Key from '../ui/Key';
@@ -11,7 +13,8 @@ import Skeleton, { Loading } from '../ui/Skeleton';
 import classes from './Settings.module.css';
 
 // Settings (?settings): who's signed in, then their data (Categories, and Import and
-// export), then Sign out. Each section opens today's page for it. It covers the places:
+// export), then Sign out, and at its foot how fresh the figures are ("Mahnee · Up to
+// date"). Each section opens today's page for it. It covers the places:
 // on phones and tablets it goes back Home; on a computer Close (or Esc) goes back to the
 // page it was opened over.
 export default function SettingsPage() {
@@ -107,6 +110,7 @@ export default function SettingsPage() {
       >
         Sign out
       </Button>
+      <SettingsFooter month={thisMonth()} />
       {dialog}
     </div>
   );

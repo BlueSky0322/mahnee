@@ -14,12 +14,14 @@ import { DEFAULT_CURRENCY } from '@shared/ledger';
 import type { CategoryKind } from '@shared/categories';
 import { CATEGORY_KINDS, siblingsOf } from '@shared/categories';
 import { goUp } from '../../hooks/useRoute';
+import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { useShortcuts } from '../../hooks/useShortcuts';
 import { change } from '../../ledger/ledger';
 import type { CategoryNode } from '../../ledger/category-tree';
 import { useCategories, useMonthSummary } from '../../ledger/useLedger';
 import { thisMonth } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
+import { SettingsFooter } from '../common/Freshness';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import CategoryForm, { type OpenCategory } from './CategoryForm';
 import { KIND_LABELS } from './category-text';
@@ -31,6 +33,8 @@ const LOADING_ROWS = 6;
 // The categories page: spending and income, each top-level category with its
 // subcategories under it. Tap one to rename, move or archive it, or set its monthly budget
 // (top-level spending ones); the arrows put it higher or lower among the ones beside it.
+// Its foot says how fresh the figures are: always on a computer, on phones and tablets when
+// not up to date.
 export default function CategoriesPage() {
   // Back, or Esc, goes up to Settings
   const toSettings = () => goUp('?settings');
@@ -38,6 +42,7 @@ export default function CategoriesPage() {
   const { categories, tree, failed, retry } = useCategories();
   const [open, setOpen] = useState<OpenCategory | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const isDesktop = useIsDesktop();
   // This month's budgets, as shown: null until known
   const { summary } = useMonthSummary(thisMonth());
   const budgets = summary == null ? null : summary.budgets ?? [];
@@ -160,6 +165,10 @@ export default function CategoriesPage() {
         </>
       )}
 
+      <SettingsFooter
+        month={thisMonth()}
+        onlyStale={!isDesktop}
+      />
       <CategoryForm
         open={open}
         categories={categories ?? []}

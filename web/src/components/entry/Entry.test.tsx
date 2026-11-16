@@ -6,6 +6,7 @@ import type { Account, ChangesBody, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
 import {
+  OFFLINE_NOTICE,
   addButton,
   fakeServer,
   holdNext,
@@ -24,7 +25,8 @@ setupAppTests();
 const SIZES = ['desktop', 'phone'] as const;
 const WALLET = 'a'.repeat(16);
 const BANK = 'b'.repeat(16);
-const OFFLINE = "Offline. Changes are kept on this device and saved when you're back.";
+const OFFLINE = OFFLINE_NOTICE.phone;
+const ONE_WAITING = 'Offline · 1 change waiting to save';
 const categoryId = (name: string) => DEFAULT_CATEGORIES.find((c) => c.name === name)!.id;
 
 function seedAccount(server: FakeServer, account: Partial<Account> & Pick<Account, 'id' | 'name'>) {
@@ -262,7 +264,8 @@ describe('adding from Home', () => {
     const form = await dialog();
     await user.type(form.getByLabelText('Amount'), '8');
     await user.click(form.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText(`${OFFLINE} 1 change waiting.`)).toBeTruthy();
+    expect(await screen.findByText(OFFLINE)).toBeTruthy();
+    expect(await screen.findByText(ONE_WAITING)).toBeTruthy();
 
     await reloadApp(server, '/', { size: 'phone' });
     expect(await accountRow('Wallet', 'RM 92.00')).toBeTruthy();
@@ -648,7 +651,8 @@ describe('moving money between accounts', () => {
     onTestFinished(() => onLine.mockRestore());
     act(() => void window.dispatchEvent(new Event('offline')));
     await addTransfer('100', 'Bank', 'TNG');
-    expect(await screen.findByText(`${OFFLINE} 1 change waiting.`)).toBeTruthy();
+    expect(await screen.findByText(OFFLINE)).toBeTruthy();
+    expect(await screen.findByText(ONE_WAITING)).toBeTruthy();
 
     await reloadApp(server, '/', { size: 'phone' });
     expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();

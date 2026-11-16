@@ -1,0 +1,55 @@
+// What the freshness label says: whether the figures shown are the server's and nothing is
+// waiting ("Up to date"), come from the copy kept on this device ("From this device, 3 h
+// old"), or changes wait to be saved ("Offline · 2 changes waiting to save")
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+/** How old something `ms` old is, in the label's short words: "5 min", "3 h", "2 d" */
+export function ageInWords(ms: number) {
+  if (ms < MINUTE_MS) return 'less than a minute';
+  if (ms < HOUR_MS) return `${Math.floor(ms / MINUTE_MS)} min`;
+  if (ms < DAY_MS) return `${Math.floor(ms / HOUR_MS)} h`;
+  return `${Math.floor(ms / DAY_MS)} d`;
+}
+
+/** "1 change", "2 changes" */
+const changes = (n: number) => `${n} ${n === 1 ? 'change' : 'changes'}`;
+
+export interface FreshnessState {
+  /** The browser has a connection */
+  online: boolean;
+  /** Changes made but not yet saved */
+  waiting: number;
+  /** Saving stopped until they sign in again */
+  signedOut: boolean;
+  /**
+   * When the server last confirmed the figures shown, while they come from this device's
+   * copy: 0 when that isn't known; null while they're fresh from the server
+   */
+  at: number | null;
+  now: number;
+}
+
+/**
+ * The label's words, and whether it's the fresh kind (the green dot). Changes waiting
+ * offline come first, so they're never out of sight; nothing is said to be saving while
+ * the figures are still the device's, since the server isn't answering then.
+ */
+export function freshnessText({ online, waiting, signedOut, at, now }: FreshnessState) {
+  const fromDevice =
+    at == null
+      ? null
+      : at === 0
+        ? 'From this device'
+        : `From this device, ${ageInWords(now - at)} old`;
+  let text: string;
+  if (!online && waiting > 0) text = `Offline · ${changes(waiting)} waiting to save`;
+  else if (!online) text = fromDevice ?? 'Offline';
+  else if (signedOut && waiting > 0) text = `Signed out · ${changes(waiting)} waiting to save`;
+  else if (fromDevice != null) text = fromDevice;
+  else if (waiting > 0) text = `Saving ${changes(waiting)}`;
+  else return { text: 'Up to date', fresh: true };
+  return { text, fresh: false };
+}

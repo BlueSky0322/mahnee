@@ -336,8 +336,9 @@ in the same change. What's typed is kept as a draft on the device when Add is cl
 way but Save (Close, Back, Esc, Cancel), and opens again as left; an Add with nothing typed
 keeps none. With "start with the category" (D9, `startWith`), Add opens on the category list.
 An RM 8 coffee with the defaults is: Add, 8, Save. An account's page lists its transactions
-newest first, grouped by day, 50 at a time with Load more; tapping one opens it in the
-same sheet to change it, or Delete it (with Undo, which adds it again with the same id).
+newest first, grouped by day, 50 at a time with Load more; tapping one opens it in its own
+sheet (EntrySheet, for changing only) to change it, payee and note apart, or Delete it
+(with Undo, which adds it again with the same id).
 A transfer shows on both its accounts' pages, as "To Visa" (−) on the one it left and
 "From Maybank" (+) on the one it reached. Any kind can become another if what that kind
 needs goes with it: a category of its kind for spending and income, the account it goes
@@ -829,7 +830,7 @@ else's never counted, refusals with their messages, a resend counted once, 500 a
 
 **What it is.** Bills and income that repeat, monthly on a day of the month (on a shorter
 month's last day past its end) or weekly on a weekday. Set one up with Repeat (Monthly or
-Weekly) under More in the entry sheet, adding or changing a transaction: it repeats on that
+Weekly) in Add, or under More on a transaction's own sheet when changing it: it repeats on that
 transaction's day of the month or weekday, and its first due date is the next one after
 the person's own today, so one set up from an old transaction never has the occurrences
 since due (they're taken as handled); one already set up keeps asking about each it missed,
@@ -872,7 +873,7 @@ shown, read through `useWholeLedger()`.
   items), [RecurringSheet.tsx](../web/src/components/home/RecurringSheet.tsx) and
   [recurring-text.ts](../web/src/components/home/recurring-text.ts) on
   [HomePage.tsx](../web/src/components/home/HomePage.tsx) (the month-end total on Plan
-  too); Repeat in
+  too); Repeat in [AddEntry.tsx](../web/src/components/entry/AddEntry.tsx) and
   [EntrySheet.tsx](../web/src/components/entry/EntrySheet.tsx).
 - API: read with the accounts (`readLedger` in
   [worker/ledger/read.ts](../worker/ledger/read.ts); `recurring` only for someone who has

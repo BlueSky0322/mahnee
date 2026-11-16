@@ -180,7 +180,7 @@ const checked = (group: HTMLElement) =>
 
 describe('the form', () => {
   test('on a phone: Close, Which way, the amount, From and For, the note, chips, the keypad', async () => {
-    renderApp(withAccounts(), '/', { size: 'phone' });
+    renderApp(withAccounts(), '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
 
@@ -238,7 +238,7 @@ describe('the form', () => {
   });
 
   test('on a computer: a dialog, New entry, with no keypad, the hint, Cancel and Save', async () => {
-    renderApp(withAccounts(), '/');
+    renderApp(withAccounts(), '/?plan');
     const user = userEvent.setup();
     await user.click(await addButton());
     const dialog = within(await screen.findByRole('dialog', { name: 'New entry' }));
@@ -261,7 +261,7 @@ describe('the form', () => {
   });
 
   test('on a tablet: the phone’s full-screen form, with the keypad', async () => {
-    renderApp(withAccounts(), '/', { size: 'tablet' });
+    renderApp(withAccounts(), '/?plan', { size: 'tablet' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     expect(form.getByRole('group', { name: 'Keypad' })).toBeTruthy();
@@ -272,7 +272,7 @@ describe('the form', () => {
 describe('the amount', () => {
   test.each(SIZES)('works out a sum in whole cents and saves its total (%s)', async (size) => {
     const server = withAccounts();
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
 
@@ -306,7 +306,7 @@ describe('the amount', () => {
 
   test('on a computer the amount takes the keys straight away, and Enter saves', async () => {
     const server = withAccounts();
-    renderApp(server, '/');
+    renderApp(server, '/?plan');
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.keyboard('6.4');
@@ -319,7 +319,7 @@ describe('the amount', () => {
   });
 
   test('on a computer the Amount takes a pasted figure, and passes over letters', async () => {
-    renderApp(withAccounts(), '/');
+    renderApp(withAccounts(), '/?plan');
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.paste('1,250.75');
@@ -333,7 +333,7 @@ describe('the amount', () => {
   });
 
   test('on a computer, keys typed in the note are the note’s, not the amount’s', async () => {
-    renderApp(withAccounts(), '/');
+    renderApp(withAccounts(), '/?plan');
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.keyboard('3');
@@ -347,7 +347,7 @@ describe('the amount', () => {
   });
 
   test.each(SIZES)('a total below zero can not be saved, and says so (%s)', async (size) => {
-    renderApp(withAccounts(), '/', { size });
+    renderApp(withAccounts(), '/?plan', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '3-5.5');
@@ -359,7 +359,7 @@ describe('the amount', () => {
   });
 
   test.each(SIZES)('a total of nothing can not be saved (%s)', async (size) => {
-    renderApp(withAccounts(), '/', { size });
+    renderApp(withAccounts(), '/?plan', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '4-4');
@@ -371,7 +371,7 @@ describe('the amount', () => {
     'refuses a key past the largest amount, and says what it is (%s)',
     async (size) => {
       const server = withAccounts();
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       const form = await openAdd(user);
       await typeAmount(user, form, '10000000');
@@ -397,7 +397,7 @@ describe('the amount', () => {
   );
 
   test('on a phone, Delete takes off one character, and holding it clears the amount', async () => {
-    renderApp(withAccounts(), '/', { size: 'phone' });
+    renderApp(withAccounts(), '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '45+6');
@@ -417,7 +417,7 @@ describe('From and For', () => {
   test.each(SIZES)('saves an expense from the account and category picked (%s)', async (size) => {
     const server = withAccounts();
     withCoffee(server);
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
 
@@ -443,7 +443,7 @@ describe('From and For', () => {
     'income: Into and From, + RM, its own chips, saved as income (%s)',
     async (size) => {
       const server = withAccounts();
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       const form = await openAdd(user);
       await user.click(form.getByRole('radio', { name: 'Income' }));
@@ -482,7 +482,7 @@ describe('From and For', () => {
     'a transfer: From and To with balances, no chips, Move RM (%s)',
     async (size) => {
       const server = withAccounts();
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       const form = await openAdd(user);
       await user.click(form.getByRole('radio', { name: 'Transfer' }));
@@ -518,7 +518,7 @@ describe('From and For', () => {
   test('with one account, a transfer says it needs another, and can not be moved', async () => {
     const server = fakeServer();
     seedAccount(server, { id: WALLET, name: 'Wallet' });
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.click(form.getByRole('radio', { name: 'Transfer' }));
@@ -529,7 +529,7 @@ describe('From and For', () => {
 
   test('From says "last used" for the account used last, and Add opens on it', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     // Nothing used yet: the first account, with no hint
@@ -540,7 +540,7 @@ describe('From and For', () => {
     await user.click(saveButton(form));
     await waitFor(() => expect(server.transactions).toHaveLength(1));
 
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     form = await openAdd(user);
     expect(form.getByRole('button', { name: /^From Bank/ }).textContent).toMatch(/last used/);
   });
@@ -548,7 +548,7 @@ describe('From and For', () => {
   test('opens on the account set as the one to use, when it is running', async () => {
     const server = withAccounts();
     server.me.settings = { ...server.me.settings, defaultAccountId: BANK };
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     expect(form.getByRole('button', { name: /^From Bank/ })).toBeTruthy();
@@ -564,7 +564,7 @@ describe('From and For', () => {
 
 describe('recent categories', () => {
   test('start as the first five of the kind, the one used last chosen', async () => {
-    renderApp(withAccounts(), '/', { size: 'phone' });
+    renderApp(withAccounts(), '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     const recent = form.getByRole('radiogroup', { name: 'Recent categories' });
@@ -579,7 +579,7 @@ describe('recent categories', () => {
   test.each(SIZES)('put the ones used on this device first, newest first (%s)', async (size) => {
     const server = withAccounts();
     withCoffee(server);
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
 
     for (const [pick, typed] of [
@@ -596,7 +596,7 @@ describe('recent categories', () => {
       );
     }
 
-    await reloadApp(server, '/', { size });
+    await reloadApp(server, '/?plan', { size });
     const form = await openAdd(user);
     const recent = form.getByRole('radiogroup', { name: 'Recent categories' });
     expect(
@@ -618,7 +618,7 @@ describe('recent categories', () => {
       ...c,
       archived: c.name === 'Transport',
     }));
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     const recent = form.getByRole('radiogroup', { name: 'Recent categories' });
@@ -633,7 +633,7 @@ describe('recent categories', () => {
 describe('Payee or note (D10)', () => {
   test.each(SIZES)('fills the payee, trimmed, and leaves the note empty (%s)', async (size) => {
     const server = withAccounts();
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '12');
@@ -647,7 +647,7 @@ describe('Payee or note (D10)', () => {
   });
 
   test('takes at most 80 characters, the longest payee', async () => {
-    renderApp(withAccounts(), '/', { size: 'phone' });
+    renderApp(withAccounts(), '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     expect(form.getByRole('textbox', { name: 'Payee or note' }).getAttribute('maxlength')).toBe(
@@ -670,7 +670,7 @@ describe('Payee or note (D10)', () => {
 describe('Today and Repeat', () => {
   test.each(SIZES)('Today picks another day, and the chip says which (%s)', async (size) => {
     const server = withAccounts();
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.click(form.getByRole('button', { name: 'Today' }));
@@ -691,7 +691,7 @@ describe('Today and Repeat', () => {
 
   test.each(SIZES)('Repeat sets it up to repeat monthly from its day (%s)', async (size) => {
     const server = withAccounts();
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '89');
@@ -723,7 +723,7 @@ describe('Today and Repeat', () => {
 describe('the draft', () => {
   test.each(SIZES)('Close keeps what was typed, and it opens again as left (%s)', async (size) => {
     const server = withAccounts();
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await user.click(form.getByRole('radio', { name: 'Income' }));
@@ -757,7 +757,7 @@ describe('the draft', () => {
   });
 
   test('Esc and Cancel on a computer keep the draft too', async () => {
-    renderApp(withAccounts(), '/');
+    renderApp(withAccounts(), '/?plan');
     const user = userEvent.setup();
     let form = await openAdd(user);
     await user.keyboard('21');
@@ -778,14 +778,14 @@ describe('the draft', () => {
 
   test('is kept on the device through a reload', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await typeAmount(user, form, '6.5');
     await user.type(form.getByRole('textbox', { name: 'Payee or note' }), 'Kopi');
     await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
 
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     form = await openAdd(user);
     expect(amount(form)).toBe('Amount, RM 6.50');
     expect(form.getByRole('textbox', { name: 'Payee or note' })).toHaveProperty('value', 'Kopi');
@@ -793,7 +793,7 @@ describe('the draft', () => {
 
   test.each(SIZES)('goes once saved: the next one starts fresh (%s)', async (size) => {
     const server = withAccounts();
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await typeAmount(user, form, '6');
@@ -813,7 +813,7 @@ describe('a new category from Add', () => {
     async (size) => {
       const server = withAccounts();
       seedTransaction(server, { payee: 'Kedai Mesra', categoryId: categoryId('Groceries') });
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       const form = await openAdd(user);
       await typeAmount(user, form, '14');
@@ -848,7 +848,7 @@ describe('a new category from Add', () => {
     const server = withAccounts();
     withCoffee(server);
     seedTransaction(server, { payee: 'Tealeaf Co', categoryId: COFFEE });
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.type(form.getByRole('textbox', { name: 'Payee or note' }), 'Tealeaf Co');
@@ -862,7 +862,7 @@ describe('a new category from Add', () => {
     'with no payee hint: its own category, or under another one picked (%s)',
     async (size) => {
       const server = withAccounts();
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       let form = await openAdd(user);
       await user.click(form.getByRole('button', { name: /^For Food/ }));
@@ -888,7 +888,7 @@ describe('a new category from Add', () => {
   );
 
   test('an income category is offered as its own income category', async () => {
-    renderApp(withAccounts(), '/', { size: 'phone' });
+    renderApp(withAccounts(), '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.click(form.getByRole('radio', { name: 'Income' }));
@@ -898,7 +898,7 @@ describe('a new category from Add', () => {
   });
 
   test('a name already there is found, not made again', async () => {
-    renderApp(withAccounts(), '/', { size: 'phone' });
+    renderApp(withAccounts(), '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.click(form.getByRole('button', { name: /^For Food/ }));
@@ -910,7 +910,7 @@ describe('a new category from Add', () => {
   });
 
   test('on a phone, the category page goes back to the entry with Entry and with Back', async () => {
-    renderApp(withAccounts(), '/', { size: 'phone' });
+    renderApp(withAccounts(), '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '2');
@@ -930,7 +930,7 @@ describe('a new category from Add', () => {
 
   test('made offline, it is kept through a reload and sent, before its entry, once back', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     await accountRow('Wallet', 'RM 70.00');
     server.health = 'unreachable';
@@ -946,7 +946,7 @@ describe('a new category from Add', () => {
     await user.click(saveButton(form));
     expect(await accountRow('Wallet', 'RM 40.00')).toBeTruthy();
 
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     expect(await accountRow('Wallet', 'RM 40.00')).toBeTruthy();
     server.health = 'up';
     onLine.mockReturnValue(true);
@@ -960,7 +960,7 @@ describe('a new category from Add', () => {
 
 describe('start with (D9)', () => {
   test('opens on the amount by default', async () => {
-    renderApp(withAccounts(), '/');
+    renderApp(withAccounts(), '/?plan');
     const user = userEvent.setup();
     const form = await openAdd(user);
     expect(screen.queryByLabelText('Find or create a category')).toBeNull();
@@ -973,7 +973,7 @@ describe('start with (D9)', () => {
     async (size) => {
       const server = withAccounts();
       server.me.settings = { ...server.me.settings, startWith: 'category' };
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       await user.click(await addButton());
       const search = await screen.findByLabelText('Find or create a category');
@@ -997,7 +997,7 @@ describe('saving', () => {
     const server = withAccounts();
     server.failNext.changes = { status: 409, error: 'Wallet is archived' };
     const held = holdNext(server, 'POST', '/api/changes');
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '5');
@@ -1016,7 +1016,7 @@ describe('saving', () => {
       const server = withAccounts();
       server.failNext.changes = { status: 409, error: 'Groceries has 50 subcategories' };
       const held = holdNext(server, 'POST', '/api/changes');
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       const form = await openAdd(user);
       await user.click(form.getByRole('button', { name: /^For Food/ }));
@@ -1043,7 +1043,7 @@ describe('saving', () => {
 
   test('the first change of all saves the default categories with it', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '5');
@@ -1056,7 +1056,7 @@ describe('saving', () => {
 describe('the day, by the person’s own clock', () => {
   test('Today is the local day, though it is still yesterday in UTC', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.click(form.getByRole('button', { name: 'Today' }));
@@ -1073,7 +1073,7 @@ describe('the day, by the person’s own clock', () => {
   test('left open past midnight, Today is the new day', async () => {
     const server = withAccounts();
     vi.setSystemTime(new Date(2026, 7, 19, 23, 59));
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '4');
@@ -1089,7 +1089,7 @@ describe('the day, by the person’s own clock', () => {
   });
 
   test.each(SIZES)('a day before 2000 or still to come can not be saved (%s)', async (size) => {
-    renderApp(withAccounts(), '/', { size });
+    renderApp(withAccounts(), '/?plan', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '8');
@@ -1108,7 +1108,7 @@ describe('the day, by the person’s own clock', () => {
 describe('the draft, everything in it', () => {
   test('keeps the account, category, day, repeat, note and amount', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await user.click(form.getByRole('button', { name: /^From Wallet/ }));
@@ -1125,7 +1125,7 @@ describe('the draft, everything in it', () => {
     await typeAmount(user, form, '28');
     await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
 
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     form = await openAdd(user);
     expect(form.getByRole('button', { name: /^From Bank/ })).toBeTruthy();
     expect(form.getByRole('button', { name: /^For Fun/ })).toBeTruthy();
@@ -1137,14 +1137,14 @@ describe('the draft, everything in it', () => {
 
   test('a draft left on Today opens on the new day once a day has passed', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await typeAmount(user, form, '5');
     await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
 
     vi.setSystemTime(new Date(2026, 7, 20, 9, 0));
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     form = await openAdd(user);
     expect(form.getByRole('button', { name: 'Today' })).toBeTruthy();
     await user.click(saveButton(form));
@@ -1155,7 +1155,7 @@ describe('the draft, everything in it', () => {
 
   test('an Add closed untouched keeps no draft, so last used still decides', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
@@ -1170,7 +1170,7 @@ describe('the draft, everything in it', () => {
   });
 
   test('a draft emptied by hand is no draft', async () => {
-    renderApp(withAccounts(), '/', { size: 'phone' });
+    renderApp(withAccounts(), '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await typeAmount(user, form, '9');
@@ -1183,7 +1183,7 @@ describe('the draft, everything in it', () => {
 
   test('a draft whose account or category has gone opens on what can be used, the rest kept', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await user.click(form.getByRole('button', { name: /^From Wallet/ }));
@@ -1196,7 +1196,7 @@ describe('the draft, everything in it', () => {
 
     server.accounts[1].archived = true;
     server.categories = DEFAULT_CATEGORIES.map((c) => ({ ...c, archived: c.name === 'Fun' }));
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     form = await openAdd(user);
     expect(form.getByRole('button', { name: /^From Wallet/ })).toBeTruthy();
     expect(form.getByRole('button', { name: /^For Food/ })).toBeTruthy();
@@ -1206,14 +1206,14 @@ describe('the draft, everything in it', () => {
 
   test('another person signing in on this device never sees it', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await typeAmount(user, form, '13');
     await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
 
     server.me = { ...server.me, email: 'other@example.com' };
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     form = await openAdd(user);
     expect(amount(form)).toBe('Amount, RM 0.00');
   });
@@ -1237,7 +1237,7 @@ describe('which account Add opens on', () => {
 
   test('the account set to use, archived or unknown, gives way to the one used last', async () => {
     const server = withThree();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await user.click(form.getByRole('button', { name: /^From Wallet/ }));
@@ -1249,7 +1249,7 @@ describe('which account Add opens on', () => {
     for (const setting of [WALLET, '9'.repeat(16)]) {
       server.accounts[0].archived = setting === WALLET;
       server.me.settings = { ...server.me.settings, defaultAccountId: setting };
-      await reloadApp(server, '/', { size: 'phone' });
+      await reloadApp(server, '/?plan', { size: 'phone' });
       form = await openAdd(user);
       expect(form.getByRole('button', { name: /^From Bank/ }).textContent).toMatch(/last used/);
       await user.click(
@@ -1260,7 +1260,7 @@ describe('which account Add opens on', () => {
 
   test('the one used last, archived since, gives way to the first in use', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await user.click(form.getByRole('button', { name: /^From Wallet/ }));
@@ -1269,21 +1269,21 @@ describe('which account Add opens on', () => {
     await user.click(saveButton(form));
     await waitFor(() => expect(server.transactions).toHaveLength(1));
     server.accounts[1].archived = true;
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     form = await openAdd(user);
     expect(form.getByRole('button', { name: /^From Wallet/ }).textContent).not.toMatch(/last used/);
   });
 
   test('says no "last used" when the account set to use decided', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await typeAmount(user, form, '2');
     await user.click(saveButton(form));
     await waitFor(() => expect(server.transactions).toHaveLength(1));
     server.me.settings = { ...server.me.settings, defaultAccountId: BANK };
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     form = await openAdd(user);
     expect(form.getByRole('button', { name: /^From Bank/ }).textContent).not.toMatch(/last used/);
   });
@@ -1316,7 +1316,7 @@ describe('which account Add opens on', () => {
   test('income opens on its own category, whatever spending used last', async () => {
     const server = withAccounts();
     withCoffee(server);
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await user.click(form.getByRole('button', { name: /^For Food/ }));
@@ -1334,7 +1334,7 @@ describe('which account Add opens on', () => {
 
   test('a transfer offers the account moved to last, never the one it comes from', async () => {
     const server = withThree();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
     await user.click(form.getByRole('radio', { name: 'Transfer' }));
@@ -1360,7 +1360,7 @@ describe('which account Add opens on', () => {
 
 describe('keys and dialogs', () => {
   test('Enter on a computer’s From row opens its list and saves nothing', async () => {
-    renderApp(withAccounts(), '/');
+    renderApp(withAccounts(), '/?plan');
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '5');
@@ -1372,7 +1372,7 @@ describe('keys and dialogs', () => {
   });
 
   test('Esc with the category list open closes the list first, not Add', async () => {
-    renderApp(withAccounts(), '/');
+    renderApp(withAccounts(), '/?plan');
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '5');
@@ -1404,7 +1404,7 @@ describe('keys and dialogs', () => {
 
 describe('a new category, within the limits', () => {
   test('a name is at most 40 characters, the longest a category can have', async () => {
-    renderApp(withAccounts(), '/', { size: 'phone' });
+    renderApp(withAccounts(), '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.click(form.getByRole('button', { name: /^For Food/ }));
@@ -1426,7 +1426,7 @@ describe('a new category, within the limits', () => {
       });
     }
     seedTransaction(server, { payee: 'Kedai Mesra', categoryId: categoryId('Groceries') });
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.type(form.getByRole('textbox', { name: 'Payee or note' }), 'Kedai Mesra');
@@ -1453,7 +1453,7 @@ describe('a new category, within the limits', () => {
         archived: true,
       });
     }
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.click(form.getByRole('button', { name: /^For Food/ }));
@@ -1467,7 +1467,7 @@ describe('a new category, within the limits', () => {
   test('a name an archived category has is not made again: it says so', async () => {
     const server = withAccounts();
     server.categories = DEFAULT_CATEGORIES.map((c) => ({ ...c, archived: c.name === 'Fun' }));
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.click(form.getByRole('button', { name: /^For Food/ }));
@@ -1484,7 +1484,7 @@ describe('a new category, within the limits', () => {
     async (how) => {
       const server = withAccounts();
       seedTransaction(server, { payee: 'Kedai Mesra', categoryId: categoryId('Groceries') });
-      renderApp(server, '/', { size: 'phone' });
+      renderApp(server, '/?plan', { size: 'phone' });
       const user = userEvent.setup();
       await accountRow('Wallet', 'RM 57.00');
       if (how === 'down') server.pathsDown.add('/api/payee-categories');
@@ -1513,7 +1513,7 @@ describe('the category list', () => {
     const server = withAccounts();
     withCoffee(server);
     server.categories = server.categories.map((c) => ({ ...c, archived: c.name === 'Health' }));
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     for (const pick of ['Fun', 'Food › Coffee']) {
       const form = await openAdd(user);
@@ -1541,7 +1541,7 @@ describe('the category list', () => {
 describe('Repeat, each way', () => {
   test('weekly repeats on the weekday of the day picked, next after today', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '15');
@@ -1562,7 +1562,7 @@ describe('Repeat, each way', () => {
 
   test('from an earlier day, the first due is the next after today, not after that day', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '15');
@@ -1581,7 +1581,7 @@ describe('Repeat, each way', () => {
 
   test("Doesn't repeat, chosen after Monthly, sets nothing up", async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '15');
@@ -1599,7 +1599,7 @@ describe('Repeat, each way', () => {
 
 describe('focus once Add closes', () => {
   test.each(SIZES)('stays where it went while Add is still closing (%s)', async (size) => {
-    renderApp(withAccounts(), '/', { size });
+    renderApp(withAccounts(), '/?plan', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
     const close = form.getByRole('button', { name: 'Close, keeps what you typed as a draft' });
@@ -1617,7 +1617,7 @@ describe('focus once Add closes', () => {
   });
 
   test.each(SIZES)('goes back to Add or New entry when nothing else took it (%s)', async (size) => {
-    renderApp(withAccounts(), '/', { size });
+    renderApp(withAccounts(), '/?plan', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));

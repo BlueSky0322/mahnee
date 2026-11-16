@@ -139,7 +139,8 @@ describe('exporting', () => {
   test("offline, can't download, and says what is still being saved", async () => {
     const server = withHistory();
     renderApp(server, '/', { size: 'phone' });
-    await screen.findByText('Wallet');
+    // The accounts are in once the places show
+    await screen.findByRole('navigation', { name: 'Main' });
     const backOnline = goOffline(server);
     await addEntry('8');
 

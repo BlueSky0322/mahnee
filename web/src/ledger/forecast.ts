@@ -1,5 +1,5 @@
 import type { Ledger, Recurring } from '@shared/api';
-import { monthEnd, nextAfter } from '@shared/recurring';
+import { monthEnd, nextAfter, onOrAfter } from '@shared/recurring';
 
 // What's expected at the end of this month, and what's due now, worked out from one copy of
 // the ledger (balances and repeating items read together), so a log is never counted in
@@ -29,6 +29,10 @@ export interface Forecast {
   cents: number;
   /** Today's balances of every listed account */
   balancesCents: number;
+  /** The bills still due this month, in total (0 or more) */
+  billsCents: number;
+  /** The income still due this month, in total (0 or more) */
+  payCents: number;
   /** Each occurrence still due this month, by day */
   items: StillDue[];
 }
@@ -69,11 +73,47 @@ export function monthEndForecast(ledger: Ledger, today: string): Forecast {
     }
   }
   const sorted = byDay(items);
+  const billsCents = sorted.reduce((sum, item) => sum + (item.cents < 0 ? -item.cents : 0), 0);
+  const payCents = sorted.reduce((sum, item) => sum + (item.cents > 0 ? item.cents : 0), 0);
   return {
-    cents: sorted.reduce((sum, item) => sum + item.cents, balancesCents),
+    cents: balancesCents - billsCents + payCents,
     balancesCents,
+    billsCents,
+    payCents,
     items: sorted,
   };
+}
+
+/** One listed item's next day after today, as Home's Coming up lists it */
+export interface Upcoming {
+  recurring: Recurring;
+  date: string;
+}
+
+/** The day after a calendar day (2026-11-30 -> 2026-12-01), worked from its digits */
+function dayAfter(date: string) {
+  const [y, m, d] = date.split('-').map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  return next.toISOString().slice(0, 10);
+}
+
+/**
+ * Each listed item's next day after `today` (one due today or overdue moves on to the one
+ * after today; that one is still asked about as due now), soonest first, at most `count`.
+ * Transfers are listed too: they're scheduled, though they change no total.
+ */
+export function comingUp(ledger: Ledger, today: string, count: number): Upcoming[] {
+  const after = dayAfter(today);
+  const next = (ledger.recurring ?? [])
+    .filter((r) => active(ledger, r))
+    .map((recurring) => ({
+      recurring,
+      date:
+        recurring.nextDue > today
+          ? recurring.nextDue
+          : onOrAfter(recurring.schedule, recurring.day, after),
+    }));
+  return byDay(next).slice(0, count);
 }
 
 /** Every listed item due now (next due `today` or before), oldest first */
@@ -87,3 +127,13 @@ export function dueNow(ledger: Ledger, today: string): DueNow[] {
 
 /** Whether anything repeats: listed items, whether due or not */
 export const anyRepeating = (ledger: Ledger) => (ledger.recurring ?? []).some((r) => !r.archived);
+
+/** The listed income item next due (overdue or not), for Home's "Salary due Nov 25"; null for none */
+export function nextPay(ledger: Ledger): DueNow | null {
+  const pay = byDay(
+    (ledger.recurring ?? [])
+      .filter((r) => r.kind === 'income' && active(ledger, r))
+      .map((recurring) => ({ recurring, date: recurring.nextDue })),
+  )[0];
+  return pay == null ? null : { recurring: pay.recurring, due: pay.date };
+}

@@ -22,8 +22,8 @@ import { KIND_LABELS, openingText, readOpening } from './account-text';
 import classes from './Accounts.module.css';
 
 interface AccountFormProps {
-  /** What's open: a new account, or one to change */
-  open: { account: Account | null } | null;
+  /** What's open: a new account (of `kind` to start with, when given), or one to change */
+  open: { account: Account | null; kind?: AccountKind } | null;
   /** How many accounts there are, archived ones included */
   count: number;
   onClose: () => void;
@@ -44,6 +44,7 @@ export default function AccountForm({ open, count, onClose }: AccountFormProps) 
           // A fresh form for each account opened
           key={open.account?.id ?? 'new'}
           account={open.account}
+          startKind={open.kind}
           count={count}
           onDone={onClose}
         />
@@ -54,15 +55,17 @@ export default function AccountForm({ open, count, onClose }: AccountFormProps) 
 
 function Fields({
   account,
+  startKind,
   count,
   onDone,
 }: {
   account: Account | null;
+  startKind?: AccountKind;
   count: number;
   onDone: () => void;
 }) {
   const [name, setName] = useState(account?.name ?? '');
-  const [kind, setKind] = useState<AccountKind>(account?.kind ?? 'cash');
+  const [kind, setKind] = useState<AccountKind>(account?.kind ?? startKind ?? 'cash');
   const [amount, setAmount] = useState(account ? openingText(account.openingCents, kind) : '');
   const [nameError, setNameError] = useState<string | null>(null);
   const [amountError, setAmountError] = useState<string | null>(null);

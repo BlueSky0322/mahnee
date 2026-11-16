@@ -113,24 +113,17 @@ describe('addresses', () => {
   test("Home keeps its month: an earlier one at ?month=, its arrows on Home's address", async () => {
     onTheSixth();
     renderApp(withWallet(), '/?month=2026-10');
-    const month = within(await screen.findByRole('region', { name: 'October 2026' }));
-    // And its accounts, until Home is rebuilt (piece 5)
-    expect(await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ })).toBeTruthy();
+    const month = (name: string) => screen.findByRole('heading', { level: 1, name });
+    const arrow = (name: 'Previous month' | 'Next month') => screen.getByRole('button', { name });
+    expect(await month('October 2026')).toBeTruthy();
     const user = userEvent.setup();
-    await user.click(month.getByRole('button', { name: 'Previous month' }));
-    expect(await screen.findByRole('region', { name: 'September 2026' })).toBeTruthy();
+    await user.click(arrow('Previous month'));
+    expect(await month('September 2026')).toBeTruthy();
     expect(window.location.search).toBe('?month=2026-09');
-    await user.click(
-      within(screen.getByRole('region', { name: 'September 2026' })).getByRole('button', {
-        name: 'Next month',
-      }),
-    );
-    await user.click(
-      within(await screen.findByRole('region', { name: 'October 2026' })).getByRole('button', {
-        name: 'Next month',
-      }),
-    );
-    expect(await screen.findByRole('region', { name: 'November 2026' })).toBeTruthy();
+    await user.click(arrow('Next month'));
+    expect(await month('October 2026')).toBeTruthy();
+    await user.click(arrow('Next month'));
+    expect(await month('November 2026')).toBeTruthy();
     expect(window.location.search).toBe('');
   });
 

@@ -453,7 +453,8 @@ describe('deleting several', () => {
     await waitFor(() => expect(server.transactions).toHaveLength(3));
     const resend = holdNext(server, 'POST', '/api/changes');
 
-    await goToPlace('Home');
+    // The balances and the month's card are both on Plan for now
+    await goToPlace('Plan');
     const walletBalance = () =>
       screen
         .queryByRole('button', { name: /^Wallet,/ })

@@ -23,7 +23,7 @@ function seed(server: FakeServer, account: Partial<Account> & Pick<Account, 'id'
   });
 }
 
-/** The account's row on Home, found by its name */
+/** The account's row in today's list (on Plan until it's rebuilt), found by its name */
 const homeRow = (name: string) => screen.findByRole('button', { name: new RegExp(`^${name},`) });
 
 /** The account's row on Accounts (?accounts), found by its name */
@@ -56,7 +56,7 @@ const saves = () =>
     .mocked(fetch)
     .mock.calls.filter(([path, init]) => path === '/api/changes' && init?.method === 'POST').length;
 
-/** Waits for an account's row on Home to show this kind and balance, read out and drawn */
+/** Waits for an account's row in today's list (Plan) to show this kind and balance */
 async function showsOnHome(name: string, kind: string, balance: string) {
   const found = await screen.findByRole('button', { name: `${name}, ${kind}, ${balance}` });
   expect(within(found).getByText(balance)).toBeTruthy();
@@ -77,7 +77,7 @@ const listed = async (group: string) =>
 describe('accounts', () => {
   test.each(SIZES)('adds the first account and shows its balance (%s)', async (size) => {
     const server = fakeServer();
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));
@@ -98,10 +98,10 @@ describe('accounts', () => {
   test('shows placeholders until the accounts arrive, never the empty list first', async () => {
     const server = fakeServer();
     const held = holdNext(server, 'GET', '/api/accounts');
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     expect(await screen.findByText('Loading your accounts')).toBeTruthy();
-    // Long enough for anything else to have loaded: who's signed in, on the initial
-    await screen.findByRole('link', { name: 'You and settings' });
+    // Long enough for anything else to have loaded (who's signed in)
+    await act(() => new Promise((r) => setTimeout(r, 100)));
     expect(screen.queryByText('Add your first account')).toBeNull();
 
     held.release();
@@ -112,7 +112,7 @@ describe('accounts', () => {
   test.each(SIZES)("shows what's owed on a card (%s)", async (size) => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));
@@ -184,7 +184,7 @@ describe('accounts', () => {
 
   test('says what is wrong with a name or amount, and saves nothing', async () => {
     const server = fakeServer();
-    renderApp(server);
+    renderApp(server, '/?plan');
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));

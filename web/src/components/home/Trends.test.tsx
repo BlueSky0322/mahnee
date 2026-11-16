@@ -184,7 +184,7 @@ describe('spending over time on the month card', () => {
     'opens Food to its subcategories, then its last 12 months, with the average of the 11 before (%s)',
     async (size) => {
       onTheSixth();
-      renderApp(withAYear(), '/', { size });
+      renderApp(withAYear(), '/?plan', { size });
       const user = userEvent.setup();
       const card = await monthCard('November 2026');
       await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 16.00'));
@@ -220,7 +220,7 @@ describe('spending over time on the month card', () => {
     'opens a category without subcategories to its last 12 months alone (%s)',
     async (size) => {
       onTheSixth();
-      renderApp(withAYear(), '/', { size });
+      renderApp(withAYear(), '/?plan', { size });
       const user = userEvent.setup();
       const card = await monthCard('November 2026');
 
@@ -243,7 +243,7 @@ describe('spending over time on the month card', () => {
     'opens Spent to all spending over 12 months, never counting money moved between accounts (%s)',
     async (size) => {
       onTheSixth();
-      renderApp(withAYear(), '/', { size });
+      renderApp(withAYear(), '/?plan', { size });
       const user = userEvent.setup();
       const card = await monthCard('November 2026');
       await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 16.00'));
@@ -276,7 +276,7 @@ describe('spending over time on the month card', () => {
     'opens Received to income by category and all income over 12 months, and an income category to its own (%s)',
     async (size) => {
       onTheSixth();
-      renderApp(withAYear(), '/', { size });
+      renderApp(withAYear(), '/?plan', { size });
       const user = userEvent.setup();
       const card = await monthCard('November 2026');
       await waitFor(() => expect(figure(card, 'Received')).toBe('RM 50.00'));
@@ -307,14 +307,14 @@ describe('spending over time on the month card', () => {
     'steps back two months: the 12 months end there, compared with the 11 before (%s)',
     async (size) => {
       onTheSixth();
-      renderApp(withAYear(), '/', { size });
+      renderApp(withAYear(), '/?plan', { size });
       const user = userEvent.setup();
       let card = await monthCard('November 2026');
       await user.click(card.getByRole('button', { name: 'Previous month' }));
       card = await monthCard('October 2026');
       await user.click(card.getByRole('button', { name: 'Previous month' }));
       card = await monthCard('September 2026');
-      expect(window.location.search).toBe('?month=2026-09');
+      expect(window.location.search).toBe('?plan&month=2026-09');
       await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 0.00'));
 
       // Nothing spent in September, and Spent still opens
@@ -351,7 +351,7 @@ describe('spending over time on the month card', () => {
 
   test.each(SIZES)('opens Spent and Received in a year with nothing in it (%s)', async (size) => {
     onTheSixth();
-    renderApp(withAccounts(), '/', { size });
+    renderApp(withAccounts(), '/?plan', { size });
     const user = userEvent.setup();
     const card = await monthCard('November 2026');
     expect(await card.findByText('Nothing spent or received in November yet.')).toBeTruthy();
@@ -379,7 +379,7 @@ describe('spending over time on the month card', () => {
     ]) {
       seed(server, { amountCents: 1_000, categoryId: categoryId('Fun'), date: `${month}-01` });
     }
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const card = await monthCard('November 2026');
 
@@ -394,7 +394,7 @@ describe('spending over time on the month card', () => {
   test('counts spending added offline in the month it is on, through a reload, and once saved', async () => {
     onTheSixth();
     const server = withAYear();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let card = await monthCard('November 2026');
     await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 16.00'));
@@ -433,7 +433,7 @@ describe('spending over time on the month card', () => {
     );
 
     // Opened again offline: the 12 months kept on the device, with the changes still to send
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     card = await monthCard('November 2026');
     await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 24.00'));
     await user.click(card.getByRole('button', { name: /^Spent/ }));
@@ -463,7 +463,7 @@ describe('spending over time on the month card', () => {
     'opens Received in a month with no income to the income of the months before (%s)',
     async (size) => {
       onTheSixth();
-      renderApp(withAYear(), '/', { size });
+      renderApp(withAYear(), '/?plan', { size });
       const user = userEvent.setup();
       let card = await monthCard('November 2026');
       await user.click(card.getByRole('button', { name: 'Previous month' }));
@@ -501,7 +501,7 @@ describe('spending over time on the month card', () => {
     onTheSixth();
     const server = withAYear();
     server.pathsDown.add('/api/summary/trend');
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const card = await monthCard('November 2026');
     await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 16.00'));
@@ -530,7 +530,7 @@ describe('spending over time on the month card', () => {
     const server = withAYear();
     // November's 12 months answer only after October's
     const november = holdNext(server, 'GET', '/api/summary/trend');
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let card = await monthCard('November 2026');
     await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 16.00'));
@@ -583,7 +583,7 @@ describe('spending over time on the month card', () => {
 
   test('closes a row on a second tap, leaving the others open', async () => {
     onTheSixth();
-    renderApp(withAYear(), '/', { size: 'phone' });
+    renderApp(withAYear(), '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     const card = await monthCard('November 2026');
 

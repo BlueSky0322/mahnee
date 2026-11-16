@@ -109,7 +109,7 @@ describe('the month on Home', () => {
         archived: false,
       });
       seed(server, { kind: 'transfer', toAccountId: BANK, amountCents: 40_000, categoryId: null });
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
 
       const card = await monthCard(NOW);
@@ -144,7 +144,7 @@ describe('the month on Home', () => {
       amountCents: 10_000,
       categoryId: categoryId('Salary'),
     });
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
 
     let card = await monthCard(NOW);
@@ -156,7 +156,7 @@ describe('the month on Home', () => {
 
     await user.click(card.getByRole('button', { name: 'Previous month' }));
     card = await monthCard(BEFORE);
-    expect(window.location.search).toBe(`?month=${BEFORE}`);
+    expect(window.location.search).toBe(`?plan&month=${BEFORE}`);
     await waitFor(() => expect(figure(card, `Left in ${monthName(BEFORE)}`)).toBe('RM 80.00'));
     expect(rows(card.getByRole('list', { name: 'Spending by category' }))).toEqual([
       'Fun, RM 20.00',
@@ -174,14 +174,14 @@ describe('the month on Home', () => {
     // Forward again to this month, whose address names no month
     await user.click(card.getByRole('button', { name: 'Next month' }));
     await monthCard(NOW);
-    expect(window.location.search).toBe('');
+    expect(window.location.search).toBe('?plan');
   });
 
   test('says plainly when more was spent than came in', async () => {
     const server = withWallet();
     seed(server, { amountCents: 1_500 });
     seed(server, { kind: 'income', amountCents: 1_000, categoryId: categoryId('Salary') });
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
 
     const card = await monthCard(NOW);
     await waitFor(() => expect(figure(card, 'Over this month')).toBe('−RM 5.00'));
@@ -191,11 +191,12 @@ describe('the month on Home', () => {
   test('shows placeholders until the month arrives, never the empty month first', async () => {
     const server = withWallet();
     const held = holdNext(server, 'GET', '/api/summary');
-    renderApp(server);
+    renderApp(server, '/?plan');
 
     const card = await monthCard(NOW);
     expect(card.getByText('Loading this month')).toBeTruthy();
-    await screen.findByRole('button', { name: /^Wallet/ });
+    // The accounts are in once the places show
+    await screen.findByRole('navigation', { name: 'Main' });
     expect(card.queryByText(/Nothing spent/)).toBeNull();
     held.release();
     expect(
@@ -208,7 +209,7 @@ describe('the month on Home', () => {
     'counts each change at once while an earlier one is still being saved (%s)',
     async (size) => {
       const server = withFoodAndSalary();
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const card = await monthCard(NOW);
       await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 11.00'));
       const spend = async (amount: string) => {
@@ -238,7 +239,7 @@ describe('the month on Home', () => {
 
   test('counts spending added offline at once, through a reload, and once saved', async () => {
     const server = withFoodAndSalary();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     let card = await monthCard(NOW);
     await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 11.00'));
@@ -257,7 +258,7 @@ describe('the month on Home', () => {
     ]);
 
     // Opened again offline: the month kept on the device, with the change still to send
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     card = await monthCard(NOW);
     await waitFor(() => expect(figure(card, 'Spent')).toBe('RM 19.00'));
     expect(server.transactions).toHaveLength(3);

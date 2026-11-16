@@ -118,14 +118,14 @@ const sentTransactions = () =>
 describe('adding from Home', () => {
   test('has no Add until there is an account to put it on', async () => {
     const server = fakeServer();
-    renderApp(server);
+    renderApp(server, '/?plan');
     expect(await screen.findByText('Add your first account')).toBeTruthy();
     expect(queryAddButton()).toBeNull();
   });
 
   test('keeps one added offline through a reload, and saves it once back', async () => {
     const server = withAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     // The account's page was seen once, so its first page is kept on the device
     await user.click(await accountRow('Wallet', 'RM 100.00'));
@@ -141,7 +141,7 @@ describe('adding from Home', () => {
     expect(await screen.findByText(OFFLINE)).toBeTruthy();
     expect(await screen.findByText(ONE_WAITING)).toBeTruthy();
 
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     expect(await accountRow('Wallet', 'RM 92.00')).toBeTruthy();
     // Its page shows it too, from what the device kept
     await user.click(await accountRow('Wallet', 'RM 92.00'));
@@ -177,7 +177,7 @@ describe("an account's page", () => {
         amountCents: 320,
       });
       seedTransaction(server, { accountId: BANK, amountCents: 999 });
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
 
       await user.click(await accountRow('Wallet', 'RM 138.80'));
@@ -404,7 +404,7 @@ describe('moving money between accounts', () => {
     'tops up an e-wallet by RM 100 from the bank, then spends RM 30 from it (%s)',
     async (size) => {
       const server = withTransferAccounts();
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
 
       await addTransfer('100', 'Bank', 'TNG');
@@ -443,7 +443,7 @@ describe('moving money between accounts', () => {
 
   test('pays the card from the bank, lowering what is owed on it', async () => {
     const server = withTransferAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
 
     await addTransfer('200', 'Bank', 'Visa');
@@ -515,7 +515,7 @@ describe('moving money between accounts', () => {
 
   test('keeps a transfer made offline through a reload, and saves it once back', async () => {
     const server = withTransferAccounts();
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     // The e-wallet's page was seen once, so its first page is kept on the device
     await user.click(await accountRow('TNG', 'RM 0.00'));
@@ -531,7 +531,7 @@ describe('moving money between accounts', () => {
     expect(await screen.findByText(OFFLINE)).toBeTruthy();
     expect(await screen.findByText(ONE_WAITING)).toBeTruthy();
 
-    await reloadApp(server, '/', { size: 'phone' });
+    await reloadApp(server, '/?plan', { size: 'phone' });
     expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();
     // The e-wallet's page shows it coming in, from what the device kept
     await user.click(await accountRow('TNG', 'RM 100.00'));

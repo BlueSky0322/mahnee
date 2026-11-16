@@ -201,7 +201,7 @@ describe('repeating bills and income on Home', () => {
     async (size) => {
       onTheSixth();
       const server = withAccounts(everything());
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
 
       const rent = await screen.findByText(/Due: Rent/);
       expect(rent.textContent).toBe('Due: Rent RM 1,200.00 from Maybank');
@@ -243,7 +243,7 @@ describe('repeating bills and income on Home', () => {
         CARD_PAYMENT('2026-11-02'),
         repeating(null, { amountCents: 10_000, day: 3, nextDue: '2026-11-03' }),
       ]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       expect(await screen.findByText('Due: Salary RM 5,000.00 into Maybank')).toBeTruthy();
       expect(screen.getByText('Due: Card payment RM 300.00 from Maybank to Visa')).toBeTruthy();
       expect(screen.getByText('Due: Bills RM 100.00 from Maybank')).toBeTruthy();
@@ -255,7 +255,7 @@ describe('repeating bills and income on Home', () => {
     async (size) => {
       onTheSixth();
       const server = withAccounts(everything());
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
 
       await screen.findByText(/Expected at month end/);
@@ -305,7 +305,7 @@ describe('repeating bills and income on Home', () => {
       [repeating('Rent', { amountCents: 120_000, day: 20, nextDue: '2026-11-20' })],
       60_000,
     );
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     // RM 600 less RM 500 owed, less RM 1,200
     await waitFor(() => expect(expected()).toBe(total('−RM 1,100.00')));
     expect(screen.getByText(/RM 1,100\.00 below zero/)).toBeTruthy();
@@ -313,7 +313,7 @@ describe('repeating bills and income on Home', () => {
 
   test.each(SIZES)('is not shown while nothing repeats (%s)', async (size) => {
     onTheSixth();
-    renderApp(withAccounts([]), '/', { size });
+    renderApp(withAccounts([]), '/?plan', { size });
     await screen.findByRole('button', { name: /^Maybank,/ });
     await pause(100);
     expect(screen.queryByText(/Expected at month end/)).toBeNull();
@@ -324,7 +324,7 @@ describe('repeating bills and income on Home', () => {
     async (size) => {
       onTheSixth();
       const server = withAccounts([RENT(), NETFLIX()]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       // RM 3,000 less RM 500 owed, less Netflix RM 55 and Rent RM 1,200 (due now, still to pay).
       // Logged, Rent moves from what's still due into the balance: the total holds steady.
@@ -361,7 +361,7 @@ describe('repeating bills and income on Home', () => {
     async (size) => {
       onTheSixth();
       const server = withAccounts([PHONE(), NETFLIX()]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       // RM 3,000 less RM 500 owed, less Netflix RM 55 and Phone RM 80 (due now)
       await waitFor(() => expect(expected()).toBe(total('RM 2,365.00')));
@@ -388,7 +388,7 @@ describe('repeating bills and income on Home', () => {
       onTheSixth();
       // Due Monday 26 Oct and Monday 2 Nov; the next, Monday 9 Nov, isn't due yet
       const server = withAccounts([GYM('2026-10-26')]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       let row = await dueRow('Due: Gym RM 10.00 from Maybank');
       await user.click(row.getByRole('button', { name: 'Log it' }));
@@ -406,7 +406,7 @@ describe('repeating bills and income on Home', () => {
     async (size) => {
       onTheSixth();
       const server = withAccounts([RENT(), NETFLIX()]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       await waitFor(() => expect(expected()).toBe(total('RM 1,245.00')));
 
@@ -419,7 +419,7 @@ describe('repeating bills and income on Home', () => {
 
       // Reopened while it's sent again (held up): the fresh balances hold it already
       const resend = holdNext(server, 'POST', '/api/changes');
-      await reloadApp(server, '/', { size });
+      await reloadApp(server, '/?plan', { size });
       const seen = { balance: new Set<string>(), total: new Set<string>(), due: false };
       const note = () => {
         const [b, t] = [maybank(), expected()];
@@ -505,7 +505,7 @@ describe('repeating bills and income on Home', () => {
       );
       // The transaction itself stays one
       expect(server.transactions).toHaveLength(1);
-      await reloadApp(server, '/', { size });
+      await reloadApp(server, '/?plan', { size });
       // RM 3,000 less RM 1,200 less RM 500 owed; the next Rent is in December
       await waitFor(() => expect(expected()).toBe(total('RM 1,300.00')));
       expect(screen.queryByText(/Due: Rent/)).toBeNull();
@@ -547,7 +547,7 @@ describe('repeating bills and income on Home', () => {
         }),
       ]),
     );
-    await reloadApp(server, '/', { size });
+    await reloadApp(server, '/?plan', { size });
     // RM 2,990 less RM 500 owed, less the 11th, 18th and 25th
     await waitFor(() => expect(expected()).toBe(total('RM 2,460.00')));
   });
@@ -557,7 +557,7 @@ describe('repeating bills and income on Home', () => {
     async (size) => {
       onTheSixth();
       const server = withAccounts([NETFLIX(), SALARY_IN()]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       // RM 2,500 less RM 55 plus RM 5,000
       await waitFor(() => expect(expected()).toBe(total('RM 7,445.00')));
@@ -602,7 +602,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       [repeating('Rent', { amountCents: 50_000, day: 20, nextDue: '2026-11-20' })],
       100_000,
     );
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     await waitFor(() => expect(expected()).toBe(total('RM 0.00')));
     expect(screen.queryByText(/below zero/)).toBeNull();
   });
@@ -615,7 +615,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       const server = withAccounts([
         repeating('Phone', { amountCents: 8_000, day: 7, nextDue: '2026-11-07' }),
       ]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       const row = await dueRow('Due: Phone RM 80.00 from Maybank');
       // RM 2,500 less the RM 80 still to pay
@@ -636,7 +636,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
         repeating('Loan', { amountCents: 20_000, day: 30, nextDue: '2026-11-30' }),
         repeating('Insurance', { amountCents: 20_000, day: 1, nextDue: '2026-12-01' }),
       ]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       expect(await screen.findByText('Due: Loan RM 200.00 from Maybank')).toBeTruthy();
       expect(screen.queryByText(/Due: Insurance/)).toBeNull();
       await waitFor(() => expect(expected()).toBe(total('RM 2,300.00')));
@@ -648,7 +648,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
     async (size) => {
       onTheSixth();
       const server = withAccounts([NETFLIX()]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       await waitFor(() => expect(expected()).toBe(total('RM 2,445.00')));
       await user.click(screen.getByRole('button', { name: /^Expected at month end/ }));
@@ -669,7 +669,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
     async (size) => {
       onTheSixth();
       const server = withAccounts([RENT(), NETFLIX()]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       const row = await dueRow('Due: Rent RM 1,200.00 from Maybank');
       await waitFor(() => expect(maybank()).toBe('RM 3,000.00'));
@@ -691,7 +691,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
   test.each(SIZES)('two quick taps on Log it record it once (%s)', async (size) => {
     onTheSixth();
     const server = withAccounts([RENT()]);
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     const row = await dueRow('Due: Rent RM 1,200.00 from Maybank');
     await user.dblClick(row.getByRole('button', { name: 'Log it' }));
@@ -706,7 +706,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
     async (size) => {
       onTheSixth();
       const server = withAccounts([RENT(), NETFLIX()]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       const row = await dueRow('Due: Rent RM 1,200.00 from Maybank');
       await waitFor(() => expect(expected()).toBe(total('RM 1,245.00')));
@@ -776,7 +776,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
           }),
         ]),
       );
-      await reloadApp(server, '/', { size });
+      await reloadApp(server, '/?plan', { size });
       // RM 3,000 less the RM 1,200 paid in August, less RM 500 owed, less Rent on the 15th
       await waitFor(() => expect(expected()).toBe(total('RM 100.00')));
       expect(screen.queryByText(/Due: Rent/)).toBeNull();
@@ -794,7 +794,8 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       const held = holdNext(server, 'POST', '/api/changes');
       onTestFinished(() => held.release());
       await repeatRentFrom(server, '2026-08-15', 'Monthly', size);
-      await goToPlace('Home');
+      // The total is on Plan for now
+      await goToPlace('Plan');
       // RM 3,000 less the RM 1,200 paid in August, less RM 500 owed, less Rent on the 15th
       await waitFor(() => expect(expected()).toBe(total('RM 100.00')));
       expect(screen.queryByText(/Due: Rent/)).toBeNull();
@@ -822,7 +823,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
           }),
         ]),
       );
-      await reloadApp(server, '/', { size });
+      await reloadApp(server, '/?plan', { size });
       await screen.findByRole('button', { name: /^Expected at month end/ });
       expect(screen.queryByText(/Due: Rent/)).toBeNull();
     },
@@ -846,7 +847,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
           }),
         ]),
       );
-      await reloadApp(server, '/', { size });
+      await reloadApp(server, '/?plan', { size });
       // RM 3,000 less the RM 1,200 paid in October, less RM 500 owed: nothing more this month
       await waitFor(() => expect(expected()).toBe(total('RM 1,300.00')));
       expect(screen.queryByText(/Due: Rent/)).toBeNull();
@@ -866,7 +867,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
           nextDue: '2026-09-15',
         }),
       ]);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       let row = await dueRow('Due: Rent RM 1,200.00 from Maybank');
       await user.click(row.getByRole('button', { name: 'Log it' }));
@@ -969,7 +970,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
   test.each(SIZES)('sets one up while adding a transaction too (%s)', async (size) => {
     onTheSixth();
     const server = withAccounts([]);
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     await addEntry('80', async (form) => {
       await user.click(form.getByRole('button', { name: /^From / }));

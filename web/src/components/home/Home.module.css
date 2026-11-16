@@ -1,0 +1,874 @@
+/* Home at a glance, "Paper ledger" (R-Home, R-Desk-Home, R-Empty-Home, R-FirstRun) */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(24px + var(--sf-safe-bottom));
+}
+
+.desktop {
+  max-width: 1120px;
+  gap: 24px;
+  padding: 24px 32px 48px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.soft {
+  color: var(--ink-2);
+}
+
+.pos {
+  color: var(--pos);
+}
+
+.neg {
+  color: var(--neg);
+}
+
+.due {
+  color: var(--due);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.failed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+}
+
+/* The header: month arrows and name, the freshness label, the initial; search on a computer */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.monthNav {
+  display: flex;
+  align-items: center;
+  margin-left: -12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.desktop .title {
+  font-size: 26px;
+  letter-spacing: -0.03em;
+}
+
+.headerEnd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.iconButton:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(340px, 100%);
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink-3);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.kbd {
+  padding: 2px 6px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  color: var(--ink-3);
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+}
+
+/* The month end, and the two cards under it */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.heroFigure {
+  font-size: 44px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.heroLine {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.answer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.answerLabel {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.cardFigure {
+  font-size: 20px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.answerLine {
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.glance {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 16px;
+}
+
+.glance .answer {
+  gap: 8px;
+  padding: 20px;
+}
+
+.glance .cardFigure {
+  font-size: 30px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.glance .answerLine,
+.glance .heroLine {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Tidy up */
+
+.tidy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 14px;
+  border-radius: 16px;
+  background: var(--due-tint);
+  color: var(--ink);
+}
+
+.tidyIcon {
+  flex: none;
+  color: var(--due);
+}
+
+.tidyText {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.tidyText b {
+  font-weight: 600;
+}
+
+.sortThem {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* Cards' heads */
+
+.cardHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.more {
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.middle {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+/* Coming up */
+
+.coming {
+  overflow: hidden;
+}
+
+.coming .cardHead {
+  padding: 16px 16px 6px;
+}
+
+.needs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.need {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: 60px;
+  padding: 10px 16px;
+}
+
+.need + .need {
+  border-top: 1px solid var(--line);
+}
+
+.needTitle {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.needLine {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.added {
+  margin: 0;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* Day by day */
+
+.daysCard {
+  padding: 14px 14px 12px;
+}
+
+.days {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.desktop .week {
+  grid-template-columns: repeat(7, 38px);
+}
+
+.weekday {
+  height: 16px;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+
+.desktop .day {
+  height: 38px;
+  border-radius: 10px;
+  font-size: 13px;
+  gap: 1px;
+}
+
+.day svg {
+  display: block;
+}
+
+.day[data-against='more'] {
+  background: var(--due-tint);
+}
+
+.day[data-against='less'] {
+  background: color-mix(in srgb, var(--pos) 12%, var(--surface));
+}
+
+.day[data-against='later'] {
+  color: var(--ink-3);
+}
+
+.day[aria-current='date'] {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.up {
+  color: var(--due);
+}
+
+.down {
+  color: var(--pos);
+}
+
+.dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+}
+
+.dotBill {
+  background: var(--due);
+}
+
+.dotPay {
+  background: var(--pos);
+}
+
+.dotKey {
+  background: var(--ink-3);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hint {
+  margin-left: auto;
+}
+
+/* Budgets */
+
+.budgetsCard {
+  padding: 16px;
+}
+
+.budgets {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.budgetList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.budgetGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.budgetGrid .budget {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.budget {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.budgetHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.budgetName {
+  font-weight: 500;
+}
+
+.budgetMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.budgetMeta.due {
+  color: var(--due);
+}
+
+.budgetMeta.neg {
+  color: var(--neg);
+}
+
+.inlineEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.inlineEmpty p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.lineButton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.combined {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+
+.combined .budgets {
+  gap: 8px;
+}
+
+.combined .soft {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.rule {
+  height: 1px;
+  margin: 8px 0;
+  background: var(--line);
+}
+
+/* A computer: what needs you beside the calendar */
+
+.split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.split > .combined {
+  flex: 2 1 320px;
+}
+
+.needsColumn {
+  display: flex;
+  flex: 3 1 420px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.split > .daysCard {
+  flex: 0 0 auto;
+  padding: 16px 16px 14px;
+}
+
+/* Getting started */
+
+.started {
+  overflow: hidden;
+}
+
+.started .cardHead {
+  padding: 14px 16px 6px;
+}
+
+.hide {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+
+button.step {
+  cursor: pointer;
+}
+
+.steps li + li {
+  border-top: 1px solid var(--line);
+}
+
+.tick {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border: 1.5px solid var(--line-2);
+  border-radius: 999px;
+}
+
+.tickOn {
+  border-color: var(--pos);
+  background: var(--pos);
+  color: #fff;
+}
+
+.stepText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stepText b {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.stepText span {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.stepDone .stepText b {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+
+.go {
+  align-self: center;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* The first run */
+
+.firstRun {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  width: min(820px, 100%);
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: calc(28px + env(safe-area-inset-top, 0px)) 20px calc(32px + var(--sf-safe-bottom));
+}
+
+.firstTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.firstIntro {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.firstTitle {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+}
+
+.firstLead {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.kinds {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.kind {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 116px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kind svg {
+  color: var(--ink-2);
+}
+
+.kind strong {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.kind span {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.firstNote {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.firstFoot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.firstFoot p {
+  margin: 0;
+}
+
+@media (min-width: 1024px) {
+  .firstRun {
+    gap: 28px;
+    padding: 40px 32px 48px;
+  }
+
+  .firstTitle {
+    margin-top: 48px;
+    font-size: 44px;
+  }
+
+  .firstLead {
+    max-width: 600px;
+    font-size: 17px;
+  }
+
+  .kinds {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .kind {
+    min-height: 150px;
+  }
+
+  .firstFoot {
+    margin-top: 0;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    font-size: 14px;
+    text-align: left;
+  }
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.part {
+  white-space: nowrap;
+}
+
+.fast {
+  color: var(--due);
+  font-weight: 500;
+}

@@ -139,7 +139,7 @@ describe('starting with the server out of reach', () => {
       archived: false,
     });
     // Seen once with a connection, so this device keeps the profile and the numbers
-    renderApp(server);
+    renderApp(server, '/?plan');
     await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ });
     await wait(100);
     expect(await screen.findByText('Up to date')).toBeTruthy();
@@ -148,7 +148,7 @@ describe('starting with the server out of reach', () => {
     server.health = 'down';
     const done = openedFromDevice();
     try {
-      await reloadApp(server);
+      await reloadApp(server, '/?plan');
       const settings = await screen.findByRole('link', {
         name: 'Settings: you, categories, import and export',
       });
@@ -293,7 +293,7 @@ describe('starting once Access asks to sign in again', () => {
     const done = openedSignedOut();
     const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     try {
-      renderApp(server);
+      renderApp(server, '/?plan');
       expect(await screen.findByText(RYAN)).toBeTruthy();
       expect(await screen.findByText(OFFLINE_NOTICE.desktop)).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();

@@ -26,6 +26,9 @@
   --c4: #b8487a;
   --c5: #b58300;
   --c6: #7b62d0;
+  /* What floats over the page, a toast or a notice: ink, so it stands out on the paper */
+  --float: #15161a;
+  --float-ink: #f3f1ec;
   color-scheme: light;
 }
 
@@ -52,6 +55,9 @@
   --c4: #e07aa6;
   --c5: #d9a826;
   --c6: #a28ef0;
+  /* On the dark ground it's raised a step instead of turned light, so it doesn't glare */
+  --float: #2a2b30;
+  --float-ink: #edece7;
   color-scheme: dark;
 }
 
@@ -63,6 +69,11 @@
   --sf-safe-bottom: env(safe-area-inset-bottom, 0px);
   /* The phone's and tablet's tab bar: none until one shows */
   --tabbar-h: 0px;
+}
+
+/* On the dark ground a shadow barely shows, so what floats gets a thin edge as well */
+:root[data-mantine-color-scheme='dark'] {
+  --shadow-float: 0 0 0 1px var(--line-2), 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
 /* While a tab bar shows (components/shell/TabBar), clear of the phone's home bar */

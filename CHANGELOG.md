@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-16
 
+- Fixed: On the dark theme the "new version" notice and the Undo toast are a raised dark grey, not a bright pill, and Reload is the usual accent button [#32]
 - Changed: Add is a keypad that works sums out, with recent categories, a payee field, Today, Repeat and drafts [#30]
 - Fixed: Mahnee no longer stops answering after one sign-in check is cut off mid-way [#31]
 - Added: Activity lists every entry by day or in a register, with filters, totals and changing many at once [#28]
@@ -92,3 +93,4 @@ For agents:
 [#29]: https://github.com/BlueSky0322/mahnee/pull/29
 [#30]: https://github.com/BlueSky0322/mahnee/pull/30
 [#31]: https://github.com/BlueSky0322/mahnee/pull/31
+[#32]: https://github.com/BlueSky0322/mahnee/pull/32

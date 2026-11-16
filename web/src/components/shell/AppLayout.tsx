@@ -8,6 +8,7 @@ import { useAccounts } from '../../ledger/useLedger';
 import { thisMonth } from '../../utils/date-input';
 import Freshness from '../common/Freshness';
 import AddEntry, { type AddRequest } from '../entry/AddEntry';
+import { AddEntryContext } from './add-entry';
 import classes from './AppLayout.module.css';
 import OfflineNotice from './OfflineNotice';
 import Sidebar from './Sidebar';
@@ -40,7 +41,9 @@ export default function AppLayout({ route, children }: { route: Route; children:
   // The keys work from the start, but for the first run, which has nowhere to go
   useShortcuts({ 'n': add, '/': focusSearch }, place != null && accounts?.length !== 0);
 
-  const shell = !shown ? undefined : isDesktop ? 'sidebar' : 'tabs';
+  // A phone or tablet selecting on Activity has its own bar at the foot instead
+  const selecting = route.view === 'activity' && route.select && !isDesktop;
+  const shell = !shown ? undefined : isDesktop ? 'sidebar' : selecting ? undefined : 'tabs';
   // Home's open month, this one elsewhere
   const month = (route.view === 'home' ? route.month : null) ?? thisMonth();
   return (
@@ -65,7 +68,7 @@ export default function AppLayout({ route, children }: { route: Route; children:
             />
           </div>
         )}
-        {children}
+        <AddEntryContext.Provider value={addable ? add : null}>{children}</AddEntryContext.Provider>
       </main>
       {shell === 'tabs' && place != null && (
         <TabBar

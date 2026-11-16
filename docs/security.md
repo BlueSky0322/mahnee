@@ -57,7 +57,9 @@ hack-proof, and the limits below are real.
 - Reading transactions: at most 200 to a page (`MAX_PAGE_SIZE` in
   `worker/ledger/read.ts`), 50 unless asked; searching (`/api/search`) too, with words of
   at most `MAX_SEARCH_TEXT` characters (`shared/search.ts`), matched as text by bound
-  parameters (never put into the SQL; with `instr`, so no character is a wildcard), within the person's own rows. Search results
+  parameters (never put into the SQL; with `instr`, so no character is a wildcard), within the person's own rows. What a search
+  counts beyond a page (how many, and what they spent and received) is one aggregate of the
+  person's own rows under the same conditions, the email first. Search results
   are not kept on the device. A month's totals (`/api/summary`) are one
   grouped sum of the person's own, at most one row per category. Its budgets add one
   read of the person's budget rows and, only when they have any, one grouped sum of

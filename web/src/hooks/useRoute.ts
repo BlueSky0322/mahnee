@@ -20,7 +20,11 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export type Route =
   /** month: an earlier month Home or Plan shows (2026-10); null for this month */
   | { view: 'home'; month: string | null }
-  | { view: 'activity' }
+  /**
+   * query: the address's filters, Activity's to read (components/activity/address.ts);
+   * select: a phone opens selecting, with no tab bar
+   */
+  | { view: 'activity'; query: string; select: boolean }
   | { view: 'plan'; month: string | null }
   | { view: 'accounts' }
   | { view: 'account'; id: string }
@@ -84,7 +88,9 @@ function readRoute(): Route {
     return { view: 'settings', section: isSection(section) ? section : null };
   }
   if (params.has('import')) return { view: 'import' };
-  if (params.has('activity')) return { view: 'activity' };
+  if (params.has('activity')) {
+    return { view: 'activity', query: params.toString(), select: params.has('select') };
+  }
   if (params.has('plan')) return { view: 'plan', month: readMonth(params) };
   if (params.has('accounts')) return { view: 'accounts' };
   const account = params.get('account');
@@ -94,8 +100,11 @@ function readRoute(): Route {
 
 const ROUTE_CHANGE = 'routechange';
 const SESSION_KEY = 'mahnee:session';
-/** One-off parts of an address, never reopened on a fresh start: Home opens on this month */
-const TRANSIENT: string[] = ['month'];
+/**
+ * One-off parts of an address, never reopened on a fresh start: Home opens on this month,
+ * and Activity isn't selecting
+ */
+const TRANSIENT: string[] = ['month', 'select'];
 
 /** Remembers the page that's open, so the app can reopen there */
 function rememberPage() {

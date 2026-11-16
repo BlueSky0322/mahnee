@@ -699,19 +699,44 @@ guard).
 ## Search and changing many
 
 **What it is.** Activity (`?activity`, one of the places; the old `?search` still opens
-it) is for now the search page, listing the person's transactions on every account, newest first, grouped by day, 200 at a time with
-Load more. Typing finds the words anywhere in the payee, the note, the category's name or
-its parent's (so "food" finds Food › Coffee), ignoring the case of A to Z; words that
-read as an amount ("8", "8.50", "1,000") also find that exact amount, and text containing
-them ("8" finds RM 8.00, and a note "8 refund", but not RM 8.50 or RM 80). Filters narrow
-it by account (transfers into it too), category (a top-level one with its subcategories)
-and From and To days, both included. Tapping one opens it in the entry sheet. Select, or
-a long press on a row (half a second; the release isn't a tap), ticks several: Select all
-loads every page found (stopping past 500), then Change category (a preview: "Move 80
-transactions from Other to Food", or "from 3 categories"; spending or income alone, no
-transfers) or Delete ("Delete 12 transactions"). More than 500 ticked is refused with a
-message. Catching up is this page alone: a date range and Other, Select all, Change
-category; there is no review queue.
+it) is the one list of every entry, this month's on every account unless its filters say
+otherwise, newest first, 200 at a time with Load more. Typing finds the words anywhere in
+the payee, the note, the category's name or its parent's (so "food" finds Food › Coffee),
+ignoring the case of A to Z; words that read as an amount ("8", "8.50", "1,000") also find
+that exact amount, and text containing them ("8" finds RM 8.00, and a note "8 refund", but
+not RM 8.50 or RM 80). Four chips narrow it: the account (transfers into it too), the
+category (a top-level one with its subcategories), the days (This month, Last month, All
+months, or From and To, both included) and the kind (All kinds, Expenses, Income,
+Transfers, Expenses and income). "12 found · RM 43.18 spent" (and "· RM x received"
+when income is found) counts everything found, loaded or not. Amounts say which way:
+spending "−8.50" in ink, income "+50.00" green, a transfer "100.00" grey with no sign.
+
+On phones and tablets the list is grouped by day, each day with its total (received less
+spent; none for a day of transfers alone); tapping one opens it in a sheet to change or
+delete. Select, or a long press on a row (half a second; the release isn't a tap), starts
+selecting (`&select`, with no tab bar): rows have tick boxes, "Select all N" ticks
+everything found (loading every page, stopping past 500), and the foot says what's ticked
+("3 entries · RM 30.90 · all Kedai") with Delete N and Change category. On a computer
+it's a register (Date, Payee and note, Category, Account, Amount), every row with a tick
+box, and the open row (the first until another is picked) is changed beside it; J and K
+move the open row, X ticks it, C changes the category of what's ticked (or of the open
+row), and a row's category opens Change category for it alone. Esc closes the top dialog;
+with a row always open, there's no pane to close.
+
+Change category lists the kind's categories (each top-level one with its subcategories,
+searchable), says what moves ("RM 30.90 from Other to Food") and what it does to that
+category's budget this month ("Food budget: RM 312.50 → RM 291.75 left", "Groceries has no
+budget"), then "Move 3 to Food". Only the entries dated in the budget month Home shows (the
+calendar month until a month start day is set) move the budget, and none already in it:
+a budget is a month's, so an October entry moved to Food changes October's Food, not the
+one shown. Spending or income
+alone, no transfers. Delete N takes them out at once, with Undo. More than 500 ticked is
+refused with a message. With nothing yet it says "No transactions yet" with Log your first
+one and Import a bank's CSV; with nothing found, 'No "bolt" in Transport this month. 2 in
+other months.' with Clear filters (the chips, not the words or the days) and Search all
+months. Offline with nothing loaded: "Connect to search" (results aren't kept on the
+device). Catching up is this page alone (Tidy up links to Other since a day, selecting);
+there is no review queue.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts): a search's results are a list
 of transactions like an account's, keyed by the search (`searchTransactionsKey`), so a
@@ -719,39 +744,60 @@ change shows in them at once, a page fetched while a batch was saved gets it on 
 they're fetched again once nothing is left to send. Whether a changed transaction still
 belongs in them is asked of `matchesSearch` with the categories shown. Screens read them
 through `useSearch(query)` in [ledger/useLedger.ts](../web/src/ledger/useLedger.ts), which
-also loads the rest for Select all (`loadAll`). A change to many is one `change()`:
-`recategoriseTransactions` { ids, categoryId } or `removeTransactions` { ids }, so it's
-one request, saved all or nothing, kept in the outbox offline and counted once by its id.
-[ledger/apply.ts](../web/src/ledger/apply.ts) (`oneByOne`) makes it into the same change
-to each transaction in turn, so balances, lists and months' totals
-([summary.ts](../web/src/ledger/summary.ts)) move at once by what each was, and a copy
-that holds it already (`alreadySaved`) doesn't count it again. Undo of a move is one
-`recategoriseTransactions` per category they came from; Undo of a delete adds each again
-with its own id (`addTransaction`), which the outbox may send in several requests.
+also loads the rest for Select all (`loadAll`) and works out the figures
+([ledger/search-totals.ts](../web/src/ledger/search-totals.ts)): the rows as shown (changes
+still to send included) plus what the server says matches beyond the last page loaded
+(`rest`, and `restOfLastDay` for that page's last day), so nothing is counted twice and no
+`alreadySaved` is needed. An add still to send that falls beyond the last row loaded,
+while more are to come, isn't shown (`applyToPages`), and counts once the server holds it.
+Edits made elsewhere to entries beyond the last row loaded show once the list is fetched
+again. A change to many is one `change()`: `recategoriseTransactions` { ids, categoryId }
+or `removeTransactions` { ids }, so it's one request, saved all or nothing, kept in the
+outbox offline and counted once by its id. [ledger/apply.ts](../web/src/ledger/apply.ts)
+(`oneByOne`) makes it into the same change to each transaction in turn, so balances, lists
+and months' totals ([summary.ts](../web/src/ledger/summary.ts)) move at once by what each
+was, and a copy that holds it already (`alreadySaved`) doesn't count it again. Undo of a
+move is one `recategoriseTransactions` per category they came from; Undo of a delete adds
+each again with its own id (`addTransaction`), which the outbox may send in several
+requests. The filters live in the address
+([components/activity/address.ts](../web/src/components/activity/address.ts)), not in state.
 
 **Parts.**
 
-- UI: [components/search/SearchPage.tsx](../web/src/components/search/SearchPage.tsx) (the
-  filters, results, selecting and the long press),
-  [BulkDialogs.tsx](../web/src/components/search/BulkDialogs.tsx) (the previews) and
-  [search-text.ts](../web/src/components/search/search-text.ts), drawn as Activity.
-- API: `GET /api/search?q=&account=&category=&from=&to=&before=&limit=`
-  (`searchTransactions` in [worker/ledger/read.ts](../worker/ledger/read.ts), one query:
-  `instr(lower(...))` on the payee, note and both category names (no pattern, so no
-  length limit and no wildcards), or the amount, paged by the same
-  cursor as `/api/transactions`); `recategoriseTransactions` and `removeTransactions` in
+- UI: [components/activity/ActivityPage.tsx](../web/src/components/activity/ActivityPage.tsx)
+  (the page, the day list, the register, selecting and the long press, the keys),
+  [Filters.tsx](../web/src/components/activity/Filters.tsx) (the chips and their lists),
+  [ChangeCategory.tsx](../web/src/components/activity/ChangeCategory.tsx),
+  [EntryEditor.tsx](../web/src/components/activity/EntryEditor.tsx) (one entry, in the pane
+  or the phone's sheet: amount, which way, category or To, account, day, payee, note;
+  Delete with Undo), [activity-text.ts](../web/src/components/activity/activity-text.ts)
+  (the words and signs) and [address.ts](../web/src/components/activity/address.ts).
+  "Log your first one" opens the shell's new entry
+  ([shell/add-entry.ts](../web/src/components/shell/add-entry.ts)).
+- API: `GET /api/search?q=&account=&category=&from=&to=&kind=&before=&limit=`
+  (`searchTransactions` in [worker/ledger/read.ts](../worker/ledger/read.ts): `instr(lower(...))`
+  on the payee, note and both category names (no pattern, so no length limit and no
+  wildcards), or the amount, paged by the same cursor as `/api/transactions`). Every page
+  answers `rest` and `restOfLastDay` (one aggregate, only when there's more); the first page
+  of a search for days answers `elsewhere`, how many match outside them (one aggregate).
+  Each is built from the same conditions as the page, email first.
+  `recategoriseTransactions` and `removeTransactions` in
   [worker/ledger/changes.ts](../worker/ledger/changes.ts) (`readBulk`), each one UPDATE or
   DELETE over the ids.
 - Shared: [shared/search.ts](../shared/search.ts) (`readSearch`, `matchesSearch`,
-  `searchAmount`, `MAX_SEARCH_TEXT`), which the Worker's SQL mirrors and the test stand-in
-  uses; the change shapes in [shared/api.ts](../shared/api.ts); `MAX_BULK_TRANSACTIONS`
-  in [shared/ledger.ts](../shared/ledger.ts).
+  `searchAmount`, `MAX_SEARCH_TEXT`, the kind filter), which the Worker's SQL mirrors and
+  the test stand-in uses; `SearchPage` and `SearchTotals` and the change shapes in
+  [shared/api.ts](../shared/api.ts); `MAX_BULK_TRANSACTIONS` in
+  [shared/ledger.ts](../shared/ledger.ts).
 
 **Invariants.**
 
-- Only the signed-in person's transactions are found; someone else's account or category
-  as a filter is answered as one that doesn't exist (404). Words are at most
-  `MAX_SEARCH_TEXT` characters; days are real calendar days.
+- Only the signed-in person's transactions are found and counted; someone else's account
+  or category as a filter is answered as one that doesn't exist (404). Words are at most
+  `MAX_SEARCH_TEXT` characters; days are real calendar days; kinds are known and each named
+  once (400 "Give kinds from expense, income and transfer").
+- Every figure is exact and bounded: one aggregate row per page, sums under 5e15 cents by
+  `MAX_ACCOUNTS` x `MAX_TRANSACTIONS_PER_ACCOUNT` x `MAX_TRANSACTION_CENTS`.
 - A change to many names 1 to `MAX_BULK_TRANSACTIONS` (500) transactions, each once,
   every one the person's (else 404), and is saved all or nothing with the rest of its
   batch. A move's category is the person's, listed, and of every transaction's kind
@@ -759,16 +805,25 @@ with its own id (`addTransaction`), which the outbox may send in several request
   making the change; the Worker is the authority.
 - 500 ids are about 9 KB, inside one request (`MAX_CHANGES_BYTES`).
 
-**Tests.** [Search.test.tsx](../web/src/components/search/Search.test.tsx) (opened as
-Activity, words, categories and amounts, the filters, catching up from `?activity` alone;
-desktop and phone), [BulkEdit.test.tsx](../web/src/components/search/BulkEdit.test.tsx)
-(Select, a long press, moving from one and from several categories, deleting, Undo of
-each, one transaction, 501 refused and 500 in one change, balances and the month moved at
-once and counted once when the answer is lost),
+**Tests.** [Activity.test.tsx](../web/src/components/activity/Activity.test.tsx) (the page
+on a phone, a tablet and a computer, figures counting what isn't loaded, an add beyond
+what's loaded counted once, years, each filter and the words, the addresses other pages
+link to, stale and bad addresses, nothing yet, nothing found, a failure, offline, changing
+and deleting one), [ChangingMany.test.tsx](../web/src/components/activity/ChangingMany.test.tsx)
+(ticking, the move sheet and its budget effect, from several categories, refusals, delete
+at once with Undo, Undo's few seconds, 501 refused and 500 in one change, the long press,
+Tidy up's flow on one page, offline, counted once when the answer is lost),
+[ActivityKeys.test.tsx](../web/src/components/activity/ActivityKeys.test.tsx),
+[activity-text.test.ts](../web/src/components/activity/activity-text.test.ts),
+[amount-colours.test.tsx](../web/src/components/activity/amount-colours.test.tsx),
+[search-totals.test.ts](../web/src/ledger/search-totals.test.ts),
+[shared/search.test.ts](../shared/search.test.ts),
+[search-stand-in.test.tsx](../web/src/testing/search-stand-in.test.tsx),
 [apply.test.ts](../web/src/ledger/apply.test.ts) (balances, lists and months' totals for
 both changes), and the searching and changing-many cases in
-[worker/test/api.test.ts](../worker/test/api.test.ts) (every match and filter, paging,
-someone else's, refusals with their messages, a resend counted once, 500 at once).
+[worker/test/api.test.ts](../worker/test/api.test.ts) (every match and filter and kind,
+paging with ties, the rest and the rest of a day under every filter, elsewhere, someone
+else's never counted, refusals with their messages, a resend counted once, 500 at once).
 
 ## Repeating bills and month end
 
@@ -1188,22 +1243,36 @@ a tab bar at the bottom on phones and tablets (with Add in the middle) and in a 
 on computers (with Mahnee, New entry and, at its foot, Settings). Moving between places
 takes the page's place in history, so Back never walks through them. An account's page
 keeps the places, with Accounts marked; Settings, its sections and Import cover them,
-and so does the first run, before there is an account. For now Activity is the search,
-Plan is the month card and the month-end total, and Accounts is the list of accounts.
+and so does the first run, before there is an account, and a phone or tablet selecting on
+Activity (`&select`), which then has no freshness strip either: its own bar is at the foot. For now Plan is the month card and the month-end total, and Accounts
+is the list of accounts.
 
 **Addresses.** Later pieces link to these; each is a query string read by `readRoute`.
 
-| Page                      | Address                                                                                                      | Now                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| Home                      | none, or `?month=2026-10` for an earlier month                                                               | live                                                               |
-| Activity                  | `?activity`, with `&q=`, `&account=`, `&category=`, `&from=`, `&to=`, `&kind=`, `&day=2026-11-10`, `&select` | `?activity` live; the filters are Activity's to read               |
-| Plan                      | `?plan`, with `&month=2026-10`                                                                               | live                                                               |
-| Scheduled                 | `?plan=scheduled`                                                                                            | opens Plan                                                         |
-| A category over 12 months | `?plan&category=<id>`                                                                                        | opens Plan                                                         |
-| Accounts                  | `?accounts`                                                                                                  | live                                                               |
-| One account               | `?account=<id>`                                                                                              | live                                                               |
-| Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`             | the index, `categories` and `data` live; the others open the index |
-| Importing a file          | `?import`                                                                                                    | live, opened from `?settings=data`                                 |
+| Page                      | Address                                                                                                                    | Now                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Home                      | none, or `?month=2026-10` for an earlier month                                                                             | live                                                               |
+| Activity                  | `?activity`, with `&q=`, `&account=`, `&category=`, `&kind=`, `&from=`, `&to=`, `&day=2026-11-10`, `&dates=all`, `&select` | live; see below                                                    |
+| Plan                      | `?plan`, with `&month=2026-10`                                                                                             | live                                                               |
+| Scheduled                 | `?plan=scheduled`                                                                                                          | opens Plan                                                         |
+| A category over 12 months | `?plan&category=<id>`                                                                                                      | opens Plan                                                         |
+| Accounts                  | `?accounts`                                                                                                                | live                                                               |
+| One account               | `?account=<id>`                                                                                                            | live                                                               |
+| Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`                           | the index, `categories` and `data` live; the others open the index |
+| Importing a file          | `?import`                                                                                                                  | live, opened from `?settings=data`                                 |
+
+Activity's filters (components/activity/address.ts): plain `?activity` is this month on
+every account. `&q=` is the words; `&account=` an account (transfers into it too);
+`&category=` a category (a top-level one with its subcategories); `&kind=` one of
+`expense`, `income`, `transfer`, or two joined by a comma (`expense,income` is "Expenses and
+income"); `&day=` one day (Home's calendar: `?activity&day=2026-11-10`); `&from=` and
+`&to=` days, both included, either alone ("Since Oct 1"); `&dates=all` every month; and
+`&select` opens a phone or tablet selecting (Tidy up:
+`?activity&category=<OTHER_EXPENSE_ID>&from=<tidyUp.from>&select`). A day wins over from
+and to, and those over all months. A part that makes no sense (a day that isn't one, a
+kind not known, an account or category the person doesn't have) is dropped, and the
+address is put right in place; each filter is written back in that order, only when not
+at its default. `select` is never reopened on a fresh start.
 
 A page named first wins over the parameters after it: `?activity&account=<id>` is
 Activity, and `account` is its filter. Older addresses are replaced in place, keeping the
@@ -1222,9 +1291,14 @@ may use either name for anything else (Activity's filters included).
   says which place it belongs to.
 - [hooks/useShortcuts.ts](../web/src/hooks/useShortcuts.ts): keys on a keyboard. N opens a
   new entry and / puts the cursor in the page's search, or opens Activity's (on pages with
-  the places); Esc closes Settings, and goes up from its sections. None fires while typing
-  in a field (but Esc), with Ctrl, Cmd or Alt held, or while a dialog is open; Esc does
-  nothing on Import, so a file being looked over is kept.
+  the places); Esc closes Settings, and goes up from its sections; on a computer, Activity
+  adds J, K, X and C. None fires while typing in a field (but Esc), with Ctrl, Cmd or Alt
+  held, or while a dialog is open; Esc does nothing on Import, so a file being looked over
+  is kept. Typing is a text-like field (text, search, number, a day or time, email, phone,
+  address, password), a longer text, a list to pick from or editable text; a tick box, a
+  choice of several (radio) or a button lets the keys through. (For piece 7: a full-screen
+  Add on a phone with radios for From/For or Which way and no `role="dialog"` would let N
+  and / through from a focused radio; it should be a dialog, or say so.)
 - [hooks/useBreakpoints.ts](../web/src/hooks/useBreakpoints.ts): `useIsMobile` (under
   768px) and `useIsDesktop` (1024px and up).
 - [hooks/useBackDismiss.ts](../web/src/hooks/useBackDismiss.ts): Back closes the top

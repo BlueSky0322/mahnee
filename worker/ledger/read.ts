@@ -7,6 +7,8 @@ import type {
   Category,
   Ledger,
   Recurring,
+  SearchPage,
+  SearchTotals,
   Transaction,
   TransactionPage,
 } from '../../shared/api';
@@ -245,8 +247,16 @@ async function pageOf(query: D1PreparedStatement, values: (string | number)[], l
 /**
  * GET /api/search: a page of the person's transactions on every account, newest first,
  * found by shared/search.ts's rules (?q= words or an amount, ?account=, ?category= with its
- * subcategories, ?from= and ?to= days), carrying on from ?before= as /api/transactions
- * does. Someone else's account or category is answered as one that doesn't exist.
+ * subcategories, ?from= and ?to= days, ?kind=), carrying on from ?before= as
+ * /api/transactions does. With it, what matches beyond the page (rest, and the part of it
+ * on the page's last day), and on the first page of a search for days how many match
+ * outside them (elsewhere). Someone else's account or category is answered as one that
+ * doesn't exist.
+ *
+ * Every figure is one query built from the same conditions as the page, the person's
+ * email first, so no filter can be left out of one: the page; rest and restOfLastDay
+ * together in one aggregate, only when there is more; elsewhere in one aggregate, only on
+ * the first page. Each sum stays exact (SearchPage in shared/api.ts).
  */
 export async function searchTransactions(
   db: D1Database,
@@ -260,6 +270,7 @@ export async function searchTransactions(
   const cursor = readCursor(params);
   if (cursor === undefined) return fail('Unknown place to carry on from', 400);
 
+  // What every figure asks: the person's, then the filters but for the days
   const where = ['t.email = ?'];
   const values: (string | number)[] = [email];
   if (query.account != null) {
@@ -282,13 +293,9 @@ export async function searchTransactions(
     where.push(`t.category_id IN (${ids.map(() => '?').join(', ')})`);
     values.push(...ids);
   }
-  if (query.from != null) {
-    where.push('t.date >= ?');
-    values.push(query.from);
-  }
-  if (query.to != null) {
-    where.push('t.date <= ?');
-    values.push(query.to);
+  if (query.kinds != null) {
+    where.push(`t.kind IN (${query.kinds.map(() => '?').join(', ')})`);
+    values.push(...query.kinds);
   }
   if (query.q !== '') {
     // Found anywhere in the text, every character as itself, with A to Z in either case:
@@ -306,20 +313,97 @@ export async function searchTransactions(
     }
     where.push(`(${found.join(' OR ')})`);
   }
-  if (cursor != null) {
-    where.push('(t.date, t.created_at, t.id) < (?, ?, ?)');
-    values.push(...cursor);
+  // The days, on their own, so elsewhere can ask for the others
+  const days: string[] = [];
+  const dayValues: string[] = [];
+  if (query.from != null) {
+    days.push('t.date >= ?');
+    dayValues.push(query.from);
   }
-  return pageOf(
-    db.prepare(
-      `SELECT ${transactionColumns('t')} FROM transactions t
+  if (query.to != null) {
+    days.push('t.date <= ?');
+    dayValues.push(query.to);
+  }
+
+  const from = `FROM transactions t
        LEFT JOIN categories c ON c.email = t.email AND c.id = t.category_id
-       LEFT JOIN categories p ON p.email = c.email AND p.id = c.parent_id
-       WHERE ${where.join(' AND ')}
+       LEFT JOIN categories p ON p.email = c.email AND p.id = c.parent_id`;
+  const after = (at: [string, number, string]) => ({
+    sql: '(t.date, t.created_at, t.id) < (?, ?, ?)',
+    values: at,
+  });
+  const pageWhere = [...where, ...days];
+  const pageValues = [...values, ...dayValues];
+  if (cursor != null) {
+    const past = after(cursor);
+    pageWhere.push(past.sql);
+    pageValues.push(...past.values);
+  }
+  const page = db
+    .prepare(
+      `SELECT ${transactionColumns('t')} ${from}
+       WHERE ${pageWhere.join(' AND ')}
        ORDER BY t.date DESC, t.created_at DESC, t.id DESC
        LIMIT ?`,
-    ),
-    values,
-    limit,
+    )
+    .bind(...pageValues, limit + 1);
+  const askElsewhere = cursor == null && days.length > 0;
+  const elsewhere = db
+    .prepare(
+      `SELECT COUNT(*) AS n ${from}
+       WHERE ${where.join(' AND ')} AND NOT (${days.join(' AND ') || '1'})`,
+    )
+    .bind(...values, ...dayValues);
+  const [found, outside] = await db.batch<Transaction | { n: number }>(
+    askElsewhere ? [page, elsewhere] : [page],
   );
+  const results = found.results as Transaction[];
+  const transactions = results.slice(0, limit);
+  const last = results.length > limit ? transactions[transactions.length - 1] : null;
+
+  const none: SearchTotals = { entries: 0, spentCents: 0, receivedCents: 0 };
+  let rest = none;
+  let restOfLastDay: SearchPage['restOfLastDay'] = null;
+  if (last != null) {
+    const past = after([last.date, last.createdAt, last.id]);
+    const sums = await db
+      .prepare(
+        `SELECT COUNT(*) AS entries,
+                COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount_cents END), 0)
+                  AS spentCents,
+                COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount_cents END), 0)
+                  AS receivedCents,
+                COUNT(CASE WHEN t.date = ? THEN 1 END) AS dayEntries,
+                COALESCE(SUM(CASE WHEN t.date = ? AND t.kind = 'expense'
+                  THEN t.amount_cents END), 0) AS daySpentCents,
+                COALESCE(SUM(CASE WHEN t.date = ? AND t.kind = 'income'
+                  THEN t.amount_cents END), 0) AS dayReceivedCents
+         ${from}
+         WHERE ${[...where, ...days, past.sql].join(' AND ')}`,
+      )
+      .bind(last.date, last.date, last.date, ...values, ...dayValues, ...past.values)
+      .first<
+        SearchTotals & { dayEntries: number; daySpentCents: number; dayReceivedCents: number }
+      >();
+    if (sums != null) {
+      rest = {
+        entries: sums.entries,
+        spentCents: sums.spentCents,
+        receivedCents: sums.receivedCents,
+      };
+      restOfLastDay = {
+        date: last.date,
+        entries: sums.dayEntries,
+        spentCents: sums.daySpentCents,
+        receivedCents: sums.dayReceivedCents,
+      };
+    }
+  }
+  return json<SearchPage>({
+    transactions,
+    nextBefore: last != null ? cursorOf(last) : null,
+    rest,
+    restOfLastDay,
+    ...(askElsewhere && { elsewhere: (outside?.results[0] as { n: number } | undefined)?.n ?? 0 }),
+  });
 }

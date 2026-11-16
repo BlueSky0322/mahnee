@@ -461,6 +461,42 @@ describe('the undo toast', () => {
     },
   );
 
+  test.each(SIZES)(
+    'keeps focus on Undo once reached, while the dialog is still closing (%s)',
+    async (size) => {
+      const server = withWallet();
+      renderApp(server, '/', { size });
+      const user = userEvent.setup();
+      await user.click(await wallet());
+      await user.click(await screen.findByRole('button', { name: 'Edit' }));
+      const archive = within(await screen.findByRole('dialog')).getByRole('button', {
+        name: 'Archive',
+      });
+      // Undo is reached the moment the toast shows, before the closing dialog has
+      // handed focus back to Edit
+      act(() => archive.click());
+      const undo = within(screen.getByRole('alert')).getByRole('button', { name: 'Undo' });
+      undo.focus();
+      await wait(100);
+      expect(document.activeElement).toBe(undo);
+      await user.keyboard('{Enter}');
+      await waitFor(() => expect(server.accounts[0].archived).toBe(false));
+      // Enter undid the archive; it didn't open the dialog again
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    },
+  );
+
+  test.each(SIZES)(
+    'leaves focus on Edit once the dialog closes, when nothing else took it (%s)',
+    async (size) => {
+      await archiveWallet(size);
+      await screen.findByRole('alert');
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit' })),
+      );
+    },
+  );
+
   test('goes away by itself after 6 seconds, not before', async () => {
     await archiveWallet('phone');
     expect(await screen.findByText('Archived Wallet')).toBeTruthy();

@@ -21,6 +21,7 @@ import type {
   MonthTrend,
   Profile,
   Recurring,
+  SearchPage,
   Transaction,
 } from '@shared/api';
 import {
@@ -139,7 +140,9 @@ function stubBrowser() {
     },
   );
   window.scrollTo = () => {};
-  Element.prototype.scrollIntoView = () => {};
+  // As current Chromium does: it answers a Promise, which must never be taken for a cleanup
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises -- what Chromium answers
+  Element.prototype.scrollIntoView = () => Promise.resolve();
 }
 
 /**
@@ -639,13 +642,14 @@ function listTransactions(
 /**
  * GET /api/search as the real one (worker/ledger/read.ts) answers: what shared/search.ts
  * finds on every account, newest first, 50 to a page unless asked (at most 200), carrying
- * on after a cursor; someone else's account or category is answered as one that doesn't
- * exist
+ * on after a cursor, with what matches beyond the page (rest, and the part of it on the
+ * page's last day) and, on the first page of a search for days, how many match outside
+ * them; someone else's account or category is answered as one that doesn't exist
  */
 function searchTransactions(
   server: FakeServer,
   params: URLSearchParams,
-): { transactions: Transaction[]; nextBefore: string | null } | [number, string] {
+): SearchPage | [number, string] {
   const query = readSearch(params);
   if ('error' in query) return [400, query.error];
   const limit = Number(params.get('limit') ?? 50);
@@ -666,9 +670,27 @@ function searchTransactions(
     .sort(newestFirst);
   const after = before == null ? all : all.filter((t) => isOlderThan(t, before));
   const transactions = after.slice(0, limit);
+  const last = after.length > limit ? transactions[transactions.length - 1] : null;
+  const sum = (rows: Transaction[]) => ({
+    entries: rows.length,
+    spentCents: rows.reduce((n, t) => n + (t.kind === 'expense' ? t.amountCents : 0), 0),
+    receivedCents: rows.reduce((n, t) => n + (t.kind === 'income' ? t.amountCents : 0), 0),
+  });
+  const beyond = after.slice(limit);
+  const days = query.from != null || query.to != null;
+  const elsewhere = () =>
+    server.transactions.filter(
+      (t) =>
+        matchesSearch(t, { ...query, from: null, to: null }, categories) &&
+        !matchesSearch(t, query, categories),
+    ).length;
   return {
     transactions: transactions.map((t) => ({ ...t })),
-    nextBefore: after.length > limit ? cursorOf(transactions[transactions.length - 1]) : null,
+    nextBefore: last != null ? cursorOf(last) : null,
+    rest: sum(beyond),
+    restOfLastDay:
+      last == null ? null : { date: last.date, ...sum(beyond.filter((t) => t.date === last.date)) },
+    ...(before == null && days && { elsewhere: elsewhere() }),
   };
 }
 

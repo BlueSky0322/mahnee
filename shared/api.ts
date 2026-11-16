@@ -206,6 +206,35 @@ export interface TransactionPage {
   nextBefore: string | null;
 }
 
+/** How many transactions, and what the spending and the income among them came to */
+export interface SearchTotals {
+  /** Every kind counted, transfers too */
+  entries: number;
+  /** Spending alone, whole cents */
+  spentCents: number;
+  /** Income alone, whole cents */
+  receivedCents: number;
+}
+
+/**
+ * GET /api/search: a page of what a search finds, newest first, with what matches beyond
+ * it, so the app can say how many are found and what they came to, in all and on each day,
+ * by adding what it has loaded (as shown) to the last page's rest. Each figure stays exact:
+ * a person holds at most MAX_ACCOUNTS x MAX_TRANSACTIONS_PER_ACCOUNT transactions of at
+ * most MAX_TRANSACTION_CENTS (shared/ledger.ts), under 5e15 cents.
+ */
+export interface SearchPage extends TransactionPage {
+  /** Everything that matches after this page's last transaction; nothing on the last page */
+  rest: SearchTotals;
+  /** Of `rest`, those on the day of this page's last transaction; null on the last page */
+  restOfLastDay: (SearchTotals & { date: string }) | null;
+  /**
+   * The first page only, when the search asks for days (from or to): how many match
+   * outside them, the rest of it the same
+   */
+  elsewhere?: number;
+}
+
 /** What was spent in one category, or received in one, over a month */
 export interface CategoryTotal {
   /** The category the transactions name: a subcategory's own id, not its parent's */

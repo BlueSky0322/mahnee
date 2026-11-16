@@ -16,8 +16,10 @@ const LOADING_ROWS = 3;
 /** Opens an account's own page */
 const openAccount = (account: Account) => navigate(`?account=${account.id}`);
 
-// The home page's list of accounts with their balances: tap one to open it, or add one
-export default function AccountList() {
+// The list of accounts with their balances, on Home and as the Accounts page (`asPage`,
+// titled as the page): tap one to open it, or add one
+export default function AccountList({ asPage = false }: { asPage?: boolean }) {
+  const Title = asPage ? 'h1' : 'h2';
   const { accounts, failed, retry } = useAccounts();
   const [open, setOpen] = useState<{ account: null } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -32,12 +34,12 @@ export default function AccountList() {
       aria-labelledby="accounts-title"
     >
       <div className={classes.sectionHeader}>
-        <h2
+        <Title
           id="accounts-title"
-          className={classes.sectionTitle}
+          className={asPage ? `${classes.sectionTitle} ${classes.pageTitle}` : classes.sectionTitle}
         >
           Accounts
-        </h2>
+        </Title>
         {listed.length > 0 && (
           <Button
             variant="subtle"

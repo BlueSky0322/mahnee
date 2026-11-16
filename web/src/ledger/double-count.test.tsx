@@ -5,7 +5,14 @@ import { get } from 'idb-keyval';
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../testing/app';
-import { fakeServer, holdNext, reloadApp, renderApp, setupAppTests } from '../testing/app';
+import {
+  addButton,
+  fakeServer,
+  holdNext,
+  reloadApp,
+  renderApp,
+  setupAppTests,
+} from '../testing/app';
 import { outboxKey } from '../offline/outbox';
 import { queryClient } from '../query-client';
 import { monthHeading, thisMonth } from '../utils/date-input';
@@ -121,7 +128,7 @@ const keptForRyan = async () =>
 /** Adds RM 8 on Food from Home's entry sheet */
 async function spendEight() {
   const user = userEvent.setup();
-  await user.click(await screen.findByRole('button', { name: 'Add' }));
+  await user.click(await addButton());
   const form = within(await screen.findByRole('dialog'));
   await waitFor(() => expect(document.activeElement).toBe(form.getByLabelText('Amount')));
   await user.keyboard('8');

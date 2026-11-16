@@ -5,11 +5,11 @@ import { describe, expect, test, vi } from 'vitest';
 import type { Account, ChangesBody, LedgerChange, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, renderApp, setupAppTests } from '../../testing/app';
+import { fakeServer, goToPlace, renderApp, setupAppTests } from '../../testing/app';
 
-// Finding transactions from Home: a "Search" row opens ?search, which matches what's typed
-// against payees, notes, category names and amounts across every account, newest first,
-// with filters for account, category and days. The catch-up (a date range and Other,
+// Finding transactions on Activity (?activity), which for now is the search: it matches
+// what's typed against payees, notes, category names and amounts across every account,
+// newest first, with filters for account, category and days. The catch-up (a date range and Other,
 // select all, move them to the right category) happens there too, with no other page.
 
 setupAppTests();
@@ -129,11 +129,11 @@ function foundWords() {
     .map((li) => WORDS.find((word) => li.textContent?.includes(word)) ?? li.textContent);
 }
 
-/** Opens Search from Home's row */
+/** Opens Activity, where the search is, from the places */
 async function openSearch() {
   const user = userEvent.setup();
-  await user.click(await screen.findByRole('button', { name: 'Search' }));
-  expect(await screen.findByRole('heading', { name: 'Search transactions' })).toBeTruthy();
+  await goToPlace('Activity');
+  expect(await screen.findByRole('heading', { name: 'Activity' })).toBeTruthy();
   return user;
 }
 
@@ -157,19 +157,19 @@ const sentChanges = () =>
 
 describe('search', () => {
   test.each(SIZES)(
-    'opens from Home as its own page, lists everything newest first, and goes back (%s)',
+    'opens as Activity, lists everything newest first, and Home is a tap away (%s)',
     async (size) => {
       renderApp(withHistory(), '/', { size });
-      const user = await openSearch();
-      expect(window.location.search).toBe('?search');
+      await openSearch();
+      expect(window.location.search).toBe('?activity');
       await waitFor(() => expect(foundWords()).toEqual(WORDS));
       // Every account's, transfers too, with the account each is on
       const results = within(screen.getByRole('region', { name: 'Results' }));
       expect(results.getByText(/top-up/).closest('li')?.textContent).toMatch(/Bank/);
       expect(results.getByText(/Grab/).closest('li')?.textContent).toMatch(/Visa/);
 
-      await user.click(screen.getByRole('button', { name: 'Home' }));
-      expect(await screen.findByRole('button', { name: 'Search' })).toBeTruthy();
+      await goToPlace('Home');
+      expect(await screen.findByRole('heading', { name: 'Mahnee' })).toBeTruthy();
       expect(window.location.search).toBe('');
     },
   );
@@ -201,9 +201,9 @@ describe('search', () => {
   );
 
   test('filters by account, category and days, with or without words', async () => {
-    renderApp(withHistory(), '/?search');
+    renderApp(withHistory(), '/?activity');
     const user = userEvent.setup();
-    expect(await screen.findByRole('heading', { name: 'Search transactions' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Activity' })).toBeTruthy();
     await waitFor(() => expect(foundWords()).toEqual(WORDS));
 
     // The transfer into the Wallet is on it too
@@ -234,7 +234,7 @@ describe('search', () => {
 
 describe('catching up', () => {
   test.each(SIZES)(
-    'filters to a date range and Other, selects all and moves them to Food, all from ?search (%s)',
+    'filters to a date range and Other, selects all and moves them to Food, all from ?activity (%s)',
     async (size) => {
       const server = withHistory();
       renderApp(server, '/', { size });
@@ -307,7 +307,7 @@ describe('catching up', () => {
         window.removeEventListener('popstate', notePage);
       }
       notePage();
-      expect([...pages]).toEqual(['?search']);
+      expect([...pages]).toEqual(['?activity']);
     },
   );
 });

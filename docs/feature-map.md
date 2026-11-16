@@ -29,15 +29,16 @@ App paths are under `web/src/`, Worker paths under `worker/`.
 
 ## Sign-in, profile and settings
 
-**What it is.** Cloudflare Access signs people in before the app loads. The home page
-says who is signed in and offers Sign out; the theme switch saves the account's choice
-of light or dark. The profile also holds a display name, an accent colour, where
-exchange rates come from, and the redesign's settings (week and month start, start
-screen, Home density, what Add asks first, the account Add starts on, suggestions, a
-time on entries, expense colour, carry-over for new budgets, reminders) with the
-person's time zone. Nothing on screen changes those yet; the settings pages come with
-the redesign. The accent is kept but not drawn: every accent shows as the design's
-cobalt until the accent setting is offered.
+**What it is.** Cloudflare Access signs people in before the app loads. Settings
+(`?settings`) says who is signed in (the name, or the email's first part, and the email)
+and offers Sign out; its round initial is on Home's header on phones and tablets, and in
+the sidebar on computers. The theme switch on Home saves the account's choice of light or
+dark. The profile also holds a display name, an accent colour, where exchange rates come
+from, and the redesign's settings (week and month start, start screen, Home density, what
+Add asks first, the account Add starts on, suggestions, a time on entries, expense colour,
+carry-over for new budgets, reminders) with the person's time zone. Nothing on screen
+changes those yet; the settings pages come with the redesign. The accent is kept but not
+drawn: every accent shows as the design's cobalt until the accent setting is offered.
 
 **Owner.** [profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx) loads
 the profile, keeps a device copy, and owns every change through
@@ -47,7 +48,9 @@ preference and explains a failure itself.
 
 **Parts.**
 
-- UI: [components/home/HomePage.tsx](../web/src/components/home/HomePage.tsx) and
+- UI: [components/settings/SettingsPage.tsx](../web/src/components/settings/SettingsPage.tsx),
+  [components/common/you.ts](../web/src/components/common/you.ts) (the name and initial),
+  [components/common/YouLink.tsx](../web/src/components/common/YouLink.tsx) and
   [components/common/ThemeToggle.tsx](../web/src/components/common/ThemeToggle.tsx).
 - API: [worker/accounts/auth.ts](../worker/accounts/auth.ts) checks the Access token (or
   the local dev user), [worker/routes/me.ts](../worker/routes/me.ts) serves `/api/me`,
@@ -115,9 +118,10 @@ before, and every CHECK against what the API takes).
 ## Accounts
 
 **What it is.** The places a person's money is: cash, bank accounts, cards and
-e-wallets, each with its balance, listed on the home page. Tapping one opens its own
-page (`?account=<id>`): its name, kind and balance, and its transactions (see
-Transactions). Add one from Home; rename it, change its opening balance, or archive it
+e-wallets, each with its balance, listed on Accounts (`?accounts`) and, until Home is
+rebuilt, on Home. Tapping one opens its own page (`?account=<id>`), which goes back up to
+Accounts: its name, kind and balance, and its transactions (see Transactions). Add one
+from the list; rename it, change its opening balance, or archive it
 (with Undo; archived ones are listed apart and can be brought back) from Edit on its
 page. A card's balance is what's owed on it. Its kind is fixed once added. Worker folder
 `accounts/` is sign-in, not these: the ledger is `ledger/`.
@@ -219,8 +223,8 @@ account, receipts, all or nothing).
 
 ## Categories
 
-**What it is.** What spending and income are sorted into, on their own page (`?categories`,
-reached from Home): a Spending list and an Income list, each top-level category with its
+**What it is.** What spending and income are sorted into, on their own page in Settings
+(`?settings=categories`; the old `?categories` still opens it): a Spending list and an Income list, each top-level category with its
 subcategories under it. Add one (at the top level or under another), rename it, put it
 higher or lower with its arrows, move it under another or back to the top level, or
 archive it (with Undo; archived ones are listed apart and can be brought back). Moves
@@ -241,8 +245,8 @@ arranges them as listed. Screens read through `useCategories()` in
 - UI: [components/categories/CategoriesPage.tsx](../web/src/components/categories/CategoriesPage.tsx)
   (the two lists, arrows, placeholders and archived ones) and
   [CategoryForm.tsx](../web/src/components/categories/CategoryForm.tsx) (adding, renaming,
-  moving and archiving, in a `ResponsiveDialog`); the link on
-  [components/home/HomePage.tsx](../web/src/components/home/HomePage.tsx).
+  moving and archiving, in a `ResponsiveDialog`); the row on
+  [components/settings/SettingsPage.tsx](../web/src/components/settings/SettingsPage.tsx).
 - API: `addCategory`, `updateCategory` (name, parent, place) and `archiveCategory` in
   [worker/ledger/changes.ts](../worker/ledger/changes.ts); categories are read with the
   accounts in [worker/ledger/read.ts](../worker/ledger/read.ts).
@@ -295,8 +299,9 @@ and the database's own guard).
 
 **What it is.** Money spent from an account, or that came into one, each in a category
 of its kind; and transfers, money moved from one of the person's accounts to another
-(an e-wallet top-up, paying off a card), with no category. Add, floating over Home and
-each account's page, opens the entry sheet: the amount first (focused, the phone's
+(an e-wallet top-up, paying off a card), with no category. Add, in the tab bar on phones
+and tablets, or New entry (or N) in the sidebar on computers, opens the entry sheet on
+every page that shows them, while any account is running: the amount first (focused, the phone's
 number keyboard), Spent, Received or Transfer, the account and category used last on
 this device (the account's own on its page; else the first), for a transfer From and To
 (To is the account moved to last, never the one it comes from),
@@ -333,7 +338,7 @@ category used last, and the account a transfer went to last, by id, per person
   `toCents`, amounts signed for the account shown, and a transfer's "To Visa" or
   "From Maybank"), the account's page in
   [components/accounts/AccountPage.tsx](../web/src/components/accounts/AccountPage.tsx),
-  the Add on [HomePage.tsx](../web/src/components/home/HomePage.tsx), and
+  Add and New entry in [components/shell/AppLayout.tsx](../web/src/components/shell/AppLayout.tsx), and
   [components/common/category-name.ts](../web/src/components/common/category-name.ts)
   ("Food › Coffee").
 - API: `GET /api/transactions?account=<id>` (transfers into it too) or `?month=2026-11`
@@ -396,9 +401,10 @@ defaults with a first transaction).
 
 ## Month view
 
-**What it is.** The top of Home: one month at a glance, this month unless the address
-names an earlier one (`?month=2026-10`; the arrows step between months, never past
-this one, and Back returns). What's left (received less spent) is the largest number;
+**What it is.** The top of Home, and of Plan until Plan is rebuilt: one month at a
+glance, this month unless the address names an earlier one (`?month=2026-10` on Home,
+`?plan&month=2026-10` on Plan; the arrows step between months on the same page, never
+past this one, and Back returns). What's left (received less spent) is the largest number;
 when more was spent than came in it says "Over", in the negative colour, with a line
 saying by how much. Spent and Received sit beneath it, then spending by top-level
 category, largest first, each with a bar for its share of the month's spending. A
@@ -432,7 +438,8 @@ read them through `useMonthTrend(month)`. The card never waits on them.
 
 - UI: [components/home/MonthCard.tsx](../web/src/components/home/MonthCard.tsx) and
   [TwelveMonths.tsx](../web/src/components/home/TwelveMonths.tsx) (a row's 12 months), on
-  [HomePage.tsx](../web/src/components/home/HomePage.tsx); months in
+  [HomePage.tsx](../web/src/components/home/HomePage.tsx) and
+  [components/plan/PlanPage.tsx](../web/src/components/plan/PlanPage.tsx); months in
   [utils/date-input.ts](../web/src/utils/date-input.ts) (`thisMonth`, `addMonths`,
   `monthHeading`).
 - API: `GET /api/summary?month=2026-11` (`readSummary` in
@@ -640,8 +647,8 @@ guard).
 
 ## Search and changing many
 
-**What it is.** Search, a row on Home, opens its own page (`?search`) listing the
-person's transactions on every account, newest first, grouped by day, 200 at a time with
+**What it is.** Activity (`?activity`, one of the places; the old `?search` still opens
+it) is for now the search page, listing the person's transactions on every account, newest first, grouped by day, 200 at a time with
 Load more. Typing finds the words anywhere in the payee, the note, the category's name or
 its parent's (so "food" finds Food › Coffee), ignoring the case of A to Z; words that
 read as an amount ("8", "8.50", "1,000") also find that exact amount, and text containing
@@ -676,8 +683,7 @@ with its own id (`addTransaction`), which the outbox may send in several request
 - UI: [components/search/SearchPage.tsx](../web/src/components/search/SearchPage.tsx) (the
   filters, results, selecting and the long press),
   [BulkDialogs.tsx](../web/src/components/search/BulkDialogs.tsx) (the previews) and
-  [search-text.ts](../web/src/components/search/search-text.ts); the row on
-  [HomePage.tsx](../web/src/components/home/HomePage.tsx).
+  [search-text.ts](../web/src/components/search/search-text.ts), drawn as Activity.
 - API: `GET /api/search?q=&account=&category=&from=&to=&before=&limit=`
   (`searchTransactions` in [worker/ledger/read.ts](../worker/ledger/read.ts), one query:
   `instr(lower(...))` on the payee, note and both category names (no pattern, so no
@@ -702,8 +708,8 @@ with its own id (`addTransaction`), which the outbox may send in several request
   making the change; the Worker is the authority.
 - 500 ids are about 9 KB, inside one request (`MAX_CHANGES_BYTES`).
 
-**Tests.** [Search.test.tsx](../web/src/components/search/Search.test.tsx) (from Home and
-back, words, categories and amounts, the filters, catching up from `?search` alone;
+**Tests.** [Search.test.tsx](../web/src/components/search/Search.test.tsx) (opened as
+Activity, words, categories and amounts, the filters, catching up from `?activity` alone;
 desktop and phone), [BulkEdit.test.tsx](../web/src/components/search/BulkEdit.test.tsx)
 (Select, a long press, moving from one and from several categories, deleting, Undo of
 each, one transaction, 501 refused and 500 in one change, balances and the month moved at
@@ -759,7 +765,8 @@ shown, read through `useWholeLedger()`.
   [MonthEnd.tsx](../web/src/components/home/MonthEnd.tsx) (the total, its list and the
   items), [RecurringSheet.tsx](../web/src/components/home/RecurringSheet.tsx) and
   [recurring-text.ts](../web/src/components/home/recurring-text.ts) on
-  [HomePage.tsx](../web/src/components/home/HomePage.tsx); Repeat in
+  [HomePage.tsx](../web/src/components/home/HomePage.tsx) (the month-end total on Plan
+  too); Repeat in
   [EntrySheet.tsx](../web/src/components/entry/EntrySheet.tsx).
 - API: read with the accounts (`readLedger` in
   [worker/ledger/read.ts](../worker/ledger/read.ts); `recurring` only for someone who has
@@ -835,8 +842,8 @@ opens and as waiting changes are saved (`useUnsaved`).
 
 **Parts.**
 
-- UI: [ExportDialog.tsx](../web/src/components/home/ExportDialog.tsx) and the row on
-  [HomePage.tsx](../web/src/components/home/HomePage.tsx);
+- UI: [ExportDialog.tsx](../web/src/components/home/ExportDialog.tsx), opened from Settings ›
+  Import and export ([components/settings/DataPage.tsx](../web/src/components/settings/DataPage.tsx));
   [utils/deliver-file.ts](../web/src/utils/deliver-file.ts) saves the file (or shares it);
   `dayText` in [utils/date-input.ts](../web/src/utils/date-input.ts).
 - API: `GET /api/export` (`exportTransactions`) and `GET /api/export/summary`
@@ -929,7 +936,8 @@ column names per email and account (`localStorage`, let go on signing out).
 **Parts.**
 
 - UI: [components/import/ImportPage.tsx](../web/src/components/import/ImportPage.tsx)
-  and the row on [HomePage.tsx](../web/src/components/home/HomePage.tsx).
+  (`?import`, going back up to Settings › Import and export), and its row on
+  [components/settings/DataPage.tsx](../web/src/components/settings/DataPage.tsx).
 - API: `GET /api/payee-categories?account=` (`readPayeeCategories` in
   [worker/ledger/payees.ts](../worker/ledger/payees.ts)): one query, the latest category
   per kind and `lower(payee)`, that account's first, newest first, at most
@@ -1068,7 +1076,7 @@ account's saved copy ([ProfileContext](../web/src/profile/ProfileContext.tsx)).
   are dropped (their unsaved changes kept for them, unread and unsent) and the app
   reloads. Signing out drops everything kept for the account, its unsaved changes too,
   after asking when any are waiting
-  ([components/home/useConfirmSignOut.tsx](../web/src/components/home/useConfirmSignOut.tsx)).
+  ([components/common/useConfirmSignOut.tsx](../web/src/components/common/useConfirmSignOut.tsx)).
 - The app and the service worker read a failed send the same way: no answer, a non-JSON
   answer, 401, 429, 5xx and `account_mismatch` are kept; any other 4xx drops the rest.
 - Every write names the account it was made as (`X-Expected-Account`, from `writeAs` in
@@ -1103,18 +1111,48 @@ when signed out),
 ## Pages, layouts and Back
 
 **What it is.** Which page shows, the layouts for phones, tablets and computers, and
-what Back does. There are five pages so far: the home page, with the month and the
-accounts on it (an earlier month as `?month=2026-10`), the categories page
-(`?categories`), the search page (`?search`), the import page (`?import`) and an
-account's page (`?account=<id>`), each of which goes back up to Home.
+what Back does. Four places are always a tap away: Home, Activity, Plan and Accounts, in
+a tab bar at the bottom on phones and tablets (with Add in the middle) and in a sidebar
+on computers (with Mahnee, New entry and, at its foot, Settings). Moving between places
+takes the page's place in history, so Back never walks through them. An account's page
+keeps the places, with Accounts marked; Settings, its sections and Import cover them,
+and so does the first run, before there is an account. For now Activity is the search,
+Plan is the month card and the month-end total, and Accounts is the list of accounts.
+
+**Addresses.** Later pieces link to these; each is a query string read by `readRoute`.
+
+| Page                      | Address                                                                                                      | Now                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| Home                      | none, or `?month=2026-10` for an earlier month                                                               | live                                                               |
+| Activity                  | `?activity`, with `&q=`, `&account=`, `&category=`, `&from=`, `&to=`, `&kind=`, `&day=2026-11-10`, `&select` | `?activity` live; the filters are Activity's to read               |
+| Plan                      | `?plan`, with `&month=2026-10`                                                                               | live                                                               |
+| Scheduled                 | `?plan=scheduled`                                                                                            | opens Plan                                                         |
+| A category over 12 months | `?plan&category=<id>`                                                                                        | opens Plan                                                         |
+| Accounts                  | `?accounts`                                                                                                  | live                                                               |
+| One account               | `?account=<id>`                                                                                              | live                                                               |
+| Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`             | the index, `categories` and `data` live; the others open the index |
+| Importing a file          | `?import`                                                                                                    | live, opened from `?settings=data`                                 |
+
+A page named first wins over the parameters after it: `?activity&account=<id>` is
+Activity, and `account` is its filter. Older addresses are replaced in place, keeping the
+rest of the address: `?search` becomes `?activity`, `?categories` becomes
+`?settings=categories`. So `search` and `categories` are reserved: no page or parameter
+may use either name for anything else (Activity's filters included).
 
 **Owner.**
 
 - [hooks/useRoute.ts](../web/src/hooks/useRoute.ts): pages come from the query string
-  through `navigate()`, and the last page reopens on a fresh start (on this month: a
-  month in the address is never reopened, `TRANSIENT`). A page opened from
-  another goes back up with `goUp`: Back when it came from there, else straight there in
-  its own place. Each page the app gains adds its view to `Route`.
+  through `navigate()` (`{ replace: true }` for the places), and the last page reopens on a
+  fresh start (on this month: a month in the address is never reopened, `TRANSIENT`). A
+  page opened from another goes back up with `goUp`: Back when it came from there, else
+  straight there in its own place. `closeSettings` goes back to the page Settings was
+  opened over, or Home. Each page the app gains adds its view to `Route`, and `placeOf`
+  says which place it belongs to.
+- [hooks/useShortcuts.ts](../web/src/hooks/useShortcuts.ts): keys on a keyboard. N opens a
+  new entry and / puts the cursor in the page's search, or opens Activity's (on pages with
+  the places); Esc closes Settings, and goes up from its sections. None fires while typing
+  in a field (but Esc), with Ctrl, Cmd or Alt held, or while a dialog is open; Esc does
+  nothing on Import, so a file being looked over is kept.
 - [hooks/useBreakpoints.ts](../web/src/hooks/useBreakpoints.ts): `useIsMobile` (under
   768px) and `useIsDesktop` (1024px and up).
 - [hooks/useBackDismiss.ts](../web/src/hooks/useBackDismiss.ts): Back closes the top
@@ -1122,8 +1160,14 @@ account's page (`?account=<id>`), each of which goes back up to Home.
 
 **Parts.**
 
-- [components/shell/AppLayout.tsx](../web/src/components/shell/AppLayout.tsx): the page,
-  with the offline and new-version notices over it.
+- [components/shell/AppLayout.tsx](../web/src/components/shell/AppLayout.tsx): the page in
+  its one `main` region, the places around it
+  ([TabBar.tsx](../web/src/components/shell/TabBar.tsx),
+  [Sidebar.tsx](../web/src/components/shell/Sidebar.tsx), the list in
+  [places.ts](../web/src/components/shell/places.ts)), the entry sheet that Add opens, and
+  the offline and new-version notices over it. While the tab bar shows, `--tabbar-h` is its
+  height (0 otherwise), which the page's end, the notices and the undo messages keep clear
+  of.
 - [ResponsiveDialog](../web/src/components/ui/ResponsiveDialog.tsx): a sheet on phones,
   a dialog elsewhere.
 - [Skeleton](../web/src/components/ui/Skeleton.tsx): the shimmering placeholders a page
@@ -1142,6 +1186,12 @@ account's page (`?account=<id>`), each of which goes back up to Home.
 
 - Sheets and dialogs never push history entries themselves; they open through
   `ResponsiveDialog` or `useBackDismiss`, so Back closes the top one first.
+- Moving between places replaces the page in history; only sub-pages (an account,
+  Settings and its sections, Import) push, and go back up with `goUp` or
+  `closeSettings`.
+- One Add: the tab bar's or the sidebar's, shown once the accounts are known, unusable
+  while every account is archived; on a running account's page it opens on that account.
+  (The archived account's page used to offer no Add; it keeps the shell's now.)
 - Until a page's data arrives it shows placeholders the size of what will replace them,
   never an empty or zero state that then changes.
 - Every CSS variable the app uses is defined (in `tokens.css`, the app's own styles and
@@ -1149,7 +1199,11 @@ account's page (`?account=<id>`), each of which goes back up to Home.
   `--sf-safe-bottom` and `--sf-keyboard`, which aren't colours, keep that prefix.
 
 **Tests.** [App.test.tsx](../web/src/App.test.tsx), with phone cases
-(`{ size: 'phone' }`), and
+(`{ size: 'phone' }`), [Shell.test.tsx](../web/src/components/shell/Shell.test.tsx) (the
+tab bar, sidebar, Add, history, landmarks, pages without the places),
+[routes.test.tsx](../web/src/hooks/routes.test.tsx) (each address and the old ones),
+[shortcuts.test.tsx](../web/src/hooks/shortcuts.test.tsx),
+[Settings.test.tsx](../web/src/components/settings/Settings.test.tsx), and
 [isolation.test.tsx](../web/src/testing/isolation.test.tsx) (each screen test starts
 from nothing). The look: [theme/paper-ledger.test.tsx](../web/src/theme/paper-ledger.test.tsx)
 (every colour light and dark, the ground, Geist, filled primary buttons whatever accent is

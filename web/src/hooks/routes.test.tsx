@@ -1,0 +1,151 @@
+// @vitest-environment jsdom
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, onTestFinished, test, vi } from 'vitest';
+import type { FakeServer } from '../testing/app';
+import { fakeServer, renderApp, setupAppTests } from '../testing/app';
+
+// Each page's address (?activity, ?plan, ?accounts, ?settings=...), and the older
+// addresses that still open the page they became
+
+setupAppTests();
+
+const WALLET = 'a'.repeat(16);
+
+function withWallet(): FakeServer {
+  const server = fakeServer();
+  server.accounts.push({
+    id: WALLET,
+    name: 'Wallet',
+    kind: 'cash',
+    currency: 'MYR',
+    openingCents: 10_000,
+    position: 0,
+    archived: false,
+  });
+  return server;
+}
+
+/** The app's clock reads Friday 6 November 2026, mid-morning, and still ticks */
+function onTheSixth() {
+  vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true });
+  vi.setSystemTime(new Date(2026, 10, 6, 10, 0, 0));
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
+}
+
+const pageTitle = (name: string) => screen.findByRole('heading', { name, level: 1 });
+
+describe('addresses', () => {
+  test('?activity opens Activity, with the search it holds today', async () => {
+    renderApp(withWallet(), '/?activity');
+    expect(await pageTitle('Activity')).toBeTruthy();
+    expect(screen.getByRole('searchbox', { name: 'Search' })).toBeTruthy();
+  });
+
+  test('?search, the old address, opens Activity in its place', async () => {
+    renderApp(withWallet(), '/?search');
+    expect(await pageTitle('Activity')).toBeTruthy();
+    expect(window.location.search).toBe('?activity');
+  });
+
+  test('?search keeps the rest of its address when it becomes ?activity', async () => {
+    const before = window.history.length;
+    renderApp(withWallet(), '/?search&q=kopi');
+    expect(await pageTitle('Activity')).toBeTruthy();
+    expect(window.location.search).toBe('?activity&q=kopi');
+    // Replaced, so Back doesn't land on the old address and come straight back
+    expect(window.history.length).toBe(before);
+  });
+
+  test('?activity&account= opens Activity, not the account', async () => {
+    renderApp(withWallet(), `/?activity&account=${WALLET}`);
+    expect(await pageTitle('Activity')).toBeTruthy();
+    expect(window.location.search).toBe(`?activity&account=${WALLET}`);
+  });
+
+  test('?categories, the old address, opens Categories inside Settings', async () => {
+    const before = window.history.length;
+    renderApp(withWallet(), '/?categories');
+    expect(await pageTitle('Categories')).toBeTruthy();
+    expect(window.location.search).toBe('?settings=categories');
+    expect(window.history.length).toBe(before);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(await pageTitle('Settings')).toBeTruthy();
+    expect(window.location.search).toBe('?settings');
+  });
+
+  test('?accounts opens Accounts, with each account and its balance', async () => {
+    renderApp(withWallet(), '/?accounts');
+    expect(await pageTitle('Accounts')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ })).toBeTruthy();
+  });
+
+  test('?plan opens Plan on this month', async () => {
+    onTheSixth();
+    renderApp(withWallet(), '/?plan');
+    expect(await pageTitle('Plan')).toBeTruthy();
+    expect(await screen.findByRole('region', { name: 'November 2026' })).toBeTruthy();
+  });
+
+  test('?plan&month= opens Plan on that month, and its arrows stay on Plan', async () => {
+    onTheSixth();
+    renderApp(withWallet(), '/?plan&month=2026-09');
+    expect(await pageTitle('Plan')).toBeTruthy();
+    const month = within(await screen.findByRole('region', { name: 'September 2026' }));
+    const user = userEvent.setup();
+    await user.click(month.getByRole('button', { name: 'Next month' }));
+    expect(await screen.findByRole('region', { name: 'October 2026' })).toBeTruthy();
+    expect(window.location.search).toBe('?plan&month=2026-10');
+    expect(await pageTitle('Plan')).toBeTruthy();
+    await user.click(
+      within(screen.getByRole('region', { name: 'October 2026' })).getByRole('button', {
+        name: 'Next month',
+      }),
+    );
+    // This month's address names none
+    expect(await screen.findByRole('region', { name: 'November 2026' })).toBeTruthy();
+    expect(window.location.search).toBe('?plan');
+  });
+
+  test("Home keeps its month: an earlier one at ?month=, its arrows on Home's address", async () => {
+    onTheSixth();
+    renderApp(withWallet(), '/?month=2026-10');
+    const month = within(await screen.findByRole('region', { name: 'October 2026' }));
+    // And its accounts, until Home is rebuilt (piece 5)
+    expect(await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ })).toBeTruthy();
+    const user = userEvent.setup();
+    await user.click(month.getByRole('button', { name: 'Previous month' }));
+    expect(await screen.findByRole('region', { name: 'September 2026' })).toBeTruthy();
+    expect(window.location.search).toBe('?month=2026-09');
+    await user.click(
+      within(screen.getByRole('region', { name: 'September 2026' })).getByRole('button', {
+        name: 'Next month',
+      }),
+    );
+    await user.click(
+      within(await screen.findByRole('region', { name: 'October 2026' })).getByRole('button', {
+        name: 'Next month',
+      }),
+    );
+    expect(await screen.findByRole('region', { name: 'November 2026' })).toBeTruthy();
+    expect(window.location.search).toBe('');
+  });
+
+  // Interim: the sections of Settings get their own pages in pieces 10 to 13
+  test('a section of Settings not built yet opens the Settings page', async () => {
+    renderApp(withWallet(), '/?settings=money');
+    expect(await pageTitle('Settings')).toBeTruthy();
+  });
+
+  test("?import goes back up to Import and export, where it's opened from", async () => {
+    renderApp(withWallet(), '/?import');
+    expect(await pageTitle('Import')).toBeTruthy();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Import and export' }));
+    expect(await pageTitle('Import and export')).toBeTruthy();
+    expect(window.location.search).toBe('?settings=data');
+  });
+});

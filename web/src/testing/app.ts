@@ -3,7 +3,8 @@
 
 // IndexedDB, for the offline cache
 import 'fake-indexeddb/auto';
-import { cleanup, configure, render } from '@testing-library/react';
+import { cleanup, configure, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { notifications } from '@mantine/notifications';
 import { onlineManager } from '@tanstack/react-query';
 import { createElement } from 'react';
@@ -1208,6 +1209,38 @@ export function fakeServer(): FakeServer {
     pathsDown: new Set(),
     held: [],
   };
+}
+
+/**
+ * The button that opens a new entry: Add in the tab bar on phones and tablets, New entry
+ * in the sidebar on computers
+ */
+export const addButton = () =>
+  screen.findByRole('button', { name: screenSize === 'desktop' ? 'New entry' : 'Add' });
+
+/** The button that opens a new entry, if it's there now */
+export const queryAddButton = () =>
+  screen.queryByRole('button', { name: screenSize === 'desktop' ? 'New entry' : 'Add' });
+
+/** Goes to one of the places (Home, Activity, Plan, Accounts) in the tab bar or sidebar */
+export async function goToPlace(name: 'Home' | 'Activity' | 'Plan' | 'Accounts') {
+  const places = await screen.findByRole('navigation', { name: 'Main' });
+  await userEvent.setup().click(within(places).getByRole('link', { name }));
+}
+
+/** Opens Settings, from the initial on Home or the sidebar, whichever is showing */
+export async function openSettings() {
+  const user = userEvent.setup();
+  const name = /^(You and settings|Settings: you, categories, import and export)$/;
+  // A phone's initial is on Home: from another place, go there first
+  if (
+    screen.queryByRole('link', { name }) == null &&
+    screen.queryByRole('navigation', { name: 'Main' }) != null
+  ) {
+    await goToPlace('Home');
+  }
+  await user.click(await screen.findByRole('link', { name }));
+  await screen.findByRole('heading', { name: 'Settings', level: 1 });
 }
 
 /** Renders the app at `path`, talking to `server` */

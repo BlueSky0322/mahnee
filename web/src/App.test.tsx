@@ -7,9 +7,9 @@ import { fakeServer, renderApp, setupAppTests } from './testing/app';
 setupAppTests();
 
 describe('the app', () => {
-  test('shows who is signed in on the home page', async () => {
-    renderApp(fakeServer());
-    expect(await screen.findByText('Signed in as Ryan')).toBeTruthy();
+  test('shows who is signed in, in Settings', async () => {
+    renderApp(fakeServer(), '/?settings');
+    expect(await screen.findByText('Ryan')).toBeTruthy();
     expect(screen.getByText('ryan@example.com')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
   });
@@ -17,8 +17,8 @@ describe('the app', () => {
   test('names someone without a display name by their email', async () => {
     const server = fakeServer();
     server.me.displayName = null;
-    renderApp(server, '/', { size: 'phone' });
-    expect(await screen.findByText('Signed in as ryan')).toBeTruthy();
+    renderApp(server, '/?settings', { size: 'phone' });
+    expect(await screen.findByText('ryan')).toBeTruthy();
   });
 
   test('asks you to sign in again once signed out', async () => {
@@ -32,14 +32,14 @@ describe('the app', () => {
   test("says when the server can't be reached, and tries again", async () => {
     const server = fakeServer();
     server.health = 'down';
-    renderApp(server);
+    renderApp(server, '/?settings');
     const user = userEvent.setup();
     expect(await screen.findByText("Couldn't reach Mahnee")).toBeTruthy();
     expect(screen.queryByText("You're signed out")).toBeNull();
 
     server.health = 'up';
     await user.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByText('Signed in as Ryan')).toBeTruthy();
+    expect(await screen.findByText('Ryan')).toBeTruthy();
   });
 
   test('the theme switch saves the choice with the account', async () => {

@@ -123,8 +123,9 @@ describe("the device's time zone", () => {
     server.health = 'down';
     const done = await openedFromDevice(server);
     try {
-      renderApp(server);
-      expect((await screen.findAllByText('Signed in as Ryan', {}, WAIT)).length).toBeGreaterThan(0);
+      // Who's signed in shows on Settings
+      renderApp(server, '/?settings');
+      expect((await screen.findAllByText('Ryan', {}, WAIT)).length).toBeGreaterThan(0);
       await settle();
       expect(profileSaves()).toEqual([]);
     } finally {
@@ -143,10 +144,8 @@ describe("the device's time zone", () => {
       settings: { theme: 'dark', accent: 'teal', ratePreference: 'wise' },
     });
     try {
-      renderApp(server);
-      expect(
-        (await screen.findAllByText('Signed in as Kept Ryan', {}, WAIT)).length,
-      ).toBeGreaterThan(0);
+      renderApp(server, '/?settings');
+      expect((await screen.findAllByText('Kept Ryan', {}, WAIT)).length).toBeGreaterThan(0);
       await settle();
       expect(profileSaves()).toEqual([]);
       // Back online, the server's profile replaces it and the zone goes

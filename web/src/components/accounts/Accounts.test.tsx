@@ -36,11 +36,11 @@ async function edit(name: string) {
   return within(await dialog());
 }
 
-/** Back to Home from an account's page, once its form has closed */
-async function goHome() {
+/** Back up to Accounts from an account's page, once its form has closed */
+async function backToAccounts() {
   const user = userEvent.setup();
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-  await user.click(screen.getByRole('button', { name: 'Home' }));
+  await user.click(screen.getByRole('button', { name: 'Accounts' }));
 }
 
 /** How many times the app has sent changes to the server */
@@ -79,10 +79,10 @@ describe('accounts on the home page', () => {
   test('shows placeholders until the accounts arrive, never the empty list first', async () => {
     const server = fakeServer();
     const held = holdNext(server, 'GET', '/api/accounts');
-    renderApp(server);
+    renderApp(server, '/', { size: 'phone' });
     expect(await screen.findByText('Loading your accounts')).toBeTruthy();
-    // Long enough for anything else to have loaded
-    await screen.findByText('Signed in as Ryan');
+    // Long enough for anything else to have loaded: who's signed in, on the initial
+    await screen.findByRole('link', { name: 'You and settings' });
     expect(screen.queryByText('Add your first account')).toBeNull();
 
     held.release();
@@ -153,7 +153,7 @@ describe('accounts on the home page', () => {
     // The account's page shows it at once, and so does Home
     expect(await screen.findByRole('heading', { name: 'Purse', level: 1 })).toBeTruthy();
     expect(screen.getByLabelText('Balance RM 35.20')).toBeTruthy();
-    await goHome();
+    await backToAccounts();
     await shows('Purse', 'Cash', 'RM 35.20');
     await waitFor(() =>
       expect(server.accounts[0]).toMatchObject({ name: 'Purse', openingCents: 3_520 }),
@@ -189,7 +189,7 @@ describe('accounts on the home page', () => {
 
     await user.click((await edit('Wallet')).getByRole('button', { name: 'Archive' }));
     expect(await screen.findByText('Cash, archived')).toBeTruthy();
-    await goHome();
+    await backToAccounts();
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Wallet,/ })).toBeNull());
     expect(await row('Bank')).toBeTruthy();
     await waitFor(() => expect(server.accounts[0].archived).toBe(true));
@@ -214,7 +214,7 @@ describe('accounts on the home page', () => {
     await user.click((await edit('Old card')).getByRole('button', { name: 'Bring back' }));
 
     await waitFor(() => expect(server.accounts[1].archived).toBe(false));
-    await goHome();
+    await backToAccounts();
     expect(screen.queryByRole('button', { name: /^Archived/ })).toBeNull();
     expect(within(screen.getByRole('list')).getAllByRole('button')).toHaveLength(2);
   });
@@ -233,7 +233,7 @@ describe('accounts on the home page', () => {
       await user.clear(form.getByLabelText('Name'));
       await user.type(form.getByLabelText('Name'), 'Purse');
       await user.click(form.getByRole('button', { name: 'Save' }));
-      await goHome();
+      await backToAccounts();
       // Shown straight away, before the server answers
       expect(await row('Purse')).toBeTruthy();
 
@@ -261,7 +261,7 @@ describe('accounts on the home page', () => {
     server.health = 'down';
     await user.click(form.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(saves()).toBe(1));
-    await user.click(screen.getByRole('button', { name: 'Home' }));
+    await user.click(screen.getByRole('button', { name: 'Accounts' }));
 
     // Not the change's fault: it stays, and nothing says it was refused
     expect(await row('Purse')).toBeTruthy();
@@ -286,7 +286,7 @@ describe('accounts on the home page', () => {
     await user.clear(form.getByLabelText('Name'));
     await user.type(form.getByLabelText('Name'), 'Purse');
     await user.click(form.getByRole('button', { name: 'Save' }));
-    await goHome();
+    await backToAccounts();
     await user.click(await screen.findByRole('button', { name: 'Add account' }));
     form = within(await dialog());
     await user.type(form.getByLabelText('Name'), 'Bank');
@@ -310,7 +310,7 @@ describe('accounts on the home page', () => {
       await user.clear(form.getByLabelText('Name'));
       await user.type(form.getByLabelText('Name'), to);
       await user.click(form.getByRole('button', { name: 'Save' }));
-      await goHome();
+      await backToAccounts();
     };
 
     await row('Wallet');

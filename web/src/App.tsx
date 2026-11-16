@@ -2,13 +2,17 @@ import { Button } from '@mantine/core';
 import { CloudSlash, SignIn } from '@phosphor-icons/react';
 import { useEffect } from 'react';
 import AccountPage from './components/accounts/AccountPage';
+import AccountsPage from './components/accounts/AccountsPage';
 import CategoriesPage from './components/categories/CategoriesPage';
 import ImportPage from './components/import/ImportPage';
 import HomePage from './components/home/HomePage';
+import PlanPage from './components/plan/PlanPage';
 import SearchPage from './components/search/SearchPage';
+import DataPage from './components/settings/DataPage';
+import SettingsPage from './components/settings/SettingsPage';
 import StateCard from './components/ui/StateCard';
 import AppLayout from './components/shell/AppLayout';
-import { useRoute } from './hooks/useRoute';
+import { type SettingsSection as SettingsSectionName, useRoute } from './hooks/useRoute';
 import { sendWhenBack } from './ledger/ledger';
 import { signIn, useProfile } from './profile/ProfileContext';
 
@@ -43,11 +47,13 @@ function App() {
   }
 
   return (
-    <AppLayout>
+    <AppLayout route={route}>
       {route.view === 'home' && <HomePage month={route.month} />}
-      {route.view === 'categories' && <CategoriesPage />}
+      {route.view === 'activity' && <SearchPage />}
+      {route.view === 'plan' && <PlanPage month={route.month} />}
+      {route.view === 'accounts' && <AccountsPage />}
+      {route.view === 'settings' && <SettingsSection section={route.section} />}
       {route.view === 'import' && <ImportPage />}
-      {route.view === 'search' && <SearchPage />}
       {route.view === 'account' && (
         <AccountPage
           key={route.id}
@@ -56,6 +62,13 @@ function App() {
       )}
     </AppLayout>
   );
+}
+
+/** A section of Settings; one with no page of its own yet shows Settings itself */
+function SettingsSection({ section }: { section: SettingsSectionName | null }) {
+  if (section === 'categories') return <CategoriesPage />;
+  if (section === 'data') return <DataPage />;
+  return <SettingsPage />;
 }
 
 export default App;

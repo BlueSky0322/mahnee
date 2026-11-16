@@ -5,7 +5,15 @@ import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Account, ChangesBody, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, holdNext, reloadApp, renderApp, setupAppTests } from '../../testing/app';
+import {
+  addButton,
+  fakeServer,
+  holdNext,
+  queryAddButton,
+  reloadApp,
+  renderApp,
+  setupAppTests,
+} from '../../testing/app';
 import { toDateInput } from '../../utils/date-input';
 
 // Adding what was spent or received from the entry sheet, and changing or deleting it
@@ -77,7 +85,7 @@ describe('adding from Home', () => {
     renderApp(server, '/', { size });
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const form = await dialog();
     // The amount is ready to type into straight away
     await waitFor(() => expect(document.activeElement).toBe(form.getByLabelText('Amount')));
@@ -107,7 +115,7 @@ describe('adding from Home', () => {
     renderApp(server, '/', { size });
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const form = await dialog();
     await user.type(form.getByLabelText('Amount'), '1,250.50');
     await user.click(form.getByRole('radio', { name: 'Received' }));
@@ -133,7 +141,7 @@ describe('adding from Home', () => {
     renderApp(server);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     let form = await dialog();
     await user.type(form.getByLabelText('Amount'), '3.20');
     await user.selectOptions(form.getByLabelText('Account'), 'Bank');
@@ -154,7 +162,7 @@ describe('adding from Home', () => {
 
     // Opened again after a reload: the same account and category, ready for the next
     await reloadApp(server);
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     form = await dialog();
     expect(form.getByLabelText('Account')).toHaveProperty('value', BANK);
     expect(form.getByRole('radio', { name: 'Transport' })).toHaveProperty('checked', true);
@@ -178,7 +186,7 @@ describe('adding from Home', () => {
     renderApp(server);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const form = await dialog();
     // Food is picked, so what's in it shows under it
     const inFood = within(form.getByRole('radiogroup', { name: 'In Food' }));
@@ -196,7 +204,7 @@ describe('adding from Home', () => {
     renderApp(server);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const form = await dialog();
     await user.click(form.getByRole('button', { name: 'Save' }));
     expect(form.getByText('Enter an amount, like 8.50')).toBeTruthy();
@@ -213,7 +221,7 @@ describe('adding from Home', () => {
     const server = fakeServer();
     renderApp(server);
     expect(await screen.findByText('Add your first account')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Add' })).toBeNull();
+    expect(queryAddButton()).toBeNull();
   });
 
   test.each(SIZES)("puts a refused one back, with the server's explanation (%s)", async (size) => {
@@ -223,7 +231,7 @@ describe('adding from Home', () => {
     renderApp(server, '/', { size });
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const form = await dialog();
     await user.type(form.getByLabelText('Amount'), '8');
     await user.click(form.getByRole('button', { name: 'Save' }));
@@ -243,14 +251,14 @@ describe('adding from Home', () => {
     // The account's page was seen once, so its first page is kept on the device
     await user.click(await accountRow('Wallet', 'RM 100.00'));
     expect(await screen.findByText('Nothing here yet')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Home' }));
+    await user.click(screen.getByRole('button', { name: 'Accounts' }));
     await accountRow('Wallet', 'RM 100.00');
 
     server.health = 'unreachable';
     const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     onTestFinished(() => onLine.mockRestore());
     act(() => void window.dispatchEvent(new Event('offline')));
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const form = await dialog();
     await user.type(form.getByLabelText('Amount'), '8');
     await user.click(form.getByRole('button', { name: 'Save' }));
@@ -312,7 +320,7 @@ describe("an account's page", () => {
       expect(read(days[0])).toEqual(['Transport, −RM 3.20', 'Salary, +RM 50.00']);
       expect(read(days[1])).toEqual(['Food, Kopi Corner · With Mei, −RM 8.00']);
 
-      await user.click(screen.getByRole('button', { name: 'Home' }));
+      await user.click(screen.getByRole('button', { name: 'Accounts' }));
       expect(await accountRow('Bank', 'RM 490.01')).toBeTruthy();
     },
   );
@@ -424,7 +432,7 @@ describe("an account's page", () => {
     renderApp(server, `/?account=${BANK}`);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const form = await dialog();
     expect(form.getByLabelText('Account')).toHaveProperty('value', BANK);
     await user.type(form.getByLabelText('Amount'), '20');
@@ -433,17 +441,26 @@ describe("an account's page", () => {
     expect(screen.getByLabelText('Balance RM 480.00')).toBeTruthy();
   });
 
-  test('an archived account offers no Add, and its Edit can bring it back', async () => {
+  // A changed rule: the archived account's page used to offer no Add. The tab bar and
+  // sidebar keep Add on every page (R-Account-Archived), opening on an account in use.
+  test("an archived account's page keeps Add, on an account in use, until Edit brings it back", async () => {
     const server = withAccounts();
     server.accounts[0].archived = true;
     renderApp(server, `/?account=${WALLET}`);
     const user = userEvent.setup();
 
     expect(await screen.findByText('Cash, archived')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Add' })).toBeNull();
+    await user.click(await addButton());
+    expect((await dialog()).getByLabelText('Account')).toHaveProperty('value', BANK);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
     await user.click(screen.getByRole('button', { name: 'Edit' }));
     await user.click((await dialog()).getByRole('button', { name: 'Bring back' }));
-    expect(await screen.findByRole('button', { name: 'Add' })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(await screen.findByText('Cash')).toBeTruthy();
+    await user.click(await addButton());
+    expect((await dialog()).getByLabelText('Account')).toHaveProperty('value', WALLET);
   });
 });
 
@@ -463,7 +480,7 @@ describe('moving money between accounts', () => {
   /** Adds a transfer from Home: the amount, Transfer, then From and To */
   async function addTransfer(amount: string, from: string, to: string) {
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const form = await dialog();
     await user.type(form.getByLabelText('Amount'), amount);
     await user.click(form.getByRole('radio', { name: 'Transfer' }));
@@ -496,7 +513,7 @@ describe('moving money between accounts', () => {
       expect(await accountRow('TNG', 'RM 100.00')).toBeTruthy();
       expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();
 
-      await user.click(await screen.findByRole('button', { name: 'Add' }));
+      await user.click(await addButton());
       const form = await dialog();
       await user.type(form.getByLabelText('Amount'), '30');
       await user.selectOptions(form.getByLabelText('Account'), 'TNG');
@@ -521,7 +538,7 @@ describe('moving money between accounts', () => {
       await user.click(await accountRow('TNG', 'RM 70.00'));
       expect(await screen.findByRole('button', { name: 'From Bank, +RM 100.00' })).toBeTruthy();
       expect(screen.getByRole('button', { name: 'Food, −RM 30.00' })).toBeTruthy();
-      await user.click(screen.getByRole('button', { name: 'Home' }));
+      await user.click(screen.getByRole('button', { name: 'Accounts' }));
       await user.click(await accountRow('Bank', 'RM 900.00'));
       expect(await screen.findByRole('button', { name: 'To TNG, −RM 100.00' })).toBeTruthy();
     },
@@ -550,7 +567,7 @@ describe('moving money between accounts', () => {
     const user = userEvent.setup();
 
     await addTransfer('50', 'Bank', 'Visa');
-    await user.click(await screen.findByRole('button', { name: 'Add' }));
+    await user.click(await addButton());
     const form = await dialog();
     await user.click(form.getByRole('radio', { name: 'Transfer' }));
     expect(form.getByLabelText('To')).toHaveProperty('value', VISA);
@@ -578,7 +595,7 @@ describe('moving money between accounts', () => {
 
     expect(await screen.findByRole('button', { name: 'To TNG, −RM 150.00' })).toBeTruthy();
     expect(screen.getByLabelText('Balance RM 850.00')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Home' }));
+    await user.click(screen.getByRole('button', { name: 'Accounts' }));
     expect(await accountRow('TNG', 'RM 150.00')).toBeTruthy();
     await waitFor(() =>
       expect(server.transactions).toEqual([
@@ -611,7 +628,7 @@ describe('moving money between accounts', () => {
           expect.objectContaining({ id, accountId: BANK, toAccountId: TNG, amountCents: 10_000 }),
         ]),
       );
-      await user.click(screen.getByRole('button', { name: 'Home' }));
+      await user.click(screen.getByRole('button', { name: 'Accounts' }));
       expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();
     },
   );
@@ -623,7 +640,7 @@ describe('moving money between accounts', () => {
     // The e-wallet's page was seen once, so its first page is kept on the device
     await user.click(await accountRow('TNG', 'RM 0.00'));
     expect(await screen.findByText('Nothing here yet')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Home' }));
+    await user.click(screen.getByRole('button', { name: 'Accounts' }));
     await accountRow('TNG', 'RM 0.00');
 
     server.health = 'unreachable';
@@ -648,7 +665,7 @@ describe('moving money between accounts', () => {
     expect(sentTransactions()).toHaveLength(1);
     expect(screen.getByLabelText('Balance RM 100.00')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'From Bank, +RM 100.00' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Home' }));
+    await user.click(screen.getByRole('button', { name: 'Accounts' }));
     expect(await accountRow('Bank', 'RM 900.00')).toBeTruthy();
   });
 });

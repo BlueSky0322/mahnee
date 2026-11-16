@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, screen } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { get, set } from 'idb-keyval';
 import { describe, expect, onTestFinished, test, vi } from 'vitest';
@@ -78,13 +78,13 @@ describe('starting with the server out of reach', () => {
     const held = slow(server);
     controlTimers();
     try {
-      renderApp(server);
+      renderApp(server, '/?settings');
       await askedWhoIsSignedIn();
       // Not before the moment is up
       await moveOn(DEVICE_START_WAIT_MS - 500);
-      expect(screen.queryByText('Signed in as Kept Ryan')).toBeNull();
+      expect(screen.queryByText('Kept Ryan')).toBeNull();
       await moveOn(500);
-      expect((await screen.findAllByText('Signed in as Kept Ryan')).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText('Kept Ryan')).length).toBeGreaterThan(0);
     } finally {
       finish(held, done);
     }
@@ -96,16 +96,16 @@ describe('starting with the server out of reach', () => {
     const held = slow(server);
     controlTimers();
     try {
-      renderApp(server);
+      renderApp(server, '/?settings');
       await askedWhoIsSignedIn();
       // Well past the moment a start from the device would wait
       await moveOn(DEVICE_START_WAIT_MS * 2);
-      expect(screen.queryByText('Signed in as Kept Ryan')).toBeNull();
+      expect(screen.queryByText('Kept Ryan')).toBeNull();
     } finally {
       finish(held);
     }
     // Signed in as the server says
-    expect(await screen.findByText('Signed in as Ryan')).toBeTruthy();
+    expect(await screen.findByText('Ryan')).toBeTruthy();
     // The kept copy, read once the server said who it is, lands before the next test
     await wait(100);
   });
@@ -116,9 +116,9 @@ describe('starting with the server out of reach', () => {
     server.health = 'down';
     const done = openedFromDevice();
     try {
-      renderApp(server);
+      renderApp(server, '/?settings');
       // Signed in as Ryan, from his saved profile
-      expect((await screen.findAllByText('Signed in as Kept Ryan')).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText('Kept Ryan')).length).toBeGreaterThan(0);
       expect(await screen.findByText(RYAN)).toBeTruthy();
       expect(screen.queryByText("Couldn't reach Mahnee")).toBeNull();
     } finally {
@@ -147,7 +147,10 @@ describe('starting with the server out of reach', () => {
     const done = openedFromDevice();
     try {
       await reloadApp(server);
-      expect((await screen.findAllByText('Signed in as Ryan')).length).toBeGreaterThan(0);
+      const settings = await screen.findByRole('link', {
+        name: 'Settings: you, categories, import and export',
+      });
+      expect(within(settings).getByText(RYAN)).toBeTruthy();
       expect(
         await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ }),
       ).toBeTruthy();
@@ -176,10 +179,10 @@ describe('starting with the server out of reach', () => {
     );
     controlTimers();
     try {
-      renderApp(server);
+      renderApp(server, '/?settings');
       await askedWhoIsSignedIn();
       await moveOn(DEVICE_START_WAIT_MS);
-      await screen.findAllByText('Signed in as Kept Ryan');
+      await screen.findAllByText('Kept Ryan');
 
       me.release();
       await vi.waitFor(() => expect(reload).toHaveBeenCalled());
@@ -256,8 +259,8 @@ describe('starting once Access asks to sign in again', () => {
     const server = fakeServer();
     await keptFromLastTime(server);
     server.health = 'signedOut';
-    renderApp(server);
-    expect((await screen.findAllByText('Signed in as Kept Ryan')).length).toBeGreaterThan(0);
+    renderApp(server, '/?settings');
+    expect((await screen.findAllByText('Kept Ryan')).length).toBeGreaterThan(0);
     expect(
       await screen.findByText('Signed out. Sign in again to see what has changed.'),
     ).toBeTruthy();

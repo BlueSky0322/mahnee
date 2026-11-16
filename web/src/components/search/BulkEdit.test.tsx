@@ -5,7 +5,7 @@ import { describe, expect, test, vi } from 'vitest';
 import type { ChangesBody, LedgerChange, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, holdNext, renderApp, setupAppTests } from '../../testing/app';
+import { fakeServer, goToPlace, holdNext, renderApp, setupAppTests } from '../../testing/app';
 import { queryClient } from '../../query-client';
 import { monthHeading, thisMonth } from '../../utils/date-input';
 
@@ -69,9 +69,9 @@ function withSpending() {
 const byNote = (server: FakeServer, note: string) =>
   server.transactions.find((t) => t.note === note)!;
 
-/** Opens Search on its own address and waits for what it finds */
+/** Opens Activity's search on its own address and waits for what it finds */
 async function openSearch(server: FakeServer, size: (typeof SIZES)[number] = 'desktop') {
-  renderApp(server, '/?search', { size });
+  renderApp(server, '/?activity', { size });
   // Select is offered once there's something found to select
   await screen.findByRole('button', { name: 'Select' });
   await screen.findByRole('button', { name: /first other/ });
@@ -243,7 +243,7 @@ describe('deleting several', () => {
       await waitFor(() => expect(server.transactions).toHaveLength(3));
       const resend = holdNext(server, 'POST', '/api/changes');
 
-      await user.click(screen.getByRole('button', { name: 'Home' }));
+      await goToPlace('Home');
       // RM 80 + RM 5 back, RM 20 - RM 5 spent: counted once, though the server has it
       await waitFor(() => expect(walletBalance()).toBe('RM 85.00'));
       await waitFor(() => expect(monthFigure('Spent')).toBe('RM 15.00'));

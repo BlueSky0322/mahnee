@@ -1,7 +1,6 @@
 import { Button } from '@mantine/core';
 import { CloudSlash, SignIn } from '@phosphor-icons/react';
 import { useEffect } from 'react';
-import AccountPage from './components/accounts/AccountPage';
 import AccountsPage from './components/accounts/AccountsPage';
 import ActivityPage from './components/activity/ActivityPage';
 import CategoriesPage from './components/categories/CategoriesPage';
@@ -51,15 +50,11 @@ function App() {
       {route.view === 'home' && <HomePage month={route.month} />}
       {route.view === 'activity' && <ActivityPage query={route.query} />}
       {route.view === 'plan' && <PlanPage month={route.month} />}
-      {route.view === 'accounts' && <AccountsPage />}
+      {(route.view === 'accounts' || route.view === 'account') && (
+        <AccountsPage id={route.view === 'account' ? route.id : null} />
+      )}
       {route.view === 'settings' && <SettingsSection section={route.section} />}
       {route.view === 'import' && <ImportPage />}
-      {route.view === 'account' && (
-        <AccountPage
-          key={route.id}
-          id={route.id}
-        />
-      )}
     </AppLayout>
   );
 }

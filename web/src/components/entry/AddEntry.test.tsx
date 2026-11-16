@@ -1288,12 +1288,12 @@ describe('which account Add opens on', () => {
     expect(form.getByRole('button', { name: /^From Bank/ }).textContent).not.toMatch(/last used/);
   });
 
-  test("an archived account's page opens Add on one in use, and on it once brought back", async () => {
+  test("an archived account's page opens Add on one in use, and on it once unarchived", async () => {
     const server = withAccounts();
     server.accounts[0].archived = true;
     renderApp(server, `/?account=${WALLET}`, { size: 'phone' });
     const user = userEvent.setup();
-    expect(await screen.findByText('Cash, archived')).toBeTruthy();
+    expect(await screen.findByText('Cash · archived')).toBeTruthy();
     let form = await openAdd(user);
     expect(form.getByRole('button', { name: /^From Bank/ })).toBeTruthy();
     await user.click(form.getByRole('button', { name: /^From Bank/ }));
@@ -1306,11 +1306,9 @@ describe('which account Add opens on', () => {
       expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull(),
     );
 
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
-    await user.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Bring back' }),
-    );
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // Unarchive, on the page (R-Account-Archived)
+    await user.click(screen.getByRole('button', { name: 'Unarchive' }));
+    await screen.findByRole('button', { name: 'Add here' });
     form = await openAdd(user);
     expect(form.getByRole('button', { name: /^From Wallet/ })).toBeTruthy();
   });

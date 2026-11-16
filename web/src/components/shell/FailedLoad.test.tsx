@@ -79,9 +79,7 @@ describe('the accounts failing to load the first time', () => {
       // Try again asks once more, and shows the accounts once the server answers
       server.pathsDown.delete('/api/accounts');
       await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }));
-      expect(
-        await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ }),
-      ).toBeTruthy();
+      expect(await screen.findByRole('link', { name: /^Wallet, Cash, 100\.00$/ })).toBeTruthy();
       expect(screen.getByRole('navigation', { name: 'Main' })).toBeTruthy();
       expect(dropped.times).toBe(0);
       expect(accountReads()).toBe(3);

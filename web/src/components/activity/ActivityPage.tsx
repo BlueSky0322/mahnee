@@ -1,6 +1,6 @@
 import { Button, TextInput } from '@mantine/core';
 import { useNetwork } from '@mantine/hooks';
-import { ArrowsLeftRight, CloudSlash, ListBullets, MagnifyingGlass } from '@phosphor-icons/react';
+import { CloudSlash, ListBullets, MagnifyingGlass } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Account, Category, LedgerChange, Transaction } from '@shared/api';
 import { DEFAULT_CURRENCY, MAX_BULK_TRANSACTIONS } from '@shared/ledger';
@@ -11,16 +11,15 @@ import { takeSearchFocus, useShortcuts } from '../../hooks/useShortcuts';
 import { change } from '../../ledger/ledger';
 import { useAccounts, useCategories, useSearch } from '../../ledger/useLedger';
 import type { Found as Totals } from '../../ledger/search-totals';
-import { categoryColour } from '../../utils/category-colour';
 import { dayHeading, toDateInput } from '../../utils/date-input';
 import { showRefusal } from '../../utils/notify';
+import EntryTile from '../common/EntryTile';
 import { categoryName } from '../common/category-name';
 import { showUndo } from '../common/undo-toast';
 import { useAddEntry } from '../shell/add-entry';
 import Key from '../ui/Key';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import Skeleton, { Loading } from '../ui/Skeleton';
-import Tile from '../ui/Tile';
 import ChangeCategory from './ChangeCategory';
 import EntryEditor from './EntryEditor';
 import FilterChips from './Filters';
@@ -565,25 +564,6 @@ function Placeholders() {
   );
 }
 
-/** A row's tile: its category's letter in its colour, or a transfer's arrows */
-function RowTile({ t, categories }: { t: Transaction; categories: Category[] }) {
-  if (t.kind === 'transfer') {
-    return (
-      <Tile>
-        <ArrowsLeftRight size={18} />
-      </Tile>
-    );
-  }
-  const category = categories.find((c) => c.id === t.categoryId);
-  const top = categories.find((c) => c.id === (category?.parentId ?? category?.id));
-  return (
-    <Tile
-      name={top?.name ?? '?'}
-      colour={categoryColour(categories, t.categoryId ?? '')}
-    />
-  );
-}
-
 function Amount({ t, currency }: { t: Transaction; currency: string }) {
   return (
     <span
@@ -736,7 +716,7 @@ function DayList({
                           onOpen(t);
                         }}
                       >
-                        <RowTile
+                        <EntryTile
                           t={t}
                           categories={categories}
                         />

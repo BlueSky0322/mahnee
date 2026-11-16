@@ -401,3 +401,55 @@ describe('the rules 0007 holds in the database too', () => {
     expect(all(db, 'PRAGMA foreign_key_check')).toEqual([]);
   });
 });
+
+// 0008 keeps the day an account was archived ("archived Jun 2" on Accounts). Accounts
+// archived before it have no day kept: updated_at moves with any edit, so it isn't taken
+// for one.
+describe('0008, the day an account was archived', () => {
+  const ARCHIVED_MIGRATION = '0008_account_archived_at.sql';
+  const OWNER = 'teal@example.com';
+  const migrated = () => {
+    const db = database(before0007);
+    seedToday(db);
+    db.exec(readFileSync(join(DIR, SETTINGS_MIGRATION), 'utf8'));
+    db.prepare(
+      `INSERT INTO accounts (email, id, name, kind, currency, opening_cents, position, archived, created_at, updated_at)
+       VALUES (?, 'a000000000000002', 'Old', 'ewallet', 'MYR', 0, 1, 1, ?, ?)`,
+    ).run(OWNER, T, T + 9);
+    db.exec(readFileSync(join(DIR, ARCHIVED_MIGRATION), 'utf8'));
+    return db;
+  };
+
+  it('is the next migration after the settings', () => {
+    expect(files).toContain(ARCHIVED_MIGRATION);
+  });
+
+  it('keeps every account as it was, with no day for any, archived or not', () => {
+    expect(
+      all(
+        migrated(),
+        'SELECT id, name, archived, archived_at, updated_at FROM accounts ORDER BY id',
+      ),
+    ).toEqual([
+      { id: 'a000000000000001', name: 'Wallet', archived: 0, archived_at: null, updated_at: T },
+      { id: 'a000000000000002', name: 'Old', archived: 1, archived_at: null, updated_at: T + 9 },
+    ]);
+  });
+
+  it('takes a day only on an archived account, as a whole number of ms', () => {
+    const db = migrated();
+    const set = (id: string, archived: number, at: unknown) =>
+      takes(
+        db,
+        'UPDATE accounts SET archived = ?, archived_at = ? WHERE id = ?',
+        archived,
+        at as number,
+        id,
+      );
+    expect(set('a000000000000002', 1, T + 20)).toBe(true);
+    expect(set('a000000000000001', 0, T + 20)).toBe(false);
+    expect(set('a000000000000002', 1, 'Aug 14')).toBe(false);
+    expect(set('a000000000000002', 1, 1.5)).toBe(false);
+    expect(set('a000000000000002', 0, null)).toBe(true);
+  });
+});

@@ -61,6 +61,7 @@ erDiagram
     INTEGER opening_cents "within 1,000,000,000 either way"
     INTEGER position "first at 0"
     INTEGER archived "0 or 1"
+    INTEGER archived_at "ms, or null"
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
@@ -159,7 +160,12 @@ erDiagram
   opening balance is below zero). Keyed by email and then id, so an id is only looked up
   among the person's own. Archived, never deleted; at most 50 per person, archived ones
   included. A balance is the opening balance plus what's come in and gone out, worked out
-  when read and never stored. Saving the first one makes the profile row.
+  when read and never stored. Saving the first one makes the profile row. `archived_at`
+  is when it was archived, set by the server as it saves the change (never from the
+  change), kept while it stays archived (archived again or renamed) and null once it's
+  back; the table refuses one on a running account. Accounts archived before migration
+  0008 have none, since `updated_at` moves with any edit, and read only "archived".
+  Export and import carry no archived day.
 - **`categories`**: what spending and income are sorted into, one level deep: a
   top-level category (`parent_id` NULL) can have subcategories, each the same kind as its
   parent and with none of its own. `(email, parent_id)` refers to `(email, id)`, so a

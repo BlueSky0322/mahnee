@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-16
 
+- Added: Accounts shows all together, what's owed and each archived account's day, with a register and Add here on each account [#?]
 - Changed: Add is a keypad that works sums out, with recent categories, a payee field, Today, Repeat and drafts [#30]
 - Fixed: Mahnee no longer stops answering after one sign-in check is cut off mid-way [#31]
 - Added: Activity lists every entry by day or in a register, with filters, totals and changing many at once [#28]

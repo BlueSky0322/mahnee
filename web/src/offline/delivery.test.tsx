@@ -39,7 +39,21 @@ function seed(server: FakeServer, account: Partial<Account> & Pick<Account, 'id'
   });
 }
 
-const row = (name: string) => screen.findByRole('button', { name: new RegExp(`^${name},`) });
+/** An account's row: a button on Home, a link on Accounts */
+const row = (name: string) =>
+  waitFor(() => {
+    const named = new RegExp(`^${name},`);
+    const found =
+      screen.queryByRole('button', { name: named }) ?? screen.queryByRole('link', { name: named });
+    expect(found).not.toBeNull();
+    return found!;
+  });
+
+/** Back up to Accounts from an account's page; on a computer the list is beside it already */
+async function upToAccounts() {
+  const back = screen.queryByRole('button', { name: 'Accounts' });
+  if (back != null) await userEvent.setup().click(back);
+}
 const dialog = () => screen.findByRole('dialog');
 
 /** The connection drops: the browser says so, and nothing reaches the server */
@@ -91,7 +105,7 @@ async function rename(from: string, to: string) {
   await user.type(form.getByLabelText('Name'), to);
   await user.click(form.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-  await user.click(screen.getByRole('button', { name: 'Accounts' }));
+  await upToAccounts();
 }
 
 describe('changes made offline', () => {
@@ -179,7 +193,7 @@ describe('changes made offline', () => {
     await user.click((await edit('Wallet')).getByRole('button', { name: 'Archive' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await user.click(screen.getByRole('button', { name: 'Accounts' }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: /^Wallet,/ })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('link', { name: /^Wallet,/ })).toBeNull());
     await user.click(await screen.findByRole('button', { name: 'Undo' }));
     expect(await row('Wallet')).toBeTruthy();
     expect(await screen.findByText(OFFLINE_NOTICE.phone)).toBeTruthy();

@@ -5,15 +5,18 @@ interface ChipProps {
   /** Chosen: drawn in ink, and read as pressed */
   on: boolean;
   onClick?: () => void;
+  /** It opens a list to choose from (a dialog), rather than turning on by itself */
+  opens?: boolean;
   children: ReactNode;
 }
 
 /** A choice to tap on or off, such as a category to filter by */
-const Chip = ({ on, onClick, children }: ChipProps) => (
+const Chip = ({ on, onClick, opens, children }: ChipProps) => (
   <button
     type="button"
     className={classes.chip}
     aria-pressed={on}
+    aria-haspopup={opens ? 'dialog' : undefined}
     onClick={onClick}
   >
     {children}

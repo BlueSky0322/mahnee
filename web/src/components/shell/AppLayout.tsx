@@ -6,6 +6,7 @@ import { placeOf } from '../../hooks/useRoute';
 import { focusSearch, useShortcuts } from '../../hooks/useShortcuts';
 import { useAccounts } from '../../ledger/useLedger';
 import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
+import { AddEntry } from './add-entry';
 import classes from './AppLayout.module.css';
 import OfflineNotice from './OfflineNotice';
 import Sidebar from './Sidebar';
@@ -36,7 +37,9 @@ export default function AppLayout({ route, children }: { route: Route; children:
   // The keys work from the start, but for the first run, which has nowhere to go
   useShortcuts({ 'n': add, '/': focusSearch }, place != null && accounts?.length !== 0);
 
-  const shell = !shown ? undefined : isDesktop ? 'sidebar' : 'tabs';
+  // A phone or tablet selecting on Activity has its own bar at the foot instead
+  const selecting = route.view === 'activity' && route.select && !isDesktop;
+  const shell = !shown ? undefined : isDesktop ? 'sidebar' : selecting ? undefined : 'tabs';
   return (
     <div
       className={classes.layout}
@@ -49,7 +52,9 @@ export default function AppLayout({ route, children }: { route: Route; children:
           onAdd={add}
         />
       )}
-      <main className={classes.main}>{children}</main>
+      <main className={classes.main}>
+        <AddEntry.Provider value={addable ? add : null}>{children}</AddEntry.Provider>
+      </main>
       {shell === 'tabs' && place != null && (
         <TabBar
           place={place}

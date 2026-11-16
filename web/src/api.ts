@@ -12,6 +12,7 @@ import type {
   Profile as ApiProfile,
   ProfilePatch,
   RateQuote,
+  SearchPage,
   TransactionPage,
 } from '@shared/api';
 import { newId } from './utils/id';
@@ -135,13 +136,13 @@ export const api = {
     request<PayeeCategories>('GET', `/api/payee-categories?account=${encodeURIComponent(account)}`),
   /**
    * A page of what a search finds (`search`: its address, as shared/search.ts writes it),
-   * newest first; `before` is the page before's nextBefore
+   * newest first, with what matches beyond it; `before` is the page before's nextBefore
    */
   search: (search: string, before: string | null, limit: number) => {
     const query = new URLSearchParams(search);
     if (before != null) query.set('before', before);
     query.set('limit', String(limit));
-    return request<TransactionPage>('GET', `/api/search?${query.toString()}`);
+    return request<SearchPage>('GET', `/api/search?${query.toString()}`);
   },
   /** How many transactions the export file holds, over which days */
   getExportSummary: () => request<ExportSummary>('GET', '/api/export/summary'),

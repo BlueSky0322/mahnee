@@ -6,12 +6,15 @@ import type {
   Ledger,
   MonthSummary,
   MonthTrend,
+  SearchPage,
   Transaction,
   TransactionPage,
 } from '@shared/api';
 import type { SearchQuery } from '@shared/search';
 import type { CategoryTree } from './category-tree';
 import { categoryTree } from './category-tree';
+import type { Found as SearchFound } from './search-totals';
+import { searchTotals } from './search-totals';
 import type { QueueState } from './save-queue';
 import {
   LEDGER_KEY,
@@ -149,20 +152,30 @@ export function useAccountTransactions(accountId: string): Transactions {
 
 export interface Found extends Transactions {
   /**
+   * What's found in all and on each day, counting what isn't loaded yet; null until the
+   * first page loads
+   */
+  totals: SearchFound | null;
+  /**
    * Loads what's left to find, page by page, until all of it is loaded or more than `enough`
    * are; answers what's loaded then
    */
   loadAll: (enough: number) => Promise<Transaction[]>;
 }
 
-/** What a search finds (shared/search.ts), newest first, a page at a time */
-export function useSearch(query: SearchQuery): Found {
+/**
+ * What a search finds (shared/search.ts), newest first, a page at a time; not asked while
+ * `enabled` is false (the filters can't be checked yet)
+ */
+export function useSearch(query: SearchQuery, { enabled = true } = {}): Found {
   const key = searchTransactionsKey(query);
   const pending = useSyncExternalStore(subscribeUnsaved, pendingChanges);
   const value = key[2];
   const select = useCallback(
-    (data: { pages: TransactionPage[]; pageParams: (string | null)[] }) =>
-      shownPages(['transactions', 'search', value], data, pending),
+    (data: { pages: TransactionPage[]; pageParams: (string | null)[] }) => {
+      const transactions = shownPages(['transactions', 'search', value], data, pending);
+      return { transactions, totals: searchTotals(transactions, data.pages as SearchPage[]) };
+    },
     [value, pending],
   );
   const { data, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } =
@@ -172,20 +185,22 @@ export function useSearch(query: SearchQuery): Found {
       initialPageParam: null as string | null,
       getNextPageParam: (last) => last.nextBefore,
       select,
+      enabled,
     });
   const loadAll = async (enough: number) => {
-    let found = data ?? [];
+    let found = data?.transactions ?? [];
     let more = hasNextPage;
     while (more && found.length <= enough) {
       const next = await fetchNextPage();
       if (next.isError) break;
-      found = next.data ?? found;
+      found = next.data?.transactions ?? found;
       more = next.hasNextPage;
     }
     return found;
   };
   return {
-    transactions: data ?? null,
+    transactions: data?.transactions ?? null,
+    totals: data?.totals ?? null,
     failed: isError && data == null,
     retry: () => void refetch(),
     hasMore: hasNextPage,

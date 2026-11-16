@@ -5,10 +5,11 @@
 // must agree: words are found anywhere in the payee, the note, the category's name or its
 // parent's (so "food" finds Food › Coffee), ignoring the case of A to Z only (as SQLite's
 // lower() does); words that read as an amount ("8", "8.50", "1,000") also find that exact
-// amount.
+// amount. A kind filter keeps spending, income or transfers, or any two of them.
 
 import type { Category, Transaction } from './api';
-import { isOnAccount } from './ledger';
+import type { TransactionKind } from './ledger';
+import { TRANSACTION_KINDS, isOnAccount, isTransactionKind } from './ledger';
 
 /** The longest search, in characters, once trimmed */
 export const MAX_SEARCH_TEXT = 100;
@@ -24,6 +25,8 @@ export interface SearchQuery {
   /** Only from this day (2025-09-01), and up to this one, both included */
   from: string | null;
   to: string | null;
+  /** Only these kinds, each once, in the order of TRANSACTION_KINDS; null for every kind */
+  kinds: TransactionKind[] | null;
 }
 
 export const EMPTY_SEARCH: SearchQuery = {
@@ -32,12 +35,25 @@ export const EMPTY_SEARCH: SearchQuery = {
   category: null,
   from: null,
   to: null,
+  kinds: null,
 };
+
+const KINDS_ERROR = 'Give kinds from expense, income and transfer';
+
+/** The kinds `?kind=` names (expense,income), each once and known; null for none */
+export function readKinds(text: string | null): TransactionKind[] | null | { error: string } {
+  if (text == null || text === '') return null;
+  const parts = text.split(',');
+  if (!parts.every(isTransactionKind) || new Set(parts).size !== parts.length) {
+    return { error: KINDS_ERROR };
+  }
+  return TRANSACTION_KINDS.filter((k) => parts.includes(k));
+}
 
 const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /** Whether `v` is a real calendar day, as 2025-09-01 */
-function isCalendarDay(v: string) {
+export function isCalendarDay(v: string) {
   const m = DAY_PATTERN.exec(v);
   if (m == null) return false;
   const at = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
@@ -45,7 +61,8 @@ function isCalendarDay(v: string) {
 }
 
 /**
- * The search an address asks for (?q=&account=&category=&from=&to=, each read with `get`),
+ * The search an address asks for (?q=&account=&category=&from=&to=&kind=, each read with
+ * `get`),
  * or why it can't be one
  */
 export function readSearch(params: {
@@ -61,9 +78,11 @@ export function readSearch(params: {
     if (day != null && !isCalendarDay(day)) return { error: 'Give a day, like 2025-09-01' };
     days[key] = day;
   }
+  const kinds = readKinds(params.get('kind'));
+  if (kinds != null && 'error' in kinds) return kinds;
   const account = params.get('account') || null;
   const category = params.get('category') || null;
-  return { q, account, category, ...days };
+  return { q, account, category, ...days, kinds };
 }
 
 /** A search's parts for its address, as readSearch reads them, only those it filters by */
@@ -73,6 +92,9 @@ export function searchParams(query: SearchQuery): Record<string, string> {
   for (const key of ['account', 'category', 'from', 'to'] as const) {
     const value = query[key];
     if (value != null) params[key] = value;
+  }
+  if (query.kinds != null && query.kinds.length < TRANSACTION_KINDS.length) {
+    params.kind = query.kinds.join(',');
   }
   return params;
 }
@@ -103,6 +125,7 @@ export function matchesSearch(
   query: SearchQuery,
   categories: readonly Category[],
 ): boolean {
+  if (query.kinds != null && !query.kinds.includes(t.kind)) return false;
   if (query.account != null && !isOnAccount(t, query.account)) return false;
   if (query.category != null) {
     if (t.categoryId == null || !categoriesIn(categories, query.category).has(t.categoryId)) {

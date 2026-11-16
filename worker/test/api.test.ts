@@ -2986,7 +2986,187 @@ describe('transactions', () => {
       expect(await found(me, `q=${encodeURIComponent('%'.repeat(100))}`)).toEqual([]);
     });
 
+    it('filters by kind: spending, income, transfers, or several of them', async () => {
+      const { me, wallet, t } = await withHistory();
+      expect(await found(me, 'kind=expense')).toEqual([t[7], t[6], t[3], t[2], t[1], t[0]]);
+      expect(await found(me, 'kind=income')).toEqual([t[8], t[4]]);
+      expect(await found(me, 'kind=transfer')).toEqual([t[5]]);
+      expect(await found(me, 'kind=expense,income')).toEqual(
+        [...t].reverse().filter((id) => id !== t[5]),
+      );
+      // With the other filters and words
+      expect(await found(me, `account=${wallet}&kind=transfer`)).toEqual([t[5]]);
+      expect(await found(me, 'kind=income&q=8')).toEqual([t[8]]);
+      expect(await search(me, 'kind=spending')).toEqual({
+        status: 400,
+        data: { error: 'Give kinds from expense, income and transfer' },
+      });
+    });
+
+    /** What a page says matches beyond it */
+    const restOf = (res: { data: Record<string, unknown> }) => ({
+      rest: res.data.rest,
+      restOfLastDay: res.data.restOfLastDay,
+    });
+    const none = { entries: 0, spentCents: 0, receivedCents: 0 };
+
+    it('says nothing is left beyond the last page', async () => {
+      const { me } = await withHistory();
+      const res = await search(me);
+      expect(res.data.nextBefore).toBeNull();
+      expect(restOf(res)).toEqual({ rest: none, restOfLastDay: null });
+    });
+
+    it("says what matches beyond a page, and what of it is on that page's last day", async () => {
+      const { me, wallet } = await withHistory();
+      // Three more on the 7th, saved after the rest, so newer that day than KOPI KING
+      const more = [rowId(), rowId(), rowId()];
+      const res0 = await send(
+        me,
+        more.map((id) => add(id, wallet, 100, { date: '2025-09-07' })),
+      );
+      expect(res0.status).toBe(200);
+      // The 9th, the 8th and one of the three on the 7th
+      const res = await search(me, 'limit=3');
+      expect(res.status).toBe(200);
+      expect(res.data.transactions.map((x: { date: string }) => x.date)).toEqual([
+        '2025-09-09',
+        '2025-09-08',
+        '2025-09-07',
+      ]);
+      // Beyond it: two of the three and KOPI KING on the 7th, then the 6th to the 1st (the
+      // transfer found, but neither spent nor received)
+      expect(restOf(res)).toEqual({
+        rest: {
+          entries: 9,
+          spentCents: 200 + 1_200 + 800 + 8_000 + 850 + 800,
+          receivedCents: 100_000,
+        },
+        restOfLastDay: { date: '2025-09-07', entries: 3, spentCents: 1_400, receivedCents: 0 },
+      });
+    });
+
+    it('counts beyond a page by the same filters, and only the person’s own', async () => {
+      const { me, t } = await withHistory();
+      const res = await search(me, `category=${other}&limit=1`);
+      expect(res.data.transactions.map((x: { id: string }) => x.id)).toEqual([t[7]]);
+      expect(restOf(res)).toEqual({
+        rest: { entries: 2, spentCents: 1_200 + 800, receivedCents: 0 },
+        restOfLastDay: { date: '2025-09-08', ...none },
+      });
+      const income = await search(me, 'kind=income&limit=1');
+      expect(restOf(income)).toEqual({
+        rest: { entries: 1, spentCents: 0, receivedCents: 100_000 },
+        restOfLastDay: { date: '2025-09-09', ...none },
+      });
+      // Someone else sees none of it
+      const stranger = person('stranger');
+      expect(restOf(await search(stranger, 'limit=1'))).toEqual({
+        rest: none,
+        restOfLastDay: null,
+      });
+    });
+
+    it('adds up page by page to the same whole, under every filter, ties on a day included', async () => {
+      const { me, wallet, coffee } = await withHistory();
+      // Three saved together on the 7th: the same day and time saved, told apart by id
+      const res0 = await send(
+        me,
+        [rowId(), rowId(), rowId()].map((id) =>
+          add(id, wallet, 300, { date: '2025-09-07', categoryId: other }),
+        ),
+      );
+      expect(res0.status).toBe(200);
+      type Sum = { entries: number; spentCents: number; receivedCents: number };
+      const addUp = (sum: Sum, rows: { kind: string; amountCents: number }[]) => {
+        for (const x of rows) {
+          sum.entries++;
+          if (x.kind === 'expense') sum.spentCents += x.amountCents;
+          if (x.kind === 'income') sum.receivedCents += x.amountCents;
+        }
+        return sum;
+      };
+      for (const filter of [
+        '',
+        'q=kopi',
+        `account=${wallet}`,
+        `category=${other}`,
+        `category=${coffee}`,
+        'kind=expense,income',
+        'kind=transfer',
+        'from=2025-09-03&to=2025-09-07',
+        `account=${wallet}&kind=expense&from=2025-09-04`,
+      ]) {
+        const all = await search(me, `${filter}&limit=200`);
+        const whole = addUp({ entries: 0, spentCents: 0, receivedCents: 0 }, all.data.transactions);
+        const sum = { entries: 0, spentCents: 0, receivedCents: 0 };
+        const seen: string[] = [];
+        let before: string | null = null;
+        for (let pages = 0; pages < 20; pages++) {
+          const query: string = `${filter}&limit=1${before == null ? '' : `&before=${before}`}`;
+          const res = await search(me, query);
+          expect(res.status).toBe(200);
+          addUp(sum, res.data.transactions);
+          seen.push(...(res.data.transactions as { id: string }[]).map((x) => x.id));
+          const rest = res.data.rest as Sum;
+          expect({
+            entries: sum.entries + rest.entries,
+            spentCents: sum.spentCents + rest.spentCents,
+            receivedCents: sum.receivedCents + rest.receivedCents,
+          }).toEqual(whole);
+          before = res.data.nextBefore as string | null;
+          if (before == null) break;
+        }
+        expect(seen).toEqual((all.data.transactions as { id: string }[]).map((x) => x.id));
+        expect(sum).toEqual(whole);
+      }
+    });
+
+    it("never counts someone else's, even on the same days", async () => {
+      const { me } = await withHistory();
+      // The 9th, 8th and 7th on the page; the 6th to the 1st beyond it
+      const before = {
+        page: {
+          rest: { entries: 6, spentCents: 800 + 8_000 + 850 + 800, receivedCents: 100_000 },
+          restOfLastDay: { date: '2025-09-07', ...none },
+        },
+        days: 4,
+      };
+      expect(restOf(await search(me, 'limit=3'))).toEqual(before.page);
+      const stranger = person('stranger');
+      const theirs = rowId();
+      const res = await send(stranger, [
+        addAccount(theirs, 'cash', 0, 'Theirs'),
+        add(rowId(), theirs, 4_321, { date: '2025-09-07' }),
+        add(rowId(), theirs, 1_234, { date: '2025-09-09' }),
+        add(rowId(), theirs, 999, { date: '2025-09-01' }),
+      ]);
+      expect(res.status).toBe(200);
+      expect(restOf(await search(me, 'limit=3'))).toEqual(before.page);
+      expect((await search(me, 'from=2025-09-03&to=2025-09-07')).data.elsewhere).toBe(before.days);
+    });
+
+    it('says how many match outside the days asked for, on the first page only', async () => {
+      const { me } = await withHistory();
+      const days = 'from=2025-09-03&to=2025-09-07';
+      expect((await search(me, days)).data.elsewhere).toBe(4);
+      expect((await search(me, `q=kopi&${days}`)).data.elsewhere).toBe(2);
+      expect((await search(me, `kind=transfer&${days}`)).data.elsewhere).toBe(0);
+      expect((await search(me, 'from=2025-09-08')).data.elsewhere).toBe(7);
+      expect((await search(me, 'to=2025-09-01')).data.elsewhere).toBe(8);
+      // Not asked for days, or a later page: not said
+      expect('elsewhere' in (await search(me, 'q=kopi')).data).toBe(false);
+      const first = await search(me, `${days}&limit=1`);
+      const second = await search(me, `${days}&limit=1&before=${first.data.nextBefore}`);
+      expect(second.status).toBe(200);
+      expect('elsewhere' in second.data).toBe(false);
+      // Someone else's are never counted
+      expect((await search(person('stranger'), days)).data.elsewhere).toBe(0);
+    });
+
     it.each([
+      ['an unknown kind', 'kind=spending'],
+      ['a kind named twice', 'kind=income,income'],
       ['a day that is not a day', 'from=2025-02-30'],
       ['a to that is not a day', 'to=yesterday'],
       ['too many at a time', 'limit=201'],

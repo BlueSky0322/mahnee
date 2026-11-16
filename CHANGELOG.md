@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-16
 
+- Added: Activity lists every entry by day or in a register, with filters, totals and changing many at once [#?]
 - Added: Home, Activity, Plan and Accounts a tap away in a tab bar or sidebar, with Settings [#24]
 
 ## 2026-11-15

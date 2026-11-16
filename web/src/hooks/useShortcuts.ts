@@ -2,18 +2,48 @@ import { useEffect, useRef } from 'react';
 import { navigate } from './useRoute';
 
 // Keys on a computer's keyboard, each doing what a button on the page does: N for a new
-// entry, / to search, Esc to close Settings. A key is a letter in lower case, or a name such
-// as 'Escape'. None fires while typing in a field (but Esc and Enter, which fields leave
-// alone), with Ctrl, Cmd or Alt held (the browser's own), or while a dialog is open, which
-// takes the keys itself.
+// entry, / to search, Esc to close Settings, and a page's own (Activity's J, K, X and C).
+// A key is a letter in lower case, or a name such as 'Escape'. None fires while typing in a
+// field (but Esc and Enter, which fields leave alone): a text-like field, a list to pick
+// from or editable text, though not a tick box, a choice or a button. Nor with Ctrl, Cmd or
+// Alt held (the browser's own), or while a dialog is open, which takes the keys itself.
 
 type Shortcuts = Partial<Record<string, () => void>>;
 
 const PASS_THROUGH_FIELDS = new Set(['Escape', 'Enter']);
 
-const inField = (target: EventTarget | null) =>
-  target instanceof HTMLElement &&
-  (target.isContentEditable || target.closest('input, textarea, select') != null);
+/** The kinds of input a person types into; a tick box, a choice or a button isn't one */
+const TYPED_INPUTS = new Set([
+  'text',
+  'search',
+  'number',
+  'date',
+  'datetime-local',
+  'month',
+  'week',
+  'time',
+  'email',
+  'tel',
+  'url',
+  'password',
+]);
+
+/**
+ * Whether `target` is where a person types: a text-like field, a list to pick from, or
+ * editable text
+ */
+function inField(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (
+    target.isContentEditable ||
+    target.closest('[contenteditable]:not([contenteditable="false"])')
+  ) {
+    return true;
+  }
+  const field = target.closest('input, textarea, select');
+  if (field == null) return false;
+  return field instanceof HTMLInputElement ? TYPED_INPUTS.has(field.type) : true;
+}
 
 const dialogOpen = () => document.querySelector('[role="dialog"]') != null;
 

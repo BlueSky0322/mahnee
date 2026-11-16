@@ -1,0 +1,119 @@
+import type { TransactionKind } from '@shared/ledger';
+import { TRANSACTION_KINDS } from '@shared/ledger';
+import type { SearchQuery } from '@shared/search';
+import { MAX_SEARCH_TEXT, isCalendarDay, readKinds } from '@shared/search';
+
+// Activity's filters, as its address holds them (docs/feature-map.md, Pages): ?activity is
+// this month on every account; &q=, &account=, &category=, &kind= (one kind, or two joined by
+// a comma); the days as &day= (that day alone), &from= and &to= (both included), or
+// &dates=all (every month); and &select (a phone opens selecting). A part that makes no
+// sense is left out: a day that isn't one, a kind not known, and (once the ledger is
+// known) an account or category the person doesn't have. A day wins over from and to, and
+// those over all months. Each filter is written back in that order, only when it isn't
+// its default, so plain ?activity stays plain.
+
+/** Which days: this month (the default), every one, one day, or from and/or to */
+export type Days =
+  | { kind: 'month' }
+  | { kind: 'all' }
+  | { kind: 'day'; day: string }
+  | { kind: 'range'; from: string | null; to: string | null };
+
+export interface Filters {
+  /** Words, trimmed; '' for none */
+  q: string;
+  account: string | null;
+  category: string | null;
+  /** Only these kinds, in TRANSACTION_KINDS' order; null for every kind */
+  kinds: TransactionKind[] | null;
+  days: Days;
+  select: boolean;
+}
+
+export const NO_FILTERS: Omit<Filters, 'q' | 'days' | 'select'> = {
+  account: null,
+  category: null,
+  kinds: null,
+};
+
+const day = (v: string | null) => (v != null && isCalendarDay(v) ? v : null);
+
+/**
+ * The kinds the address names, by shared/search.ts's rule: no filter when it can't be read,
+ * or when it names all three
+ */
+function kindsOf(text: string | null): TransactionKind[] | null {
+  const kinds = readKinds(text);
+  if (kinds == null || 'error' in kinds) return null;
+  return kinds.length === TRANSACTION_KINDS.length ? null : kinds;
+}
+
+/** The filters an address (its query string, without the ?) asks for */
+export function readFilters(query: string): Filters {
+  const params = new URLSearchParams(query);
+  const q = (params.get('q') ?? '').trim().slice(0, MAX_SEARCH_TEXT);
+  const one = day(params.get('day'));
+  const [from, to] = [day(params.get('from')), day(params.get('to'))];
+  const days: Days =
+    one != null
+      ? { kind: 'day', day: one }
+      : from != null || to != null
+        ? { kind: 'range', from, to }
+        : params.get('dates') === 'all'
+          ? { kind: 'all' }
+          : { kind: 'month' };
+  return {
+    q,
+    account: params.get('account') || null,
+    category: params.get('category') || null,
+    kinds: kindsOf(params.get('kind')),
+    days,
+    select: params.has('select'),
+  };
+}
+
+/** Activity's address for `filters`, each part only when it isn't its default */
+export function writeFilters(filters: Filters) {
+  const parts = ['activity'];
+  const put = (key: string, value: string | null) => {
+    if (value != null && value !== '') parts.push(`${key}=${encodeURIComponent(value)}`);
+  };
+  put('q', filters.q);
+  put('account', filters.account);
+  put('category', filters.category);
+  put('kind', filters.kinds?.join(',') ?? null);
+  const { days } = filters;
+  if (days.kind === 'day') put('day', days.day);
+  if (days.kind === 'range') {
+    put('from', days.from);
+    put('to', days.to);
+  }
+  if (days.kind === 'all') parts.push('dates=all');
+  if (filters.select) parts.push('select');
+  return `?${parts.join('&')}`;
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** The first and last days of `month` (2026-11) */
+export function monthDays(month: string): { from: string; to: string } {
+  const [y, m] = month.split('-').map(Number);
+  return { from: `${month}-01`, to: `${month}-${pad(new Date(y, m, 0).getDate())}` };
+}
+
+/** The first and last day the days ask for (null for no end), with `today` for this month */
+export function dayRange(days: Days, today: string): { from: string | null; to: string | null } {
+  if (days.kind === 'month') return monthDays(today.slice(0, 7));
+  if (days.kind === 'all') return { from: null, to: null };
+  if (days.kind === 'day') return { from: days.day, to: days.day };
+  return { from: days.from, to: days.to };
+}
+
+/** The search the filters make, on `today` */
+export const searchOf = (filters: Filters, today: string): SearchQuery => ({
+  q: filters.q,
+  account: filters.account,
+  category: filters.category,
+  kinds: filters.kinds,
+  ...dayRange(filters.days, today),
+});

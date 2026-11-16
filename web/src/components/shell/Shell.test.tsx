@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import type { Account } from '@shared/api';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, renderApp, setupAppTests } from '../../testing/app';
+import { addForm, addSaveButton, fakeServer, renderApp, setupAppTests } from '../../testing/app';
 
 // The places the app is always one tap away from: a tab bar on phones and tablets, a
 // sidebar on computers (the design's "Navigation and shell"). On a running account's page
@@ -113,9 +113,9 @@ describe('the tab bar on phones and tablets', () => {
     renderApp(withAccounts(), '/?activity', { size: 'phone' });
     const user = userEvent.setup();
     await user.click(within(await mainNav()).getByRole('button', { name: 'Add' }));
-    const sheet = within(await screen.findByRole('dialog'));
-    expect(sheet.getByLabelText('Amount')).toBeTruthy();
-    expect(sheet.getByRole('button', { name: 'Save' })).toBeTruthy();
+    const form = await addForm();
+    expect(form.getByRole('group', { name: 'Keypad' })).toBeTruthy();
+    expect(addSaveButton(form)).toBeTruthy();
 
     act(() => window.history.back());
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -129,8 +129,8 @@ describe('the tab bar on phones and tablets', () => {
     expect(current(nav)).toEqual(['Accounts']);
     const user = userEvent.setup();
     await user.click(within(nav).getByRole('button', { name: 'Add' }));
-    const sheet = within(await screen.findByRole('dialog'));
-    expect(sheet.getByLabelText('Account')).toHaveProperty('value', BANK);
+    const form = await addForm();
+    expect(form.getByRole('button', { name: /^From Bank/ })).toBeTruthy();
   });
 
   test("an account's page goes back up to Accounts", async () => {
@@ -158,12 +158,12 @@ describe('the tab bar on phones and tablets', () => {
     expect(await screen.findByText('Cash, archived')).toBeTruthy();
     const user = userEvent.setup();
     await user.click(within(await mainNav()).getByRole('button', { name: 'Add' }));
-    const account = within(await screen.findByRole('dialog')).getByLabelText('Account');
-    expect(account).toHaveProperty('value', BANK);
+    const form = await addForm();
+    expect(form.getByRole('button', { name: /^From Bank/ })).toBeTruthy();
     // The archived one isn't offered
-    expect(
-      Array.from((account as HTMLSelectElement).options).map((o) => o.textContent),
-    ).not.toContain('Wallet');
+    await user.click(form.getByRole('button', { name: /^From Bank/ }));
+    expect(await screen.findByRole('radio', { name: /^Bank/ })).toBeTruthy();
+    expect(screen.queryByRole('radio', { name: /^Wallet/ })).toBeNull();
   });
 
   test('with every account archived, Add stays in its place but can not be used', async () => {
@@ -286,7 +286,7 @@ describe('the sidebar on computers', () => {
     renderApp(withAccounts(), '/?plan');
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'New entry' }));
-    expect(within(await screen.findByRole('dialog')).getByLabelText('Amount')).toBeTruthy();
+    expect((await addForm()).getByRole('textbox', { name: 'Amount' })).toBeTruthy();
   });
 
   test('moving between places never adds to history', async () => {
@@ -314,10 +314,7 @@ describe('the sidebar on computers', () => {
     expect(await screen.findByText('Cash, archived')).toBeTruthy();
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'New entry' }));
-    expect(within(await screen.findByRole('dialog')).getByLabelText('Account')).toHaveProperty(
-      'value',
-      BANK,
-    );
+    expect((await addForm()).getByRole('button', { name: /^From Bank/ })).toBeTruthy();
   });
 
   test('with every account archived, New entry can not be used', async () => {

@@ -1,0 +1,853 @@
+import { Modal } from '@mantine/core';
+import { ArrowsClockwise, CalendarBlank, CaretRight, X } from '@phosphor-icons/react';
+import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { LedgerChange } from '@shared/api';
+import type { CategoryKind } from '@shared/categories';
+import type { Keypad, KeypadKey } from '@shared/keypad';
+import {
+  EMPTY_KEYPAD,
+  amountShown,
+  centsShown,
+  expressionLine,
+  press,
+  totalCents,
+  typeKeys,
+} from '@shared/keypad';
+import type { TransactionKind } from '@shared/ledger';
+import { DEFAULT_CURRENCY, MAX_PAYEE, categoryKindFor, readOptionalText } from '@shared/ledger';
+import type { Schedule } from '@shared/recurring';
+import { dayFor, nextAfter } from '@shared/recurring';
+import { useBackDismiss } from '../../hooks/useBackDismiss';
+import { useIsDesktop } from '../../hooks/useBreakpoints';
+import { change } from '../../ledger/ledger';
+import { lastUsed, recentCategoryIds, rememberUsed } from '../../ledger/last-used';
+import { useAccounts, useCategories } from '../../ledger/useLedger';
+import { useProfile } from '../../profile/ProfileContext';
+import { categoryColour } from '../../utils/category-colour';
+import { dayHeading, isPastDay, toDateInput } from '../../utils/date-input';
+import { newId } from '../../utils/id';
+import { currencySymbol } from '../../utils/money';
+import { balanceText } from '../accounts/account-text';
+import Key from '../ui/Key';
+import { useReturnFocus } from '../ui/return-focus';
+import type { AddDraft } from './add-draft';
+import { dropDraft, keepDraft, readDraft } from './add-draft';
+import { LIMIT_TEXT, listedCategories, recentCategories, saveLabel } from './add-text';
+import type { NewCategory } from './CategoryPicker';
+import CategoryPicker from './CategoryPicker';
+import classes from './AddEntry.module.css';
+
+// Add (R-Add, R-Desk-Add): a new transaction. On phones and tablets it covers the screen,
+// with a keypad that works sums out in whole cents (shared/keypad.ts); on a computer it's a
+// dialog, "New entry", whose Amount field takes the same sums typed. Which way it went;
+// the account it's From (Into, for income) and the category it's For (From), or for a
+// transfer the two accounts with their balances; the five recent categories as chips; one
+// "Payee or note" field, which fills the payee (owner decision D10: the note stays apart,
+// edited on the entry); Today (the day) and Repeat. Save says what it will do, or why it
+// can't yet. What's typed is kept as a draft on this device when Add is closed any way but
+// Save. It opens on the amount, or on the categories when the person chose to start with
+// the category (D9). Saving is one change() through the ledger and its outbox, a new
+// category first.
+
+/** What Add was opened for: a new entry, on `accountId` when it's that account's page */
+export interface AddRequest {
+  accountId?: string;
+}
+
+export default function AddEntry({
+  open,
+  onClose,
+}: {
+  open: AddRequest | null;
+  onClose: () => void;
+}) {
+  const isDesktop = useIsDesktop() === true;
+  // Back closes it on phones and tablets, keeping the draft
+  useBackDismiss(open != null, onClose, { tablets: true });
+  // Focus goes back to Add or New entry once it closes, unless it went somewhere since
+  const root = useReturnFocus(open != null);
+
+  return (
+    <Modal.Root
+      ref={root}
+      opened={open != null}
+      returnFocus={false}
+      onClose={onClose}
+      fullScreen={!isDesktop}
+      size={560}
+      closeOnEscape={false}
+      classNames={{ content: isDesktop ? classes.dialog : classes.screen, body: classes.body }}
+      transitionProps={{ duration: isDesktop ? 150 : 0 }}
+    >
+      <Modal.Overlay
+        backgroundOpacity={0.38}
+        color="#0f1012"
+      />
+      <Modal.Content aria-label={isDesktop ? undefined : 'New entry'}>
+        <Modal.Body>
+          {/* A fresh form each time it opens, from the draft if one was left */}
+          {open != null && (
+            <AddForm
+              request={open}
+              desktop={isDesktop}
+              onDone={onClose}
+            />
+          )}
+        </Modal.Body>
+      </Modal.Content>
+    </Modal.Root>
+  );
+}
+
+const CloseButton = ({ onClose }: { onClose: () => void }) => (
+  <button
+    type="button"
+    className={classes.close}
+    aria-label="Close, keeps what you typed as a draft"
+    onClick={onClose}
+  >
+    <X
+      size={20}
+      aria-hidden
+    />
+  </button>
+);
+
+const KINDS: { value: TransactionKind; label: string }[] = [
+  { value: 'expense', label: 'Expense' },
+  { value: 'income', label: 'Income' },
+  { value: 'transfer', label: 'Transfer' },
+];
+
+const KEYS: { key: KeypadKey; label: string; name: string; look?: 'fn' | 'op' | 'eq' }[] = [
+  { key: '1', label: '1', name: '1' },
+  { key: '2', label: '2', name: '2' },
+  { key: '3', label: '3', name: '3' },
+  { key: 'delete', label: '⌫', name: 'Delete, hold to clear', look: 'fn' },
+  { key: '4', label: '4', name: '4' },
+  { key: '5', label: '5', name: '5' },
+  { key: '6', label: '6', name: '6' },
+  { key: '×', label: '×', name: 'Times', look: 'op' },
+  { key: '7', label: '7', name: '7' },
+  { key: '8', label: '8', name: '8' },
+  { key: '9', label: '9', name: '9' },
+  { key: '−', label: '−', name: 'Minus', look: 'op' },
+  { key: '.', label: '.', name: 'Decimal point', look: 'fn' },
+  { key: '0', label: '0', name: '0' },
+  { key: '=', label: '=', name: 'Work it out', look: 'eq' },
+  { key: '+', label: '+', name: 'Plus', look: 'op' },
+];
+
+/** How long Delete is held to clear the amount */
+const HOLD_MS = 500;
+
+const NO_DESTINATION = 'Add another account to move money to';
+const BAD_DAY = 'Pick a day from 2000 up to today';
+const REPEATS: { value: Schedule | ''; label: string }[] = [
+  { value: '', label: "Doesn't repeat" },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'weekly', label: 'Weekly' },
+];
+
+type Picking = 'from' | 'to' | 'category' | null;
+
+function AddForm({
+  request,
+  desktop,
+  onDone,
+}: {
+  request: AddRequest;
+  desktop: boolean;
+  onDone: () => void;
+}) {
+  const { accounts } = useAccounts();
+  const { categories, tree } = useCategories();
+  const { profile } = useProfile();
+  const email = profile?.email ?? null;
+  const settings = profile?.settings;
+  const [remembered] = useState(() => lastUsed(email));
+  const [draft] = useState(() => readDraft(email));
+
+  const [kind, setKind] = useState<TransactionKind>(draft?.kind ?? 'expense');
+  const [keypad, setKeypad] = useState<Keypad>(
+    draft == null ? EMPTY_KEYPAD : { expr: draft.expr, fresh: false, tooMuch: false },
+  );
+  const [accountId, setAccountId] = useState<string | null>(draft?.accountId ?? null);
+  const [toAccountId, setToAccountId] = useState<string | null>(draft?.toAccountId ?? null);
+  const [picked, setPicked] = useState<Partial<Record<CategoryKind, string>>>(() => {
+    const kindOf = draft == null ? null : categoryKindFor(draft.kind);
+    return kindOf != null && draft?.categoryId != null ? { [kindOf]: draft.categoryId } : {};
+  });
+  const [made, setMade] = useState<NewCategory | null>(draft?.newCategory ?? null);
+  const [payee, setPayee] = useState(draft?.payee ?? '');
+  const [date, setDate] = useState<string | null>(draft?.date ?? null);
+  const [repeat, setRepeat] = useState<Schedule | ''>(draft?.repeat ?? '');
+  const [picking, setPicking] = useState<Picking>(
+    draft == null && settings?.startWith === 'category' ? 'category' : null,
+  );
+  const [showDate, setShowDate] = useState(false);
+  const [showRepeat, setShowRepeat] = useState(false);
+  const ids = { hint: useId(), way: useId() };
+
+  // Back closes a phone's list first, then Add
+  useBackDismiss(!desktop && picking != null, () => setPicking(null), { tablets: true });
+
+  // Accounts: the page's own, else the one set to use, else the one used last, else the first
+  const running = (accounts ?? []).filter((a) => !a.archived);
+  const runningOne = (id: string | null | undefined) => running.find((a) => a.id === id);
+  const fromDefault =
+    runningOne(request.accountId) ?? runningOne(settings?.defaultAccountId) ?? undefined;
+  const fromRemembered = fromDefault == null ? runningOne(remembered.accountId) : undefined;
+  const account = runningOne(accountId) ?? fromDefault ?? fromRemembered ?? running[0];
+  const lastUsedHint =
+    account != null && fromRemembered?.id === account.id && runningOne(accountId) == null;
+  const destinations = running.filter((a) => a.id !== account?.id);
+  const toAccount =
+    destinations.find((a) => a.id === toAccountId) ??
+    destinations.find((a) => a.id === remembered.toAccountId) ??
+    destinations[0];
+  const currency = account?.currency ?? DEFAULT_CURRENCY;
+
+  // Categories: a new one being made, else the one picked, else the one used last, else the first
+  const transfer = kind === 'transfer';
+  const categoryKind = categoryKindFor(kind);
+  const nodes = categoryKind == null ? [] : tree?.listed[categoryKind] ?? [];
+  const listed = listedCategories(nodes);
+  const listedOne = (id: string | null | undefined) => listed.find((c) => c.id === id);
+  const category =
+    categoryKind == null
+      ? undefined
+      : listedOne(picked[categoryKind]) ??
+        listedOne(remembered.categoryIds[categoryKind]) ??
+        listed[0];
+  const madeParent = made == null ? null : nodes.find((n) => n.id === made.parentId);
+  const newCategory = made != null && (made.parentId == null || madeParent != null) ? made : null;
+  const categoryId = newCategory?.id ?? category?.id;
+  const recent =
+    categoryKind == null ? [] : recentCategories(recentCategoryIds(email, categoryKind), nodes);
+
+  // The day: Today unless another was picked, read afresh each time it's drawn
+  const today = toDateInput(new Date());
+  const day = date ?? today;
+  const dayOk = isPastDay(day);
+  const total = totalCents(keypad.expr);
+  const reason = keypad.tooMuch ? LIMIT_TEXT : total <= 0 ? null : !dayOk ? BAD_DAY : null;
+  const label = reason ?? saveLabel(kind, keypad, currency);
+  const savable =
+    !keypad.tooMuch &&
+    total > 0 &&
+    dayOk &&
+    account != null &&
+    (transfer ? toAccount != null : categoryId != null);
+
+  // What's typed is kept as it changes, so Close, Back and Esc all keep it; an Add with
+  // nothing typed in it keeps none, so what was used last still decides next time
+  const typedSomething =
+    keypad.expr !== '' || payee.trim() !== '' || made != null || date != null || repeat !== '';
+  const kept: AddDraft = {
+    kind,
+    expr: keypad.expr,
+    accountId: runningOne(accountId)?.id ?? null,
+    toAccountId: transfer ? destinations.find((a) => a.id === toAccountId)?.id ?? null : null,
+    categoryId: categoryKind == null ? null : listedOne(picked[categoryKind])?.id ?? null,
+    newCategory,
+    payee,
+    date: dayOk ? date : null,
+    repeat,
+  };
+  const keptText = JSON.stringify(kept);
+  const saved = useRef(false);
+  useEffect(() => {
+    if (saved.current) return;
+    if (typedSomething) keepDraft(email, JSON.parse(keptText) as AddDraft);
+    else dropDraft(email);
+  }, [email, keptText, typedSomething]);
+
+  const pickKind = (next: TransactionKind) => {
+    setKind(next);
+    setMade(null);
+  };
+  const pickCategory = (id: string) => {
+    if (categoryKind != null) setPicked((before) => ({ ...before, [categoryKind]: id }));
+    setMade(null);
+    setPicking(null);
+  };
+
+  const submit = (e?: FormEvent) => {
+    e?.preventDefault();
+    if (!savable || account == null) return;
+    const fields = {
+      kind,
+      accountId: account.id,
+      toAccountId: transfer ? toAccount?.id ?? null : null,
+      amountCents: total,
+      categoryId: transfer ? null : categoryId ?? null,
+      payee: readOptionalText(payee, MAX_PAYEE) ?? null,
+      note: null,
+      date: day,
+    };
+    const changes: LedgerChange[] = [];
+    if (!transfer && newCategory != null && categoryKind != null) {
+      changes.push({
+        op: 'addCategory',
+        category: {
+          id: newCategory.id,
+          name: newCategory.name,
+          kind: categoryKind,
+          parentId: newCategory.parentId,
+        },
+      });
+    }
+    changes.push({ op: 'addTransaction', transaction: { id: newId(), ...fields } });
+    if (repeat !== '') {
+      // From its day, first due on the next one after the person's today
+      const repeatDay = dayFor(repeat, day);
+      changes.push({
+        op: 'addRecurring',
+        recurring: {
+          id: newId(),
+          kind,
+          accountId: fields.accountId,
+          toAccountId: fields.toAccountId,
+          amountCents: fields.amountCents,
+          categoryId: fields.categoryId,
+          payee: fields.payee,
+          schedule: repeat,
+          day: repeatDay,
+          startDate: day,
+          nextDue: nextAfter(repeat, repeatDay, today),
+        },
+      });
+    }
+    change(...changes);
+    if (fields.toAccountId != null) rememberUsed(email, { toAccountId: fields.toAccountId });
+    else if (categoryKind != null && fields.categoryId != null) {
+      rememberUsed(email, {
+        accountId: account.id,
+        kind: categoryKind,
+        categoryId: fields.categoryId,
+      });
+    }
+    saved.current = true;
+    dropDraft(email);
+    onDone();
+  };
+
+  // Esc closes what's open in Add first, then Add, keeping the draft
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (picking != null) setPicking(null);
+    else if (showRepeat) setShowRepeat(false);
+    else onDone();
+  };
+
+  const forLabel =
+    newCategory != null
+      ? madeParent != null
+        ? `${madeParent.name} › ${newCategory.name}`
+        : newCategory.name
+      : category?.fullName ?? 'No category';
+  const forDot = categoryColour(categories ?? [], madeParent?.id ?? category?.id ?? '');
+
+  const accountPicker = (which: 'from' | 'to') => {
+    const list = which === 'from' ? running : destinations;
+    const chosen = which === 'from' ? account : toAccount;
+    const name = which === 'to' ? 'To' : kind === 'income' ? 'Into' : 'From';
+    return (
+      <Picker
+        page={!desktop}
+        title={name}
+        onBack={() => setPicking(null)}
+      >
+        <div
+          role="radiogroup"
+          aria-label={name}
+          className={classes.pickCard}
+        >
+          {list.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              role="radio"
+              aria-checked={a.id === chosen?.id}
+              aria-label={`${a.name} ${balanceText(a)}`}
+              className={`${classes.option} ${a.id === chosen?.id ? classes.optionOn : ''}`}
+              onClick={() => {
+                if (which === 'from') setAccountId(a.id);
+                else setToAccountId(a.id);
+                setPicking(null);
+              }}
+            >
+              <span className={classes.optionText}>{a.name}</span>
+              <span className={classes.why}>{balanceText(a)}</span>
+            </button>
+          ))}
+        </div>
+      </Picker>
+    );
+  };
+
+  const categoryPicker =
+    categoryKind == null ? null : (
+      <CategoryPicker
+        kind={categoryKind}
+        categories={categories ?? []}
+        nodes={nodes}
+        recent={recent}
+        payee={payee}
+        accountId={account?.id ?? null}
+        page={!desktop}
+        onPick={pickCategory}
+        onCreate={(next) => {
+          setMade({ id: newId(), ...next });
+          setPicking(null);
+        }}
+        onBack={() => setPicking(null)}
+      />
+    );
+  const pickerShown =
+    picking === 'category' ? categoryPicker : picking == null ? null : accountPicker(picking);
+
+  const rows = transfer ? (
+    <>
+      <Row
+        k="From"
+        value={account?.name ?? ''}
+        hint={account == null ? '' : balanceText(account)}
+        onClick={() => setPicking(picking === 'from' ? null : 'from')}
+      />
+      {desktop && picking === 'from' && pickerShown}
+      {toAccount == null ? (
+        <p className={classes.rowNote}>{NO_DESTINATION}</p>
+      ) : (
+        <Row
+          k="To"
+          value={toAccount.name}
+          hint={balanceText(toAccount)}
+          onClick={() => setPicking(picking === 'to' ? null : 'to')}
+        />
+      )}
+      {desktop && picking === 'to' && pickerShown}
+    </>
+  ) : (
+    <>
+      <Row
+        k={kind === 'income' ? 'Into' : 'From'}
+        value={account?.name ?? ''}
+        hint={lastUsedHint ? 'last used' : ''}
+        onClick={() => setPicking(picking === 'from' ? null : 'from')}
+      />
+      {desktop && picking === 'from' && pickerShown}
+      <Row
+        k={kind === 'income' ? 'From' : 'For'}
+        value={forLabel}
+        dot={forDot}
+        onClick={() => setPicking(picking === 'category' ? null : 'category')}
+      />
+      {desktop && picking === 'category' && pickerShown}
+    </>
+  );
+
+  const status = (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label={`Amount, ${currencySymbol(currency)} ${centsShown(total)}${
+        keypad.tooMuch ? `. ${LIMIT_TEXT}` : ''
+      }`}
+      className={desktop ? classes.deskAmount : classes.amount}
+    >
+      <span className={classes.expression}>{expressionLine(keypad.expr)}</span>
+      <span className={classes.figure}>
+        <span className={classes.currency}>
+          {kind === 'income' ? '+ ' : ''}
+          {currencySymbol(currency)}
+        </span>
+        <span
+          data-amount
+          className={classes.number}
+          data-tone={
+            total < 0 ? 'neg' : kind === 'income' ? 'pos' : keypad.expr === '' ? 'empty' : 'ink'
+          }
+        >
+          {amountShown(keypad)}
+        </span>
+      </span>
+      {/* A refused key is said as well as shown on Save: the live region speaks its content */}
+      {keypad.tooMuch && <span className="sr-only">{LIMIT_TEXT}</span>}
+    </div>
+  );
+
+  const chips =
+    !transfer && !(desktop && picking === 'category') ? (
+      <div
+        role="radiogroup"
+        aria-label="Recent categories"
+        className={classes.recent}
+      >
+        {recent.map((c) => {
+          const on = newCategory == null && c.id === category?.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              title={c.fullName}
+              className={`${classes.chip} ${on ? classes.chipOn : ''}`}
+              onClick={() => pickCategory(c.id)}
+            >
+              <span
+                className={classes.dot}
+                style={{ background: categoryColour(categories ?? [], c.id) }}
+              />
+              {c.name}
+            </button>
+          );
+        })}
+      </div>
+    ) : null;
+
+  const options = (
+    <>
+      <div className={classes.options}>
+        <button
+          type="button"
+          className={classes.opt}
+          aria-expanded={showDate}
+          onClick={() => setShowDate((shown) => !shown)}
+        >
+          <CalendarBlank
+            size={16}
+            aria-hidden
+          />
+          {dayOk ? dayHeading(day) : 'Day'}
+        </button>
+        <button
+          type="button"
+          className={classes.opt}
+          aria-expanded={showRepeat}
+          onClick={() => setShowRepeat((shown) => !shown)}
+        >
+          <ArrowsClockwise
+            size={16}
+            aria-hidden
+          />
+          {REPEATS.find((r) => r.value === repeat && r.value !== '')?.label ?? 'Repeat'}
+        </button>
+      </div>
+      {showDate && (
+        <label className={classes.dateRow}>
+          <span>Date</span>
+          <input
+            type="date"
+            className={classes.input}
+            aria-label="Date"
+            value={day}
+            min="2000-01-01"
+            max={today}
+            onChange={(e) => {
+              const value = e.currentTarget.value;
+              setDate(value === today ? null : value);
+            }}
+          />
+        </label>
+      )}
+      {showRepeat && (
+        <div
+          role="radiogroup"
+          aria-label="Repeat"
+          className={classes.repeat}
+        >
+          {REPEATS.map((r) => (
+            <button
+              key={r.value}
+              type="button"
+              role="radio"
+              aria-checked={r.value === repeat}
+              className={`${classes.chip} ${r.value === repeat ? classes.chipOn : ''}`}
+              onClick={() => {
+                setRepeat(r.value);
+                setShowRepeat(false);
+              }}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
+  const save = (
+    <button
+      type="submit"
+      className={desktop ? classes.saveSmall : classes.save}
+      aria-disabled={!savable}
+    >
+      {label}
+      {desktop && <Key>Enter</Key>}
+    </button>
+  );
+
+  const way = (
+    <div
+      role="radiogroup"
+      aria-label="Which way"
+      id={ids.way}
+      className={classes.seg}
+    >
+      {KINDS.map((k) => (
+        <button
+          key={k.value}
+          type="button"
+          role="radio"
+          aria-checked={k.value === kind}
+          className={k.value === kind ? classes.segOn : undefined}
+          onClick={() => pickKind(k.value)}
+        >
+          {k.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  const note = (
+    <label className={classes.row}>
+      <span className={classes.k}>Note</span>
+      <input
+        className={classes.note}
+        aria-label="Payee or note"
+        placeholder="Payee or note, optional"
+        value={payee}
+        maxLength={MAX_PAYEE}
+        autoComplete="off"
+        onChange={(e) => setPayee(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          // Enter in the note saves, as in any form, but only what can be saved
+          if (e.key === 'Enter' && !savable) e.preventDefault();
+        }}
+      />
+    </label>
+  );
+
+  if (desktop) {
+    return (
+      <form
+        aria-label="Add a transaction"
+        className={classes.deskForm}
+        onSubmit={submit}
+        onKeyDown={onKeyDown}
+        noValidate
+      >
+        <div className={classes.dialogHeader}>
+          <Modal.Title className={classes.dialogTitle}>New entry</Modal.Title>
+          <CloseButton onClose={onDone} />
+        </div>
+        <div className={classes.deskTop}>
+          {way}
+          {status}
+        </div>
+        <div className={classes.fields}>
+          <label className={classes.row}>
+            <span className={classes.k}>Amount</span>
+            <input
+              className={classes.amountField}
+              aria-label="Amount"
+              aria-describedby={ids.hint}
+              inputMode="decimal"
+              placeholder="0.00"
+              autoComplete="off"
+              value={keypad.expr}
+              data-autofocus={picking == null ? true : undefined}
+              onFocus={(e) => {
+                const end = e.currentTarget.value.length;
+                e.currentTarget.setSelectionRange(end, end);
+              }}
+              onChange={(e) => setKeypad(typeKeys(e.currentTarget.value))}
+            />
+          </label>
+          {rows}
+          {note}
+        </div>
+        {chips}
+        {options}
+        <div className={classes.deskFoot}>
+          <span
+            id={ids.hint}
+            className={classes.hint}
+          >
+            Sums work: 8+4.5
+          </span>
+          <button
+            type="button"
+            className={classes.cancel}
+            onClick={onDone}
+          >
+            Cancel
+            <Key>Esc</Key>
+          </button>
+          {save}
+        </div>
+      </form>
+    );
+  }
+
+  return (
+    <div
+      className={classes.phone}
+      onKeyDown={onKeyDown}
+    >
+      <form
+        aria-label="Add a transaction"
+        className={classes.phoneForm}
+        onSubmit={submit}
+        hidden={picking != null}
+        noValidate
+      >
+        <div className={classes.top}>
+          <CloseButton onClose={onDone} />
+          {way}
+          <span className={classes.headerSpace} />
+        </div>
+        {status}
+        <div className={classes.fields}>
+          {rows}
+          {note}
+        </div>
+        {chips}
+        {options}
+        <div className={classes.bottom}>
+          <KeypadKeys onPress={(key) => setKeypad((state) => press(state, key))} />
+          {save}
+        </div>
+      </form>
+      {pickerShown}
+    </div>
+  );
+}
+
+/** One of From, For, Into or To: what it is now, tapped to change it */
+function Row({
+  k,
+  value,
+  hint = '',
+  dot,
+  onClick,
+}: {
+  k: string;
+  value: string;
+  hint?: string;
+  dot?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={classes.row}
+      aria-label={`${k} ${value}${hint === '' ? '' : ` ${hint}`}`}
+      onClick={onClick}
+    >
+      <span className={classes.k}>{k}</span>
+      <span className={classes.v}>
+        {dot != null && (
+          <span
+            className={classes.dot}
+            style={{ background: dot }}
+          />
+        )}
+        <span className={classes.vText}>{value}</span>
+      </span>
+      {hint !== '' && <span className={classes.h}>{hint}</span>}
+      <CaretRight
+        size={16}
+        aria-hidden
+        className={classes.caret}
+      />
+    </button>
+  );
+}
+
+/** A list to pick from: a page of its own on phones, open under its row on computers */
+function Picker({
+  page,
+  title,
+  onBack,
+  children,
+}: {
+  page: boolean;
+  title: string;
+  onBack: () => void;
+  children: ReactNode;
+}) {
+  if (!page) return <div className={classes.pickInline}>{children}</div>;
+  return (
+    <div className={classes.pickPage}>
+      <div className={classes.pickHeader}>
+        <button
+          type="button"
+          className={classes.back}
+          onClick={onBack}
+        >
+          Entry
+        </button>
+        <h2>{title}</h2>
+        <span className={classes.headerSpace} />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** The keypad: 1-2-3 on top as drawn (D9); Delete held clears */
+function KeypadKeys({ onPress }: { onPress: (key: KeypadKey) => void }) {
+  const holding = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const held = useRef(false);
+  const stop = () => {
+    if (holding.current != null) clearTimeout(holding.current);
+    holding.current = null;
+  };
+  useEffect(() => stop, []);
+  return (
+    <div
+      role="group"
+      aria-label="Keypad"
+      className={classes.keypad}
+    >
+      {KEYS.map((k) => (
+        <button
+          key={k.key}
+          type="button"
+          aria-label={k.name}
+          className={k.look == null ? classes.key : `${classes.key} ${classes[k.look]}`}
+          onPointerDown={
+            k.key === 'delete'
+              ? () => {
+                  held.current = false;
+                  stop();
+                  holding.current = setTimeout(() => {
+                    held.current = true;
+                    onPress('clear');
+                  }, HOLD_MS);
+                }
+              : undefined
+          }
+          onPointerUp={k.key === 'delete' ? stop : undefined}
+          onPointerLeave={k.key === 'delete' ? stop : undefined}
+          onClick={() => {
+            if (k.key === 'delete' && held.current) {
+              held.current = false;
+              return;
+            }
+            onPress(k.key);
+          }}
+        >
+          {k.label}
+        </button>
+      ))}
+    </div>
+  );
+}

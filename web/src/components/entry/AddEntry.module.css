@@ -1,0 +1,628 @@
+/* Add, as R-Add (phones and tablets: the whole screen, the keypad at the foot) and
+   R-Desk-Add (computers: a dialog). Every colour is a theme token, so dark follows. */
+
+.screen {
+  background: var(--ground);
+}
+
+.dialog {
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 24px 64px rgba(15, 16, 18, 0.28);
+}
+
+.body {
+  padding: 0;
+  height: 100%;
+}
+
+.phone {
+  height: 100%;
+}
+
+.phoneForm {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  padding: 12px 16px calc(16px + var(--sf-safe-bottom));
+  background: var(--ground);
+}
+
+.phoneForm[hidden] {
+  display: none;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+}
+
+.headerSpace {
+  width: 34px;
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-left: -10px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* Which way: a pill track, the chosen one a surface pill */
+.seg {
+  display: flex;
+  width: 264px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--sunk);
+}
+
+.seg button {
+  flex: 1;
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.seg .segOn {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(15, 16, 18, 0.12);
+}
+
+/* The amount */
+.amount {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 150px;
+  padding: 20px 0 24px;
+}
+
+.deskAmount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.expression {
+  min-height: 22px;
+  color: var(--ink-3);
+  font-size: 1.0625rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.deskAmount .expression {
+  min-height: 18px;
+  font-size: 0.875rem;
+}
+
+.figure {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.currency {
+  color: var(--ink-3);
+  font-size: 1.375rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.deskAmount .currency {
+  font-size: 1.125rem;
+}
+
+.number {
+  font-size: 3.75rem;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.deskAmount .number {
+  font-size: 2.5rem;
+}
+
+.number[data-tone='empty'] {
+  color: var(--ink-3);
+}
+
+.number[data-tone='pos'] {
+  color: var(--pos);
+}
+
+.number[data-tone='neg'] {
+  color: var(--neg);
+}
+
+/* From, For and the note */
+.fields {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.deskForm .fields {
+  border-color: var(--line-2);
+  border-radius: 14px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.deskForm .row {
+  min-height: 48px;
+}
+
+.fields > * + * {
+  border-top: 1px solid var(--line);
+}
+
+.k {
+  flex: none;
+  width: 52px;
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+}
+
+.v {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.vText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.h {
+  color: var(--ink-3);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.caret {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.rowNote {
+  margin: 0;
+  padding: 14px;
+  color: var(--ink-3);
+  font-size: 0.875rem;
+}
+
+.note,
+.amountField {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.amountField {
+  font-size: 1.25rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.note::placeholder,
+.amountField::placeholder {
+  color: var(--ink-3);
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+/* Recent categories */
+.recent {
+  display: flex;
+  gap: 6px;
+  margin: 10px -16px 0 0;
+  padding: 2px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.deskForm .recent {
+  flex-wrap: wrap;
+  margin: 0;
+  overflow: visible;
+}
+
+.chip {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chip::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 44px;
+  transform: translateY(-50%);
+}
+
+.chipOn {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--accent-tint);
+  font-weight: 500;
+}
+
+/* Today and Repeat */
+.options {
+  display: flex;
+  gap: 2px;
+  margin: 8px -10px 0;
+}
+
+.opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.dateRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+}
+
+.input,
+.search {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9375rem;
+}
+
+.search {
+  width: 100%;
+}
+
+.search:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+.repeat {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* The keypad and Save */
+.bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 64px;
+  gap: 6px;
+}
+
+.key {
+  height: 58px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--line);
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.5rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.fn {
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-2);
+  font-size: 1.125rem;
+}
+
+.op {
+  background: var(--sunk);
+  box-shadow: none;
+  font-size: 1.375rem;
+}
+
+.eq {
+  background: var(--sunk);
+  box-shadow: none;
+  color: var(--accent);
+  font-size: 1.375rem;
+  font-weight: 600;
+}
+
+.save,
+.saveSmall {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.save {
+  width: 100%;
+  height: 50px;
+  font-size: 1rem;
+}
+
+.saveSmall {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 0.875rem;
+}
+
+.save[aria-disabled='true'],
+.saveSmall[aria-disabled='true'] {
+  background: var(--sunk);
+  color: var(--ink-3);
+  cursor: default;
+}
+
+/* Computers: the dialog */
+.deskForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 24px 0;
+}
+
+.dialogHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-right: -14px;
+}
+
+.dialogTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.deskTop {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.deskFoot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 -24px;
+  padding: 14px 20px 14px 24px;
+  border-top: 1px solid var(--line);
+}
+
+.hint {
+  flex: 1;
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}
+
+.cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--sunk);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+/* Lists to pick from */
+.pickPage {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 100dvh;
+  padding: 12px 16px 24px;
+  background: var(--ground);
+}
+
+.pickInline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  background: var(--surface);
+}
+
+.pickHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pickHeader h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 0 10px 0 2px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.pickSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pickLabel,
+.pickNote {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+}
+
+.pickCard {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 16px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9375rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pickInline .option {
+  min-height: 42px;
+  font-size: 0.875rem;
+}
+
+.option + .option {
+  border-top: 1px solid var(--line);
+}
+
+.option[aria-disabled='true'] {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.optionOn {
+  background: var(--accent-tint);
+}
+
+.optionText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.why {
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}

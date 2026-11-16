@@ -25,9 +25,7 @@ import type { Schedule } from '@shared/recurring';
 import { dayFor, isSchedule, nextAfter } from '@shared/recurring';
 import { navigate } from '../../hooks/useRoute';
 import { change } from '../../ledger/ledger';
-import { lastUsed, rememberUsed } from '../../ledger/last-used';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
-import { useProfile } from '../../profile/ProfileContext';
 import { isPastDay, toDateInput } from '../../utils/date-input';
 import { newId } from '../../utils/id';
 import { currencySymbol, formatMoney } from '../../utils/money';
@@ -36,16 +34,15 @@ import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { amountText, readAmount, transactionSummary } from './entry-text';
 import classes from './Entry.module.css';
 
-/** What's open: a new transaction (on `accountId` when given), or one to change */
-export type OpenEntry = { transaction: null; accountId?: string } | { transaction: Transaction };
+/** The transaction open to change */
+export type OpenEntry = { transaction: Transaction };
 
-// The entry sheet: the amount first, then which way it went, the account and category
-// (the ones used last, unless changed), the day, and a payee and note under More. With
-// the defaults, typing the amount and Save is all it takes. A transfer moves money from
-// one account to another of the person's own, with no category: the account it goes to
-// is the one moved to last, unless that's the one it comes from. Repeat, under More, sets
-// it up to repeat monthly or weekly from its day (shown on Home when due; see
-// components/home/DueItems.tsx).
+// Changing a transaction (new ones are added with Add, AddEntry.tsx): the amount, which
+// way it went, the account and category, the day, and the payee and note under More, kept
+// apart (owner decision D10). A transfer moves money from one account to another of the
+// person's own, with no category; turned into one, it goes to the first other account
+// until another is picked. Repeat, under More, sets it up to repeat monthly or weekly
+// from its day (shown on Home when due; see components/home/DueItems.tsx). Delete has Undo.
 export default function EntrySheet({
   open,
   onClose,
@@ -57,13 +54,13 @@ export default function EntrySheet({
     <ResponsiveDialog
       opened={open != null}
       onClose={onClose}
-      title={open?.transaction == null ? 'Add transaction' : 'Edit transaction'}
+      title="Edit transaction"
       width={480}
     >
       {open != null && (
         <Fields
           // A fresh form for each one opened
-          key={open.transaction?.id ?? 'new'}
+          key={open.transaction.id}
           open={open}
           onDone={onClose}
         />
@@ -90,25 +87,21 @@ const NO_DESTINATION = 'Add another account to move money to';
 function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
   const { accounts } = useAccounts();
   const { categories, tree } = useCategories();
-  const email = useProfile().profile?.email ?? null;
   const editing = open.transaction;
-  const [remembered] = useState(() => lastUsed(email));
 
-  const [amount, setAmount] = useState(editing ? amountText(editing.amountCents) : '');
-  const [kind, setKind] = useState<TransactionKind>(editing?.kind ?? 'expense');
-  const [accountId, setAccountId] = useState<string | null>(
-    editing?.accountId ?? (open.transaction == null ? open.accountId ?? null : null),
-  );
-  const [toAccountId, setToAccountId] = useState<string | null>(editing?.toAccountId ?? null);
+  const [amount, setAmount] = useState(amountText(editing.amountCents));
+  const [kind, setKind] = useState<TransactionKind>(editing.kind);
+  const [accountId, setAccountId] = useState<string | null>(editing.accountId);
+  const [toAccountId, setToAccountId] = useState<string | null>(editing.toAccountId);
   const [picked, setPicked] = useState<Partial<Record<CategoryKind, string>>>(
-    editing?.categoryId != null && editing.kind !== 'transfer'
+    editing.categoryId != null && editing.kind !== 'transfer'
       ? { [editing.kind]: editing.categoryId }
       : {},
   );
-  const [date, setDate] = useState(editing?.date ?? toDateInput(new Date()));
-  const [payee, setPayee] = useState(editing?.payee ?? '');
-  const [note, setNote] = useState(editing?.note ?? '');
-  const [more, setMore] = useState(editing?.payee != null || editing?.note != null);
+  const [date, setDate] = useState(editing.date);
+  const [payee, setPayee] = useState(editing.payee ?? '');
+  const [note, setNote] = useState(editing.note ?? '');
+  const [more, setMore] = useState(editing.payee != null || editing.note != null);
   const [repeat, setRepeat] = useState<Schedule | ''>('');
   const [amountError, setAmountError] = useState<string | null>(null);
   const [dateError, setDateError] = useState<string | null>(null);
@@ -116,18 +109,14 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
 
   // What can be picked: listed accounts and categories, and the ones it's on already
   const listedAccounts = (accounts ?? []).filter(
-    (a) => !a.archived || a.id === editing?.accountId || a.id === editing?.toAccountId,
+    (a) => !a.archived || a.id === editing.accountId || a.id === editing.toAccountId,
   );
   const account =
-    listedAccounts.find((a) => a.id === accountId) ??
-    listedAccounts.find((a) => a.id === remembered.accountId && !a.archived) ??
-    listedAccounts.find((a) => !a.archived);
+    listedAccounts.find((a) => a.id === accountId) ?? listedAccounts.find((a) => !a.archived);
   // A transfer goes to any other account
   const destinations = listedAccounts.filter((a) => a.id !== account?.id);
   const toAccount =
-    destinations.find((a) => a.id === toAccountId) ??
-    destinations.find((a) => a.id === remembered.toAccountId && !a.archived) ??
-    destinations.find((a) => !a.archived);
+    destinations.find((a) => a.id === toAccountId) ?? destinations.find((a) => !a.archived);
   const transfer = kind === 'transfer';
   // A transfer has no category
   const categoryKind = categoryKindFor(kind);
@@ -135,9 +124,7 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
   const pickable = nodes.flatMap((n) => [n, ...n.subcategories]);
   const isPickable = (id: string | undefined) => id != null && pickable.some((c) => c.id === id);
   const categoryId =
-    categoryKind == null
-      ? undefined
-      : [picked[categoryKind], remembered.categoryIds[categoryKind], nodes[0]?.id].find(isPickable);
+    categoryKind == null ? undefined : [picked[categoryKind], nodes[0]?.id].find(isPickable);
   const top = nodes.find(
     (n) => n.id === categoryId || n.subcategories.some((s) => s.id === categoryId),
   );
@@ -187,33 +174,24 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
               },
             },
           ];
-    if (editing == null) {
-      change({ op: 'addTransaction', transaction: { id: newId(), ...fields } }, ...repeating);
-    } else {
-      // Only what changed is sent; a new kind always comes with its category and where
-      // it goes (none, but for a transfer)
-      const update: Extract<LedgerChange, { op: 'updateTransaction' }> = {
-        op: 'updateTransaction',
-        id: editing.id,
-      };
-      for (const key of Object.keys(fields) as (keyof typeof fields)[]) {
-        const goesWithKind = key === 'categoryId' || key === 'toAccountId';
-        if (fields[key] !== (editing[key] ?? null) || (goesWithKind && kind !== editing.kind)) {
-          Object.assign(update, { [key]: fields[key] });
-        }
+    // Only what changed is sent; a new kind always comes with its category and where it
+    // goes (none, but for a transfer)
+    const update: Extract<LedgerChange, { op: 'updateTransaction' }> = {
+      op: 'updateTransaction',
+      id: editing.id,
+    };
+    for (const key of Object.keys(fields) as (keyof typeof fields)[]) {
+      const goesWithKind = key === 'categoryId' || key === 'toAccountId';
+      if (fields[key] !== (editing[key] ?? null) || (goesWithKind && kind !== editing.kind)) {
+        Object.assign(update, { [key]: fields[key] });
       }
-      const changes = Object.keys(update).length > 2 ? [update, ...repeating] : repeating;
-      if (changes.length > 0) change(...changes);
     }
-    if (fields.toAccountId != null) rememberUsed(email, { toAccountId: fields.toAccountId });
-    else if (categoryKind != null && categoryId != null) {
-      rememberUsed(email, { accountId: account.id, kind: categoryKind, categoryId });
-    }
+    const changes = Object.keys(update).length > 2 ? [update, ...repeating] : repeating;
+    if (changes.length > 0) change(...changes);
     onDone();
   };
 
   const remove = () => {
-    if (editing == null) return;
     change({ op: 'removeTransaction', id: editing.id });
     onDone();
     const { createdAt: _createdAt, ...again } = editing;
@@ -386,16 +364,14 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
         </>
       )}
       <div className={classes.actions}>
-        {editing != null && (
-          <Button
-            variant="subtle"
-            className="sf-danger"
-            leftSection={<Trash size={16} />}
-            onClick={remove}
-          >
-            Delete
-          </Button>
-        )}
+        <Button
+          variant="subtle"
+          className="sf-danger"
+          leftSection={<Trash size={16} />}
+          onClick={remove}
+        >
+          Delete
+        </Button>
         <Button
           type="submit"
           className={classes.save}

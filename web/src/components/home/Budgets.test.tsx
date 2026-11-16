@@ -7,7 +7,7 @@ import type { Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
 import {
-  addButton,
+  addEntry,
   fakeServer,
   holdNext,
   openSettings,
@@ -504,18 +504,13 @@ describe("what's left is never counted twice", () => {
       const server = withBudgets(budget(FOOD, 30_000));
       spend(server, 10_000, FOOD);
       renderApp(server, '/', { size });
-      const user = userEvent.setup();
       expect(await (await monthCard(NOW)).findByText('RM 200.00 left of RM 300.00')).toBeTruthy();
       const left = watchLeft();
       let resend = { release: () => {} };
       try {
         // RM 8 on Food, saved, its answer lost
         server.loseNext.changes = true;
-        await user.click(await addButton());
-        const form = within(await screen.findByRole('dialog'));
-        await waitFor(() => expect(document.activeElement).toBe(form.getByLabelText('Amount')));
-        await user.keyboard('8');
-        await user.click(form.getByRole('button', { name: 'Save' }));
+        await addEntry('8');
         await waitFor(() => expect(server.transactions).toHaveLength(2));
         expect((await get<{ value: unknown[] }>(outboxKey(RYAN)))?.value ?? []).toHaveLength(1);
 

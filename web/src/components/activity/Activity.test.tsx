@@ -621,7 +621,7 @@ describe('nothing to show', () => {
         ),
       ).toBeTruthy();
       await user.click(screen.getByRole('button', { name: 'Log your first one' }));
-      expect(within(await screen.findByRole('dialog')).getByLabelText('Amount')).toBeTruthy();
+      expect(await screen.findByRole('form', { name: 'Add a transaction' })).toBeTruthy();
       await user.keyboard('{Escape}');
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
       await user.click(screen.getByRole('button', { name: "Import a bank's CSV" }));

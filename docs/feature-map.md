@@ -308,15 +308,37 @@ and the database's own guard).
 **What it is.** Money spent from an account, or that came into one, each in a category
 of its kind; and transfers, money moved from one of the person's accounts to another
 (an e-wallet top-up, paying off a card), with no category. Add, in the tab bar on phones
-and tablets, or New entry (or N) in the sidebar on computers, opens the entry sheet on
-every page that shows them, while any account is running: the amount first (focused, the phone's
-number keyboard), Spent, Received or Transfer, the account and category used last on
-this device (the account's own on its page; else the first), for a transfer From and To
-(To is the account moved to last, never the one it comes from),
-the day (today, in the person's own time zone), and a payee and note under More. An RM 8
-coffee with the defaults is: Add, 8, Save. An account's page lists its transactions
-newest first, grouped by day, 50 at a time with Load more; tapping one opens it in the
-same sheet to change it, or Delete it (with Undo, which adds it again with the same id).
+and tablets, or New entry (or N) in the sidebar on computers, opens Add on every page that
+shows them, while any account is running: the whole screen on phones and tablets, with a
+keypad (1-2-3 on top, as drawn), and on computers a dialog, "New entry", whose Amount field
+takes the same keys typed or pasted ("Sums work: 8+4.5"). The amount is a sum of numbers
+joined by + − ×, worked out in whole cents (`shared/keypad.ts`: × before + and −, each
+product rounded to the cent, half up; at most two decimals and nine digits a number; = puts
+the total in place; a key that would go past `MAX_TRANSACTION` is refused, and Save and the
+amount's live status say "Up to 10,000,000"). Then Expense, Income or Transfer; From (Into,
+for income) and For (From, for income): the account's own on its page, else the account
+set to use (`defaultAccountId`) while it's running, else the one used last on this device
+("last used"), else the first; the category picked, else the kind's used last, else its
+first. For a transfer From and To with their balances (To is the account moved to last,
+never the one it comes from). The five recent categories of the kind are chips, newest
+first, topped up with its top-level ones in order. One field, "Payee or note", fills the
+payee (owner decision D10; the note is kept apart and edited on the entry's own sheet).
+Today opens the day (2000 up to today, in the person's own time zone; a day left as Today
+follows the clock); Repeat sets it to repeat monthly or weekly from that day. Save says what
+it will do ("Save RM 12.50", "Move RM 12.50") or why it can't ("Type an amount", "The total
+is below zero", "Up to 10,000,000", "Pick a day from 2000 up to today"), and does nothing
+until it can. For opens the category list (a page on phones, under the row on computers):
+Recent, then the rest, or what's typed found by name, or made new: under the category the
+payee was last filed in ("Tealive was in Food", from `GET /api/payee-categories`), as its
+own category, or under another picked; one with no room under it, a name an archived one
+has, or past `MAX_CATEGORIES`, is not offered. A new category is saved with the entry, first,
+in the same change. What's typed is kept as a draft on the device when Add is closed any
+way but Save (Close, Back, Esc, Cancel), and opens again as left; an Add with nothing typed
+keeps none. With "start with the category" (D9, `startWith`), Add opens on the category list.
+An RM 8 coffee with the defaults is: Add, 8, Save. An account's page lists its transactions
+newest first, grouped by day, 50 at a time with Load more; tapping one opens it in its own
+sheet (EntrySheet, for changing only) to change it, payee and note apart, or Delete it
+(with Undo, which adds it again with the same id).
 A transfer shows on both its accounts' pages, as "To Visa" (−) on the one it left and
 "From Maybank" (+) on the one it reached. Any kind can become another if what that kind
 needs goes with it: a category of its kind for spending and income, the account it goes
@@ -335,13 +357,21 @@ a transaction (`Lookup` gives it as it was) and puts each one on the page its da
 in (`applyToPages`). Screens read through `useAccountTransactions(accountId)` in
 [ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
 [ledger/last-used.ts](../web/src/ledger/last-used.ts) keeps the account and each kind's
-category used last, and the account a transfer went to last, by id, per person
-(`localStorage`, let go on signing out).
+category used last, the account a transfer went to last, and each kind's five recent
+categories (`recent`, newest first), by id, per person (`localStorage`, let go on signing
+out). Add's draft is the screen's own interaction state, kept per person on the device by
+[components/entry/add-draft.ts](../web/src/components/entry/add-draft.ts)
+(`mahnee:addDraft:<email>`, let go on signing out; read back only when every field is one
+Add could have made, and its ids checked against the accounts and categories as listed).
 
 **Parts.**
 
-- UI: [components/entry/EntrySheet.tsx](../web/src/components/entry/EntrySheet.tsx)
-  (the sheet, adding and changing, Delete),
+- UI: [components/entry/AddEntry.tsx](../web/src/components/entry/AddEntry.tsx) (Add,
+  its keypad and pickers), [CategoryPicker.tsx](../web/src/components/entry/CategoryPicker.tsx)
+  (finding or making the category), [add-text.ts](../web/src/components/entry/add-text.ts)
+  (Save's words, the recent chips, the payee's hint);
+  [components/entry/EntrySheet.tsx](../web/src/components/entry/EntrySheet.tsx)
+  (changing one, and Delete),
   [entry-text.ts](../web/src/components/entry/entry-text.ts) (typed amounts in cents with
   `toCents`, amounts signed for the account shown, and a transfer's "To Visa" or
   "From Maybank"), the account's page in
@@ -355,8 +385,10 @@ category used last, and the account a transfer went to last, by id, per person
   `addTransaction`, `updateTransaction` and `removeTransaction` in
   [worker/ledger/changes.ts](../worker/ledger/changes.ts); balances in `listAccounts`
   there.
-- Shared: `Transaction`, `NewTransaction`, `TransactionPage` and the change shapes in
-  [shared/api.ts](../shared/api.ts); kinds, limits, `isDay`, `readOptionalText`,
+- Shared: [shared/keypad.ts](../shared/keypad.ts) (Add's calculator: `press`, `typeKeys`,
+  `totalCents`, in whole cents with no floating point); `Transaction`, `NewTransaction`,
+  `TransactionPage` and the change shapes in [shared/api.ts](../shared/api.ts); kinds,
+  limits, `isDay`, `readOptionalText`,
   `whyNotInCategory`, `whyNotOnAccount`, `whyNotBetween`, `isOnAccount` (an account's
   list) and `balanceEffect` (how a transaction moves each account's balance, used by the
   app's optimistic balances and the test stand-in) in [shared/ledger.ts](../shared/ledger.ts).
@@ -395,9 +427,21 @@ twice.
 **Tests.** [apply.test.ts](../web/src/ledger/apply.test.ts) (balances for each change,
 transfers on both accounts, pages: where a new one goes, moved out and in, a transfer in
 both accounts' lists, edited days, applied twice),
-[Entry.test.tsx](../web/src/components/entry/Entry.test.tsx) (RM 8 coffee in two steps,
-income, last used remembered through a reload, subcategories, what's wrong, a refusal
-put back, offline through a reload; the account page by day, placeholders, Load more,
+[keypad.test.ts](../shared/keypad.test.ts) (typing rules, precedence, half-cent rounding
+a floating-point multiply gets wrong, =, Delete, the largest amount, the keyboard),
+[last-used.test.ts](../web/src/ledger/last-used.test.ts),
+[add-draft.test.ts](../web/src/components/entry/add-draft.test.ts),
+[add-text.test.ts](../web/src/components/entry/add-text.test.ts),
+[AddEntry.test.tsx](../web/src/components/entry/AddEntry.test.tsx) (the form at each size,
+sums, below zero, nothing, the limit, Delete held; From and For, income, transfers and
+their balances, one account; which account it opens on; recent chips; the payee only;
+Today and Repeat by the person's own clock in Kuala Lumpur, past midnight, days refused;
+the draft through Close, Back, Esc, Cancel, a reload, saving, things gone, another person;
+a new category from the payee's hint, its limits and the payees out of reach, sent first
+in one request, offline; start with the category; refusals by tapping and Enter; Add as a
+dialog so N and / do nothing more),
+[Entry.test.tsx](../web/src/components/entry/Entry.test.tsx) (offline through a reload;
+the account page by day, placeholders, Load more,
 editing, spending to income, Delete and Undo, adding on an account's page, an archived
 one; transfers: an e-wallet top-up then spending from it, paying a card, To offered,
 editing, Delete and Undo, offline through a reload; desktop and phone), and the
@@ -786,7 +830,7 @@ else's never counted, refusals with their messages, a resend counted once, 500 a
 
 **What it is.** Bills and income that repeat, monthly on a day of the month (on a shorter
 month's last day past its end) or weekly on a weekday. Set one up with Repeat (Monthly or
-Weekly) under More in the entry sheet, adding or changing a transaction: it repeats on that
+Weekly) in Add, or under More on a transaction's own sheet when changing it: it repeats on that
 transaction's day of the month or weekday, and its first due date is the next one after
 the person's own today, so one set up from an old transaction never has the occurrences
 since due (they're taken as handled); one already set up keeps asking about each it missed,
@@ -829,7 +873,7 @@ shown, read through `useWholeLedger()`.
   items), [RecurringSheet.tsx](../web/src/components/home/RecurringSheet.tsx) and
   [recurring-text.ts](../web/src/components/home/recurring-text.ts) on
   [HomePage.tsx](../web/src/components/home/HomePage.tsx) (the month-end total on Plan
-  too); Repeat in
+  too); Repeat in [AddEntry.tsx](../web/src/components/entry/AddEntry.tsx) and
   [EntrySheet.tsx](../web/src/components/entry/EntrySheet.tsx).
 - API: read with the accounts (`readLedger` in
   [worker/ledger/read.ts](../worker/ledger/read.ts); `recurring` only for someone who has
@@ -1267,7 +1311,7 @@ may use either name for anything else (Activity's filters included).
   its one `main` region, the places around it
   ([TabBar.tsx](../web/src/components/shell/TabBar.tsx),
   [Sidebar.tsx](../web/src/components/shell/Sidebar.tsx), the list in
-  [places.ts](../web/src/components/shell/places.ts)), the entry sheet that Add opens, and
+  [places.ts](../web/src/components/shell/places.ts)), Add, and
   the offline and new-version notices over it. While the tab bar shows, `--tabbar-h` is its
   height (0 otherwise), which the page's end, the notices and the undo messages keep clear
   of.

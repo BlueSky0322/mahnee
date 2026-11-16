@@ -7,7 +7,7 @@ import { focusSearch, useShortcuts } from '../../hooks/useShortcuts';
 import { useAccounts } from '../../ledger/useLedger';
 import { thisMonth } from '../../utils/date-input';
 import Freshness from '../common/Freshness';
-import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
+import AddEntry, { type AddRequest } from '../entry/AddEntry';
 import { AddEntryContext } from './add-entry';
 import classes from './AppLayout.module.css';
 import OfflineNotice from './OfflineNotice';
@@ -26,7 +26,7 @@ import UpdateNotice from './UpdateNotice';
 export default function AppLayout({ route, children }: { route: Route; children: ReactNode }) {
   const isDesktop = useIsDesktop();
   const { accounts, failed } = useAccounts();
-  const [entry, setEntry] = useState<OpenEntry | null>(null);
+  const [entry, setEntry] = useState<AddRequest | null>(null);
   const place = placeOf(route);
   // Once the accounts are known (or couldn't be loaded, so the places still lead away)
   const shown = place != null && (accounts == null ? failed : accounts.length > 0);
@@ -36,7 +36,7 @@ export default function AppLayout({ route, children }: { route: Route; children:
   const add = () => {
     if (!addable) return;
     const here = route.view === 'account' && running?.some((a) => a.id === route.id);
-    setEntry(here ? { transaction: null, accountId: route.id } : { transaction: null });
+    setEntry(here ? { accountId: route.id } : {});
   };
   // The keys work from the start, but for the first run, which has nowhere to go
   useShortcuts({ 'n': add, '/': focusSearch }, place != null && accounts?.length !== 0);
@@ -77,7 +77,7 @@ export default function AppLayout({ route, children }: { route: Route; children:
           onAdd={add}
         />
       )}
-      <EntrySheet
+      <AddEntry
         open={entry}
         onClose={() => setEntry(null)}
       />

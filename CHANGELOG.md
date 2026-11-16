@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-16
 
+- Changed: Add is a keypad that works sums out, with recent categories, a payee field, Today, Repeat and drafts [#30]
 - Fixed: Mahnee no longer stops answering after one sign-in check is cut off mid-way [#31]
 - Added: Activity lists every entry by day or in a register, with filters, totals and changing many at once [#28]
 - Fixed: Undo reached from the keyboard right after a dialog closes now undoes, instead of opening the dialog again [#29]
@@ -89,4 +90,5 @@ For agents:
 [#27]: https://github.com/BlueSky0322/mahnee/pull/27
 [#28]: https://github.com/BlueSky0322/mahnee/pull/28
 [#29]: https://github.com/BlueSky0322/mahnee/pull/29
+[#30]: https://github.com/BlueSky0322/mahnee/pull/30
 [#31]: https://github.com/BlueSky0322/mahnee/pull/31

@@ -5,7 +5,7 @@ import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { addButton, fakeServer, openSettings, renderApp, setupAppTests } from '../../testing/app';
+import { addEntry, fakeServer, openSettings, renderApp, setupAppTests } from '../../testing/app';
 import { dayText, toDateInput } from '../../utils/date-input';
 
 // Exporting from Home: what the file holds, downloading it, and what stops it.
@@ -139,14 +139,9 @@ describe('exporting', () => {
   test("offline, can't download, and says what is still being saved", async () => {
     const server = withHistory();
     renderApp(server, '/', { size: 'phone' });
-    const user = userEvent.setup();
     await screen.findByText('Wallet');
     const backOnline = goOffline(server);
-    await user.click(await addButton());
-    const form = within(await screen.findByRole('dialog'));
-    await user.type(form.getByLabelText('Amount'), '8');
-    await user.click(form.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await addEntry('8');
 
     const { dialog } = await openExport();
     expect(dialog.getByRole('button', { name: 'Connect to download' })).toHaveProperty(

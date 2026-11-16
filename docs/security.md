@@ -27,6 +27,15 @@ hack-proof, and the limits below are real.
   anything.
 - **Other sites.** A write started by a page on another site is refused (403), since the
   sign-in cookie would ride along with it. Reads are allowed.
+- **What the server keeps about where someone is.** The profile holds the person's time
+  zone (`time_zone`, as `Asia/Kuala_Lumpur`), which the app sends from the device each
+  time it starts and it differs from the saved one, so the server can tell the person's
+  own day (for scheduled entries added at their midnight and reminders at their time). It
+  says roughly where they are, so it is kept with the other settings, private to the
+  account, and never logged. Only a named zone the runtime knows is saved, never an
+  offset or free text. Settings that name a row (the account Add starts on, the pay a
+  month starts on) are checked to be the person's own, and foreign keys with the email
+  hold the same in the database.
 
 ## Limits that bound abuse
 

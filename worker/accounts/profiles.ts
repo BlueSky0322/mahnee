@@ -3,30 +3,66 @@
 // anything; until then everything has its default.
 
 import {
-  ACCENTS,
   DEFAULT_SETTINGS,
   MAX_DISPLAY_NAME,
   type Profile,
   type ProfilePatch,
-  RATE_PREFERENCES,
   type RatePreference,
   type Settings,
-  THEMES,
 } from '../../shared/api';
+import { readSettingChanges } from '../../shared/settings';
 import { type Unchecked, json, fail } from '../http';
 
-/** Each setting's column and allowed values */
+/** Each setting's column; yes-or-no settings are kept as 1 or 0 */
 const SETTINGS = {
-  theme: { column: 'theme', values: THEMES },
-  accent: { column: 'accent', values: ACCENTS },
-  ratePreference: { column: 'rate_preference', values: RATE_PREFERENCES },
-} as const satisfies Record<keyof Settings, unknown>;
+  theme: 'theme',
+  accent: 'accent',
+  ratePreference: 'rate_preference',
+  weekStart: 'week_start',
+  monthStartMode: 'month_start_mode',
+  monthStartDay: 'month_start_day',
+  monthStartPayId: 'month_start_pay_id',
+  startScreen: 'start_screen',
+  homeDensity: 'home_density',
+  startWith: 'start_with',
+  defaultAccountId: 'default_account_id',
+  suggestAsYouType: 'suggest_as_you_type',
+  askForTime: 'ask_for_time',
+  expenseColour: 'expense_colour',
+  carryOverDefault: 'carry_over_default',
+  dailyReminder: 'daily_reminder',
+  reminderTime: 'reminder_time',
+  scheduledReminderDays: 'scheduled_reminder_days',
+  timeZone: 'time_zone',
+} as const satisfies Record<keyof Settings, string>;
 
 type SettingKey = keyof typeof SETTINGS;
-type SettingChanges = Partial<Record<SettingKey, string>>;
+const KEYS = Object.keys(SETTINGS) as SettingKey[];
+
+/** The yes-or-no settings, kept as 1 or 0 */
+const FLAGS = new Set<SettingKey>([
+  'suggestAsYouType',
+  'askForTime',
+  'carryOverDefault',
+  'dailyReminder',
+]);
+
+const toColumn = (key: SettingKey, value: Settings[SettingKey]) =>
+  FLAGS.has(key) ? (value ? 1 : 0) : (value as string | number | null);
+
+/** The settings as one row of user_settings holds them */
+const SELECT_SETTINGS = `SELECT ${KEYS.map((k) => `${SETTINGS[k]} AS ${k}`).join(', ')}
+  FROM user_settings WHERE email = ?`;
+
+function fromRow(row: Record<string, unknown>): Settings {
+  const settings = { ...row };
+  for (const key of FLAGS) settings[key] = row[key] === 1;
+  return settings as unknown as Settings;
+}
 
 // A new settings row is written with every one of DEFAULT_SETTINGS (not the table's
-// own column defaults), so the defaults can change in shared/api.ts alone.
+// own column defaults), so the defaults can change in shared/api.ts alone. Values are
+// checked (shared/settings.ts) before they get here, and the table's CHECKs hold the same.
 
 /** Makes the profile row if there isn't one, so rows that belong to it can be added */
 export const ensureProfileStatement = (db: D1Database, email: string) =>
@@ -37,57 +73,89 @@ export const ensureProfileStatement = (db: D1Database, email: string) =>
 export async function getProfile(db: D1Database, email: string): Promise<Profile> {
   const [profile, settings] = await db.batch([
     db.prepare('SELECT display_name AS displayName FROM profiles WHERE email = ?').bind(email),
-    db
-      .prepare(
-        `SELECT theme, accent, rate_preference AS ratePreference
-         FROM user_settings WHERE email = ?`,
-      )
-      .bind(email),
+    db.prepare(SELECT_SETTINGS).bind(email),
   ]);
-  const saved = settings.results[0] as Settings | undefined;
+  const row = settings.results[0] as Record<string, unknown> | undefined;
   return {
     email,
     displayName:
       (profile.results[0] as { displayName: string | null } | undefined)?.displayName ?? null,
-    settings: saved ? { ...saved } : { ...DEFAULT_SETTINGS },
+    settings: row ? fromRow(row) : { ...DEFAULT_SETTINGS },
   };
 }
 
 /** Changes some settings, making the settings row (and profile) on first use */
-export function settingsStatements(db: D1Database, email: string, changes: SettingChanges) {
+export function settingsStatements(db: D1Database, email: string, changes: Partial<Settings>) {
   const keys = Object.keys(changes) as SettingKey[];
   if (keys.length === 0) return [];
-  // A first row gets every setting: the changes, and the defaults for the rest. An
-  // existing row only has the changed ones updated. Column names come from SETTINGS,
-  // never from the request.
-  const all = Object.keys(SETTINGS) as SettingKey[];
-  const value = (k: SettingKey) => (Object.hasOwn(changes, k) ? changes[k] : DEFAULT_SETTINGS[k]);
-  const changed = keys.map((k) => SETTINGS[k].column);
+  // A first row gets every one of the defaults, then the changes are made to the row as
+  // it is: a row is never written with a change beside defaults it doesn't fit (payday
+  // with no pay). Column names come from SETTINGS, never from the request.
+  const now = Date.now();
   return [
     ensureProfileStatement(db, email),
     db
       .prepare(
-        `INSERT INTO user_settings (email, ${all.map((k) => SETTINGS[k].column).join(', ')}, updated_at)
-         VALUES (?, ${all.map(() => '?').join(', ')}, ?)
-         ON CONFLICT (email) DO UPDATE SET
-           ${changed.map((c) => `${c} = excluded.${c}`).join(', ')},
-           updated_at = excluded.updated_at`,
+        `INSERT OR IGNORE INTO user_settings (email, ${KEYS.map((k) => SETTINGS[k]).join(', ')}, updated_at)
+         VALUES (?, ${KEYS.map(() => '?').join(', ')}, ?)`,
       )
-      .bind(email, ...all.map(value), Date.now()),
+      .bind(email, ...KEYS.map((k) => toColumn(k, DEFAULT_SETTINGS[k])), now),
+    db
+      .prepare(
+        `UPDATE user_settings SET ${keys.map((k) => `${SETTINGS[k]} = ?`).join(', ')}, updated_at = ?
+         WHERE email = ?`,
+      )
+      .bind(...keys.map((k) => toColumn(k, changes[k] as Settings[SettingKey])), now, email),
   ];
 }
 
-/** Checks the settings in a request; returns the changes, or the refusal */
-function readSettings(raw: unknown): SettingChanges | Response {
-  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
-    return fail('Invalid settings', 400);
+/**
+ * Checks the settings in a request, and the rows they name among the person's own: the
+ * account Add starts on (not archived), and the pay a month starts on (a running monthly
+ * income), which payday needs. Returns the changes, or the refusal.
+ */
+async function readSettings(
+  db: D1Database,
+  email: string,
+  raw: unknown,
+): Promise<Partial<Settings> | Response> {
+  const changes = readSettingChanges(raw);
+  if ('error' in changes) return fail(changes.error, 400);
+
+  if (changes.defaultAccountId != null) {
+    const account = await db
+      .prepare('SELECT archived FROM accounts WHERE email = ? AND id = ?')
+      .bind(email, changes.defaultAccountId)
+      .first<{ archived: number }>();
+    if (account == null) return fail('Account not found', 404);
+    if (account.archived === 1) return fail('That account is archived', 400);
   }
-  const changes: SettingChanges = {};
-  for (const [key, value] of Object.entries(raw)) {
-    if (!Object.hasOwn(SETTINGS, key)) return fail(`Unknown setting ${key}`, 400);
-    const spec = SETTINGS[key as SettingKey];
-    if (!(spec.values as readonly unknown[]).includes(value)) return fail(`Invalid ${key}`, 400);
-    changes[key as SettingKey] = value as string;
+
+  if ('monthStartMode' in changes || 'monthStartPayId' in changes) {
+    const saved = await db
+      .prepare(
+        'SELECT month_start_mode AS mode, month_start_pay_id AS payId FROM user_settings WHERE email = ?',
+      )
+      .bind(email)
+      .first<{ mode: Settings['monthStartMode']; payId: string | null }>();
+    const mode = changes.monthStartMode ?? saved?.mode ?? DEFAULT_SETTINGS.monthStartMode;
+    const payId =
+      changes.monthStartPayId !== undefined
+        ? changes.monthStartPayId
+        : saved?.payId ?? DEFAULT_SETTINGS.monthStartPayId;
+    if (mode === 'payday' && payId == null) return fail('Pick the pay the month starts on', 400);
+    if (payId != null && (changes.monthStartPayId != null || mode === 'payday')) {
+      const pay = await db
+        .prepare('SELECT kind, schedule, archived FROM recurring WHERE email = ? AND id = ?')
+        .bind(email, payId)
+        .first<{ kind: string; schedule: string; archived: number }>();
+      if (pay == null) return fail('Repeating item not found', 404);
+      if (pay.kind !== 'income') return fail('The month can start only on income', 400);
+      if (pay.schedule !== 'monthly') {
+        return fail('The month can start only on a monthly pay', 400);
+      }
+      if (pay.archived === 1) return fail('That pay no longer repeats', 400);
+    }
   }
   return changes;
 }
@@ -112,7 +180,7 @@ export async function patchProfile(db: D1Database, email: string, body: Unchecke
   }
 
   if ('settings' in body) {
-    const changes = readSettings(body.settings);
+    const changes = await readSettings(db, email, body.settings);
     if (changes instanceof Response) return changes;
     statements.push(...settingsStatements(db, email, changes));
   }

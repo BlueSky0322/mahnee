@@ -527,16 +527,20 @@ describe('selecting', () => {
     for (let i = 0; i < 496; i++)
       seed(server, { amountCents: 1, note: `bulk ${i}`, date: '2025-01-01' });
     const user = await openActivity(server, 'desktop');
-    await user.click(screen.getByRole('button', { name: 'Select all 501' }));
+    // The buttons are looked for in the bar above the register, not the whole page: with
+    // 501 rows drawn, finding one by its role across the page takes 20 seconds or more
+    const selectAll = screen.getByText('Select all 501').closest('button');
+    const bar = () => within(selectAll!.parentElement!);
+    await user.click(bar().getByRole('button', { name: 'Select all 501' }));
     expect(await screen.findByText('501 selected', undefined, { timeout: 15_000 })).toBeTruthy();
-    await changeCategory(user);
+    await user.click(bar().getByRole('button', { name: 'Change category' }));
     expect(await screen.findByText('You can change up to 500 transactions at once')).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
     act(() => notifications.clean());
     await waitFor(() =>
       expect(screen.queryByText('You can change up to 500 transactions at once')).toBeNull(),
     );
-    await user.click(screen.getByRole('button', { name: 'Delete 501' }));
+    await user.click(bar().getByRole('button', { name: 'Delete 501' }));
     expect(await screen.findByText('You can change up to 500 transactions at once')).toBeTruthy();
     await settle();
     expect(sentChanges()).toEqual([]);
@@ -545,7 +549,7 @@ describe('selecting', () => {
 
     await user.click(tick('lunch'));
     expect(screen.getByText('500 selected')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Delete 500' }));
+    await user.click(bar().getByRole('button', { name: 'Delete 500' }));
     await waitFor(() => expect(server.transactions.map((t) => t.note)).toEqual(['lunch']), {
       timeout: 8000,
     });

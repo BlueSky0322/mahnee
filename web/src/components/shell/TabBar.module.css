@@ -1,0 +1,67 @@
+.bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* Over the page and its notices, under sheets and dialogs */
+  z-index: 140;
+  box-sizing: border-box;
+  height: var(--tabbar-h);
+  padding: 8px 12px max(24px, var(--sf-safe-bottom));
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: center;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ground) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 48px;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.tab[aria-current='page'] {
+  color: var(--ink);
+}
+
+.add {
+  display: flex;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.addSquare {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.add:active .addSquare {
+  transform: translateY(1px);
+}
+
+.add:disabled {
+  cursor: default;
+}
+
+.add:disabled .addSquare {
+  opacity: 0.4;
+}

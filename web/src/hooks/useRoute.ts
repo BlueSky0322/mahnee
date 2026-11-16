@@ -4,14 +4,39 @@ import { LAST_PAGE_KEY } from '../offline/cache';
 import { thisMonth } from '../utils/date-input';
 import { quietly } from '../utils/quietly';
 
+/** The sections of Settings, each at ?settings=<section>; the index is plain ?settings */
+export const SETTINGS_SECTIONS = [
+  'account',
+  'money',
+  'adding',
+  'look',
+  'budgets',
+  'categories',
+  'data',
+] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+
 /** The page that's open; each page the app gains adds its own view here */
 export type Route =
-  /** month: an earlier month Home shows (2026-10); null for this month */
+  /** month: an earlier month Home or Plan shows (2026-10); null for this month */
   | { view: 'home'; month: string | null }
-  | { view: 'categories' }
-  | { view: 'import' }
-  | { view: 'search' }
-  | { view: 'account'; id: string };
+  | { view: 'activity' }
+  | { view: 'plan'; month: string | null }
+  | { view: 'accounts' }
+  | { view: 'account'; id: string }
+  /** section: null for the index, and for a section that has no page yet */
+  | { view: 'settings'; section: SettingsSection | null }
+  | { view: 'import' };
+
+/** Places that are always a tap away: the tab bar's and the sidebar's */
+export type Place = 'home' | 'activity' | 'plan' | 'accounts';
+
+/** The place a page belongs to, marked as open in the tab bar and sidebar; null for none */
+export function placeOf(route: Route): Place | null {
+  if (route.view === 'account') return 'accounts';
+  if (route.view === 'settings' || route.view === 'import') return null;
+  return route.view;
+}
 
 /** An earlier month named in the address (?month=2026-10); null for this one or none */
 function readMonth(params: URLSearchParams) {
@@ -19,12 +44,49 @@ function readMonth(params: URLSearchParams) {
   return isMonth(month) && month < thisMonth() ? month : null;
 }
 
-// Any address that names no other page is the home page
+const isSection = (value: string | null): value is SettingsSection =>
+  (SETTINGS_SECTIONS as readonly (string | null)[]).includes(value);
+
+/**
+ * Older addresses, and what each became: ?search is Activity, ?categories a section of
+ * Settings. The rest of the address is kept.
+ */
+const ALIASES: Record<string, [string, string]> = {
+  search: ['activity', ''],
+  categories: ['settings', 'categories'],
+};
+
+/** A query string as the app writes it: a part with no value is written bare (?activity) */
+const writeSearch = (parts: [string, string][]) => {
+  const text = parts
+    .map(([k, v]) =>
+      v === '' ? encodeURIComponent(k) : `${encodeURIComponent(k)}=${encodeURIComponent(v)}`,
+    )
+    .join('&');
+  return text ? `?${text}` : '';
+};
+
+/** Puts what an older address became in its place, so Back never lands on it */
+function replaceAlias() {
+  const parts = [...new URLSearchParams(window.location.search)];
+  if (!parts.some(([k]) => k in ALIASES)) return;
+  const search = writeSearch(parts.map(([k, v]) => ALIASES[k] ?? [k, v]));
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${search}`);
+}
+
+// Any address that names no other page is the home page. A page named first wins over the
+// filters after it: ?activity&account=<id> is Activity, narrowed to that account.
 function readRoute(): Route {
+  replaceAlias();
   const params = new URLSearchParams(window.location.search);
-  if (params.has('categories')) return { view: 'categories' };
+  if (params.has('settings')) {
+    const section = params.get('settings');
+    return { view: 'settings', section: isSection(section) ? section : null };
+  }
   if (params.has('import')) return { view: 'import' };
-  if (params.has('search')) return { view: 'search' };
+  if (params.has('activity')) return { view: 'activity' };
+  if (params.has('plan')) return { view: 'plan', month: readMonth(params) };
+  if (params.has('accounts')) return { view: 'accounts' };
   const account = params.get('account');
   if (account) return { view: 'account', id: account };
   return { view: 'home', month: readMonth(params) };
@@ -81,6 +143,19 @@ export function goUp(address: string) {
     return;
   }
   navigate(address, { replace: true });
+}
+
+/**
+ * Closes Settings: back to the page it was opened over, or Home when it was opened at its
+ * own address
+ */
+export function closeSettings() {
+  const from = cameFrom();
+  if (from != null && !new URLSearchParams(from).has('settings')) {
+    window.history.back();
+    return;
+  }
+  navigate('', { replace: true });
 }
 
 /** The address this page was opened from in the app, if it was */

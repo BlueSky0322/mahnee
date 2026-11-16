@@ -58,9 +58,16 @@
 :root {
   /* A card's edge, drawn as a ring so it takes no room */
   --shadow-card: 0 0 0 1px var(--line);
-  /* Something floating over the page: a toast, the Add button */
+  /* Something floating over the page: a toast or a notice */
   --shadow-float: 0 8px 24px rgba(15, 16, 18, 0.25);
   --sf-safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* The phone's and tablet's tab bar: none until one shows */
+  --tabbar-h: 0px;
+}
+
+/* While a tab bar shows (components/shell/TabBar), clear of the phone's home bar */
+:root[data-tabbar] {
+  --tabbar-h: calc(60px + max(24px, var(--sf-safe-bottom)));
 }
 
 body {

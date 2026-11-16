@@ -8,7 +8,6 @@ import { useAccountTransactions, useAccounts, useCategories } from '../../ledger
 import { dayHeading } from '../../utils/date-input';
 import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
 import { signedMoney, transactionTitle } from '../entry/entry-text';
-import Fab from '../ui/Fab';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import AccountForm from './AccountForm';
 import { KIND_LABELS, balanceText } from './account-text';
@@ -19,8 +18,8 @@ import classes from './AccountPage.module.css';
 const LOADING_ROWS = 5;
 
 // One account's page: its name, kind and balance, and its transactions newest first,
-// grouped by day. Tap one to change or delete it; Add puts a new one on this account,
-// and Edit changes or archives the account itself.
+// grouped by day. Tap one to change or delete it; Edit changes or archives the account
+// itself. Add, in the tab bar or sidebar, puts a new one on this account (AppLayout).
 export default function AccountPage({ id }: { id: string }) {
   const { accounts, failed, retry } = useAccounts();
   const { categories } = useCategories();
@@ -37,9 +36,9 @@ export default function AccountPage({ id }: { id: string }) {
           size="compact-md"
           className={classes.back}
           leftSection={<CaretLeft size={16} />}
-          onClick={() => goUp('')}
+          onClick={() => goUp('?accounts')}
         >
-          Home
+          Accounts
         </Button>
         {accounts == null ? (
           failed ? (
@@ -93,12 +92,6 @@ export default function AccountPage({ id }: { id: string }) {
         />
       )}
 
-      {account != null && !account.archived && (
-        <Fab
-          label="Add"
-          onClick={() => setEntry({ transaction: null, accountId: account.id })}
-        />
-      )}
       <EntrySheet
         open={entry}
         onClose={() => setEntry(null)}

@@ -6,7 +6,14 @@ import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, holdNext, renderApp, setupAppTests } from '../../testing/app';
+import {
+  addButton,
+  fakeServer,
+  holdNext,
+  openSettings,
+  renderApp,
+  setupAppTests,
+} from '../../testing/app';
 import { outboxKey } from '../../offline/outbox';
 import { queryClient } from '../../query-client';
 import { addMonths, monthHeading, thisMonth } from '../../utils/date-input';
@@ -226,6 +233,13 @@ describe('budgets on the month card', () => {
   );
 });
 
+/** From Categories up to Settings, then out of Settings to Home */
+async function categoriesToHome() {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Settings' }));
+  await user.click(await screen.findByRole('button', { name: /^(Home|Close settings)$/ }));
+}
+
 describe("setting a budget from the category's row", () => {
   test.each(SIZES)(
     'sets a monthly budget on a top-level spending category, from this month (%s)',
@@ -249,7 +263,7 @@ describe("setting a budget from the category's row", () => {
       await waitFor(() =>
         expect(budgetsOf(server)).toEqual([budget(FOOD, 30_000, { fromMonth: NOW })]),
       );
-      await user.click(screen.getByRole('button', { name: 'Home' }));
+      await categoriesToHome();
       expect(await (await monthCard(NOW)).findByText('RM 120.00 left of RM 300.00')).toBeTruthy();
     },
   );
@@ -302,7 +316,7 @@ describe("setting a budget from the category's row", () => {
           budget(FOOD, 30_000, { carryOver: true }),
         ]),
       );
-      await user.click(screen.getByRole('button', { name: 'Home' }));
+      await categoriesToHome();
       // RM 300 and last month's RM 30 left over, less RM 180
       const card = await monthCard(NOW);
       expect(await card.findByText('RM 150.00 left of RM 330.00')).toBeTruthy();
@@ -357,7 +371,7 @@ describe("setting a budget from the category's row", () => {
       expect(await screen.findByText('Fun is archived')).toBeTruthy();
       await waitFor(() => expect(spending.queryByText('RM 100.00 a month')).toBeNull());
       expect(budgetsOf(server)).toEqual([]);
-      await user.click(screen.getByRole('button', { name: 'Home' }));
+      await categoriesToHome();
       const card = await monthCard(NOW);
       await waitFor(() => expect(card.getByLabelText('Spent')).toBeTruthy());
       expect(card.queryByRole('list', { name: 'Budgets' })).toBeNull();
@@ -421,7 +435,7 @@ describe("setting a budget from the category's row", () => {
     await waitFor(() =>
       expect(budgetsOf(server)).toEqual([budget(FOOD, null, { fromMonth: NOW })]),
     );
-    await user.click(screen.getByRole('button', { name: 'Home' }));
+    await categoriesToHome();
     const card = await monthCard(NOW);
     await waitFor(() => expect(card.getByLabelText('Spent')).toBeTruthy());
     expect(card.queryByRole('list', { name: 'Budgets' })).toBeNull();
@@ -436,13 +450,14 @@ describe("setting a budget from the category's row", () => {
       const user = userEvent.setup();
       const card = await monthCard(NOW);
       await waitFor(() => expect(card.getByLabelText('Spent').textContent).toBe('RM 180.00'));
-      await user.click(await screen.findByRole('link', { name: 'Categories' }));
+      await openSettings();
+      await user.click(screen.getByRole('link', { name: 'Categories' }));
 
       const back = goOffline(server);
       const form = await editCategory('Food');
       await user.type(form.getByLabelText('Monthly budget'), '300');
       await user.click(form.getByRole('button', { name: 'Save' }));
-      await user.click(screen.getByRole('button', { name: 'Home' }));
+      await categoriesToHome();
       expect(await (await monthCard(NOW)).findByText('RM 120.00 left of RM 300.00')).toBeTruthy();
       expect(budgetsOf(server)).toEqual([]);
 
@@ -496,7 +511,7 @@ describe("what's left is never counted twice", () => {
       try {
         // RM 8 on Food, saved, its answer lost
         server.loseNext.changes = true;
-        await user.click(await screen.findByRole('button', { name: 'Add' }));
+        await user.click(await addButton());
         const form = within(await screen.findByRole('dialog'));
         await waitFor(() => expect(document.activeElement).toBe(form.getByLabelText('Amount')));
         await user.keyboard('8');

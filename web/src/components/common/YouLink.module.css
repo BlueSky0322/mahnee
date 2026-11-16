@@ -1,0 +1,14 @@
+.initial {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--ground);
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+}

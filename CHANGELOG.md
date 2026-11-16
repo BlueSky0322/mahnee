@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-16
 
-- Added: Accounts shows all together, what's owed and each archived account's day, with a register and Add here on each account [#?]
+- Added: Accounts shows all together, what's owed and each archived account's day, with a register and Add here on each account [#34]
 - Changed: Add is a keypad that works sums out, with recent categories, a payee field, Today, Repeat and drafts [#30]
 - Fixed: Mahnee no longer stops answering after one sign-in check is cut off mid-way [#31]
 - Added: Activity lists every entry by day or in a register, with filters, totals and changing many at once [#28]
@@ -93,3 +93,4 @@ For agents:
 [#29]: https://github.com/BlueSky0322/mahnee/pull/29
 [#30]: https://github.com/BlueSky0322/mahnee/pull/30
 [#31]: https://github.com/BlueSky0322/mahnee/pull/31
+[#34]: https://github.com/BlueSky0322/mahnee/pull/34

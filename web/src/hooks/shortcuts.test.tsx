@@ -208,3 +208,53 @@ describe('with a dialog open, out of any field', () => {
     expect(within(sheet).getByLabelText('Amount')).toHaveProperty('value', '');
   });
 });
+
+describe('what counts as typing', () => {
+  /** Puts `el` on the page, focused, for the length of the test */
+  function focusOn(el: HTMLElement) {
+    document.body.append(el);
+    el.focus();
+    return () => el.remove();
+  }
+  const make = (html: string) => {
+    const box = document.createElement('div');
+    box.innerHTML = html;
+    return box.firstElementChild as HTMLElement;
+  };
+
+  test.each([
+    ['a text field', '<input type="text">'],
+    ['a field with no type', '<input>'],
+    ['a search', '<input type="search">'],
+    ['a number', '<input type="number">'],
+    ['a day', '<input type="date">'],
+    ['an email', '<input type="email">'],
+    ['a phone number', '<input type="tel">'],
+    ['an address', '<input type="url">'],
+    ['a password', '<input type="password">'],
+    ['a longer text', '<textarea></textarea>'],
+    ['a list to pick from', '<select><option>One</option></select>'],
+    ['editable text', '<div contenteditable="true" tabindex="0"></div>'],
+  ])('in %s, N is left to it', async (_what, html) => {
+    renderApp(withWallet(), '/');
+    await places();
+    const remove = focusOn(make(html));
+    await userEvent.setup().keyboard('n');
+    await settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    remove();
+  });
+
+  test.each([
+    ['a tick box', '<input type="checkbox">'],
+    ['a choice of several', '<input type="radio" name="way">'],
+    ['a button', '<button type="button">Go</button>'],
+  ])('on %s, N still opens a new entry', async (_what, html) => {
+    renderApp(withWallet(), '/');
+    await places();
+    const remove = focusOn(make(html));
+    await userEvent.setup().keyboard('n');
+    expect(within(await screen.findByRole('dialog')).getByLabelText('Amount')).toBeTruthy();
+    remove();
+  });
+});

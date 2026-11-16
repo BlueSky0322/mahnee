@@ -3,11 +3,11 @@ import { CloudSlash, SignIn } from '@phosphor-icons/react';
 import { useEffect } from 'react';
 import AccountPage from './components/accounts/AccountPage';
 import AccountsPage from './components/accounts/AccountsPage';
+import ActivityPage from './components/activity/ActivityPage';
 import CategoriesPage from './components/categories/CategoriesPage';
 import ImportPage from './components/import/ImportPage';
 import HomePage from './components/home/HomePage';
 import PlanPage from './components/plan/PlanPage';
-import SearchPage from './components/search/SearchPage';
 import DataPage from './components/settings/DataPage';
 import SettingsPage from './components/settings/SettingsPage';
 import StateCard from './components/ui/StateCard';
@@ -49,7 +49,7 @@ function App() {
   return (
     <AppLayout route={route}>
       {route.view === 'home' && <HomePage month={route.month} />}
-      {route.view === 'activity' && <SearchPage />}
+      {route.view === 'activity' && <ActivityPage query={route.query} />}
       {route.view === 'plan' && <PlanPage month={route.month} />}
       {route.view === 'accounts' && <AccountsPage />}
       {route.view === 'settings' && <SettingsSection section={route.section} />}

@@ -103,10 +103,10 @@ describe('the tab bar on phones and tablets', () => {
     // Accounts: the accounts with their balances
     expect(await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Bank, Bank, RM 500\.00$/ })).toBeTruthy();
-    // Activity: the search
+    // Activity: every entry; with none yet, says so (R-Empty-Activity)
     const user = userEvent.setup();
     await user.click(within(await mainNav()).getByRole('link', { name: 'Activity' }));
-    expect(await screen.findByRole('searchbox', { name: 'Search' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'No transactions yet' })).toBeTruthy();
   });
 
   test('Add opens a new entry, and Back closes it before leaving the page', async () => {

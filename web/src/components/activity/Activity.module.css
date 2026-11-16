@@ -1,0 +1,681 @@
+/* Activity (R-Activity, R-Desk-Activity): a phone's column, or a computer's register with
+   the open entry beside it */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(32px + var(--sf-safe-bottom));
+}
+
+.page[data-layout='register'] {
+  gap: 16px;
+  padding: 24px 32px 48px;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+}
+
+.title,
+.selectingTitle {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.selectingTitle {
+  font-size: 1.25rem;
+}
+
+.page[data-layout='register'] .title {
+  margin-right: auto;
+  padding: 0;
+  font-size: 1.625rem;
+}
+
+/* A phone's search is the whole width, under the heading */
+.search {
+  flex: 1 1 100%;
+}
+
+.search input {
+  height: 3.125rem;
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 0.9375rem;
+}
+
+.page[data-layout='register'] .search {
+  flex: 0 1 420px;
+}
+
+.page[data-layout='register'] .search input {
+  height: 2.75rem;
+  font-size: 0.875rem;
+}
+
+.chips {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 -16px;
+  padding: 0 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.page[data-layout='register'] .chips {
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
+
+.page[data-layout='register'] .chips .found {
+  margin-left: auto;
+}
+
+.foundRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 4px 0;
+}
+
+.found {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+}
+
+.muted {
+  color: var(--ink-3);
+}
+
+.soft {
+  color: var(--ink-2);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+}
+
+.page[data-layout='register'] .body {
+  flex-flow: row wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.page[data-layout='register'] .results {
+  flex: 999 1 560px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+/* ---------- Nothing yet, nothing found, offline, a failure ---------- */
+
+/* Centred, with an icon, as R-Empty-Activity and R-Empty-Search draw them */
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 40px;
+  padding: 32px 20px;
+  text-align: center;
+}
+
+.page[data-layout='register'] .state {
+  margin: 0;
+  padding: 72px 20px;
+}
+
+.stateIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 4px;
+  border-radius: 16px;
+  background: var(--sunk);
+  color: var(--ink-2);
+}
+
+.stateTitle {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.state p {
+  max-width: 340px;
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.stateActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* Select and Done are quiet, in ink (R-Activity, R-Activity-Select) */
+.header .quiet[data-variant] {
+  color: var(--ink);
+}
+
+/* A keycap on a filled button reads on the accent */
+.page :global(.mantine-Button-root[data-variant='filled']) kbd,
+.editorActions :global(.mantine-Button-root[data-variant='filled']) kbd {
+  border-color: color-mix(in srgb, var(--accent-ink) 40%, transparent);
+  box-shadow: none;
+  background: color-mix(in srgb, var(--accent-ink) 18%, transparent);
+  color: var(--accent-ink);
+}
+
+/* ---------- A phone's days ---------- */
+
+.days {
+  display: flex;
+  flex-direction: column;
+}
+
+.dayTitle {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0;
+  padding: 18px 4px 8px;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.dayTitle > span:first-child {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.list > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 3.75rem;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.rowText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowTitle,
+.rowSubtitle {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowTitle {
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.rowSubtitle {
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+}
+
+/* Amounts say which way (R-System): spending in ink, income green, a transfer grey */
+.amount {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.amount[data-kind='income'],
+.headline[data-kind='income'] {
+  color: var(--pos);
+}
+
+.amount[data-kind='transfer'],
+.headline[data-kind='transfer'] {
+  color: var(--ink-3);
+}
+
+.tick {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.row .tick {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.loadMore {
+  align-self: center;
+  margin: 16px 0;
+}
+
+/* A phone selecting: what's ticked, and what to do with it, at the foot */
+.selectionBar {
+  position: fixed;
+  z-index: 3;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px calc(12px + max(16px, var(--sf-safe-bottom)));
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.selectionBar .found {
+  text-align: center;
+}
+
+.selectionActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 8px;
+}
+
+.page:has(.selectionBar) {
+  padding-bottom: 140px;
+}
+
+/* ---------- A computer's register ---------- */
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sunk);
+}
+
+.barCount {
+  margin-right: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.hints {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--ink-3);
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.table th,
+.table td {
+  height: 48px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: start;
+  white-space: nowrap;
+}
+
+.table th {
+  height: 40px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.table th:first-child,
+.table td:first-child {
+  width: 36px;
+}
+
+.right {
+  text-align: end !important;
+}
+
+.registerRow {
+  cursor: pointer;
+}
+
+.registerRow[data-ticked] {
+  background: var(--accent-tint);
+}
+
+/* The open one, outlined */
+.registerRow[aria-selected='true'] {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.payee {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.payeeButton {
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.categoryButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px dashed var(--line-2);
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+/* ---------- One entry: the pane and the phone's sheet ---------- */
+
+.pane {
+  flex: 1 1 300px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.editorHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.8125rem;
+}
+
+.editorTitle {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.headline {
+  margin: 0;
+  font-size: 1.875rem;
+  font-weight: 500;
+}
+
+.editorActions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ---------- Change category ---------- */
+
+.moving {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.moving p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.movingList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 14px;
+  border-radius: 12px;
+  background: var(--sunk);
+  font-size: 0.875rem;
+}
+
+.movingRow {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+}
+
+.movingHeading {
+  margin: 6px 0 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  max-height: 372px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.optionRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 52px;
+  padding: 6px 8px 6px 4px;
+}
+
+.optionRow + .optionRow {
+  border-top: 1px solid var(--line);
+}
+
+.optionRow[data-on] {
+  background: var(--accent-tint);
+}
+
+.option,
+.subOption {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.option {
+  gap: 10px;
+  min-width: 120px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: none;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  text-align: start;
+}
+
+.option[aria-checked='true'] {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.subOption {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--sunk);
+  font-size: 0.8125rem;
+}
+
+/* The tap area is always 44px tall */
+.subOption::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2.75rem;
+  transform: translateY(-50%);
+}
+
+.subOption[aria-checked='true'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 500;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--dot);
+}
+
+.movingFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.summary {
+  flex: 1 1 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8125rem !important;
+}
+
+.movingActions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ---------- The chips' lists ---------- */
+
+.choices {
+  display: flex;
+  flex-direction: column;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 4px;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.choice + .choice {
+  border-top: 1px solid var(--line);
+}
+
+.choice input {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.pickDates {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}

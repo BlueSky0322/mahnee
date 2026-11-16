@@ -183,21 +183,22 @@ describe("the team's signing keys", () => {
 
   test('made-up key ids make it fetch the key set only so often', async () => {
     vi.mocked(fetch).mockClear();
-    // Two minutes ago, so the fetches it uses up are over by the next test
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() - 2 * 60 * 1000);
+    // Two minutes on, so the last minute's fetches by the tests before are over, and
+    // the key set is still within its hour
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2 * 60 * 1000);
     onTestFinished(() => clock.mockRestore());
     const madeUp = (kid: string) =>
       sign(validClaims(), otherKey, kid).then((t) => getUserEmail(requestWith(t), env));
-    // Several at once wait for the same fetch
+    // Several at once each fetch, each counting towards the limit, and are each refused
     expect(await Promise.all([madeUp('fake-1'), madeUp('fake-2'), madeUp('fake-3')])).toEqual([
       null,
       null,
       null,
     ]);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(3);
     // One found missing isn't fetched for again
     await madeUp('fake-1');
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(3);
     // New ones only so many times a minute, however many there are
     for (let i = 0; i < 20; i++) await madeUp(`flood-${i}`);
     expect(vi.mocked(fetch).mock.calls.length).toBeLessThanOrEqual(6);
@@ -228,6 +229,21 @@ describe("the team's signing keys", () => {
     } finally {
       clock.mockRestore();
     }
+  });
+
+  test("a request whose key fetch never finishes doesn't hold up the next", async () => {
+    // Over an hour after anything kept, so both requests need the key set
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10 * HOUR);
+    onTestFinished(() => clock.mockRestore());
+    // The first request ends (the page was closed) while its fetch is still out, so the
+    // fetch never finishes
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>(() => {}));
+    void getUserEmail(requestWith(await sign(validClaims())), env);
+
+    expect(await getUserEmail(requestWith(await sign(validClaims())), env)).toBe(
+      'ryan@example.com',
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -313,6 +329,9 @@ describe('signing in to the API', () => {
   });
 
   test("answers 500, not 401, when the team's keys can't be fetched", async () => {
+    // Well after the key set tests, so the fetches they made for unknown ids don't count
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3 * 60 * 60 * 1000);
+    onTestFinished(() => clock.mockRestore());
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(fetch).mockResolvedValueOnce(new Response('down', { status: 503 }));
     const res = await callApi({

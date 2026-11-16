@@ -36,8 +36,9 @@ let keyCache: KeySet | null = null;
 const missing = new Map<string, number>();
 /** When each of the last minute's fetches for an id not kept was made */
 let unknownFetches: number[] = [];
-/** A fetch of the key set under way, which others wanting it wait for */
-let fetching: Promise<KeySet> | null = null;
+// Each request fetches the key set itself when it needs it. A fetch is never shared
+// between requests: the Worker can't finish one request's fetch once that request has
+// ended (the person closed the page), so everyone waiting on it would wait for ever.
 
 const decodeBase64Url = (s: string) =>
   Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
@@ -78,14 +79,11 @@ async function getSigningKey(certsUrl: string, kid: string): Promise<CryptoKey |
     // hour; but not for one just found missing, nor more than so often
     if ((missing.get(kid) ?? 0) > now) return undefined;
     unknownFetches = unknownFetches.filter((at) => now - at < 60 * 1000);
-    if (fetching == null && unknownFetches.length >= UNKNOWN_KEY_FETCHES_PER_MINUTE) {
-      return undefined;
-    }
-    if (fetching == null) unknownFetches.push(now);
+    if (unknownFetches.length >= UNKNOWN_KEY_FETCHES_PER_MINUTE) return undefined;
+    unknownFetches.push(now);
   }
 
-  fetching ??= fetchKeys(certsUrl).finally(() => (fetching = null));
-  const found = (await fetching).keys.get(kid);
+  const found = (await fetchKeys(certsUrl)).keys.get(kid);
   if (found == null) {
     if (missing.size >= MAX_MISSING_KEYS) missing.clear();
     missing.set(kid, Date.now() + MISSING_KEY_MS);

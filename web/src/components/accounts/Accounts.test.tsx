@@ -23,24 +23,31 @@ function seed(server: FakeServer, account: Partial<Account> & Pick<Account, 'id'
   });
 }
 
-/** The account's row on the home page, found by its name */
-const row = (name: string) => screen.findByRole('button', { name: new RegExp(`^${name},`) });
+/** The account's row in today's list (on Plan until it's rebuilt), found by its name */
+const homeRow = (name: string) => screen.findByRole('button', { name: new RegExp(`^${name},`) });
+
+/** The account's row on Accounts (?accounts), found by its name */
+const row = (name: string) => screen.findByRole('link', { name: new RegExp(`^${name},`) });
 
 const dialog = () => screen.findByRole('dialog');
 
-/** Opens an account's page from Home, then its Edit form */
-async function edit(name: string) {
+/** Opens an account's Edit form: from its row on Home or Accounts, on its page or beside the list */
+async function edit(name: string, from: 'home' | 'accounts' = 'accounts') {
   const user = userEvent.setup();
-  await user.click(await row(name));
+  await user.click(await (from === 'home' ? homeRow(name) : row(name)));
   await user.click(await screen.findByRole('button', { name: 'Edit' }));
   return within(await dialog());
 }
 
-/** Back up to Accounts from an account's page, once its form has closed */
+/**
+ * Back up to Accounts from an account's page, once its form has closed; on a computer the
+ * list is beside it already
+ */
 async function backToAccounts() {
   const user = userEvent.setup();
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-  await user.click(screen.getByRole('button', { name: 'Accounts' }));
+  const back = screen.queryByRole('button', { name: 'Accounts' });
+  if (back != null) await user.click(back);
 }
 
 /** How many times the app has sent changes to the server */
@@ -49,16 +56,28 @@ const saves = () =>
     .mocked(fetch)
     .mock.calls.filter(([path, init]) => path === '/api/changes' && init?.method === 'POST').length;
 
-/** Waits for an account's row to show this kind and balance, read out and drawn */
-async function shows(name: string, kind: string, balance: string) {
+/** Waits for an account's row in today's list (Plan) to show this kind and balance */
+async function showsOnHome(name: string, kind: string, balance: string) {
   const found = await screen.findByRole('button', { name: `${name}, ${kind}, ${balance}` });
   expect(within(found).getByText(balance)).toBeTruthy();
 }
 
-describe('accounts on the home page', () => {
+/** Waits for an account's row on Accounts to show this kind and balance, read out and drawn */
+async function shows(name: string, kind: string, balance: string) {
+  const found = await screen.findByRole('link', { name: `${name}, ${kind}, ${balance}` });
+  expect(found.textContent).toContain(balance.replace(/ owed$/, ''));
+}
+
+/** The accounts a group on Accounts lists, read out */
+const listed = async (group: string) =>
+  within(await screen.findByRole('region', { name: group }))
+    .getAllByRole('link')
+    .map((a) => a.getAttribute('aria-label'));
+
+describe('accounts', () => {
   test.each(SIZES)('adds the first account and shows its balance (%s)', async (size) => {
     const server = fakeServer();
-    renderApp(server, '/?accounts', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));
@@ -67,7 +86,7 @@ describe('accounts on the home page', () => {
     await user.type(form.getByLabelText('Opening balance'), '1,250.5');
     await user.click(form.getByRole('button', { name: 'Add account' }));
 
-    await shows('Wallet', 'Cash', 'RM 1,250.50');
+    await showsOnHome('Wallet', 'Cash', 'RM 1,250.50');
     await waitFor(() =>
       expect(server.accounts).toEqual([
         expect.objectContaining({ name: 'Wallet', kind: 'cash', openingCents: 125_050 }),
@@ -79,7 +98,7 @@ describe('accounts on the home page', () => {
   test('shows placeholders until the accounts arrive, never the empty list first', async () => {
     const server = fakeServer();
     const held = holdNext(server, 'GET', '/api/accounts');
-    renderApp(server, '/?accounts', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     expect(await screen.findByText('Loading your accounts')).toBeTruthy();
     // Long enough for anything else to have loaded (who's signed in)
     await act(() => new Promise((r) => setTimeout(r, 100)));
@@ -93,7 +112,7 @@ describe('accounts on the home page', () => {
   test.each(SIZES)("shows what's owed on a card (%s)", async (size) => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server, '/?accounts', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));
@@ -103,7 +122,7 @@ describe('accounts on the home page', () => {
     await user.type(form.getByLabelText('Amount owed'), '120');
     await user.click(form.getByRole('button', { name: 'Add account' }));
 
-    await shows('Visa', 'Card', 'RM 120.00 owed');
+    await showsOnHome('Visa', 'Card', 'RM 120.00 owed');
     await waitFor(() =>
       expect(server.accounts[1]).toMatchObject({
         name: 'Visa',
@@ -112,7 +131,10 @@ describe('accounts on the home page', () => {
       }),
     );
     // Opened again, it's still the amount owed, as typed
-    expect((await edit('Visa')).getByLabelText('Amount owed')).toHaveProperty('value', '120');
+    expect((await edit('Visa', 'home')).getByLabelText('Amount owed')).toHaveProperty(
+      'value',
+      '120',
+    );
   });
 
   test('lists accounts in their order, an overdrawn one below zero', async () => {
@@ -126,12 +148,10 @@ describe('accounts on the home page', () => {
     });
     seed(server, { id: 'a'.repeat(16), name: 'Wallet', position: 0, openingCents: 2_000 });
     renderApp(server, '/?accounts');
-    const list = await screen.findByRole('list');
-    expect(
-      within(list)
-        .getAllByRole('button')
-        .map((b) => b.getAttribute('aria-label')),
-    ).toEqual(['Wallet, Cash, RM 20.00', 'Bank, Bank, −RM 50.00']);
+    expect(await listed('Cash, banks and e-wallets')).toEqual([
+      'Wallet, Cash, 20.00',
+      'Bank, Bank, −50.00',
+    ]);
   });
 
   test.each(SIZES)('renames an account and changes its opening balance (%s)', async (size) => {
@@ -150,11 +170,13 @@ describe('accounts on the home page', () => {
     await user.type(form.getByLabelText('Opening balance'), '35.20');
     await user.click(form.getByRole('button', { name: 'Save' }));
 
-    // The account's page shows it at once, and so does Home
-    expect(await screen.findByRole('heading', { name: 'Purse', level: 1 })).toBeTruthy();
+    // The account's page (beside the list on a computer) shows it at once, and so does the list
+    expect(
+      await screen.findByRole('heading', { name: 'Purse', level: size === 'phone' ? 1 : 2 }),
+    ).toBeTruthy();
     expect(screen.getByLabelText('Balance RM 35.20')).toBeTruthy();
     await backToAccounts();
-    await shows('Purse', 'Cash', 'RM 35.20');
+    await shows('Purse', 'Cash', '35.20');
     await waitFor(() =>
       expect(server.accounts[0]).toMatchObject({ name: 'Purse', openingCents: 3_520 }),
     );
@@ -162,7 +184,7 @@ describe('accounts on the home page', () => {
 
   test('says what is wrong with a name or amount, and saves nothing', async () => {
     const server = fakeServer();
-    renderApp(server, '/?accounts');
+    renderApp(server, '/?plan');
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));
@@ -188,20 +210,26 @@ describe('accounts on the home page', () => {
     const user = userEvent.setup();
 
     await user.click((await edit('Wallet')).getByRole('button', { name: 'Archive' }));
-    expect(await screen.findByText('Cash, archived')).toBeTruthy();
+    expect((await screen.findAllByText(/^Cash · archived /)).length).toBeGreaterThan(0);
     await backToAccounts();
-    await waitFor(() => expect(screen.queryByRole('button', { name: /^Wallet,/ })).toBeNull());
-    expect(await row('Bank')).toBeTruthy();
+    await waitFor(async () =>
+      expect(await listed('Cash, banks and e-wallets')).toEqual(['Bank, Bank, 0.00']),
+    );
     await waitFor(() => expect(server.accounts[0].archived).toBe(true));
 
     expect(await screen.findByText('Archived Wallet')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(await row('Wallet')).toBeTruthy();
+    await waitFor(async () =>
+      expect(await listed('Cash, banks and e-wallets')).toEqual([
+        'Wallet, Cash, 0.00',
+        'Bank, Bank, 0.00',
+      ]),
+    );
     await waitFor(() => expect(server.accounts[0].archived).toBe(false));
     expect(screen.queryByRole('button', { name: /^Archived/ })).toBeNull();
   });
 
-  test('an archived account is listed apart, and can be brought back from there', async () => {
+  test('an archived account is listed apart, and Unarchive on its page brings it back', async () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
     seed(server, { id: 'b'.repeat(16), name: 'Old card', kind: 'card', archived: true });
@@ -209,14 +237,18 @@ describe('accounts on the home page', () => {
     const user = userEvent.setup();
 
     await row('Wallet');
-    expect(screen.queryByRole('button', { name: /^Old card,/ })).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Archived (1)' }));
-    await user.click((await edit('Old card')).getByRole('button', { name: 'Bring back' }));
+    expect(screen.queryByRole('link', { name: /^Old card,/ })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Archived · 1' }));
+    await user.click(await row('Old card'));
+    await user.click(await screen.findByRole('button', { name: 'Unarchive' }));
 
-    await waitFor(() => expect(server.accounts[1].archived).toBe(false));
+    await waitFor(() =>
+      expect(server.accounts[1]).toMatchObject({ archived: false, archivedAt: null }),
+    );
     await backToAccounts();
     expect(screen.queryByRole('button', { name: /^Archived/ })).toBeNull();
-    expect(within(screen.getByRole('list')).getAllByRole('button')).toHaveLength(2);
+    expect(await listed('Cash, banks and e-wallets')).toEqual(['Wallet, Cash, 0.00']);
+    expect(await listed('Cards')).toEqual(['Old card, Card, 0.00 owed']);
   });
 
   test.each(SIZES)(
@@ -240,7 +272,7 @@ describe('accounts on the home page', () => {
       held.release();
       expect(await screen.findByText('Changed somewhere else at the same time.')).toBeTruthy();
       expect(await row('Wallet')).toBeTruthy();
-      expect(screen.queryByRole('button', { name: /^Purse,/ })).toBeNull();
+      expect(screen.queryByRole('link', { name: /^Purse,/ })).toBeNull();
       expect(server.accounts[0].name).toBe('Wallet');
     },
   );
@@ -295,7 +327,7 @@ describe('accounts on the home page', () => {
 
     held.release();
     expect(await screen.findByText('Account not found')).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole('button', { name: /^Bank,/ })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('link', { name: /^Bank,/ })).toBeNull());
     expect(await row('Wallet')).toBeTruthy();
     expect(server.accounts.map((a) => a.name)).toEqual(['Wallet']);
   });
@@ -323,13 +355,13 @@ describe('accounts on the home page', () => {
     await renameTo('Purse', 'Pouch');
     fresh.release();
     await new Promise((r) => setTimeout(r, 50));
-    await shows('Pouch', 'Cash', 'RM 0.00');
+    await shows('Pouch', 'Cash', '0.00');
 
     // (The server saved it when it arrived; only its answer was held back)
     expect(server.accounts[0].name).toBe('Pouch');
     saving.release();
     await new Promise((r) => setTimeout(r, 50));
-    await shows('Pouch', 'Cash', 'RM 0.00');
-    expect(screen.queryByRole('button', { name: /^Purse,/ })).toBeNull();
+    await shows('Pouch', 'Cash', '0.00');
+    expect(screen.queryByRole('link', { name: /^Purse,/ })).toBeNull();
   });
 });

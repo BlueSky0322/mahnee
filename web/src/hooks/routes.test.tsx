@@ -80,7 +80,7 @@ describe('addresses', () => {
   test('?accounts opens Accounts, with each account and its balance', async () => {
     renderApp(withWallet(), '/?accounts');
     expect(await pageTitle('Accounts')).toBeTruthy();
-    expect(await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ })).toBeTruthy();
+    expect(await screen.findByRole('link', { name: /^Wallet, Cash, 100\.00$/ })).toBeTruthy();
   });
 
   test('?plan opens Plan on this month', async () => {

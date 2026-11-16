@@ -566,6 +566,7 @@ describe('accounts', () => {
         balanceCents: 5_000,
         position: 0,
         archived: false,
+        archivedAt: null,
       },
       expect.objectContaining({ id: bank, position: 1, balanceCents: 123_456 }),
       expect.objectContaining({ id: card, kind: 'card', position: 2, balanceCents: -12_000 }),
@@ -595,6 +596,97 @@ describe('accounts', () => {
     expect(await list(me)).toEqual([expect.objectContaining({ id, archived: true })]);
     await send(me, [{ op: 'archiveAccount', id, archived: false }]);
     expect(await list(me)).toEqual([expect.objectContaining({ id, archived: false })]);
+  });
+
+  // "archived Jun 2" on Accounts: when it was archived, kept as the server saved it (ms),
+  // its first day kept while it stays archived, and none once it's running again
+  it('keeps when an account was archived, until it is brought back', async () => {
+    const me = person('me');
+    const [old, kept] = [rowId(), rowId()];
+    await send(me, [add(old, 'Old card', 'card'), add(kept, 'Kept')]);
+    const at = async (id: string) => (await list(me)).find((a) => a.id === id)?.archivedAt;
+    expect(await at(old)).toBeNull();
+
+    const before = Date.now();
+    await send(me, [{ op: 'archiveAccount', id: old, archived: true }]);
+    const first = await at(old);
+    expect(typeof first).toBe('number');
+    expect(first).toBeGreaterThanOrEqual(before);
+    expect(first).toBeLessThanOrEqual(Date.now());
+    // Another account is untouched
+    expect(await at(kept)).toBeNull();
+
+    // Archived again, or renamed while archived: still the day it was first archived
+    await new Promise((r) => setTimeout(r, 5));
+    await send(me, [{ op: 'archiveAccount', id: old, archived: true }]);
+    await send(me, [{ op: 'updateAccount', id: old, name: 'Older card' }]);
+    expect(await at(old)).toBe(first);
+
+    await send(me, [{ op: 'archiveAccount', id: old, archived: false }]);
+    expect((await list(me)).find((a) => a.id === old)).toMatchObject({
+      archived: false,
+      archivedAt: null,
+    });
+
+    // Archived and brought back in one batch: running, with no day
+    await send(me, [
+      { op: 'archiveAccount', id: kept, archived: true },
+      { op: 'archiveAccount', id: kept, archived: false },
+    ]);
+    expect(await at(kept)).toBeNull();
+  });
+
+  // One archived before migration 0008 kept no day; archiving it again (two devices, or an
+  // outbox sent late) must not give it today's, which would be a day it wasn't archived
+  it('keeps no day on an account archived before the day was kept, archived again', async () => {
+    const me = person('me');
+    const id = rowId();
+    await send(me, [add(id, 'Old')]);
+    await send(me, [{ op: 'archiveAccount', id, archived: true }]);
+    await api.sql('UPDATE accounts SET archived_at = NULL WHERE email = ? AND id = ?', me, id);
+    expect((await send(me, [{ op: 'archiveAccount', id, archived: true }])).status).toBe(200);
+    expect((await list(me))[0]).toMatchObject({ archived: true, archivedAt: null });
+  });
+
+  it("never sets another person's archived day", async () => {
+    const me = person('me');
+    const other = person('other');
+    const theirs = rowId();
+    await send(other, [add(theirs, 'Savings')]);
+    expect((await send(me, [{ op: 'archiveAccount', id: theirs, archived: true }])).status).toBe(
+      404,
+    );
+    expect((await list(other))[0]).toMatchObject({ archived: false, archivedAt: null });
+  });
+
+  it("never brings back another person's archived account, which keeps its day", async () => {
+    const me = person('me');
+    const other = person('other');
+    const theirs = rowId();
+    await send(other, [add(theirs, 'Savings')]);
+    await send(other, [{ op: 'archiveAccount', id: theirs, archived: true }]);
+    const day = (await list(other))[0].archivedAt;
+    expect(typeof day).toBe('number');
+    expect((await send(me, [{ op: 'archiveAccount', id: theirs, archived: false }])).status).toBe(
+      404,
+    );
+    expect((await list(other))[0]).toMatchObject({ archived: true, archivedAt: day });
+  });
+
+  it('takes the archived day only from the server, never from the change', async () => {
+    const me = person('me');
+    const id = rowId();
+    await send(me, [add(id, 'Wallet')]);
+    const before = Date.now();
+    // Refused or ignored, the day saved is never the one the change names
+    await send(me, [{ op: 'archiveAccount', id, archived: true, archivedAt: 5 }]);
+    const saved = (await list(me))[0];
+    expect(saved.archivedAt).not.toBe(5);
+    if (saved.archived === true) {
+      expect(saved.archivedAt).toBeGreaterThanOrEqual(before);
+    } else {
+      expect(saved.archivedAt).toBeNull();
+    }
   });
 
   it("refuses another person's account like one that doesn't exist, and leaves it alone", async () => {

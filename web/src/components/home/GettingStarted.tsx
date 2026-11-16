@@ -121,7 +121,7 @@ export default function GettingStarted({
                 <button
                   type="button"
                   className={classes.step}
-                  onClick={add ?? undefined}
+                  onClick={() => add?.()}
                 >
                   {inside}
                 </button>

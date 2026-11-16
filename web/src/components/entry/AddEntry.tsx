@@ -53,6 +53,13 @@ import classes from './AddEntry.module.css';
 /** What Add was opened for: a new entry, on `accountId` when it's that account's page */
 export interface AddRequest {
   accountId?: string;
+  /** Which way it opens (an account's Transfer), over a kept draft's */
+  kind?: TransactionKind;
+  /**
+   * The account was asked for by name (an account's Add here or Transfer): it's in From
+   * over a kept draft's, the rest of the draft kept
+   */
+  fromHere?: boolean;
 }
 
 export default function AddEntry({
@@ -169,11 +176,13 @@ function AddForm({
   const [remembered] = useState(() => lastUsed(email));
   const [draft] = useState(() => readDraft(email));
 
-  const [kind, setKind] = useState<TransactionKind>(draft?.kind ?? 'expense');
+  const [kind, setKind] = useState<TransactionKind>(request.kind ?? draft?.kind ?? 'expense');
   const [keypad, setKeypad] = useState<Keypad>(
     draft == null ? EMPTY_KEYPAD : { expr: draft.expr, fresh: false, tooMuch: false },
   );
-  const [accountId, setAccountId] = useState<string | null>(draft?.accountId ?? null);
+  const [accountId, setAccountId] = useState<string | null>(
+    request.fromHere ? request.accountId ?? null : draft?.accountId ?? null,
+  );
   const [toAccountId, setToAccountId] = useState<string | null>(draft?.toAccountId ?? null);
   const [picked, setPicked] = useState<Partial<Record<CategoryKind, string>>>(() => {
     const kindOf = draft == null ? null : categoryKindFor(draft.kind);

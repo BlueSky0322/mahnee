@@ -119,14 +119,32 @@ before, and every CHECK against what the API takes).
 ## Accounts
 
 **What it is.** The places a person's money is: cash, bank accounts, cards and
-e-wallets, each with its balance, listed on Accounts (`?accounts`) and, until Plan is
-rebuilt, under Plan's month. Until the first one
-is added, the first run asks where the money is kept (see Home at a glance). Tapping one opens its own page (`?account=<id>`), which goes back up to
-Accounts: its name, kind and balance, and its transactions (see Transactions). Add one
-from the list; rename it, change its opening balance, or archive it
-(with Undo; archived ones are listed apart and can be brought back) from Edit on its
-page. A card's balance is what's owed on it. Its kind is fixed once added. Worker folder
-`accounts/` is sign-in, not these: the ledger is `ledger/`.
+e-wallets, each with its balance, listed on Accounts (`?accounts`, R-Accounts) and, until
+Plan is rebuilt, in today's list under Plan's month (`AccountList`). Until the first one is
+added, the first run asks where the money is kept (see Home at a glance). Accounts opens with "All together" (every running account's
+balance, less what's owed on cards), what's in accounts and what's owed (a part left out
+when there's no account of its kind), then "Cash, banks and e-wallets" and "Cards", each
+with its total, and the archived ones behind "Archived · N", each with the day it was
+archived ("E-wallet · archived Aug 14"; just "archived" for one archived before the day was
+kept). Archived accounts count in no total. List amounts have no RM; a card's says owed (or
+in credit). On a phone or tablet a row opens the account's own page (`?account=<id>`,
+R-Account), which goes back up to Accounts: its kind, name and balance, Add here, Transfer
+and Search (Activity on it, every month: `?activity&account=<id>&dates=all`), and its
+entries by day, each signed by what it did to this account (transfers too), titled by the
+other account, the payee, the note or the category, in that order. An archived one says
+"Hidden when adding entries" with Unarchive in place of the actions (R-Account-Archived).
+On a computer the two are one page (R-Desk-Accounts): the list on the left and the account
+on the right (the one in the address, else the first running one), with what it started
+at, Add here, Transfer and Edit, "Search this account" and "Any date" (kept on the page, not
+in the address, fresh for each account; through `GET /api/search` with `account=`, 200 a
+page with Load more), and a register whose "Balance after" is worked back from the balance
+shown through the loaded rows, newest first, so it's left out while searching or narrowed
+to some days. Picking an account there takes the page's place in history. "Show 50 more"
+loads the next page. Add here and Transfer open Add with this account in From (Transfer on
+Transfer), over a kept draft's account, the rest of the draft kept. Add one from the list;
+rename it, change its opening balance, or archive it (with Undo) from Edit; Unarchive brings
+it back in one tap, with nothing to undo. A card's balance is what's owed on it. Its kind is
+fixed once added. Worker folder `accounts/` is sign-in, not these: the ledger is `ledger/`.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts) keeps the ledger (accounts,
 categories and repeating items, one request) in the query cache (`LEDGER_KEY`), with a device copy
@@ -142,13 +160,23 @@ sends them in order, one request at a time, in batches of at most `MAX_CHANGES` 
 
 **Parts.**
 
-- UI: [components/accounts/AccountList.tsx](../web/src/components/accounts/AccountList.tsx)
-  (the list, placeholders, empty state and archived ones),
-  [AccountPage.tsx](../web/src/components/accounts/AccountPage.tsx) (one account's page)
-  and [AccountForm.tsx](../web/src/components/accounts/AccountForm.tsx) (adding and
+- UI: [components/accounts/AccountsPage.tsx](../web/src/components/accounts/AccountsPage.tsx)
+  (one page at a time, or the two side by side on a computer),
+  [AccountsList.tsx](../web/src/components/accounts/AccountsList.tsx) (the totals, the
+  groups, placeholders, empty state and archived ones),
+  [AccountPage.tsx](../web/src/components/accounts/AccountPage.tsx) (one account's page on a
+  phone or tablet), [AccountPane.tsx](../web/src/components/accounts/AccountPane.tsx) (the
+  account beside the list, with its register, search and "Any date"),
+  [account-actions.ts](../web/src/components/accounts/account-actions.ts) (Add here,
+  Transfer, Search and Unarchive) and
+  [AccountForm.tsx](../web/src/components/accounts/AccountForm.tsx) (adding and
   changing one, in a `ResponsiveDialog`);
-  [account-text.ts](../web/src/components/accounts/account-text.ts) reads balances out
-  and opening balances in; Undo is
+  [account-text.ts](../web/src/components/accounts/account-text.ts) reads balances, totals,
+  the archived day and entries out and opening balances in;
+  [common/EntryTile.tsx](../web/src/components/common/EntryTile.tsx) is an entry's tile, as
+  Activity draws it. Today's list,
+  [AccountList.tsx](../web/src/components/accounts/AccountList.tsx), is drawn under Plan's
+  month until Plan is rebuilt; the Accounts page never imports it, and it goes with it. Undo is
   [components/common/undo-toast.tsx](../web/src/components/common/undo-toast.tsx), the
   design's toast (ink, an underlined Undo, no close button, gone after 6 seconds).
 - API: [worker/routes/ledger.ts](../worker/routes/ledger.ts) serves `GET /api/accounts`
@@ -203,6 +231,13 @@ worker's background sync sends the outbox (see Offline start).
   balance is whole cents within `MAX_TRANSACTION` either way. A balance is the opening
   balance plus income less spending, worked out by the server in one grouped sum, never
   stored.
+- The totals on Accounts are summed in the app in whole cents over the running accounts:
+  at most `MAX_ACCOUNTS` balances, each bounded by `MAX_TRANSACTIONS_PER_ACCOUNT` x
+  `MAX_TRANSACTION_CENTS`, so every total stays a safe integer.
+- The archived day (`archivedAt`) is the server's, set when an archive is saved and kept
+  while the account stays archived, null once it's back; the app shows the device's time
+  at once and the server's from the next read. A copy of the ledger kept from before it has
+  none (the field is optional). Export and import carry no archived day.
 - The app checks a change with the same shared rules before making it; the Worker is the
   authority.
 - When the first load of the ledger fails with nothing kept on the device, the tab bar or
@@ -224,12 +259,20 @@ reload, another person's never picked up, retries and waits for each kind of fai
 answer, a refusal once back, Undo offline, signed out, storage full, hidden pages,
 signing out, another person signing in),
 [Accounts.test.tsx](../web/src/components/accounts/Accounts.test.tsx) (adding,
-cards, renaming and archiving from an account's page, Undo, refusals put back, a failing server tried again,
-answers out of order, at desktop and phone sizes),
+cards, renaming and archiving from an account's page, Unarchive, Undo, refusals put back, a
+failing server tried again, answers out of order, at desktop and phone sizes; its cases on
+today's list start on Plan, which draws it until Plan is rebuilt),
+[AccountsPages.test.tsx](../web/src/components/accounts/AccountsPages.test.tsx) (the totals
+and groups, the archived ones and their day, each account's page and pane, Add here,
+Transfer, Search, Unarchive, the register with Balance after, its search and "Any date",
+Show 50 more, at phone, tablet and desktop sizes),
+[account-text.test.ts](../web/src/components/accounts/account-text.test.ts) (totals at
+their largest, the words, signs and balances after),
 [FailedLoad.test.tsx](../web/src/components/shell/FailedLoad.test.tsx) (a failed first load
 keeping the places, asking no more until Try again), and the accounts cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (every refusal, another person's
-account, receipts, all or nothing).
+account, receipts, all or nothing, the archived day) and
+[worker/test/migrations.test.ts](../worker/test/migrations.test.ts) (0008).
 
 ## Categories
 
@@ -1353,12 +1396,12 @@ what Back does. Four places are always a tap away: Home, Activity, Plan and Acco
 a tab bar at the bottom on phones and tablets (with Add in the middle) and in a sidebar
 on computers (with Mahnee, New entry and, at its foot, Settings). Moving between places
 takes the page's place in history, so Back never walks through them. An account's page
-keeps the places, with Accounts marked; Settings, its sections and Import cover them,
+(on a computer, Accounts with that account beside the list) keeps the places, with
+Accounts marked; Settings, its sections and Import cover them,
 and so does the first run, before there is an account, and a phone or tablet selecting on
 Activity (`&select`), which then has no freshness strip either: its own bar is at the foot. For now Plan is the month as Home showed it before
-it was at a glance (what's due now, the month card, the month-end total and the accounts),
-until Plan and Scheduled are rebuilt, and Accounts is the list of accounts. Home is at a
-glance (see Home at a glance).
+it was at a glance (what's due now, the month card, the month-end total and the accounts
+list), until Plan and Scheduled are rebuilt. Home is at a glance (see Home at a glance).
 
 **Addresses.** Later pieces link to these; each is a query string read by `readRoute`.
 
@@ -1370,7 +1413,7 @@ glance (see Home at a glance).
 | Scheduled                 | `?plan=scheduled`                                                                                                          | opens Plan                                                         |
 | A category over 12 months | `?plan&category=<id>`                                                                                                      | opens Plan                                                         |
 | Accounts                  | `?accounts`                                                                                                                | live                                                               |
-| One account               | `?account=<id>`                                                                                                            | live                                                               |
+| One account               | `?account=<id>`                                                                                                            | live; on a computer, Accounts with it beside the list              |
 | Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`                           | the index, `categories` and `data` live; the others open the index |
 | Importing a file          | `?import`                                                                                                                  | live, opened from `?settings=data`                                 |
 

@@ -36,7 +36,7 @@ const nothingLoading = () =>
 
 /** Home seen once with a connection, so this device keeps the profile and the balances */
 async function seenOnce(server: FakeServer) {
-  renderApp(server, '/?accounts');
+  renderApp(server, '/?plan');
   await wallet();
   await act(() => new Promise((r) => setTimeout(r, 100)));
 }
@@ -46,7 +46,7 @@ describe('the first read of the balances', () => {
     const server = withWallet();
     const me = holdNext(server, 'GET', '/api/me');
     try {
-      renderApp(server, '/?accounts');
+      renderApp(server, '/?plan');
       await vi.waitFor(() => expect(asked('/api/accounts')).toBe(true), { timeout: 4000 });
       expect(asked('/api/me')).toBe(true);
     } finally {
@@ -58,7 +58,7 @@ describe('the first read of the balances', () => {
   test('signed out with nothing kept here: says so, and nothing waits for good', async () => {
     const server = withWallet();
     server.health = 'signedOut';
-    renderApp(server, '/?accounts');
+    renderApp(server, '/?plan');
     expect(await screen.findByText("You're signed out")).toBeTruthy();
     await nothingLoading();
   });
@@ -67,7 +67,7 @@ describe('the first read of the balances', () => {
     const server = withWallet();
     await seenOnce(server);
     server.health = 'signedOut';
-    await reloadApp(server, '/?accounts');
+    await reloadApp(server, '/?plan');
     expect(
       await screen.findByText('Signed out. Sign in again to see what has changed.'),
     ).toBeTruthy();

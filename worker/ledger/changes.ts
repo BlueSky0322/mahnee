@@ -367,7 +367,17 @@ function changeStatements(
       account.archived = change.archived;
       return [
         db
-          .prepare('UPDATE accounts SET archived = ?, updated_at = ? WHERE email = ? AND id = ?')
+          // Archived now: the day it happened. Already archived: its day stays as it was, none
+          // for one archived before the day was kept. Brought back: none.
+          .prepare(
+            `UPDATE accounts
+             SET archived = ?1,
+                 archived_at = CASE WHEN ?1 = 0 THEN NULL
+                                    WHEN archived = 0 THEN ?2
+                                    ELSE archived_at END,
+                 updated_at = ?2
+             WHERE email = ?3 AND id = ?4`,
+          )
           .bind(change.archived ? 1 : 0, now, email, change.id),
         // Add no longer starts on an archived account, but on the last one used
         ...(change.archived

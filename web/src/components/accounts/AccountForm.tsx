@@ -1,5 +1,5 @@
 import { Button, Input, SegmentedControl, TextInput } from '@mantine/core';
-import { Archive, ArrowCounterClockwise } from '@phosphor-icons/react';
+import { Archive } from '@phosphor-icons/react';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
 import type { Account, LedgerChange } from '@shared/api';
@@ -29,7 +29,8 @@ interface AccountFormProps {
   onClose: () => void;
 }
 
-/** Adding an account, or renaming one, changing its opening balance and archiving it */
+/** Adding an account, or renaming one, changing its opening balance and archiving it (an
+ * archived one comes back with Unarchive on its own page) */
 export default function AccountForm({ open, count, onClose }: AccountFormProps) {
   return (
     <ResponsiveDialog
@@ -100,15 +101,13 @@ function Fields({
     onDone();
   };
 
-  const archive = (archived: boolean) => {
+  const archive = () => {
     if (account == null) return;
-    change({ op: 'archiveAccount', id: account.id, archived });
+    change({ op: 'archiveAccount', id: account.id, archived: true });
     onDone();
-    if (archived) {
-      showUndo(`Archived ${account.name}`, () =>
-        change({ op: 'archiveAccount', id: account.id, archived: false }),
-      );
-    }
+    showUndo(`Archived ${account.name}`, () =>
+      change({ op: 'archiveAccount', id: account.id, archived: false }),
+    );
   };
 
   return (
@@ -169,26 +168,17 @@ function Fields({
         autoComplete="off"
       />
       <div className={classes.actions}>
-        {account != null &&
-          (account.archived ? (
-            <Button
-              variant="subtle"
-              color="gray"
-              leftSection={<ArrowCounterClockwise size={16} />}
-              onClick={() => archive(false)}
-            >
-              Bring back
-            </Button>
-          ) : (
-            <Button
-              variant="subtle"
-              color="gray"
-              leftSection={<Archive size={16} />}
-              onClick={() => archive(true)}
-            >
-              Archive
-            </Button>
-          ))}
+        {/* An archived one comes back with Unarchive on its page */}
+        {account != null && !account.archived && (
+          <Button
+            variant="subtle"
+            color="gray"
+            leftSection={<Archive size={16} />}
+            onClick={archive}
+          >
+            Archive
+          </Button>
+        )}
         <Button
           type="submit"
           className={classes.save}

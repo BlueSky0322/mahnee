@@ -40,7 +40,21 @@ function seed(server: FakeServer, account: Partial<Account> & Pick<Account, 'id'
   });
 }
 
-const row = (name: string) => screen.findByRole('button', { name: new RegExp(`^${name},`) });
+/** An account's row: a button on Home, a link on Accounts */
+const row = (name: string) =>
+  waitFor(() => {
+    const named = new RegExp(`^${name},`);
+    const found =
+      screen.queryByRole('button', { name: named }) ?? screen.queryByRole('link', { name: named });
+    expect(found).not.toBeNull();
+    return found!;
+  });
+
+/** Back up to Accounts from an account's page; on a computer the list is beside it already */
+async function upToAccounts() {
+  const back = screen.queryByRole('button', { name: 'Accounts' });
+  if (back != null) await userEvent.setup().click(back);
+}
 const dialog = () => screen.findByRole('dialog');
 
 /** The connection drops: the browser says so, and nothing reaches the server */
@@ -92,7 +106,7 @@ async function rename(from: string, to: string) {
   await user.type(form.getByLabelText('Name'), to);
   await user.click(form.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-  await user.click(screen.getByRole('button', { name: 'Accounts' }));
+  await upToAccounts();
 }
 
 describe('changes made offline', () => {
@@ -101,7 +115,7 @@ describe('changes made offline', () => {
     async (size) => {
       const server = fakeServer();
       seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-      renderApp(server, '/?accounts', { size });
+      renderApp(server, '/?plan', { size });
       await row('Wallet');
 
       goOffline(server);
@@ -112,7 +126,7 @@ describe('changes made offline', () => {
       await waitFor(async () => expect(await keptForRyan()).toHaveLength(1));
 
       // Reloaded while still offline: the page starts from what the device kept
-      await reloadApp(server, '/?accounts', { size });
+      await reloadApp(server, '/?plan', { size });
       expect(await row('Savings')).toBeTruthy();
       expect(await row('Wallet')).toBeTruthy();
       expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
@@ -142,12 +156,12 @@ describe('changes made offline', () => {
   test('a change refused once back is put back, and explained', async () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server, '/?accounts');
+    renderApp(server, '/?plan');
     await row('Wallet');
     goOffline(server);
     await rename('Wallet', 'Purse');
     await addAccount('Made on top');
-    await reloadApp(server, '/?accounts');
+    await reloadApp(server, '/?plan');
     expect(await row('Purse')).toBeTruthy();
     expect(await screen.findByText(OFFLINE_NOTICE.desktop)).toBeTruthy();
     expect(await screen.findByText(waiting(2))).toBeTruthy();
@@ -172,7 +186,7 @@ describe('changes made offline', () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
     seed(server, { id: 'b'.repeat(16), name: 'Bank', kind: 'bank' });
-    renderApp(server, '/?accounts', { size: 'phone' });
+    renderApp(server, '/?plan', { size: 'phone' });
     const user = userEvent.setup();
     await row('Wallet');
     const back = goOffline(server);
@@ -180,7 +194,7 @@ describe('changes made offline', () => {
     await user.click((await edit('Wallet')).getByRole('button', { name: 'Archive' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await user.click(screen.getByRole('button', { name: 'Accounts' }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: /^Wallet,/ })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('link', { name: /^Wallet,/ })).toBeNull());
     await user.click(await screen.findByRole('button', { name: 'Undo' }));
     expect(await row('Wallet')).toBeTruthy();
     expect(await screen.findByText(OFFLINE_NOTICE.phone)).toBeTruthy();
@@ -204,7 +218,7 @@ describe('changes waiting when the session runs out', () => {
   test('are kept, and the notice offers to sign in', async () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server, '/?accounts');
+    renderApp(server, '/?plan');
     await row('Wallet');
     server.health = 'signedOut';
     await rename('Wallet', 'Purse');
@@ -224,7 +238,7 @@ describe("when this device can't keep changes", () => {
   test('says so, and still saves from the open page', async () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server, '/?accounts');
+    renderApp(server, '/?plan');
     await row('Wallet');
     // Storage full, or blocked: every write fails
     const put = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => {
@@ -252,7 +266,7 @@ describe('saving while the app is in the background', () => {
   test('a hidden page sends so the save finishes after it goes; one on screen as usual', async () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server, '/?accounts');
+    renderApp(server, '/?plan');
     onTestFinished(() => showPage('visible'));
     const keepalive = () =>
       vi
@@ -298,7 +312,7 @@ describe('signing out', () => {
   test.each(SIZES)('asks first when changes are waiting (%s)', async (size) => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server, '/?accounts', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     await row('Wallet');
     goOffline(server);
@@ -335,7 +349,7 @@ describe('someone else signing in on this device', () => {
   test("doesn't see or send the first person's changes, which wait for them", async () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server, '/?accounts');
+    renderApp(server, '/?plan');
     await row('Wallet');
     const back = goOffline(server);
     await addAccount("Ryan's savings");
@@ -358,7 +372,7 @@ describe('someone else signing in on this device', () => {
 
     // Ryan is back: his change goes, as him
     server.me = { ...server.me, email: RYAN, displayName: 'Ryan' };
-    await reloadApp(server, '/?accounts');
+    await reloadApp(server, '/?plan');
     expect(await row("Ryan's savings")).toBeTruthy();
     await waitFor(() => expect(server.accounts.map((a) => a.name)).toContain("Ryan's savings"));
     expect(await keptForRyan()).toEqual([]);

@@ -183,6 +183,18 @@ const pause = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
 const nextDueOn = (server: FakeServer, payee: string) =>
   server.recurring.find((r) => r.payee === payee)?.nextDue;
 
+/**
+ * An entry on an account's page, by its row's name (title, subtitle, amount): the row on a
+ * phone; on a computer, its payee in the register, on a row that reads the same
+ */
+async function entryOnPage(name: string, size: string) {
+  if (size !== 'desktop') return screen.findByRole('button', { name });
+  const [title, subtitle, amount] = name.split(', ');
+  const button = await screen.findByRole('button', { name: title });
+  expect(button.closest('tr')?.textContent).toContain(`${title}${subtitle}${amount}`);
+  return button;
+}
+
 describe('repeating bills and income on Home', () => {
   test.each(SIZES)(
     'shows what is due at the top of Home, recording nothing until it is confirmed (%s)',
@@ -466,7 +478,7 @@ describe('repeating bills and income on Home', () => {
       });
       renderApp(server, `/?account=${BANK}`, { size });
       const user = userEvent.setup();
-      await user.click(await screen.findByRole('button', { name: 'Bills, Rent, −RM 1,200.00' }));
+      await user.click(await entryOnPage('Rent, Bills, −1,200.00', size));
       const sheet = within(await screen.findByRole('dialog', { name: 'Edit transaction' }));
       if (sheet.getByRole('button', { name: 'More' }).getAttribute('aria-expanded') !== 'true') {
         await user.click(sheet.getByRole('button', { name: 'More' }));
@@ -518,7 +530,7 @@ describe('repeating bills and income on Home', () => {
     });
     renderApp(server, `/?account=${BANK}`, { size });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('button', { name: 'Bills, Gym, −RM 10.00' }));
+    await user.click(await entryOnPage('Gym, Bills, −10.00', size));
     const sheet = within(await screen.findByRole('dialog', { name: 'Edit transaction' }));
     if (sheet.getByRole('button', { name: 'More' }).getAttribute('aria-expanded') !== 'true') {
       await user.click(sheet.getByRole('button', { name: 'More' }));
@@ -738,7 +750,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
     });
     renderApp(server, `/?account=${BANK}`, { size });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('button', { name: 'Bills, Rent, −RM 1,200.00' }));
+    await user.click(await entryOnPage('Rent, Bills, −1,200.00', size));
     const sheet = within(await screen.findByRole('dialog', { name: 'Edit transaction' }));
     if (sheet.getByRole('button', { name: 'More' }).getAttribute('aria-expanded') !== 'true') {
       await user.click(sheet.getByRole('button', { name: 'More' }));
@@ -934,7 +946,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       });
       renderApp(server, `/?account=${BANK}`, { size });
       const user = userEvent.setup();
-      await user.click(await screen.findByRole('button', { name: 'Bills, Rent, −RM 1,200.00' }));
+      await user.click(await entryOnPage('Rent, Bills, −1,200.00', size));
       const sheet = within(await screen.findByRole('dialog', { name: 'Edit transaction' }));
       if (sheet.getByRole('button', { name: 'More' }).getAttribute('aria-expanded') !== 'true') {
         await user.click(sheet.getByRole('button', { name: 'More' }));

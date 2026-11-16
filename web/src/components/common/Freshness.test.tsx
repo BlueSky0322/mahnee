@@ -48,14 +48,15 @@ function withWallet() {
 }
 
 /**
- * The figures are showing: the Wallet's row on Accounts, or Home's month end, which with the
- * one account and nothing due names it ("Wallet today", else "RM 100.00 today"), or for an
- * earlier month says what it left
+ * The figures are showing: the Wallet's row (a button in Plan's list, a link on Accounts),
+ * or Home's month end, which with the one account and nothing due names it ("Wallet
+ * today", else "RM 100.00 today"), or for an earlier month says what it left
  */
 const wallet = () =>
   waitFor(
     () =>
       screen.queryByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ }) ??
+      screen.queryByRole('link', { name: /^Wallet, Cash, 100\.00$/ }) ??
       screen.queryByText(/^(Wallet|RM [\d,.]+) today$/) ??
       screen.getByText(/^Left in /),
   );
@@ -446,7 +447,7 @@ describe('the undo toast', () => {
   /** Archives the wallet from its page, which offers Undo */
   async function archiveWallet(size: (typeof SIZES)[number]) {
     const server = withWallet();
-    renderApp(server, '/?accounts', { size });
+    renderApp(server, '/?plan', { size });
     const user = userEvent.setup();
     await user.click(await wallet());
     await user.click(await screen.findByRole('button', { name: 'Edit' }));
@@ -479,7 +480,7 @@ describe('the undo toast', () => {
     'keeps focus on Undo once reached, while the dialog is still closing (%s)',
     async (size) => {
       const server = withWallet();
-      renderApp(server, '/?accounts', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       await user.click(await wallet());
       await user.click(await screen.findByRole('button', { name: 'Edit' }));

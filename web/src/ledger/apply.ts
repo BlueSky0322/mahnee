@@ -279,7 +279,17 @@ function applyToAccounts(accounts: Account[], change: LedgerChange): Account[] {
         };
       });
     case 'archiveAccount':
-      return accounts.map((a) => (a.id === change.id ? { ...a, archived: change.archived } : a));
+      // Archived now, as far as this device knows; the server's own time replaces it on the
+      // next read. The first day stays while it's archived.
+      return accounts.map((a) =>
+        a.id !== change.id
+          ? a
+          : {
+              ...a,
+              archived: change.archived,
+              archivedAt: change.archived ? (a.archived ? a.archivedAt ?? null : Date.now()) : null,
+            },
+      );
     default:
       return accounts;
   }

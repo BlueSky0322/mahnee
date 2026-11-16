@@ -150,6 +150,11 @@ export interface Account {
   position: number;
   /** Taken out of the list, never deleted; it can be brought back */
   archived: boolean;
+  /**
+   * When it was archived (ms), as the server saved it; null while it's running, or for one
+   * archived before the day was kept. Missing from a copy kept on a device from before.
+   */
+  archivedAt?: number | null;
 }
 
 /**

@@ -54,6 +54,11 @@ function useLedgerPart<T>(select: (ledger: Ledger) => T): Loaded<T> {
     queryKey: LEDGER_KEY,
     queryFn: ({ signal }) => fetchLedger({ signal }),
     select,
+    // A page opening after the first load failed, with nothing kept, says so and offers to
+    // try again rather than asking by itself: asking would show it loading, and take the
+    // tab bar or sidebar away, until it failed again. Try again, coming back online, a
+    // return to the app and a saved change still ask.
+    retryOnMount: false,
   });
   return { data: data ?? null, failed: isError && data == null, retry: () => void refetch() };
 }

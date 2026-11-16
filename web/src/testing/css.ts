@@ -138,6 +138,8 @@ export const TOKENS = {
     '--c4': '#b8487a',
     '--c5': '#b58300',
     '--c6': '#7b62d0',
+    '--float': '#15161a',
+    '--float-ink': '#f3f1ec',
   },
   dark: {
     '--ground': '#0f1012',
@@ -162,5 +164,7 @@ export const TOKENS = {
     '--c4': '#e07aa6',
     '--c5': '#d9a826',
     '--c6': '#a28ef0',
+    '--float': '#2a2b30',
+    '--float-ink': '#edece7',
   },
 } as const;

@@ -12,10 +12,10 @@
   max-width: calc(100vw - 32px);
   padding: 6px 6px 6px 16px;
   border-radius: 999px;
-  background: var(--ink);
-  color: var(--ground);
+  background: var(--float);
+  color: var(--float-ink);
   font-size: 13px;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+  box-shadow: var(--shadow-float);
   animation: rise 200ms ease-out;
 }
 
@@ -30,17 +30,14 @@
   min-width: 0;
 }
 
-/* Filled in the inverted colours, so it reads on the dark (or light) pill */
-.reload:global(.mantine-Button-root) {
+/* Reload is the app's usual filled button, in the accent */
+.reload {
   flex-shrink: 0;
-  background: var(--ground);
-  color: var(--ink);
-  border-color: var(--ground);
 }
 
 .close:global(.mantine-CloseButton-root) {
   flex-shrink: 0;
-  color: var(--ground);
+  color: var(--float-ink);
 }
 
 @media (prefers-reduced-motion: reduce) {

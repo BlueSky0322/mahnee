@@ -145,7 +145,8 @@ describe('the tab bar on phones and tablets', () => {
   test('there is one Add, in the tab bar: nothing floats over the page', async () => {
     renderApp(withAccounts(), '/', { size: 'phone' });
     const nav = await mainNav();
-    await screen.findByRole('button', { name: /^Wallet,/ });
+    // Home is showing
+    await screen.findByText('Expected at month end');
     const adds = screen.getAllByRole('button', { name: 'Add' });
     expect(adds).toHaveLength(1);
     expect(nav.contains(adds[0])).toBe(true);
@@ -331,7 +332,7 @@ describe('the sidebar on computers', () => {
 describe('the first run, before there is an account', () => {
   test.each(['phone', 'desktop'] as const)('has no tab bar, sidebar or Add (%s)', async (size) => {
     renderApp(fakeServer(), '/', { size });
-    expect(await screen.findByText('Add your first account')).toBeTruthy();
+    expect(await screen.findByText('Where do you keep your money?')).toBeTruthy();
     expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Add' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'New entry' })).toBeNull();

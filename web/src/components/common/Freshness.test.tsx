@@ -47,7 +47,18 @@ function withWallet() {
   return server;
 }
 
-const wallet = () => screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ });
+/**
+ * The figures are showing: the Wallet's row on Accounts, or Home's month end, which with the
+ * one account and nothing due names it ("Wallet today", else "RM 100.00 today"), or for an
+ * earlier month says what it left
+ */
+const wallet = () =>
+  waitFor(
+    () =>
+      screen.queryByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ }) ??
+      screen.queryByText(/^(Wallet|RM [\d,.]+) today$/) ??
+      screen.getByText(/^Left in /),
+  );
 const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
 
 /**
@@ -95,13 +106,16 @@ function labelArea(size: Size) {
 const labels = () =>
   screen.queryAllByText(LABEL).map((el) => el.textContent?.replace(/\s+/g, ' ').trim());
 
+/** Adds an account on Accounts, where they're listed, and comes back to Home */
 async function addAccount(name: string) {
   const user = userEvent.setup();
+  await goToPlace('Accounts');
   await user.click((await screen.findAllByRole('button', { name: 'Add account' }))[0]);
   const form = within(await screen.findByRole('dialog'));
   await user.type(form.getByLabelText('Name'), name);
   await user.click(form.getByRole('button', { name: 'Add account' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  await goToPlace('Home');
 }
 
 describe('how fresh the figures are', () => {
@@ -432,7 +446,7 @@ describe('the undo toast', () => {
   /** Archives the wallet from its page, which offers Undo */
   async function archiveWallet(size: (typeof SIZES)[number]) {
     const server = withWallet();
-    renderApp(server, '/', { size });
+    renderApp(server, '/?accounts', { size });
     const user = userEvent.setup();
     await user.click(await wallet());
     await user.click(await screen.findByRole('button', { name: 'Edit' }));
@@ -465,7 +479,7 @@ describe('the undo toast', () => {
     'keeps focus on Undo once reached, while the dialog is still closing (%s)',
     async (size) => {
       const server = withWallet();
-      renderApp(server, '/', { size });
+      renderApp(server, '/?accounts', { size });
       const user = userEvent.setup();
       await user.click(await wallet());
       await user.click(await screen.findByRole('button', { name: 'Edit' }));

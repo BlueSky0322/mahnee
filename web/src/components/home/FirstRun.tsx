@@ -1,0 +1,70 @@
+import { useState } from 'react';
+import { DEFAULT_CATEGORIES } from '@shared/categories';
+import type { AccountKind } from '@shared/ledger';
+import AccountForm from '../accounts/AccountForm';
+import KindIcon from '../accounts/KindIcon';
+import ThemeToggle from '../common/ThemeToggle';
+import YouLink from '../common/YouLink';
+import classes from './Home.module.css';
+
+const KINDS: { kind: AccountKind; name: string; line: string }[] = [
+  { kind: 'bank', name: 'Bank', line: 'Savings or current' },
+  { kind: 'ewallet', name: 'E-wallet', line: "Touch 'n Go, GrabPay, ShopeePay" },
+  { kind: 'card', name: 'Card', line: "You enter what's owed" },
+  { kind: 'cash', name: 'Cash', line: 'In your wallet' },
+];
+
+const count = (kind: 'expense' | 'income') =>
+  DEFAULT_CATEGORIES.filter((c) => c.kind === kind && c.parentId == null).length;
+
+// The first run, in place of everything until there's an account: where the money is
+// kept, one kind at a time, each opening Add account with that kind chosen. The round
+// initial still leads to Settings (and Sign out), and the theme switch is beside it until
+// Look and start has it.
+export default function FirstRun() {
+  const [open, setOpen] = useState<{ account: null; kind: AccountKind } | null>(null);
+  return (
+    <div className={classes.firstRun}>
+      <div className={classes.firstTop}>
+        <p className={classes.brand}>Mahnee</p>
+        <div className={classes.headerEnd}>
+          <ThemeToggle />
+          <YouLink />
+        </div>
+      </div>
+      <section className={classes.firstIntro}>
+        <h1 className={classes.firstTitle}>Where do you keep your money?</h1>
+        <p className={classes.firstLead}>Add each one with today&apos;s balance. No bank login.</p>
+      </section>
+      <div className={classes.kinds}>
+        {KINDS.map(({ kind, name, line }) => (
+          <button
+            key={kind}
+            type="button"
+            className={classes.kind}
+            onClick={() => setOpen({ account: null, kind })}
+          >
+            <KindIcon
+              kind={kind}
+              size={24}
+            />
+            <strong>{name}</strong>
+            <span>{line}</span>
+          </button>
+        ))}
+      </div>
+      <p className={classes.firstNote}>
+        {`Comes with ${count('expense')} expense and ${count('income')} income categories. Edit them any time.`}
+      </p>
+      <div className={classes.firstFoot}>
+        <p>Importing a bank&apos;s CSV? Add that account first.</p>
+        <p className={classes.small}>Works offline</p>
+      </div>
+      <AccountForm
+        open={open}
+        count={0}
+        onClose={() => setOpen(null)}
+      />
+    </div>
+  );
+}

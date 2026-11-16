@@ -145,7 +145,7 @@ describe('a change saved whose answer was lost is counted once', () => {
     'with fresh balances and totals fetched before it is sent again (%s)',
     async (size) => {
       const server = withWallet();
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       await waitFor(() => expect(walletBalance()).toBe(BEFORE.balance));
       await waitFor(() => expect(monthFigure('Spent')).toBe(BEFORE.spent));
       const figures = watchFigures();
@@ -192,7 +192,7 @@ describe('a change saved whose answer was lost is counted once', () => {
     'with the page reloaded before it is sent again (%s)',
     async (size) => {
       const server = withWallet();
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       await waitFor(() => expect(walletBalance()).toBe(BEFORE.balance));
       await waitFor(() => expect(monthFigure('Spent')).toBe(BEFORE.spent));
       await savedWithAnswerLost(server);
@@ -200,7 +200,7 @@ describe('a change saved whose answer was lost is counted once', () => {
       // Reopened: the RM 8 is picked up from the device and sent again, which is held up,
       // while the balances and totals are fetched afresh, holding it already
       const resend = holdNext(server, 'POST', '/api/changes');
-      await reloadApp(server, '/', { size });
+      await reloadApp(server, '/?plan', { size });
       const figures = watchFigures();
       try {
         await waitFor(() => expect(walletBalance()).not.toBeNull());

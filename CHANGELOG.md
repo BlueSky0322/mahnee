@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-16
 
+- Changed: Home is at a glance: the month end with its sum, spent and received, Tidy up, Coming up, a day-by-day calendar, budgets against the month, and a first run [#?]
 - Changed: Add is a keypad that works sums out, with recent categories, a payee field, Today, Repeat and drafts [#30]
 - Fixed: Mahnee no longer stops answering after one sign-in check is cut off mid-way [#31]
 - Added: Activity lists every entry by day or in a register, with filters, totals and changing many at once [#28]

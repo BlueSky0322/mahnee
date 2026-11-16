@@ -3,7 +3,7 @@ import type { Account, Ledger, LedgerChange, Recurring } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import { fallsOn, nextAfter } from '@shared/recurring';
 import { apply } from './apply';
-import { dueNow, monthEndForecast } from './forecast';
+import { comingUp, dueNow, monthEndForecast } from './forecast';
 
 // What's expected at the end of this month: today's balances of every listed account (what's
 // owed on a card counts against it), less the repeating bills still due this month, plus the
@@ -201,7 +201,13 @@ describe('expected at month end', () => {
       ledgerWith([item('Loan', { day: 31, nextDue: '2026-12-31' })]),
       '2026-11-30',
     );
-    expect(forecast).toEqual({ cents: 250_000, balancesCents: 250_000, items: [] });
+    expect(forecast).toEqual({
+      cents: 250_000,
+      balancesCents: 250_000,
+      billsCents: 0,
+      payCents: 0,
+      items: [],
+    });
   });
 
   it('can be exactly zero (which is not below it)', () => {
@@ -413,5 +419,94 @@ describe('repeating items changed before the server has them', () => {
     );
     expect(undone.accounts.find((a) => a.id === BANK)?.balanceCents).toBe(300_000);
     expect(dueNow(undone, TODAY).map((d) => d.recurring.payee)).toEqual(['Rent']);
+  });
+});
+
+// Home's month-end line ("RM 8,157.00 today − RM 189.00 bills + RM 6,800.00 pay") and its
+// Coming up list: the bills and the pay still due this month, each in total, and the next
+// time each listed item falls after today.
+describe('the bills and pay still due', () => {
+  it('are totalled apart, so the balances less the bills plus the pay is the total', () => {
+    const forecast = monthEndForecast(
+      ledgerWith([
+        item('Netflix', { amountCents: 5_500, day: 20, nextDue: '2026-11-20' }),
+        item('Rent', { amountCents: 120_000, nextDue: '2026-11-01' }),
+        item('Salary', {
+          kind: 'income',
+          categoryId: SALARY,
+          amountCents: 500_000,
+          day: 25,
+          nextDue: '2026-11-25',
+        }),
+        item('Card payment', {
+          kind: 'transfer',
+          toAccountId: CARD,
+          categoryId: null,
+          amountCents: 30_000,
+          day: 28,
+          nextDue: '2026-11-28',
+        }),
+        item('Insurance', { day: 5, nextDue: '2026-12-05' }),
+      ]),
+      TODAY,
+    );
+    expect(forecast.billsCents).toBe(125_500);
+    expect(forecast.payCents).toBe(500_000);
+    expect(forecast.cents).toBe(forecast.balancesCents - forecast.billsCents + forecast.payCents);
+  });
+
+  it('are 0 when nothing is due', () => {
+    const forecast = monthEndForecast(ledgerWith([]), TODAY);
+    expect([forecast.billsCents, forecast.payCents]).toEqual([0, 0]);
+  });
+});
+
+describe('coming up', () => {
+  it("is each listed item's next day after today, soonest first, as many as asked", () => {
+    const ledger = ledgerWith([
+      item('Rent', { amountCents: 120_000, nextDue: '2026-11-01' }),
+      item('Netflix', { amountCents: 5_500, day: 20, nextDue: '2026-11-20' }),
+      item('Salary', {
+        kind: 'income',
+        categoryId: SALARY,
+        amountCents: 500_000,
+        day: 25,
+        nextDue: '2026-11-25',
+      }),
+      // Due today: its next after today is the 13th
+      item('Gym', { schedule: 'weekly', day: 5, nextDue: TODAY }),
+      item('Card payment', {
+        kind: 'transfer',
+        toAccountId: CARD,
+        categoryId: null,
+        amountCents: 30_000,
+        day: 28,
+        nextDue: '2026-11-28',
+      }),
+      item('Stopped', { day: 10, nextDue: '2026-11-10', archived: true }),
+      item('On old', { accountId: OLD, day: 12, nextDue: '2026-11-12' }),
+    ]);
+    expect(comingUp(ledger, TODAY, 10).map((c) => [c.recurring.payee, c.date])).toEqual([
+      ['Gym', '2026-11-13'],
+      ['Netflix', '2026-11-20'],
+      ['Salary', '2026-11-25'],
+      ['Card payment', '2026-11-28'],
+      // Rent was due on the 1st and is still to log; its next after today is in December
+      ['Rent', '2026-12-01'],
+    ]);
+    expect(comingUp(ledger, TODAY, 3).map((c) => c.recurring.payee)).toEqual([
+      'Gym',
+      'Netflix',
+      'Salary',
+    ]);
+  });
+
+  it('runs past the end of the month and the year', () => {
+    const ledger = ledgerWith([item('Rent', { day: 1, nextDue: '2027-01-01' })]);
+    expect(comingUp(ledger, '2026-12-31', 3).map((c) => c.date)).toEqual(['2027-01-01']);
+  });
+
+  it('is nothing when nothing repeats', () => {
+    expect(comingUp(ledgerWith([]), TODAY, 3)).toEqual([]);
   });
 });

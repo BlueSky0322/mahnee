@@ -16,6 +16,7 @@ in [AGENTS.md](../AGENTS.md).
 | [Categories](#categories)                                       | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Transactions and quick entry](#transactions-and-quick-entry)   | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Month view](#month-view)                                       | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
+| [Home at a glance](#home-at-a-glance)                           | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Budgets](#budgets)                                             | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Search and changing many](#search-and-changing-many)           | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Repeating bills and month end](#repeating-bills-and-month-end) | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
@@ -118,8 +119,9 @@ before, and every CHECK against what the API takes).
 ## Accounts
 
 **What it is.** The places a person's money is: cash, bank accounts, cards and
-e-wallets, each with its balance, listed on Accounts (`?accounts`) and, until Home is
-rebuilt, on Home. Tapping one opens its own page (`?account=<id>`), which goes back up to
+e-wallets, each with its balance, listed on Accounts (`?accounts`) and, until Plan is
+rebuilt, under Plan's month. Until the first one
+is added, the first run asks where the money is kept (see Home at a glance). Tapping one opens its own page (`?account=<id>`), which goes back up to
 Accounts: its name, kind and balance, and its transactions (see Transactions). Add one
 from the list; rename it, change its opening balance, or archive it
 (with Undo; archived ones are listed apart and can be brought back) from Edit on its
@@ -453,9 +455,9 @@ defaults with a first transaction).
 
 ## Month view
 
-**What it is.** The top of Home, and of Plan until Plan is rebuilt: one month at a
-glance, this month unless the address names an earlier one (`?month=2026-10` on Home,
-`?plan&month=2026-10` on Plan; the arrows step between months on the same page, never
+**What it is.** The top of Plan until Plan is rebuilt (Home draws its own figures from the
+same totals; see Home at a glance): one month at a
+glance, this month unless the address names an earlier one (`?plan&month=2026-10`; the arrows step between months on the same page, never
 past this one, and Back returns). What's left (received less spent) is the largest number;
 when more was spent than came in it says "Over", in the negative colour, with a line
 saying by how much. Spent and Received sit beneath it, then spending by top-level
@@ -490,7 +492,6 @@ read them through `useMonthTrend(month)`. The card never waits on them.
 
 - UI: [components/home/MonthCard.tsx](../web/src/components/home/MonthCard.tsx) and
   [TwelveMonths.tsx](../web/src/components/home/TwelveMonths.tsx) (a row's 12 months), on
-  [HomePage.tsx](../web/src/components/home/HomePage.tsx) and
   [components/plan/PlanPage.tsx](../web/src/components/plan/PlanPage.tsx); months in
   [utils/date-input.ts](../web/src/utils/date-input.ts) (`thisMonth`, `addMonths`,
   `monthHeading`).
@@ -512,7 +513,7 @@ a subcategory moved under another category moves its spending with it.
 Each category's total also says how many transactions make it (`entries`) and, when it's
 one transaction naming a payee, that payee (`payee`, for Plan's "Rent" rather than "1
 entry"); the 12 months' rows say the same. A month's totals (not the 12 months) also hold,
-for the redesign's Home and Plan, which draw nothing from them yet:
+for Home (and the rebuilt Plan):
 
 - `spentByDay`: spending by day, oldest first, only days with any (at most 31), for Home's
   calendar. [ledger/day-by-day.ts](../web/src/ledger/day-by-day.ts) (`dayByDay`) lays out
@@ -540,10 +541,10 @@ day, `toDateInput(new Date())` ([utils/date-input.ts](../web/src/utils/date-inpu
 never `toISOString()`, and screen tests pin the clock at a time where the local and UTC
 days differ.
 
-For the pieces that draw these: Home names the budget "running fast" by the largest lead
-spent x days - available x day (exact, at most about 6e13), never by comparing two
-budgets' ratios by cross-multiplying (about 4e24, past exact whole numbers), with its
-tie-break pinned; Home shows Tidy up for this month only. Plan's roll-up (`rollUp` in
+Home names the budget "running fast" by the largest lead spent x days - available x day
+(exact, at most about 6e13), never by comparing two budgets' ratios by cross-multiplying
+(about 4e24, past exact whole numbers), the first in the categories' order when two are
+level; Home shows Tidy up for this month only. For the rebuilt Plan: its roll-up (`rollUp` in
 `derive.ts`) sums `entries` into the top-level category and keeps a payee only when the
 category and its subcategories hold one transaction in all. The month start day moves
 Tidy up's `from` to the period's start, on the server alone.
@@ -606,6 +607,113 @@ subcategories under their own id, other months and other people, the window's ed
 months; days, entries and lone payees, Tidy up's window, Other's subcategories archived or
 not, someone else's).
 
+## Home at a glance
+
+**What it is.** The first screen (no address, or `?month=2026-10` for an earlier month):
+where the month will land, what was spent and what came in, what needs you, a day-by-day
+calendar and the budgets. The full lists live in Activity, Plan and Accounts.
+
+- The month's name between arrows ("Previous month"; "Next month" off on this month), the
+  freshness label under it and the round initial on phones and tablets; on a computer
+  "November 2026" and a search box, "Search everything" (/ puts the cursor there, Enter
+  opens `?activity&q=<words>`). The initial and the theme switch come once the accounts are
+  known (it may be the first run, which has its own) or couldn't be loaded ("Couldn't load
+  your accounts.", Try again), so Settings and Sign out are always a tap away.
+- "Expected at month end": the month-end sum (Repeating bills and month end) with its line,
+  "RM 8,157.00 today − RM 189.00 bills + RM 6,800.00 pay", the bills part in the negative
+  colour and the pay part in the positive one, each only when something is due; with the
+  one account and nothing due, "Maybank Savings today". Below zero it reads "−RM 120.00".
+- "Expenses so far" ("None yet", or "Day 10 of 30", with " · Food running fast" for the
+  budget furthest ahead of the month) and "Income" ("Salary due Nov 25", the listed income
+  item next due, or "No pay scheduled"). On a computer the three sit across the top, in a
+  region "November at a glance".
+- What's due now, to log or skip (Repeating bills and month end).
+- Tidy up, on the due tint, this month only and only when there are any: "2 entries since
+  Oct 1, still in Other" (Other's own name), with Sort them opening
+  `?activity&category=<OTHER_EXPENSE_ID>&from=<tidyUp.from>&select`.
+- Coming up: each listed repeating item's next day after today (one row per item, soonest
+  first, at most 3), "TNB electricity · RM 189.00" / "Nov 20 · Maybank Savings", income
+  "+RM 6,800.00", a transfer unsigned with "Maybank Savings to Cash"; "All scheduled" opens
+  `?plan=scheduled`. It can say "amount to check" for a row and "Added this month: Rent,
+  Netflix" under the list (ComingUp's `toCheck` and `added`), which Scheduled fills in;
+  Home passes neither yet.
+- "Day by day": the month's days in weeks from the Week starts on setting (Monday unless
+  set), each a link to `?activity&day=<day>` named as it reads ("November 10, spent RM
+  9.00, more than the middle day, TNB electricity due"), against "middle day RM 1.50"
+  (`dayByDay`): above it an amber up arrow, at or below it a green down arrow, days to come
+  grey, today ringed (`aria-current="date"`), a dot on a day with a bill (amber) or pay
+  (green) still to come. Nothing spent this month: "Fills in as you log."
+- "Budgets": each budget with "RM 36.00 left" (on a computer "36.00 left"), a bar with a
+  marker for how much of the month has gone, and "RM 24.00 of RM 60.00 · faster than the
+  month" (on track, faster than the month, or over; amber with a warning icon when faster,
+  the negative colour when over). "All of Plan" opens Plan. None: "No budgets yet." with
+  "Set a budget" (`?settings=categories`, where budgets are set).
+- Getting started, this month while any of its five steps is left and it isn't hidden:
+  where the money is (always done), the first expense (spending this month), past months
+  (anything last month), rent, bills and pay (a repeating item), a budget (one this month);
+  "2 of 5 done", each step left a tap from where it's done (Add opens Add). Hide puts it
+  away on this device for the signed-in account (local storage; without it, until the app
+  is opened again); it's decided only once who's signed in is known, and never kept
+  without an account.
+- An earlier month: "Left in October" (received less spent) for the month end, the cards
+  without their lines, every day with no dots or ring, budgets without the marker but with
+  their words; no Tidy up, Coming up or Getting started.
+- With no account: the first run, in place of everything (no tab bar or sidebar): "Where
+  do you keep your money?", Bank, E-wallet, Card and Cash, each opening Add account with
+  that kind chosen, and how many categories it comes with, worked out from the defaults.
+
+Until their own pages land, Home also keeps the theme switch and the install card.
+
+**Owner.** No state of its own: it reads the ledger (`useWholeLedger`, `useAccounts`), this
+month's and last month's totals (`useMonthSummary`) and the person's settings
+(`useProfile`), all owned as in Month view, Budgets and Repeating bills; every change it
+offers goes through those owners (Add, Log it and Skip). Getting started's Hide is the only
+thing it keeps, per device.
+
+**Parts.**
+
+- UI: [components/home/HomePage.tsx](../web/src/components/home/HomePage.tsx) (the layout,
+  the answers, Tidy up), [DayByDay.tsx](../web/src/components/home/DayByDay.tsx),
+  [HomeBudgets.tsx](../web/src/components/home/HomeBudgets.tsx),
+  [ComingUp.tsx](../web/src/components/home/ComingUp.tsx),
+  [GettingStarted.tsx](../web/src/components/home/GettingStarted.tsx) with
+  [getting-started.ts](../web/src/components/home/getting-started.ts),
+  [FirstRun.tsx](../web/src/components/home/FirstRun.tsx),
+  [PageLink.tsx](../web/src/components/home/PageLink.tsx) (links to places replace Home in
+  history, to Settings push), the words in
+  [home-text.ts](../web/src/components/home/home-text.ts); the budget bar is
+  [ui/Bar.tsx](../web/src/components/ui/Bar.tsx) (`today` null draws no marker).
+- Ledger: `monthEndForecast` (with `billsCents` and `payCents`), `comingUp` and `nextPay` in
+  [ledger/forecast.ts](../web/src/ledger/forecast.ts); `budgetLines`; `dayByDay`.
+- Shared: `periodDay` and `budgetPace` in [shared/budgets.ts](../shared/budgets.ts);
+  `monthEnd` in [shared/recurring.ts](../shared/recurring.ts).
+
+**Invariants.**
+
+- Today is the person's own day (`toDateInput(new Date())`), never UTC's.
+- The three answers show together, once the balances and the month's totals are in, with
+  placeholders until then; when the totals can't be had (the server failing, no copy on the
+  device), the month end shows alone with "Couldn't load this month." and Try again.
+- Money is whole cents: the month-end parts are sums of whole-cent amounts (bounded as in
+  Repeating bills and month end); "running fast" compares exact whole numbers.
+- Coming up and the calendar list only listed items on listed accounts, as the month-end
+  sum counts them; transfers are in Coming up but never in the sum or the dots.
+
+**Tests.** [Home.test.tsx](../web/src/components/home/Home.test.tsx) (each part, in Kuala
+Lumpur just after midnight so a UTC day would be wrong: the sum and its line, the arrows,
+the cards, Tidy up's address, the calendar with Monday and Sunday weeks and Activity a tap
+away, the budgets, Coming up stopping at three, a transfer, the search, an earlier month,
+the first day with Getting started, each step, Hide across a reload, the first run adding
+an account of the kind picked, Hide with a slow profile and per account, the initial when
+the accounts fail, what's due on Home this month only; desktop and phone),
+[getting-started.test.ts](../web/src/components/home/getting-started.test.ts) (Hide kept
+per account, never without one),
+[home-text.test.ts](../web/src/components/home/home-text.test.ts) (the words, "running
+fast" exact and its tie-break, day names, weeks),
+[ComingUp.test.tsx](../web/src/components/home/ComingUp.test.tsx) (rows, amounts to check,
+added this month), and [forecast.test.ts](../web/src/ledger/forecast.test.ts) (bills and pay,
+coming up).
+
 ## Budgets
 
 **What it is.** An optional monthly amount on a top-level spending category, its
@@ -613,7 +721,8 @@ subcategories counting toward it. Set, changed or taken away (amount emptied) fr
 category's own sheet, opened from its row on the Categories page ("Monthly budget", and a
 "Carry over" switch, off to start); the row then says "RM 300.00 a month". The amount
 applies from this month on, the same every month until changed; earlier months keep what
-they had. The month card on Home lists each budgeted category, in the categories' order,
+they had. Home lists each budgeted category with what's left and how it goes against the
+month (see Home at a glance). Plan's month card lists each budgeted category, in the categories' order,
 as "RM 120.00 left of RM 300.00", or "RM 40.00 over" in the negative colour, with a bar
 for what's spent. With Carry over on, last month's leftover is added to this month's
 amount, or what it overspent taken away, shown as "incl. RM 30.00 carried over" ("incl.
@@ -835,12 +944,13 @@ transaction's day of the month or weekday, and its first due date is the next on
 the person's own today, so one set up from an old transaction never has the occurrences
 since due (they're taken as handled); one already set up keeps asking about each it missed,
 as those may be real unpaid bills. Each one due (its next due date today or before, the person's own
-day) is at the top of Home, "Due: Rent RM 1,200.00 from Maybank" (income "into Maybank",
+day) is on Home under the two cards, and at the top of Plan until Scheduled is built, "Due: Rent RM 1,200.00 from Maybank" (income "into Maybank",
 a transfer "from Maybank to Visa"; with no payee, its category's name), with Log it, which
 records it as a transaction on the day it was due and moves it on to its next date, and
 Skip, which moves it on recording nothing; each has Undo. Nothing is recorded until one is
-tapped, so balances never show money that didn't move. While anything repeats, Home shows
-one total, "Expected at month end: RM 2,340.00": today's balances of every listed account
+tapped, so balances never show money that didn't move. Plan shows
+one total while anything repeats, "Expected at month end: RM 2,340.00" (Home's month-end
+figure is the same sum; see Home at a glance): today's balances of every listed account
 (a card's owed amount counts against them), less the bills still due this month, plus the
 income still due. Still due is every occurrence of a listed item on a listed account not yet
 logged or skipped, from its next due date (overdue and today's too) up to and including the
@@ -871,9 +981,9 @@ shown, read through `useWholeLedger()`.
 - UI: [components/home/DueItems.tsx](../web/src/components/home/DueItems.tsx),
   [MonthEnd.tsx](../web/src/components/home/MonthEnd.tsx) (the total, its list and the
   items), [RecurringSheet.tsx](../web/src/components/home/RecurringSheet.tsx) and
-  [recurring-text.ts](../web/src/components/home/recurring-text.ts) on
-  [HomePage.tsx](../web/src/components/home/HomePage.tsx) (the month-end total on Plan
-  too); Repeat in [AddEntry.tsx](../web/src/components/entry/AddEntry.tsx) and
+  [recurring-text.ts](../web/src/components/home/recurring-text.ts), what's due on
+  [HomePage.tsx](../web/src/components/home/HomePage.tsx) and, with the month-end total, on
+  [PlanPage.tsx](../web/src/components/plan/PlanPage.tsx); Repeat in [AddEntry.tsx](../web/src/components/entry/AddEntry.tsx) and
   [EntrySheet.tsx](../web/src/components/entry/EntrySheet.tsx).
 - API: read with the accounts (`readLedger` in
   [worker/ledger/read.ts](../worker/ledger/read.ts); `recurring` only for someone who has
@@ -1245,8 +1355,10 @@ on computers (with Mahnee, New entry and, at its foot, Settings). Moving between
 takes the page's place in history, so Back never walks through them. An account's page
 keeps the places, with Accounts marked; Settings, its sections and Import cover them,
 and so does the first run, before there is an account, and a phone or tablet selecting on
-Activity (`&select`), which then has no freshness strip either: its own bar is at the foot. For now Plan is the month card and the month-end total, and Accounts
-is the list of accounts.
+Activity (`&select`), which then has no freshness strip either: its own bar is at the foot. For now Plan is the month as Home showed it before
+it was at a glance (what's due now, the month card, the month-end total and the accounts),
+until Plan and Scheduled are rebuilt, and Accounts is the list of accounts. Home is at a
+glance (see Home at a glance).
 
 **Addresses.** Later pieces link to these; each is a query string read by `readRoute`.
 

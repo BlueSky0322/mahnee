@@ -90,7 +90,8 @@ describe('Settings on phones and tablets', () => {
     'Home no longer lists the ways out, or who is signed in (%s)',
     async (size) => {
       renderApp(withWallet(), '/', { size });
-      await screen.findByRole('button', { name: /^Wallet,/ });
+      // Home is showing
+      await screen.findByText('Expected at month end');
       expect(screen.queryByRole('button', { name: 'Search' })).toBeNull();
       expect(screen.queryByRole('link', { name: 'Categories' })).toBeNull();
       expect(screen.queryByRole('button', { name: 'Export' })).toBeNull();
@@ -171,10 +172,10 @@ describe('Settings on computers', () => {
     expect(screen.queryByRole('link', { name: 'You and settings' })).toBeNull();
   });
 
-  // Interim: piece 5 builds the first run, which may move or remove the initial
+  // The first run keeps the initial, so Settings (and Sign out) is still there
   test('before there is an account, Home keeps the initial, so Settings is still there', async () => {
     renderApp(fakeServer(), '/');
-    expect(await screen.findByText('Add your first account')).toBeTruthy();
+    expect(await screen.findByText('Where do you keep your money?')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'You and settings' })).toBeTruthy();
   });
 });

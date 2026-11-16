@@ -9,6 +9,7 @@ import type { FakeServer } from '../../testing/app';
 import {
   closeApp,
   fakeServer,
+  goToPlace,
   holdNext,
   openSettings,
   renderApp,
@@ -75,11 +76,13 @@ async function openImportAndExport() {
   return user;
 }
 
-/** Out of Settings to Home, from Import and export, where an import goes back to */
-async function settingsToHome() {
+/** Out of Settings, from Import and export (where an import goes back to), on to Accounts */
+async function settingsToAccounts() {
   const user = userEvent.setup();
   await user.click(await screen.findByRole('button', { name: 'Settings' }));
   await user.click(await screen.findByRole('button', { name: /^(Home|Close settings)$/ }));
+  // The balances are listed on Accounts
+  await goToPlace('Accounts');
 }
 
 /** The Import page, from Settings › Import and export */
@@ -494,9 +497,9 @@ describe('the limit', () => {
       timeout: 10_000,
     });
     expect(server.transactions).toHaveLength(5_000);
-    // And Home still says so
+    // And Accounts still says so
     await user.keyboard('{Escape}');
-    await settingsToHome();
+    await settingsToAccounts();
     expect((await screen.findAllByText('−RM 4,000.00')).length).toBeGreaterThan(0);
   }, 90_000);
 
@@ -718,8 +721,8 @@ describe("Mahnee's own export", () => {
       await user.click(screen.getByRole('button', { name: 'Import 1 transaction' }));
       await waitFor(() => expect(server.transactions).toHaveLength(1));
       expect(server.accounts.find((a) => a.id === MAYBANK)?.openingCents).toBe(100_000);
-      // The import goes back to Import and export; Home shows the balance
-      await settingsToHome();
+      // The import goes back to Import and export; Accounts shows the balance
+      await settingsToAccounts();
       expect(await screen.findByText('RM 992.00')).toBeTruthy();
 
       // Ticked, it's applied, once
@@ -732,7 +735,7 @@ describe("Mahnee's own export", () => {
         expect(server.accounts.find((a) => a.id === MAYBANK)?.openingCents).toBe(150_000),
       );
       expect(server.transactions).toHaveLength(1);
-      await settingsToHome();
+      await settingsToAccounts();
       expect(await screen.findByText('RM 1,492.00')).toBeTruthy();
 
       // Now the same: nothing to say about it

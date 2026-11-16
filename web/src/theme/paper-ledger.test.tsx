@@ -44,7 +44,7 @@ async function openIn(theme: 'light' | 'dark', accent: (typeof ACCENTS)[number] 
   server.me.settings.theme = theme;
   server.me.settings.accent = accent;
   localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ theme, accent }));
-  renderApp(server);
+  renderApp(server, '/?accounts');
   await waitFor(() =>
     expect(document.documentElement.getAttribute('data-mantine-color-scheme')).toBe(theme),
   );

@@ -82,7 +82,7 @@ describe('N', () => {
 
   test('does nothing before there is an account to add to', async () => {
     renderApp(fakeServer(), '/');
-    await screen.findByText('Add your first account');
+    await screen.findByText('Where do you keep your money?');
     await userEvent.setup().keyboard('n');
     await settle();
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -90,8 +90,9 @@ describe('N', () => {
 });
 
 describe('/', () => {
-  test("on Home, opens Activity with its search ready to type into, in Home's place", async () => {
-    renderApp(withWallet(), '/');
+  // Home on a computer has a search of its own, which / puts the cursor in (Home.test.tsx)
+  test("on a page with no search, opens Activity with its search ready to type into, in that page's place", async () => {
+    renderApp(withWallet(), '/?plan');
     await places();
     const before = window.history.length;
     const user = userEvent.setup();

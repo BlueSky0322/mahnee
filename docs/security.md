@@ -102,6 +102,9 @@ hack-proof, and the limits below are real.
   changes: those stay on the device, under its email, unread and unsent until it signs
   in here again. Signing out asks first when changes are waiting, then drops the leaving
   account's own.
+- Hiding Home's Getting started is kept in `localStorage` as a flag alone
+  (`getting-started-hidden:<email>`, no figures or names), under the account's email; it
+  isn't cleared on signing out, since it holds nothing about the person's money.
 - What's typed in Add and closed without saving is kept as a draft in `localStorage`
   (`mahnee:addDraft:<email>`): the amount or sum, the payee, which way it went, the account
   and category picked, a new category's name, the day and the repeat. It's kept under the

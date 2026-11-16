@@ -9,6 +9,7 @@ import type { FakeServer } from '../../testing/app';
 import {
   addEntry,
   fakeServer,
+  goToPlace,
   holdNext,
   openSettings,
   renderApp,
@@ -137,7 +138,7 @@ describe('budgets on the month card', () => {
     spend(server, 15_000, FOOD);
     spend(server, 3_000, COFFEE);
     spend(server, 5_000, TRANSPORT);
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
 
     const card = await monthCard(NOW);
     expect(await card.findByText('RM 120.00 left of RM 300.00')).toBeTruthy();
@@ -155,7 +156,7 @@ describe('budgets on the month card', () => {
   test.each(SIZES)('are not shown for a month without any (%s)', async (size) => {
     const server = withBudgets();
     spend(server, 15_000, FOOD);
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const card = await monthCard(NOW);
     await waitFor(() => expect(card.getByLabelText('Spent').textContent).toBe('RM 150.00'));
     expect(card.queryByRole('list', { name: 'Budgets' })).toBeNull();
@@ -177,7 +178,7 @@ describe('budgets on the month card', () => {
       spend(server, 6_000, FUN, `${BEFORE}-10`);
       // This month
       spend(server, 18_000, FOOD);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
 
       const card = await monthCard(NOW);
       expect(await card.findByText('RM 150.00 left of RM 330.00')).toBeTruthy();
@@ -196,7 +197,7 @@ describe('budgets on the month card', () => {
         budget(FOOD, 20_000, { fromMonth: addMonths(NOW, -3) }),
         budget(FOOD, 30_000),
       );
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       expect(await (await monthCard(NOW)).findByText('RM 300.00 left of RM 300.00')).toBeTruthy();
       await user.click(screen.getByRole('button', { name: 'Previous month' }));
@@ -210,7 +211,7 @@ describe('budgets on the month card', () => {
     const server = withBudgets(budget(FOOD, 18_000));
     spend(server, 15_000, FOOD);
     spend(server, 3_000, COFFEE);
-    renderApp(server, '/', { size });
+    renderApp(server, '/?plan', { size });
     const card = await monthCard(NOW);
     const left = await card.findByText('RM 0.00 left of RM 180.00');
     expect(left.className).not.toMatch(/negative/);
@@ -224,7 +225,7 @@ describe('budgets on the month card', () => {
       // RM 20 over last month, so RM 80 this month, and RM 90 spent
       spend(server, 12_000, TRANSPORT, `${BEFORE}-10`);
       spend(server, 9_000, TRANSPORT);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const card = await monthCard(NOW);
       const over = await card.findByText('RM 10.00 over');
       expect(over.className).toMatch(/negative/);
@@ -233,11 +234,13 @@ describe('budgets on the month card', () => {
   );
 });
 
-/** From Categories up to Settings, then out of Settings to Home */
+/** From Categories up to Settings, out of Settings to Home, then to Plan, which has the card */
 async function categoriesToHome() {
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: 'Settings' }));
   await user.click(await screen.findByRole('button', { name: /^(Home|Close settings)$/ }));
+  // The month card is on Plan
+  await goToPlace('Plan');
 }
 
 describe("setting a budget from the category's row", () => {
@@ -446,7 +449,7 @@ describe("setting a budget from the category's row", () => {
     async (size) => {
       const server = withBudgets();
       spend(server, 18_000, FOOD);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
       const card = await monthCard(NOW);
       await waitFor(() => expect(card.getByLabelText('Spent').textContent).toBe('RM 180.00'));
@@ -503,7 +506,7 @@ describe("what's left is never counted twice", () => {
     async (size) => {
       const server = withBudgets(budget(FOOD, 30_000));
       spend(server, 10_000, FOOD);
-      renderApp(server, '/', { size });
+      renderApp(server, '/?plan', { size });
       expect(await (await monthCard(NOW)).findByText('RM 200.00 left of RM 300.00')).toBeTruthy();
       const left = watchLeft();
       let resend = { release: () => {} };

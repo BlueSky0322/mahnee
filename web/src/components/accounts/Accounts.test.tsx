@@ -58,7 +58,7 @@ async function shows(name: string, kind: string, balance: string) {
 describe('accounts on the home page', () => {
   test.each(SIZES)('adds the first account and shows its balance (%s)', async (size) => {
     const server = fakeServer();
-    renderApp(server, '/', { size });
+    renderApp(server, '/?accounts', { size });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));
@@ -79,10 +79,10 @@ describe('accounts on the home page', () => {
   test('shows placeholders until the accounts arrive, never the empty list first', async () => {
     const server = fakeServer();
     const held = holdNext(server, 'GET', '/api/accounts');
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?accounts', { size: 'phone' });
     expect(await screen.findByText('Loading your accounts')).toBeTruthy();
-    // Long enough for anything else to have loaded: who's signed in, on the initial
-    await screen.findByRole('link', { name: 'You and settings' });
+    // Long enough for anything else to have loaded (who's signed in)
+    await act(() => new Promise((r) => setTimeout(r, 100)));
     expect(screen.queryByText('Add your first account')).toBeNull();
 
     held.release();
@@ -93,7 +93,7 @@ describe('accounts on the home page', () => {
   test.each(SIZES)("shows what's owed on a card (%s)", async (size) => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server, '/', { size });
+    renderApp(server, '/?accounts', { size });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));
@@ -125,7 +125,7 @@ describe('accounts on the home page', () => {
       openingCents: -5_000,
     });
     seed(server, { id: 'a'.repeat(16), name: 'Wallet', position: 0, openingCents: 2_000 });
-    renderApp(server);
+    renderApp(server, '/?accounts');
     const list = await screen.findByRole('list');
     expect(
       within(list)
@@ -137,7 +137,7 @@ describe('accounts on the home page', () => {
   test.each(SIZES)('renames an account and changes its opening balance (%s)', async (size) => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet', openingCents: 2_000 });
-    renderApp(server, '/', { size });
+    renderApp(server, '/?accounts', { size });
     const user = userEvent.setup();
 
     const form = await edit('Wallet');
@@ -162,7 +162,7 @@ describe('accounts on the home page', () => {
 
   test('says what is wrong with a name or amount, and saves nothing', async () => {
     const server = fakeServer();
-    renderApp(server);
+    renderApp(server, '/?accounts');
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));
@@ -184,7 +184,7 @@ describe('accounts on the home page', () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
     seed(server, { id: 'b'.repeat(16), name: 'Bank', kind: 'bank' });
-    renderApp(server, '/', { size });
+    renderApp(server, '/?accounts', { size });
     const user = userEvent.setup();
 
     await user.click((await edit('Wallet')).getByRole('button', { name: 'Archive' }));
@@ -205,7 +205,7 @@ describe('accounts on the home page', () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
     seed(server, { id: 'b'.repeat(16), name: 'Old card', kind: 'card', archived: true });
-    renderApp(server);
+    renderApp(server, '/?accounts');
     const user = userEvent.setup();
 
     await row('Wallet');
@@ -226,7 +226,7 @@ describe('accounts on the home page', () => {
       seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
       server.failNext.changes = { status: 409, error: 'Changed somewhere else at the same time.' };
       const held = holdNext(server, 'POST', '/api/changes');
-      renderApp(server, '/', { size });
+      renderApp(server, '/?accounts', { size });
       const user = userEvent.setup();
 
       const form = await edit('Wallet');
@@ -250,7 +250,7 @@ describe('accounts on the home page', () => {
     onTestFinished(() => void vi.useRealTimers());
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server, '/', { size: 'phone' });
+    renderApp(server, '/?accounts', { size: 'phone' });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
     await user.click(await row('Wallet'));
@@ -278,7 +278,7 @@ describe('accounts on the home page', () => {
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
     server.failNext.changes = { status: 404, error: 'Account not found' };
     const held = holdNext(server, 'POST', '/api/changes');
-    renderApp(server);
+    renderApp(server, '/?accounts');
     const user = userEvent.setup();
 
     // A rename, then an account added while it's still being sent
@@ -303,7 +303,7 @@ describe('accounts on the home page', () => {
   test('a fresh copy answered out of order never shows an older name', async () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server);
+    renderApp(server, '/?accounts');
     const user = userEvent.setup();
     const renameTo = async (from: string, to: string) => {
       const form = await edit(from);

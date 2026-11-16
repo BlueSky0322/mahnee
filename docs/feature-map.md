@@ -203,6 +203,11 @@ worker's background sync sends the outbox (see Offline start).
   stored.
 - The app checks a change with the same shared rules before making it; the Worker is the
   authority.
+- When the first load of the ledger fails with nothing kept on the device, the tab bar or
+  sidebar still shows and each screen says so with Try again. A screen opening then reads
+  the failure as it stands and doesn't ask again by itself (`retryOnMount: false` in
+  `useLedger.ts`), so the places never drop behind a loading state; Try again, the
+  connection coming back, the page shown again and a saved change still ask.
 - A change leaves the outbox only once the server has saved it (or refused it), and is
   sent by one sender at a time (the outbox lock); one sent again after its answer was
   lost is counted once by its id, by the server and in the balances shown
@@ -218,7 +223,9 @@ answer, a refusal once back, Undo offline, signed out, storage full, hidden page
 signing out, another person signing in),
 [Accounts.test.tsx](../web/src/components/accounts/Accounts.test.tsx) (adding,
 cards, renaming and archiving from an account's page, Undo, refusals put back, a failing server tried again,
-answers out of order, at desktop and phone sizes), and the accounts cases in
+answers out of order, at desktop and phone sizes),
+[FailedLoad.test.tsx](../web/src/components/shell/FailedLoad.test.tsx) (a failed first load
+keeping the places, asking no more until Try again), and the accounts cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (every refusal, another person's
 account, receipts, all or nothing).
 

@@ -2,6 +2,7 @@ import { Button } from '@mantine/core';
 import { ChartPieSlice, GearSix, House, ListBullets, Wallet } from '@phosphor-icons/react';
 import type { Place } from '../../hooks/useRoute';
 import { navigate } from '../../hooks/useRoute';
+import Freshness from '../common/Freshness';
 import { useYou } from '../common/you';
 import Key from '../ui/Key';
 import { PLACES, goToPlace, hrefOf } from './places';
@@ -9,16 +10,19 @@ import classes from './Sidebar.module.css';
 
 const ICONS = { home: House, activity: ListBullets, plan: ChartPieSlice, accounts: Wallet };
 
-// The computer's places, down the left of every page: Mahnee, New entry (N), Home,
+// The computer's places, down the left of every page: Mahnee and how fresh the figures are
+// (judged on `month`, Home's open month or this one), New entry (N), Home,
 // Activity, Plan and Accounts with the open one marked, and Settings with who's signed in
 // at the foot. New entry waits for the accounts, and can't be used while every account is
 // archived.
 export default function Sidebar({
   place,
+  month,
   addable,
   onAdd,
 }: {
   place: Place;
+  month: string;
   /** null while the accounts load */
   addable: boolean | null;
   onAdd: () => void;
@@ -28,6 +32,7 @@ export default function Sidebar({
     <aside className={classes.sidebar}>
       <div className={classes.brand}>
         <span className={classes.name}>Mahnee</span>
+        <Freshness month={month} />
       </div>
       {addable != null && (
         <Button

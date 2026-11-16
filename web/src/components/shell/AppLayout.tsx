@@ -5,6 +5,8 @@ import type { Route } from '../../hooks/useRoute';
 import { placeOf } from '../../hooks/useRoute';
 import { focusSearch, useShortcuts } from '../../hooks/useShortcuts';
 import { useAccounts } from '../../ledger/useLedger';
+import { thisMonth } from '../../utils/date-input';
+import Freshness from '../common/Freshness';
 import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
 import classes from './AppLayout.module.css';
 import OfflineNotice from './OfflineNotice';
@@ -17,7 +19,9 @@ import UpdateNotice from './UpdateNotice';
 // page have the places: a tab bar under phones' and tablets' pages, a sidebar beside a
 // computer's. Settings and Import cover them, and so does the first run, before there's an
 // account. Add (New entry, or N) opens a new entry, on the account whose page is open; it
-// can't be used while every account is archived.
+// can't be used while every account is archived. How fresh the figures are shows in the
+// sidebar, and on a phone's or tablet's pages other than Home (which has its own) whenever
+// it isn't "Up to date", so changes waiting are never out of sight.
 export default function AppLayout({ route, children }: { route: Route; children: ReactNode }) {
   const isDesktop = useIsDesktop();
   const { accounts, failed } = useAccounts();
@@ -37,6 +41,8 @@ export default function AppLayout({ route, children }: { route: Route; children:
   useShortcuts({ 'n': add, '/': focusSearch }, place != null && accounts?.length !== 0);
 
   const shell = !shown ? undefined : isDesktop ? 'sidebar' : 'tabs';
+  // Home's open month, this one elsewhere
+  const month = (route.view === 'home' ? route.month : null) ?? thisMonth();
   return (
     <div
       className={classes.layout}
@@ -45,11 +51,22 @@ export default function AppLayout({ route, children }: { route: Route; children:
       {shell === 'sidebar' && place != null && (
         <Sidebar
           place={place}
+          month={month}
           addable={addable}
           onAdd={add}
         />
       )}
-      <main className={classes.main}>{children}</main>
+      <main className={classes.main}>
+        {shell === 'tabs' && place !== 'home' && (
+          <div className={classes.freshness}>
+            <Freshness
+              month={month}
+              onlyStale
+            />
+          </div>
+        )}
+        {children}
+      </main>
       {shell === 'tabs' && place != null && (
         <TabBar
           place={place}

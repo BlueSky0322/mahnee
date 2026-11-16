@@ -1,0 +1,35 @@
+/* A 6px dot, green when fresh, amber when not, then 12px muted words */
+.fresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+
+.fresh::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pos);
+}
+
+.old::before {
+  background: var(--due);
+}
+
+/* The label's line, held while the figures first load */
+.reserve {
+  display: block;
+  height: calc(0.75rem * 1.4);
+}
+
+.footer {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 0.75rem;
+  text-align: center;
+}

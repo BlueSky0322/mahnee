@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'vitest';
 import type { Keypad, KeypadKey } from './keypad';
-import { EMPTY_KEYPAD, amountShown, expressionLine, press, totalCents, typeKeys } from './keypad';
+import {
+  EMPTY_KEYPAD,
+  amountShown,
+  expressionLine,
+  press,
+  readTypedSum,
+  totalCents,
+  typeKeys,
+} from './keypad';
 import { MAX_TRANSACTION_CENTS } from './ledger';
 
 // Add's calculator (design R-Add, digest 4.7): numbers joined by + − ×, × before + and −,
@@ -229,6 +237,35 @@ describe('typeKeys: a computer keyboard', () => {
     expect(typeKeys('6.719').expr).toBe('6.71');
     expect(typeKeys('9+*3').expr).toBe('9×3');
     expect(typeKeys('1234567890')).toEqual({ expr: '1234567', fresh: false, tooMuch: true });
+  });
+});
+
+describe('readTypedSum: a sum typed in a box', () => {
+  test('comes to what the same keys come to on the keypad', () => {
+    for (const typed of [
+      '0.25*4.14',
+      '0.1+0.2',
+      '10-0.25x4.14',
+      '1,250.5 - 0.5',
+      '.5',
+      '007',
+      '100+',
+    ]) {
+      expect(readTypedSum(typed), typed).toEqual({ cents: totalCents(typeKeys(typed).expr) });
+    }
+    expect(readTypedSum('')).toEqual({ cents: 0 });
+    // A box can start below zero, which the keypad's keys can't: an overdrawn balance
+    expect(readTypedSum('-0.25x4.14')).toEqual({ cents: -104 });
+  });
+
+  test('a number past nine digits only as the keypad keeps it: no leading or trailing zeros', () => {
+    expect(readTypedSum('10000000.00')).toEqual({ cents: MAX_TRANSACTION_CENTS });
+    expect(readTypedSum('0×1234567890')).toEqual({ error: 'notASum' });
+  });
+
+  test('the largest amount is checked at every digit, as on the keypad', () => {
+    expect(readTypedSum('20000000−10000000')).toEqual({ error: 'tooMuch' });
+    expect(readTypedSum('0−10000000.01')).toEqual({ error: 'tooMuch' });
   });
 });
 

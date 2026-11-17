@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { Account, Category, Transaction } from '@shared/api';
+import { totalCents, typeKeys } from '@shared/keypad';
 import { MAX_ACCOUNTS, MAX_TRANSACTION_CENTS, MAX_TRANSACTIONS_PER_ACCOUNT } from '@shared/ledger';
 import {
   accountTotals,
@@ -8,6 +9,7 @@ import {
   groupText,
   kindLine,
   listBalance,
+  readOpening,
   signedMoneyText,
   startedLine,
   totalsLine,
@@ -45,6 +47,57 @@ const WALLET = account({ name: 'Wallet', kind: 'ewallet', balanceCents: 0 });
 const CARD = account({ name: 'Cobalt card', kind: 'card', balanceCents: -33_190 });
 const CREDIT = account({ name: 'Old card', kind: 'card', balanceCents: 700 });
 const GONE = account({ name: 'Gone', kind: 'ewallet', archived: true, balanceCents: 9_999 });
+
+describe('an opening balance as typed', () => {
+  const NOT_AN_AMOUNT = { error: 'Enter an amount, like 120.50' };
+  const TOO_MUCH = { error: 'Up to 10,000,000 either way' };
+
+  test('a sum is worked out in whole cents, a product rounded half a cent up, as in Add', () => {
+    // 0.25 × 4.14 is 1.035 exactly, so 1.04; in floating point it came to 1.03
+    expect(readOpening('0.25*4.14', 'cash')).toEqual({ cents: 104 });
+    expect(readOpening('0.25x4.14', 'bank')).toEqual({ cents: 104 });
+    expect(readOpening('0.25×4.14', 'ewallet')).toEqual({ cents: 104 });
+    expect(readOpening('0.1+0.2', 'cash')).toEqual({ cents: 30 });
+    expect(readOpening('1,250.5 - 0.5', 'cash')).toEqual({ cents: 125_000 });
+  });
+
+  test('comes to what Add would for the same keys, every time', () => {
+    for (const typed of ['0.25*4.14', '19.99*0.5', '0.07*0.5', '3.07+11.6*2', '10-0.25*4.14']) {
+      expect(readOpening(typed, 'cash'), typed).toEqual({
+        cents: totalCents(typeKeys(typed).expr),
+      });
+    }
+  });
+
+  test('below zero for an overdrawn account, and in credit on a card', () => {
+    expect(readOpening('-50', 'bank')).toEqual({ cents: -5_000 });
+    expect(readOpening('-0.25*4.14', 'bank')).toEqual({ cents: -104 });
+    // A card's is what's owed: a typed sum below zero is money held in credit
+    expect(readOpening('-0.25*4.14', 'card')).toEqual({ cents: 104 });
+    expect(readOpening('0.25*4.14', 'card')).toEqual({ cents: -104 });
+    expect(readOpening('0', 'card')).toEqual({ cents: 0 });
+  });
+
+  test('takes the largest amount either way, a sum reaching it included', () => {
+    expect(readOpening('5,000,000+5,000,000', 'cash')).toEqual({ cents: MAX_TRANSACTION_CENTS });
+    expect(readOpening('5000000+5000000', 'card')).toEqual({ cents: -MAX_TRANSACTION_CENTS });
+    expect(readOpening('-10000000', 'bank')).toEqual({ cents: -MAX_TRANSACTION_CENTS });
+  });
+
+  test('refuses a sum past the largest amount, or one that passes it on the way, as Add does', () => {
+    expect(readOpening('5000000+5000000.01', 'cash')).toEqual(TOO_MUCH);
+    expect(readOpening('10000000.01', 'card')).toEqual(TOO_MUCH);
+    expect(readOpening('-10000000.01', 'bank')).toEqual(TOO_MUCH);
+    expect(readOpening('20000000-10000000', 'cash')).toEqual(TOO_MUCH);
+    expect(readOpening('5000000*3', 'cash')).toEqual(TOO_MUCH);
+  });
+
+  test("refuses what Add's keys couldn't type", () => {
+    for (const typed of ['12abc', '9+*3', '6.719', '(1+2)*3', '10/4', '-', '1..5', '5--3']) {
+      expect(readOpening(typed, 'cash'), typed).toEqual(NOT_AN_AMOUNT);
+    }
+  });
+});
 
 describe('the totals at the top of Accounts', () => {
   test('all together is every running account, cards taking away what is owed on them', () => {

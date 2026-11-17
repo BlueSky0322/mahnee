@@ -194,6 +194,74 @@ describe('accounts', () => {
     expect(server.accounts).toEqual([]);
   });
 
+  test.each(SIZES)(
+    'works an opening balance typed as a sum out exactly, as Add does (%s)',
+    async (size) => {
+      const server = fakeServer();
+      renderApp(server, '/?accounts', { size });
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole('button', { name: 'Add account' }));
+      const form = within(await dialog());
+      await user.type(form.getByLabelText('Name'), 'Wallet');
+      // 1.035 exactly, half a cent up: 1.04, never 1.03
+      await user.type(form.getByLabelText('Opening balance'), '0.25*4.14');
+      await user.click(form.getByRole('button', { name: 'Add account' }));
+      await shows('Wallet', 'Cash', '1.04');
+      await waitFor(() => expect(server.accounts[0]).toMatchObject({ openingCents: 104 }));
+
+      // Edit takes a sum too, up to the largest amount exactly
+      const edited = await edit('Wallet');
+      expect(edited.getByLabelText('Opening balance')).toHaveProperty('value', '1.04');
+      await user.clear(edited.getByLabelText('Opening balance'));
+      await user.type(edited.getByLabelText('Opening balance'), '0.1+0.2x5000000+8999999.9');
+      await user.click(edited.getByRole('button', { name: 'Save' }));
+      await backToAccounts();
+      await shows('Wallet', 'Cash', '10,000,000.00');
+      await waitFor(() =>
+        expect(server.accounts[0]).toMatchObject({ openingCents: 1_000_000_000 }),
+      );
+    },
+  );
+
+  test('refuses an opening balance sum past the largest amount, and saves nothing', async () => {
+    const server = fakeServer();
+    renderApp(server, '/?accounts');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Add account' }));
+    const form = within(await dialog());
+    await user.type(form.getByLabelText('Name'), 'Rich');
+    await user.type(form.getByLabelText('Opening balance'), '5000000+5000000.01');
+    await user.click(form.getByRole('button', { name: 'Add account' }));
+    expect(form.getByText('Up to 10,000,000 either way')).toBeTruthy();
+
+    // Past it on the way is past it, as on Add's keypad, though it comes back under
+    await user.clear(form.getByLabelText('Opening balance'));
+    await user.type(form.getByLabelText('Opening balance'), '20000000-10000000');
+    await user.click(form.getByRole('button', { name: 'Add account' }));
+    expect(form.getByText('Up to 10,000,000 either way')).toBeTruthy();
+    expect(server.accounts).toEqual([]);
+  });
+
+  test.each(SIZES)(
+    "a card's amount owed typed as a sum below zero is in credit (%s)",
+    async (size) => {
+      const server = fakeServer();
+      seed(server, { id: 'a'.repeat(16), name: 'Visa', kind: 'card', openingCents: -12_000 });
+      renderApp(server, '/?accounts', { size });
+      const user = userEvent.setup();
+
+      const form = await edit('Visa');
+      await user.clear(form.getByLabelText('Amount owed'));
+      await user.type(form.getByLabelText('Amount owed'), '-0.25x4.14');
+      await user.click(form.getByRole('button', { name: 'Save' }));
+      await backToAccounts();
+      expect(await screen.findByRole('link', { name: 'Visa, Card, 1.04 in credit' })).toBeTruthy();
+      await waitFor(() => expect(server.accounts[0]).toMatchObject({ openingCents: 104 }));
+    },
+  );
+
   test.each(SIZES)('archives an account, and Undo brings it back (%s)', async (size) => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });

@@ -290,7 +290,8 @@ worker's background sync sends the outbox (see Offline start).
 - At most `MAX_ACCOUNTS` accounts, archived ones included, checked again as the row is
   saved (the position is NULL past it, which the table refuses), so two batches at once
   can't pass it. Names are 1 to `MAX_ACCOUNT_NAME` characters once trimmed; an opening
-  balance is whole cents within `MAX_TRANSACTION` either way. A balance is the opening
+  balance is whole cents within `MAX_TRANSACTION` either way; typed as a sum in the form,
+  it's worked out by Add's keypad rules (`readTypedSum`), never in floating point. A balance is the opening
   balance plus income less spending, worked out by the server in one grouped sum, never
   stored.
 - The totals on Accounts are summed in the app in whole cents over the running accounts:
@@ -510,7 +511,8 @@ Add could have made, and its ids checked against the accounts and categories as 
   [worker/ledger/changes.ts](../worker/ledger/changes.ts); balances in `listAccounts`
   there.
 - Shared: [shared/keypad.ts](../shared/keypad.ts) (Add's calculator: `press`, `typeKeys`,
-  `totalCents`, in whole cents with no floating point); `Transaction`, `NewTransaction`,
+  `totalCents`, in whole cents with no floating point; `readTypedSum` reads an account's
+  opening balance typed as a sum the same way); `Transaction`, `NewTransaction`,
   `TransactionPage` and the change shapes in [shared/api.ts](../shared/api.ts); kinds,
   limits, `isDay`, `readOptionalText`,
   `whyNotInCategory`, `whyNotOnAccount`, `whyNotBetween`, `isOnAccount` (an account's

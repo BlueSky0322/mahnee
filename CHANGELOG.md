@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-17
 
-- Added: Choose the day your month starts on, or your payday, in Settings › Money; every monthly figure, budget and carry-over follows it, and the week's start sets Home's calendar [#?]
+- Added: choose the day your month starts, or payday, in Settings › Money; every monthly figure and budget follows it [#39]
 - Added: settings for how Add starts, the account it uses, suggestions, a time on entries, accent colours, a shorter Home and the opening page; new budgets carry over by default [#38]
 - Changed: Plan shows budgets against the month, where the money went and income by category, each over 12 months, with budgets set in place on a computer; Home's Expenses so far and Income open all of either over 12 months [#37]
 - Removed: Left this month and Over this month; Home's month end takes their place [#37]
@@ -107,3 +107,4 @@ For agents:
 [#36]: https://github.com/BlueSky0322/mahnee/pull/36
 [#37]: https://github.com/BlueSky0322/mahnee/pull/37
 [#38]: https://github.com/BlueSky0322/mahnee/pull/38
+[#39]: https://github.com/BlueSky0322/mahnee/pull/39

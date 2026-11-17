@@ -67,6 +67,7 @@ import { BUDGET_RANGE, fitsBudgetCents, isBudgetMonth, whyNoBudget } from '../..
 import { ensureProfileStatement } from '../accounts/profiles';
 import { type Unchecked, fail, ok } from '../http';
 import { listCategories } from './read';
+import { readMonthStart } from './month-start';
 import { changeFingerprint, receiptStatements, savedReceipts } from './receipts';
 
 /** A change that can't be saved, with the status and reason the API answers with */
@@ -138,6 +139,8 @@ interface Model {
   recurring: Map<string, RecurringState>;
   /** The imports the batch names, and whether each was undone (one not here doesn't exist) */
   imports: Map<string, { undone: boolean }>;
+  /** The day the person's month starts on (read only when the batch sets a budget) */
+  monthStart: number;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -747,7 +750,7 @@ function changeStatements(
       const category = readCategory(model, change.categoryId);
       const reason = whyNoBudget(category);
       if (reason != null) throw new Refused(409, reason);
-      if (!isBudgetMonth(change.fromMonth, now)) {
+      if (!isBudgetMonth(change.fromMonth, now, model.monthStart)) {
         throw new Refused(400, 'Give a month from 2000 up to this one');
       }
       const amount = change.amountCents;
@@ -1110,12 +1113,14 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
   const named = new Set<string>();
   const addingTo = new Set<string>();
   let repeating = false;
+  let budgeting = false;
   const importIds = new Set<string>();
   for (const i of fresh) {
     const change: unknown = changes[i];
     if (!isObject(change)) continue;
     const op = String(change.op);
     if (op.endsWith('Recurring')) repeating = true;
+    if (op === 'setBudget') budgeting = true;
     // The imports it records, adds to or undoes
     const record = op === 'addImport' && isObject(change.import) ? change.import.id : undefined;
     for (const id of [record, change.importId, op === 'undoImport' ? change.id : undefined]) {
@@ -1197,6 +1202,8 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
       recurring.results.map(({ id, archived, ...r }) => [id, { ...r, archived: archived === 1 }]),
     ),
     imports: new Map(imports.results.map((r) => [r.id, { undone: r.undoneAt != null }])),
+    // A budget is set from the person's month (shared/period.ts)
+    monthStart: budgeting ? await readMonthStart(db, email) : 1,
   };
   const now = Date.now();
   // None saved yet: the defaults are saved first, so the changes after can name them

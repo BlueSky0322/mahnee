@@ -58,12 +58,14 @@ const byDay = <T extends { date: string }>(items: T[]) =>
     .sort((a, b) => (a.item.date < b.item.date ? -1 : a.item.date > b.item.date ? 1 : a.i - b.i))
     .map(({ item }) => item);
 
-/** What's expected at the end of the month `today` (the person's own day) is in */
-export function monthEndForecast(ledger: Ledger, today: string): Forecast {
+/**
+ * What's expected at the end of the month `today` (the person's own day) is in: its last
+ * day `end`, the person's month (shared/period.ts), the calendar month's when not given
+ */
+export function monthEndForecast(ledger: Ledger, today: string, end = monthEnd(today)): Forecast {
   const balancesCents = ledger.accounts
     .filter((a) => !a.archived)
     .reduce((sum, a) => sum + a.balanceCents, 0);
-  const end = monthEnd(today);
   const items: StillDue[] = [];
   for (const r of ledger.recurring ?? []) {
     if (r.kind === 'transfer' || !active(ledger, r)) continue;

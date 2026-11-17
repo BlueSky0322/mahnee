@@ -15,10 +15,12 @@ import type { SearchQuery } from '@shared/search';
 import { matchesSearch, readSearch, searchParams } from '@shared/search';
 import { api } from '../api';
 import {
+  listCacheIds,
   onCacheCleared,
   onCacheUserKnown,
   readCache,
   readCacheEntry,
+  removeCacheEntry,
   whenCacheUserKnown,
   writeCache,
 } from '../offline/cache';
@@ -109,16 +111,19 @@ export const SUMMARY_KEY = ['summary'] as const;
 /** A month's totals (2026-11) */
 export const summaryKey = (month: string) => ['summary', month] as const;
 /**
- * A month's totals, kept on the device for opening offline: v2 since they hold days,
- * entries and Tidy up, so a copy in the older shape is never read
+ * A month's totals, kept on the device for opening offline: v3 since they say which days
+ * they were summed over (the person's month start day), so a copy in an older shape is
+ * never read
  */
-const summaryCacheKey = (month: string) => `summary-v2:${month}`;
+const SUMMARY_CACHE = 'summary-v3:';
+const summaryCacheKey = (month: string) => `${SUMMARY_CACHE}${month}`;
 /** Every 12 months' totals */
 export const TREND_KEY = ['trend'] as const;
 /** The totals of the 12 months ending at a month (2026-11) */
 export const trendKey = (month: string) => ['trend', month] as const;
 /** The same, kept on the device for opening offline */
-const trendCacheKey = (month: string) => `trend-v2:${month}`;
+const TREND_CACHE = 'trend-v3:';
+const trendCacheKey = (month: string) => `${TREND_CACHE}${month}`;
 
 /** The person's recent imports (GET /api/imports) */
 export const IMPORTS_KEY = ['imports'] as const;
@@ -392,6 +397,29 @@ function refreshKeptSummaries() {
   for (const month of trendsFromDevice) {
     void queryClient.invalidateQueries({ queryKey: trendKey(month) });
   }
+}
+
+/**
+ * When the days a month runs over change (the month start day, or the pay it starts on),
+ * every month's totals kept on this device and shown are for the old days: the signed-in
+ * person's copies are deleted first (another account's stay theirs), then the ones shown
+ * are dropped, fetched again where they're showing and when next shown. Resolves once the
+ * copies are gone.
+ */
+export async function forgetMonthTotals(): Promise<void> {
+  for (const prefix of [SUMMARY_CACHE, TREND_CACHE]) {
+    for (const id of await listCacheIds(prefix)) {
+      if ((await readCacheEntry(`${prefix}${id}`)) != null) {
+        await removeCacheEntry(`${prefix}${id}`);
+      }
+    }
+  }
+  for (const what of [...fromDevice.keys()]) {
+    if (what.startsWith('summary:')) shownFresh(what);
+  }
+  trendsFromDevice.clear();
+  void queryClient.resetQueries({ queryKey: SUMMARY_KEY });
+  void queryClient.resetQueries({ queryKey: TREND_KEY });
 }
 
 /**

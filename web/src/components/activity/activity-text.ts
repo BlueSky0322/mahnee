@@ -1,6 +1,7 @@
 import type { Account, Category, SearchTotals, Transaction } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
-import { foldCase } from '@shared/search';
+import { periodMonthOf, periodOf, shiftMonth } from '@shared/period';
+import { foldCase, isCalendarDay } from '@shared/search';
 import { clockText, fromDateInput, monthHeading } from '../../utils/date-input';
 import { formatAmount, formatMoney } from '../../utils/money';
 import { categoryName } from '../common/category-name';
@@ -53,31 +54,29 @@ export function fullDay(day: string, today: string) {
   });
 }
 
-const pad = (n: number) => String(n).padStart(2, '0');
-
-/** The month a whole month's days are (from its first to its last), or null */
-function wholeMonth(from: string | null, to: string | null): string | null {
-  if (from == null || to == null || !from.endsWith('-01') || from.slice(0, 7) !== to.slice(0, 7)) {
-    return null;
-  }
-  const [y, m] = from.split('-').map(Number);
-  const last = new Date(y, m, 0).getDate();
-  return to === `${from.slice(0, 7)}-${pad(last)}` ? from.slice(0, 7) : null;
-}
-
-function monthBefore(month: string) {
-  const [y, m] = month.split('-').map(Number);
-  return m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`;
+/**
+ * The month (2026-11) whose days `from` and `to` are exactly, the person's month from
+ * `start` (shared/period.ts), or null
+ */
+function wholeMonth(from: string | null, to: string | null, start: number): string | null {
+  if (from == null || to == null || !isCalendarDay(from)) return null;
+  const month = periodMonthOf(from, start);
+  const { firstDay, lastDay } = periodOf(month, start);
+  return firstDay === from && lastDay === to ? month : null;
 }
 
 type Period = { from: string | null; to: string | null };
 
-/** How the days are said in a sentence ("this month", "since Oct 1"); '' for every day */
-function periodPhrase({ from, to }: Period, today: string) {
-  const month = wholeMonth(from, to);
+/**
+ * How the days are said in a sentence ("this month", "since Oct 1"); '' for every day.
+ * Months are the person's, from `start` (the 1st when not given).
+ */
+function periodPhrase({ from, to }: Period, today: string, start: number) {
+  const month = wholeMonth(from, to, start);
   if (month != null) {
-    if (month === today.slice(0, 7)) return 'this month';
-    if (month === monthBefore(today.slice(0, 7))) return 'last month';
+    const current = periodMonthOf(today, start);
+    if (month === current) return 'this month';
+    if (month === shiftMonth(current, -1)) return 'last month';
     return `in ${monthHeading(month)}`;
   }
   if (from != null && from === to) return `on ${fullDay(from, today)}`;
@@ -89,12 +88,16 @@ function periodPhrase({ from, to }: Period, today: string) {
 
 // ---------- The filters ----------
 
-/** The days' chip: "This month", "Since Oct 1", "Tue, Nov 10", "All months" */
-export function periodText(period: Period, today: string) {
-  const month = wholeMonth(period.from, period.to);
+/**
+ * The days' chip: "This month", "Since Oct 1", "Tue, Nov 10", "All months"; months are the
+ * person's, from `start` (the 1st when not given)
+ */
+export function periodText(period: Period, today: string, start = 1) {
+  const month = wholeMonth(period.from, period.to, start);
   if (month != null) {
-    if (month === today.slice(0, 7)) return 'This month';
-    if (month === monthBefore(today.slice(0, 7))) return 'Last month';
+    const current = periodMonthOf(today, start);
+    if (month === current) return 'This month';
+    if (month === shiftMonth(current, -1)) return 'Last month';
     return monthHeading(month);
   }
   if (period.from != null && period.from === period.to) return fullDay(period.from, today);
@@ -146,8 +149,9 @@ export function foundLine(
 export function noMatchLine(
   looked: Period & { q: string; category: string | null; elsewhere: number | null },
   today: string,
+  start = 1,
 ) {
-  const phrase = periodPhrase(looked, today);
+  const phrase = periodPhrase(looked, today, start);
   const said = [
     looked.q === '' ? 'Nothing' : `No "${looked.q}"`,
     looked.category == null ? null : `in ${looked.category}`,
@@ -157,7 +161,7 @@ export function noMatchLine(
     .join(' ');
   const n = looked.elsewhere ?? 0;
   if (n === 0 || phrase === '') return `${said}.`;
-  const months = wholeMonth(looked.from, looked.to) != null;
+  const months = wholeMonth(looked.from, looked.to, start) != null;
   const other = months
     ? n === 1
       ? 'in another month'

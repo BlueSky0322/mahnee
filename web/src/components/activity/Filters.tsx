@@ -2,8 +2,9 @@ import { Button, TextInput } from '@mantine/core';
 import { CaretDown } from '@phosphor-icons/react';
 import { useState } from 'react';
 import type { TransactionKind } from '@shared/ledger';
+import { periodMonthOf, shiftMonth } from '@shared/period';
+import { useMonthStart } from '../../ledger/month-start';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
-import { addMonths, thisMonth } from '../../utils/date-input';
 import { categoryName } from '../common/category-name';
 import Chip from '../ui/Chip';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
@@ -29,9 +30,10 @@ const KINDS: { label: string; kinds: TransactionKind[] | null }[] = [
   { label: 'Expenses and income', kinds: ['expense', 'income'] },
 ];
 
-const isMonth = (days: Days, month: string) => {
+/** Whether the days are exactly the person's month `month`, from `start` */
+const isMonth = (days: Days, month: string, start: number) => {
   if (days.kind !== 'range') return false;
-  const { from, to } = monthDays(month);
+  const { from, to } = monthDays(month, start);
   return days.from === from && days.to === to;
 };
 
@@ -55,6 +57,7 @@ export default function FilterChips({
 }) {
   const { accounts } = useAccounts();
   const { categories } = useCategories();
+  const start = useMonthStart();
   const [open, setOpen] = useState<Which | null>(null);
   const [shownList, setShownList] = useState<Which>('account');
   if (open != null && open !== shownList) setShownList(open);
@@ -72,7 +75,7 @@ export default function FilterChips({
     },
     {
       which: 'days',
-      label: periodText(dayRange(filters.days, today), today),
+      label: periodText(dayRange(filters.days, today, start), today, start),
       on: filters.days.kind !== 'month',
     },
     { which: 'kind', label: kindText(filters.kinds), on: filters.kinds != null },
@@ -212,12 +215,13 @@ function DayChoices({
   today: string;
   onPick: (days: Days) => void;
 }) {
-  const month = thisMonth(new Date(`${today}T12:00:00`));
-  const last = addMonths(month, -1);
-  const lastMonth = monthDays(last);
-  const picking = days.kind === 'day' || (days.kind === 'range' && !isMonth(days, last));
+  // The person's months (shared/period.ts)
+  const start = useMonthStart();
+  const last = shiftMonth(periodMonthOf(today, start), -1);
+  const lastMonth = monthDays(last, start);
+  const picking = days.kind === 'day' || (days.kind === 'range' && !isMonth(days, last, start));
   const [own, setOwn] = useState(picking);
-  const range = dayRange(days, today);
+  const range = dayRange(days, today, start);
   const [from, setFrom] = useState(
     days.kind === 'month' || days.kind === 'all' ? '' : range.from ?? '',
   );
@@ -233,7 +237,7 @@ function DayChoices({
           },
           {
             label: 'Last month',
-            on: !own && isMonth(days, last),
+            on: !own && isMonth(days, last, start),
             pick: () => onPick({ kind: 'range', ...lastMonth }),
           },
           {

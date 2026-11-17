@@ -13,8 +13,9 @@ import { changedTransaction, idOf, isTransactionChange, oneByOne, tracker } from
 
 // A month's totals with changes made to them before the server has them, worked out the
 // way the server sums them (worker/ledger/summary.ts): spending and income in the month,
+// on the days the server summed it over (firstDay to lastDay: the person's month),
 // by category, with how many entries make each and the payee of a lone one; spending by
-// day; and Tidy up's count of spending since the first of the month before still in Other
+// day; and Tidy up's count of spending since the first day of the month before still in Other
 // or under it. Transfers never count. A change takes away what the transaction was (if
 // it counted) and adds what it is now (if it counts), so one moved to another month or
 // category moves out of one total and into the other. `lookup` gives a transaction as it
@@ -35,9 +36,13 @@ import { changedTransaction, idOf, isTransactionChange, oneByOne, tracker } from
 // What last month left stays as the server worked it out; a change to an earlier month's
 // spending moves it once the totals are next fetched (after the changes are all saved).
 
-/** Which total a transaction counts in, if any, for `month` */
-function countsIn(t: Transaction | null | undefined, month: string) {
-  if (t == null || !t.date.startsWith(`${month}-`) || t.categoryId == null) return null;
+/** Whether a transaction is on one of the days `totals` were summed over */
+const within = (t: Transaction, totals: Pick<MonthTotals, 'firstDay' | 'lastDay'>) =>
+  t.date >= totals.firstDay && t.date <= totals.lastDay;
+
+/** Which total a transaction counts in, if any, for the month `totals` are */
+function countsIn(t: Transaction | null | undefined, totals: MonthTotals) {
+  if (t == null || !within(t, totals) || t.categoryId == null) return null;
   return t.kind === 'expense' ? 'spent' : t.kind === 'income' ? 'income' : null;
 }
 
@@ -74,7 +79,7 @@ const largestFirst = (a: CategoryTotal, b: CategoryTotal) =>
 
 /** `totals` with `t` added to its totals (`by` 1) or taken out (-1) */
 function count<T extends MonthTotals>(totals: T, t: Transaction | null | undefined, by: 1 | -1): T {
-  const which = countsIn(t, totals.month);
+  const which = countsIn(t, totals);
   if (which == null || t?.categoryId == null) return totals;
   const counted = { ...t, categoryId: t.categoryId };
   const cents = by * t.amountCents;
@@ -97,14 +102,14 @@ function count<T extends MonthTotals>(totals: T, t: Transaction | null | undefin
 function countDays(summary: MonthSummary, t: Transaction | null | undefined, by: 1 | -1) {
   if (t == null || t.kind !== 'expense' || t.categoryId == null) return summary;
   let next = summary;
-  if (t.date.startsWith(`${summary.month}-`)) {
+  if (within(t, summary)) {
     next = { ...next, spentByDay: addToDay(next.spentByDay, t.date, by * t.amountCents) };
   }
   const { tidyUp } = summary;
   if (
     tidyUp.categoryIds.includes(t.categoryId) &&
     t.date >= tidyUp.from &&
-    t.date <= `${summary.month}-31`
+    t.date <= summary.lastDay
   ) {
     next = { ...next, tidyUp: { ...tidyUp, entries: tidyUp.entries + by } };
   }

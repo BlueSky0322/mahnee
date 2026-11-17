@@ -299,13 +299,20 @@ export interface MonthBudget {
 }
 
 /**
- * GET /api/summary: what a person spent and received in a month (2026-11), across every
- * account, worked out by the server. Only spending and income count; a transfer moves
+ * GET /api/summary: what a person spent and received in a month (2026-11, their own, from
+ * their month start day), across every account, worked out by the server. Only spending and income count; a transfer moves
  * money between the person's own accounts, so it is never spending. Each list holds
  * only categories with something in them, largest first.
  */
 export interface MonthSummary {
+  /** The month's name (2026-11): the person's month, from their month start day */
   month: string;
+  /**
+   * The days it was summed over, both included (shared/period.ts): 2026-11-01 to
+   * 2026-11-30 from the 1st, 2026-10-25 to 2026-11-24 from the 25th
+   */
+  firstDay: string;
+  lastDay: string;
   incomeCents: number;
   spentCents: number;
   /** Received less spent; below zero when more was spent than came in */

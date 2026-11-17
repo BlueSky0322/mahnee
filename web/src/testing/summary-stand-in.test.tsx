@@ -70,6 +70,8 @@ describe("the stand-in's month totals", () => {
     const october = await summaryOf('2025-10');
     expect(october).toEqual({
       month: '2025-10',
+      firstDay: '2025-10-01',
+      lastDay: '2025-10-31',
       incomeCents: 5_000,
       spentCents: 1_220,
       leftCents: 3_780,
@@ -100,6 +102,8 @@ describe("the stand-in's month totals", () => {
     expect(trend.months[11]).toEqual(octoberTotals);
     expect(trend.months[10]).toEqual({
       month: '2025-09',
+      firstDay: '2025-09-01',
+      lastDay: '2025-09-30',
       incomeCents: 0,
       spentCents: 100,
       leftCents: -100,

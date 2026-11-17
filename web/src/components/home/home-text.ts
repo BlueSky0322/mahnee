@@ -1,5 +1,6 @@
 import type { WeekStart } from '@shared/api';
-import type { BudgetPace, PeriodDay } from '@shared/budgets';
+import type { BudgetPace } from '@shared/budgets';
+import type { PeriodDay } from '@shared/period';
 import { budgetPace } from '@shared/budgets';
 import { DEFAULT_CURRENCY } from '@shared/ledger';
 import type { BudgetLine } from '../../ledger/budgets';

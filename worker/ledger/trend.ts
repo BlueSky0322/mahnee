@@ -1,6 +1,8 @@
 // Spending over time: what a person spent and received in each of the 12 months ending at
 // a month (shared/trend.ts), across every account, so the month card can show each
 // category's last 12 months. One grouped sum over a fixed window, never a read per month.
+// Each month is the person's own (shared/period.ts), grouped by periodMonthSql, and says
+// which days it holds.
 //
 // Each month is summed as GET /api/summary sums one (summary.ts): spending and income only,
 // never a transfer, each category under its own id with how many transactions make it
@@ -8,16 +10,18 @@
 // subcategories up into their parent as it does for the month itself, so the month shown
 // is exactly the card's figures.
 //
-// Bounded: the window is the 12 months ending at a checked month (`date >= first day AND
-// date < the month after`), and there is at most one row per month, kind and category, so
+// Bounded: the window is the 12 months ending at a checked month (from the first's first day
+// to the last's last), and there is at most one row per month, kind and category, so
 // at most 12 x 2 x MAX_CATEGORIES rows. Every total stays exact: everything a person can
 // have, every month together, is at most MAX_ACCOUNTS x MAX_TRANSACTIONS_PER_ACCOUNT x
 // MAX_TRANSACTION_CENTS = 5e15 cents, under the 9e15 a number holds as a whole number.
 
 import type { CategoryTotal, MonthTotals, MonthTrend } from '../../shared/api';
-import { isMonth } from '../../shared/ledger';
-import { monthAfter, trendMonths } from '../../shared/trend';
+import { isPeriodMonth, periodOf } from '../../shared/period';
+import { trendMonths } from '../../shared/trend';
 import { fail, json } from '../http';
+import { readMonthStart } from './month-start';
+import { periodMonthSql } from './period-sql';
 import { savedIdsStatement } from './receipts';
 
 interface TrendRow {
@@ -38,22 +42,23 @@ export async function readTrend(
   pending: string[] = [],
 ): Promise<Response> {
   const month = params.get('month');
-  if (!isMonth(month)) return fail('Give a month from 2000, like 2026-11', 400);
-  const months = trendMonths(month);
+  if (!isPeriodMonth(month)) return fail('Give a month from 2000, like 2026-11', 400);
+  const start = await readMonthStart(db, email);
+  const months = trendMonths(month).map((m) => periodOf(m, start));
 
   // In one batch with which of `pending` are saved, so both describe the same moment
   const answers = await db.batch<TrendRow | { id: string }>([
     db
       .prepare(
-        `SELECT substr(date, 1, 7) AS month, kind, category_id AS categoryId,
+        `SELECT ${periodMonthSql('date', '?4')} AS month, kind, category_id AS categoryId,
                 SUM(amount_cents) AS cents, COUNT(*) AS entries,
                 CASE WHEN COUNT(*) = 1 THEN MAX(payee) END AS payee
          FROM transactions
-         WHERE email = ? AND date >= ? AND date < ? AND kind IN ('expense', 'income')
+         WHERE email = ?1 AND date BETWEEN ?2 AND ?3 AND kind IN ('expense', 'income')
          GROUP BY month, kind, category_id
          ORDER BY month, cents DESC, category_id`,
       )
-      .bind(email, `${months[0]}-01`, `${monthAfter(month)}-01`),
+      .bind(email, months[0].firstDay, months[months.length - 1].lastDay, start),
     ...(pending.length > 0 ? [savedIdsStatement(db, email, pending)] : []),
   ]);
   const rows = answers[0].results as TrendRow[];
@@ -71,12 +76,14 @@ export async function readTrend(
       }));
   return json<MonthTrend>({
     month,
-    months: months.map((m): MonthTotals => {
+    months: months.map(({ month: m, firstDay, lastDay }): MonthTotals => {
       const spentByCategory = byKind(m, 'expense');
       const incomeByCategory = byKind(m, 'income');
       const [spentCents, incomeCents] = [sum(spentByCategory), sum(incomeByCategory)];
       return {
         month: m,
+        firstDay,
+        lastDay,
         incomeCents,
         spentCents,
         leftCents: incomeCents - spentCents,

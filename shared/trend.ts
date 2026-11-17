@@ -17,9 +17,6 @@ function shiftMonth(month: string, by: number) {
 export const trendMonths = (month: string): string[] =>
   Array.from({ length: TREND_MONTHS }, (_, i) => shiftMonth(month, i - (TREND_MONTHS - 1)));
 
-/** The month after `month`, where its 12 months stop (exclusive) */
-export const monthAfter = (month: string) => shiftMonth(month, 1);
-
 /**
  * The average of whole-cent amounts, in whole cents, rounded half up. Each amount is at
  * least 0 and their sum at most what a person can have (5e15 cents), so the sum, the

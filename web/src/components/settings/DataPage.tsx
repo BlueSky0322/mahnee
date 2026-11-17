@@ -1,3 +1,4 @@
+import { useThisMonth } from '../../ledger/month-start';
 import { Button } from '@mantine/core';
 import { useNetwork } from '@mantine/hooks';
 import { DownloadSimple, UploadSimple } from '@phosphor-icons/react';
@@ -13,7 +14,7 @@ import { change } from '../../ledger/ledger';
 import { useAccounts, useImports, useUnsaved } from '../../ledger/useLedger';
 import { isOfflineFailure } from '../../offline/network';
 import { useProfile } from '../../profile/ProfileContext';
-import { dayText, thisMonth, toDateInput } from '../../utils/date-input';
+import { dayText, toDateInput } from '../../utils/date-input';
 import { deliverFile } from '../../utils/deliver-file';
 import { quietly } from '../../utils/quietly';
 import { SettingsFooter } from '../common/Freshness';
@@ -31,6 +32,8 @@ import classes from './Settings.module.css';
 // default), this calendar year or picked dates. A file of some dates says it holds only
 // those, and can't restore balances on its own.
 export default function DataPage() {
+  // The person's month (shared/period.ts)
+  const month = useThisMonth();
   const isDesktop = useIsDesktop();
   return (
     <div className={classes.page}>
@@ -41,7 +44,7 @@ export default function DataPage() {
       <ExportSection />
       {!isDesktop && (
         <SettingsFooter
-          month={thisMonth()}
+          month={month}
           onlyStale
         />
       )}

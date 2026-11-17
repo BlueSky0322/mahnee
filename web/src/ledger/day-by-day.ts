@@ -1,5 +1,5 @@
 import type { DayTotal } from '@shared/api';
-import { periodDays } from '@shared/budgets';
+import { periodDays } from '@shared/period';
 
 // Home's "Day by day" calendar: each day of the period with what was spent on it, against
 // the middle day so far. The middle day is the median of each day's spending from the

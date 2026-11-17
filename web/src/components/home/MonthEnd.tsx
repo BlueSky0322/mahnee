@@ -2,8 +2,8 @@ import { useState } from 'react';
 import type { Recurring } from '@shared/api';
 import { DEFAULT_CURRENCY } from '@shared/ledger';
 import { anyRepeating, monthEndForecast } from '../../ledger/forecast';
+import { useMonths } from '../../ledger/month-start';
 import { useWholeLedger } from '../../ledger/useLedger';
-import { toDateInput } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import classes from './Recurring.module.css';
@@ -26,6 +26,7 @@ const SHOWN_ROWS = 100;
 // it up, and every repeating item, each opening its sheet to change it or stop it.
 export default function MonthEnd() {
   const { data: ledger } = useWholeLedger();
+  const { today, current } = useMonths();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Recurring | null>(null);
   if (ledger == null) return null;
@@ -36,7 +37,8 @@ export default function MonthEnd() {
     />
   );
   if (!anyRepeating(ledger)) return sheet;
-  const forecast = monthEndForecast(ledger, toDateInput(new Date()));
+  // To the last day of the person's month (shared/period.ts)
+  const forecast = monthEndForecast(ledger, today, current.lastDay);
   const total = totalMoney(forecast.cents);
   const repeating = (ledger.recurring ?? []).filter((r) => !r.archived);
   return (

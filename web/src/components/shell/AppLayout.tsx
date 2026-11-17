@@ -5,7 +5,7 @@ import type { Route } from '../../hooks/useRoute';
 import { placeOf } from '../../hooks/useRoute';
 import { focusSearch, useShortcuts } from '../../hooks/useShortcuts';
 import { useAccounts } from '../../ledger/useLedger';
-import { thisMonth } from '../../utils/date-input';
+import { useForgetMonthsWhenTheStartChanges, useMonths } from '../../ledger/month-start';
 import Freshness from '../common/Freshness';
 import AddEntry, { type AddRequest } from '../entry/AddEntry';
 import { AddEntryContext } from './add-entry';
@@ -55,8 +55,12 @@ export default function AppLayout({ route, children }: { route: Route; children:
     ((route.view === 'activity' && route.select) ||
       (route.view === 'plan' && route.half === 'budgets' && route.category != null));
   const shell = !shown ? undefined : isDesktop ? 'sidebar' : ownPage ? undefined : 'tabs';
-  // Home's open month, this one elsewhere
-  const month = (route.view === 'home' ? route.month : null) ?? thisMonth();
+  // Home's open month, this one elsewhere: the person's (shared/period.ts)
+  const { current } = useMonths();
+  const homeMonth = route.view === 'home' ? route.month : null;
+  const month = homeMonth != null && homeMonth < current.month ? homeMonth : current.month;
+  // Months kept for the old days go when the day the month starts on changes
+  useForgetMonthsWhenTheStartChanges();
   return (
     <div
       className={classes.layout}

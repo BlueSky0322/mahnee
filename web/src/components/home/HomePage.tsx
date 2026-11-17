@@ -1,18 +1,18 @@
 import { Button } from '@mantine/core';
 import { CaretLeft, CaretRight, MagnifyingGlass, Rows } from '@phosphor-icons/react';
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { Account, Category, Ledger, MonthSummary, WeekStart } from '@shared/api';
-import { periodDay } from '@shared/budgets';
 import { OTHER_EXPENSE_ID, categoriesOrDefaults } from '@shared/categories';
 import { DEFAULT_CURRENCY, FIRST_DAY } from '@shared/ledger';
-import { monthEnd } from '@shared/recurring';
+import { periodDay } from '@shared/period';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { ALL_EXPENSES, ALL_INCOME, navigate } from '../../hooks/useRoute';
 import { budgetLines } from '../../ledger/budgets';
 import { comingUp, monthEndForecast, nextPay } from '../../ledger/forecast';
+import { useKnownMonthStart, useMonths } from '../../ledger/month-start';
 import { useAccounts, useMonthSummary, useWholeLedger } from '../../ledger/useLedger';
 import { useProfile } from '../../profile/ProfileContext';
-import { addMonths, monthHeading, thisMonth, toDateInput } from '../../utils/date-input';
+import { addMonths, monthHeading } from '../../utils/date-input';
 import { balanceText } from '../accounts/account-text';
 import Freshness from '../common/Freshness';
 import YouLink from '../common/YouLink';
@@ -43,8 +43,8 @@ const FIRST_MONTH = FIRST_DAY.slice(0, 7);
 /** How many scheduled items Coming up lists */
 const COMING_UP = 3;
 
-/** Home's address for `month`: this month's names none */
-const homeAddress = (month: string) => (month >= thisMonth() ? '' : `?month=${month}`);
+/** Home's address for `month`: this month's (`current`) names none */
+const homeAddress = (month: string, current: string) => (month >= current ? '' : `?month=${month}`);
 
 // The first screen, at a glance: where the month will land with the sum under it, spent so far and
 // what came in (each opening its last 12 months), what needs you (what's due now, Tidy up, Coming
@@ -55,8 +55,18 @@ const homeAddress = (month: string) => (month >= thisMonth() ? '' : `?month=${mo
 const HomePage = ({ month }: { month: string | null }) => {
   const { accounts, failed, retry } = useAccounts();
   const isDesktop = useIsDesktop() === true;
+  const { current } = useMonths();
+  // An address naming this month, or one still to come, is this month's own address, once
+  // it's known when the person's month starts
+  const known = useKnownMonthStart() != null;
+  const later = month != null && month >= current.month;
+  const unread = new URLSearchParams(window.location.search).get('month') != null && month == null;
+  useEffect(() => {
+    if (known && (later || unread)) navigate('', { replace: true });
+  }, [known, later, unread]);
   if (accounts?.length === 0) return <FirstRun />;
-  const shown = month ?? thisMonth();
+  // The person's month (shared/period.ts): one named after this one is this one
+  const shown = month != null && month < current.month ? month : current.month;
   return (
     <div className={isDesktop ? `${classes.page} ${classes.desktop}` : classes.page}>
       {/* The same header while the accounts load and after, so what's typed in it stays */}
@@ -117,11 +127,14 @@ interface Figures {
 }
 
 function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
-  const current = thisMonth();
+  const months = useMonths();
+  const current = months.current.month;
   const isCurrent = month >= current;
-  const today = toDateInput(new Date());
-  const firstDay = `${month}-01`;
-  const lastDay = monthEnd(firstDay);
+  const { today } = months;
+  const { summary, failed: monthFailed, retry: retryMonth } = useMonthSummary(month);
+  // The month's days as the server summed them, once they're in; the person's month until
+  // then (shared/period.ts), so the figures and their days never disagree
+  const { firstDay, lastDay } = summary ?? months.of(month);
   const figures: Figures = {
     isCurrent,
     today: isCurrent ? today : lastDay,
@@ -129,7 +142,6 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
     lastDay,
     at: periodDay(firstDay, lastDay, isCurrent ? today : lastDay),
   };
-  const { summary, failed: monthFailed, retry: retryMonth } = useMonthSummary(month);
   // Last month, for Getting started's "Bring in past months"
   const { summary: lastMonth } = useMonthSummary(addMonths(current, -1));
   const { data: ledger } = useWholeLedger();
@@ -168,6 +180,7 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
 
   const allComing = isCurrent && ledger != null ? comingRows(ledger, categories, today) : [];
   const coming = essentials ? essentialRows(allComing) : allComing;
+  const due = isCurrent && ledger != null ? dueByDay(ledger, categories, today, lastDay) : null;
   const bothEmpty =
     summary != null && summary.spentByDay.length === 0 && (lines ?? []).length === 0;
 
@@ -220,7 +233,7 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
       today={figures.today}
       isCurrent={isCurrent}
       spentByDay={summary.spentByDay}
-      due={isCurrent && ledger != null ? dueByDay(ledger, categories, today) : new Map()}
+      due={due ?? new Map()}
       weekStart={weekStart}
       tapHint={!isDesktop}
     />
@@ -319,10 +332,13 @@ function comingRows(ledger: Ledger, categories: Category[], today: string): Comi
   }));
 }
 
-/** What's still to come this month, by day, for the calendar's dots and day names */
-function dueByDay(ledger: Ledger, categories: Category[], today: string) {
+/**
+ * What's still to come this month (to its last day, `end`), by day, for the calendar's dots
+ * and day names
+ */
+function dueByDay(ledger: Ledger, categories: Category[], today: string, end: string) {
   const due = new Map<string, DueOnDay>();
-  for (const item of monthEndForecast(ledger, today).items) {
+  for (const item of monthEndForecast(ledger, today, end).items) {
     if (item.date < today) continue;
     const day = due.get(item.date) ?? { names: [], bill: false };
     const itemName = recurringName(item.recurring, categories);
@@ -343,8 +359,9 @@ function Header({
   isDesktop: boolean;
   known: boolean;
 }) {
-  const current = thisMonth();
-  const step = (to: string) => navigate(homeAddress(to));
+  const { current: thisOne } = useMonths();
+  const current = thisOne.month;
+  const step = (to: string) => navigate(homeAddress(to, current));
   const arrows = (
     <div className={classes.monthNav}>
       <button
@@ -457,7 +474,7 @@ function Answers({
 
   let hero: { eyebrow: string; cents: number | null; line: ReturnType<typeof heroLine> | null };
   if (isCurrent) {
-    const forecast = ledger == null ? null : monthEndForecast(ledger, today);
+    const forecast = ledger == null ? null : monthEndForecast(ledger, today, figures.lastDay);
     const listed: Account[] = ledger?.accounts.filter((a) => !a.archived) ?? [];
     hero = {
       eyebrow: 'Expected at month end',

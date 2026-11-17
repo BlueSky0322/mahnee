@@ -6,8 +6,17 @@ import { applyToSummary, applyToTrend } from './summary';
 /** The default Other spending category, which Tidy up counts with what's under it */
 const OTHER = 'c000000000000008';
 
+/** The calendar month's first and last day, as the server sums a month from the 1st */
+const calendarDays = (month: string) => ({
+  firstDay: `${month}-01`,
+  lastDay: new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0))
+    .toISOString()
+    .slice(0, 10),
+});
+
 const empty = (month: string): MonthSummary => ({
   month,
+  ...calendarDays(month),
   incomeCents: 0,
   spentCents: 0,
   leftCents: 0,
@@ -36,6 +45,8 @@ const coffee: Transaction = {
  */
 const october: MonthSummary = {
   month: '2026-10',
+  firstDay: '2026-10-01',
+  lastDay: '2026-10-31',
   incomeCents: 5_000,
   spentCents: 1_100,
   leftCents: 3_900,
@@ -73,6 +84,8 @@ describe('applyToSummary', () => {
     );
     expect(after).toEqual({
       month: '2026-10',
+      firstDay: '2026-10-01',
+      lastDay: '2026-10-31',
       incomeCents: 6_000,
       spentCents: 2_200,
       leftCents: 3_800,
@@ -293,6 +306,7 @@ describe('applyToSummary', () => {
 describe('applyToTrend', () => {
   const totals = (month: string, more: Partial<MonthTotals> = {}): MonthTotals => ({
     month,
+    ...calendarDays(month),
     incomeCents: 0,
     spentCents: 0,
     leftCents: 0,

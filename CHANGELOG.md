@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-17
 
-- Fixed: an opening balance typed as a sum is worked out exactly, as in Add [#?]
+- Fixed: an opening balance typed as a sum is worked out exactly, as in Add [#40]
 - Added: choose the day your month starts, or payday, in Settings › Money; every monthly figure and budget follows it [#39]
 - Added: settings for how Add starts, the account it uses, suggestions, a time on entries, accent colours, a shorter Home and the opening page; new budgets carry over by default [#38]
 - Changed: Plan shows budgets against the month, where the money went and income by category, each over 12 months, with budgets set in place on a computer; Home's Expenses so far and Income open all of either over 12 months [#37]
@@ -109,3 +109,4 @@ For agents:
 [#37]: https://github.com/BlueSky0322/mahnee/pull/37
 [#38]: https://github.com/BlueSky0322/mahnee/pull/38
 [#39]: https://github.com/BlueSky0322/mahnee/pull/39
+[#40]: https://github.com/BlueSky0322/mahnee/pull/40

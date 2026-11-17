@@ -66,13 +66,16 @@ describe('N', () => {
     await user.click(
       screen.getByRole('link', { name: 'Settings: you, categories, import and export' }),
     );
-    await pageTitle('Settings');
+    await pageTitle('My account');
     await user.keyboard('n');
     await settle();
     expect(screen.queryByRole('dialog')).toBeNull();
     await user.click(screen.getByRole('link', { name: 'Import and export' }));
-    await user.click(await screen.findByRole('link', { name: 'Import' }));
-    await pageTitle('Import');
+    await user.upload(
+      await screen.findByLabelText('Import a file'),
+      new File(['Date,Amount\r\n05/10/2026,-8.00\r\n'], 'bank.csv', { type: 'text/csv' }),
+    );
+    await pageTitle('Import bank.csv');
     await user.keyboard('n');
     await user.keyboard('/');
     await settle();
@@ -131,30 +134,30 @@ describe('Esc', () => {
     await user.click(
       await screen.findByRole('link', { name: 'Settings: you, categories, import and export' }),
     );
-    await pageTitle('Settings');
+    await pageTitle('My account');
     await user.keyboard('{Escape}');
     expect(await pageTitle('Plan')).toBeTruthy();
     expect(window.location.search).toBe('?plan');
   });
 
-  // Interim: piece 10 draws the sections as panes of one Settings, closed by Esc
-  test('on a section of Settings, goes up to Settings', async () => {
+  // A section is a pane of one Settings on a computer: Esc closes Settings from any
+  test('on a section of Settings, closes Settings', async () => {
     renderApp(withWallet(), '/?settings=categories');
     await pageTitle('Categories');
     await userEvent.setup().keyboard('{Escape}');
-    expect(await pageTitle('Settings')).toBeTruthy();
-    expect(window.location.search).toBe('?settings');
+    expect(await screen.findByRole('navigation', { name: 'Main' })).toBeTruthy();
+    expect(window.location.search).toBe('');
   });
 
   test('with a dialog open, closes only the dialog', async () => {
-    renderApp(withWallet(), '/?settings=data');
+    renderApp(withWallet(), '/?settings=account');
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('button', { name: 'Export' }));
-    await screen.findByRole('dialog', { name: 'Export' });
+    await user.click(await screen.findByRole('button', { name: 'Change name' }));
+    await screen.findByRole('dialog', { name: 'Change name' });
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(window.location.search).toBe('?settings=data');
-    expect(screen.getByRole('heading', { name: 'Import and export', level: 1 })).toBeTruthy();
+    expect(window.location.search).toBe('?settings=account');
+    expect(screen.getByRole('heading', { name: 'My account', level: 1 })).toBeTruthy();
   });
 
   test('on Import, does nothing: a file being looked over is kept', async () => {

@@ -214,11 +214,16 @@ erDiagram
   checked again as each row is saved. Keyed by email and then id, its accounts and category
   foreign keys with the email. Read with the accounts (`GET /api/accounts`, only for someone
   who has any).
-- **`imports`**: one row per file imported, so every device lists recent imports: the
-  file's name, the account a bank's file went into (null for a Mahnee export, which names
-  its accounts), how many rows were added and left out (each at most `MAX_IMPORT_ROWS`),
-  when, and when it was undone. Keyed by email and then id. Deleting one keeps its
-  transactions, their `import_id` set back to null.
+- **`imports`**: one row per file imported that added a transaction, so every device lists
+  recent imports (`GET /api/imports`, those not undone, newest first, at most 10): the
+  file's name (trimmed, 1 to 255 characters), the account a bank's file went into (null for
+  a Mahnee export, which names its accounts), how many transactions it added and how many
+  of the file's transaction lines it left out (each at most `MAX_IMPORT_ROWS`), when (the
+  server's clock), and when it was undone. Recorded by `addImport` before the transactions
+  that name it, in the same ordered changes. `undoImport` deletes every transaction whose
+  `import_id` is it and sets `undone_at`, in one batch; once undone, nothing more goes and no
+  transaction may name it. Keyed by email and then id, so two people's imports never meet.
+  Deleting one keeps its transactions, their `import_id` set back to null.
 - **`change_receipts`**: one per change the app saved through `POST /api/changes`, by
   the id the app gave it, with the change's fingerprint, saved in the same batch as the
   change. A change sent again counts once; the same id with a different change is

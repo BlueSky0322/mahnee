@@ -1,28 +1,29 @@
 import { ActionIcon, Button } from '@mantine/core';
-import {
-  ArrowDown,
-  ArrowElbowDownRight,
-  ArrowUp,
-  CaretDown,
-  CaretLeft,
-  CaretRight,
-  Plus,
-} from '@phosphor-icons/react';
-import { useState } from 'react';
+import { ArrowDown, ArrowUp, CaretDown, CaretRight, Plus } from '@phosphor-icons/react';
+import { Fragment, useState } from 'react';
 import type { Category, MonthBudget } from '@shared/api';
 import { DEFAULT_CURRENCY } from '@shared/ledger';
 import type { CategoryKind } from '@shared/categories';
-import { CATEGORY_KINDS, siblingsOf } from '@shared/categories';
-import { goUp } from '../../hooks/useRoute';
+import {
+  CATEGORY_KINDS,
+  MAX_CATEGORY_NAME,
+  readCategoryName,
+  siblingsOf,
+  whyNotUnder,
+} from '@shared/categories';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
-import { useShortcuts } from '../../hooks/useShortcuts';
 import { change } from '../../ledger/ledger';
 import type { CategoryNode } from '../../ledger/category-tree';
 import { useCategories, useMonthSummary } from '../../ledger/useLedger';
+import { categoryColour } from '../../utils/category-colour';
 import { thisMonth } from '../../utils/date-input';
+import { newId } from '../../utils/id';
 import { formatMoney } from '../../utils/money';
+import { showRefusal } from '../../utils/notify';
 import { SettingsFooter } from '../common/Freshness';
+import Key from '../ui/Key';
 import Skeleton, { Loading } from '../ui/Skeleton';
+import { SectionHeader } from '../settings/SettingsPage';
 import CategoryForm, { type OpenCategory } from './CategoryForm';
 import { KIND_LABELS } from './category-text';
 import classes from './Categories.module.css';
@@ -30,18 +31,17 @@ import classes from './Categories.module.css';
 /** Placeholder rows while the categories load */
 const LOADING_ROWS = 6;
 
-// The categories page: spending and income, each top-level category with its
-// subcategories under it. Tap one to rename, move or archive it, or set its monthly budget
-// (top-level spending ones); the arrows put it higher or lower among the ones beside it.
-// Its foot says how fresh the figures are: always on a computer, on phones and tablets when
-// not up to date.
+// Categories (?settings=categories; R-Categories, R-Desk-Categories): expenses and income,
+// each top-level category with its colour, its budget and its subcategories as chips.
+// A subcategory is added in place under its category (+), a top-level one from the field at
+// the foot of its kind. Tap a name to rename it, move it, archive it or set its budget.
+// Reorder shows arrows to put one higher or lower among the ones beside it; Archived lists
+// the ones taken out, to bring back.
 export default function CategoriesPage() {
-  // Back, or Esc, goes up to Settings
-  const toSettings = () => goUp('?settings');
-  useShortcuts({ Escape: toSettings });
   const { categories, tree, failed, retry } = useCategories();
   const [open, setOpen] = useState<OpenCategory | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [reordering, setReordering] = useState(false);
   const isDesktop = useIsDesktop();
   // This month's budgets, as shown: null until known
   const { summary } = useMonthSummary(thisMonth());
@@ -61,21 +61,54 @@ export default function CategoriesPage() {
     keepFocus(category.id, by);
   };
 
+  /** Adds a category named `typed` (trimmed) of `kind`, under `parentId` or at the top */
+  const add = (typed: string, kind: CategoryKind, parentId: string | null) => {
+    const name = readCategoryName(typed);
+    if (name == null || categories == null) return false;
+    const id = newId();
+    const reason = whyNotUnder(categories, { id, kind }, parentId);
+    if (reason != null) {
+      showRefusal(reason);
+      return false;
+    }
+    change({ op: 'addCategory', category: { id, name, kind, parentId } });
+    return true;
+  };
+
+  const archivedToggle =
+    tree != null && tree.archived.length > 0 ? (
+      <Button
+        variant="subtle"
+        color="gray"
+        size="compact-md"
+        leftSection={showArchived ? <CaretDown size={14} /> : <CaretRight size={14} />}
+        aria-expanded={showArchived}
+        onClick={() => setShowArchived((shown) => !shown)}
+      >
+        Archived
+      </Button>
+    ) : null;
+
   return (
     <div className={classes.page}>
-      <header className={classes.header}>
-        <Button
-          variant="subtle"
-          color="gray"
-          size="compact-md"
-          className={classes.back}
-          leftSection={<CaretLeft size={16} />}
-          onClick={toSettings}
-        >
-          Settings
-        </Button>
-        <h1 className={classes.title}>Categories</h1>
-      </header>
+      <SectionHeader
+        title="Categories"
+        actions={
+          <>
+            {tree != null && (
+              <Button
+                variant="default"
+                size="compact-md"
+                aria-pressed={reordering}
+                onClick={() => setReordering((on) => !on)}
+              >
+                {reordering ? 'Done' : 'Reorder'}
+              </Button>
+            )}
+            {isDesktop && archivedToggle}
+          </>
+        }
+      />
 
       {tree == null || categories == null ? (
         failed ? (
@@ -98,12 +131,10 @@ export default function CategoriesPage() {
                 key={i}
                 className={classes.row}
               >
-                <span className={classes.rowMain}>
-                  <Skeleton
-                    width={i % 2 === 0 ? 120 : 88}
-                    height={16}
-                  />
-                </span>
+                <Skeleton
+                  width={i % 2 === 0 ? 120 : 88}
+                  height={16}
+                />
               </div>
             ))}
           </Loading>
@@ -115,60 +146,50 @@ export default function CategoriesPage() {
               key={kind}
               kind={kind}
               nodes={tree.listed[kind]}
-              onAdd={() => setOpen({ kind, category: null })}
+              categories={categories}
+              budgets={budgets}
+              reordering={reordering}
               onOpen={(category) => setOpen({ kind, category })}
               onStep={step}
-              budgets={budgets}
+              onAdd={add}
             />
           ))}
 
-          {tree.archived.length > 0 && (
+          {!isDesktop && archivedToggle}
+          {showArchived && tree.archived.length > 0 && (
             <section
               className={classes.section}
               aria-label="Archived categories"
             >
-              <Button
-                variant="subtle"
-                color="gray"
-                size="compact-sm"
-                className={classes.archivedToggle}
-                leftSection={showArchived ? <CaretDown size={14} /> : <CaretRight size={14} />}
-                aria-expanded={showArchived}
-                onClick={() => setShowArchived((shown) => !shown)}
-              >
-                Archived ({tree.archived.length})
-              </Button>
-              {showArchived && (
-                <ul className={`${classes.list} ${classes.mutedList}`}>
-                  {tree.archived.map((category) => {
-                    const detail = archivedDetail(category, categories);
-                    return (
-                      <li key={category.id}>
-                        <div className={classes.row}>
-                          <button
-                            type="button"
-                            className={classes.rowMain}
-                            aria-label={`${category.name}, ${detail}`}
-                            onClick={() => setOpen({ kind: category.kind, category })}
-                          >
-                            <span className={classes.name}>{category.name}</span>
-                            <span className={classes.detail}>{detail}</span>
-                          </button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+              <ul className={`${classes.list} ${classes.mutedList}`}>
+                {tree.archived.map((category) => {
+                  const detail = archivedDetail(category, categories);
+                  return (
+                    <li key={category.id}>
+                      <button
+                        type="button"
+                        className={classes.archivedRow}
+                        aria-label={`${category.name}, ${detail}`}
+                        onClick={() => setOpen({ kind: category.kind, category })}
+                      >
+                        <span className={classes.name}>{category.name}</span>
+                        <span className={classes.detail}>{detail}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             </section>
           )}
         </>
       )}
 
-      <SettingsFooter
-        month={thisMonth()}
-        onlyStale={!isDesktop}
-      />
+      {!isDesktop && (
+        <SettingsFooter
+          month={thisMonth()}
+          onlyStale
+        />
+      )}
       <CategoryForm
         open={open}
         categories={categories ?? []}
@@ -179,132 +200,312 @@ export default function CategoriesPage() {
   );
 }
 
+interface SectionProps {
+  kind: CategoryKind;
+  nodes: CategoryNode[];
+  /** Every category, archived ones too */
+  categories: Category[];
+  /** This month's budgets; null while not known */
+  budgets: MonthBudget[] | null;
+  reordering: boolean;
+  onOpen: (category: Category) => void;
+  onStep: (category: Category, listed: Category[], by: -1 | 1) => void;
+  /** Adds one, answering whether it was */
+  onAdd: (typed: string, kind: CategoryKind, parentId: string | null) => boolean;
+}
+
+/** A kind's categories, and the field to add a top-level one */
 function Section({
   kind,
   nodes,
-  onAdd,
+  categories,
+  budgets,
+  reordering,
   onOpen,
   onStep,
-  budgets,
-}: {
-  kind: CategoryKind;
-  nodes: CategoryNode[];
-  onAdd: () => void;
-  onOpen: (category: Category) => void;
-  onStep: (category: Category, listed: Category[], by: -1 | 1) => void;
-  /** This month's budgets; null while not known */
-  budgets: MonthBudget[] | null;
-}) {
+  onAdd,
+}: SectionProps) {
   const titleId = `categories-${kind}`;
+  const [adding, setAdding] = useState<string | null>(null);
+  const [typed, setTyped] = useState('');
+  const newLabel = kind === 'expense' ? 'New expense category' : 'New income category';
   return (
     <section
       className={classes.section}
       aria-labelledby={titleId}
     >
-      <div className={classes.sectionHeader}>
-        <h2
-          id={titleId}
-          className={classes.sectionTitle}
-        >
-          {KIND_LABELS[kind]}
-        </h2>
-        <Button
-          variant="subtle"
-          size="compact-md"
-          leftSection={<Plus size={16} />}
-          aria-label={`Add ${KIND_LABELS[kind].toLowerCase()} category`}
-          onClick={onAdd}
-        >
-          Add
-        </Button>
-      </div>
-      {nodes.length === 0 ? (
-        <div className={classes.card}>
-          <p className={classes.muted}>No {KIND_LABELS[kind].toLowerCase()} categories listed.</p>
-        </div>
-      ) : (
-        <ul
-          className={classes.list}
-          aria-labelledby={titleId}
-        >
-          {nodes.map((node) => (
-            <li key={node.id}>
-              <Row
-                category={node}
-                label={node.name}
-                listed={nodes}
+      <h2
+        id={titleId}
+        className={classes.sectionTitle}
+      >
+        {KIND_LABELS[kind]}
+      </h2>
+      <ul className={`${classes.list} ${kind === 'income' ? classes.income : ''}`}>
+        {nodes.map((node) => (
+          <li
+            key={node.id}
+            className={classes.category}
+          >
+            <Top
+              node={node}
+              colour={categoryColour(categories, node.id)}
+              budget={budgets?.find((b) => b.categoryId === node.id)}
+              listed={nodes}
+              reordering={reordering}
+              onOpen={onOpen}
+              onStep={onStep}
+              onAddUnder={
+                node.subcategories.length === 0 && adding !== node.id
+                  ? () => setAdding(node.id)
+                  : null
+              }
+            />
+            {(node.subcategories.length > 0 || adding === node.id) && (
+              <Subcategories
+                node={node}
+                reordering={reordering}
+                adding={adding === node.id}
+                onAdding={(on) => setAdding(on ? node.id : null)}
                 onOpen={onOpen}
                 onStep={onStep}
-                budget={budgets?.find((b) => b.categoryId === node.id)}
+                onAdd={(name) => onAdd(name, kind, node.id)}
               />
-              {node.subcategories.length > 0 && (
-                <ul
-                  className={classes.subList}
-                  aria-label={`In ${node.name}`}
-                >
-                  {node.subcategories.map((sub) => (
-                    <li key={sub.id}>
-                      <Row
-                        category={sub}
-                        label={`${sub.name}, in ${node.name}`}
-                        listed={node.subcategories}
-                        onOpen={onOpen}
-                        onStep={onStep}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+            )}
+          </li>
+        ))}
+        <li className={classes.newRow}>
+          <input
+            className={classes.newField}
+            aria-label={newLabel}
+            placeholder={newLabel}
+            maxLength={MAX_CATEGORY_NAME}
+            value={typed}
+            onChange={(e) => setTyped(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              if (onAdd(typed, kind, null)) setTyped('');
+            }}
+          />
+        </li>
+      </ul>
     </section>
   );
 }
 
-function Row({
-  category,
-  label,
+/** A whole number of ringgit without cents ("RM 800"), else as it is ("RM 120.50") */
+const budgetMoney = (cents: number) => {
+  const text = formatMoney(cents, DEFAULT_CURRENCY);
+  return cents % 100 === 0 ? text.replace(/\.00$/, '') : text;
+};
+
+/** A top-level category's row: its colour, name, budget, arrows when reordering, and + */
+function Top({
+  node,
+  colour,
+  budget,
   listed,
+  reordering,
   onOpen,
   onStep,
-  budget,
+  onAddUnder,
 }: {
-  category: Category;
-  /** What it's read out as */
-  label: string;
-  /** The listed categories beside it, it among them, in order */
+  node: CategoryNode;
+  colour: string;
+  budget?: MonthBudget;
   listed: Category[];
+  reordering: boolean;
   onOpen: (category: Category) => void;
   onStep: (category: Category, listed: Category[], by: -1 | 1) => void;
-  /** Its budget this month, if it has one */
-  budget?: MonthBudget;
+  /** Opens the field for its first subcategory; null once it has some (the + is after them) */
+  onAddUnder: (() => void) | null;
 }) {
-  const at = listed.findIndex((c) => c.id === category.id);
-  const sub = category.parentId != null;
   return (
-    <div className={sub ? `${classes.row} ${classes.sub}` : classes.row}>
-      {sub && (
-        <ArrowElbowDownRight
-          size={16}
-          className={classes.subMark}
-          aria-hidden
-        />
-      )}
+    <div className={classes.top}>
+      <span
+        className={classes.dot}
+        style={{ background: colour }}
+        aria-hidden
+      />
       <button
         type="button"
-        className={classes.rowMain}
-        aria-label={label}
-        onClick={() => onOpen(category)}
+        className={classes.nameButton}
+        onClick={() => onOpen(node)}
       >
-        <span className={classes.name}>{category.name}</span>
-        {budget != null && (
-          <span className={classes.detail}>
-            {formatMoney(budget.amountCents, DEFAULT_CURRENCY)} a month
-          </span>
-        )}
+        {node.name}
       </button>
+      {budget?.amountCents != null && (
+        <span className={classes.budget}>{budgetMoney(budget.amountCents)} a month</span>
+      )}
+      {reordering ? (
+        <Arrows
+          category={node}
+          listed={listed}
+          onStep={onStep}
+        />
+      ) : (
+        onAddUnder != null && (
+          <AddButton
+            parent={node.name}
+            onClick={onAddUnder}
+          />
+        )
+      )}
+    </div>
+  );
+}
+
+/** A category's subcategories as chips, and the field to add one when it's open */
+function Subcategories({
+  node,
+  reordering,
+  adding,
+  onAdding,
+  onOpen,
+  onStep,
+  onAdd,
+}: {
+  node: CategoryNode;
+  reordering: boolean;
+  adding: boolean;
+  onAdding: (on: boolean) => void;
+  onOpen: (category: Category) => void;
+  onStep: (category: Category, listed: Category[], by: -1 | 1) => void;
+  onAdd: (name: string) => boolean;
+}) {
+  const isDesktop = useIsDesktop();
+  const [typed, setTyped] = useState('');
+  const name = typed.trim();
+  const save = () => {
+    if (name === '') return;
+    if (onAdd(name)) {
+      setTyped('');
+      onAdding(false);
+    }
+  };
+  return (
+    <>
+      <div
+        className={classes.chips}
+        role="list"
+        aria-label={`Under ${node.name}`}
+      >
+        {node.subcategories.map((sub) => (
+          <Fragment key={sub.id}>
+            <span
+              role="listitem"
+              className={classes.chipItem}
+            >
+              <button
+                type="button"
+                className={classes.chip}
+                onClick={() => onOpen(sub)}
+              >
+                {sub.name}
+              </button>
+              {reordering && (
+                <Arrows
+                  category={sub}
+                  listed={node.subcategories}
+                  onStep={onStep}
+                />
+              )}
+            </span>
+          </Fragment>
+        ))}
+        {adding ? (
+          <span
+            role="listitem"
+            className={classes.inline}
+          >
+            <input
+              className={classes.inlineField}
+              aria-label={`New under ${node.name}`}
+              placeholder={`New under ${node.name}`}
+              maxLength={MAX_CATEGORY_NAME}
+              autoFocus
+              value={typed}
+              onChange={(e) => setTyped(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  save();
+                }
+              }}
+              onBlur={() => {
+                if (name === '') onAdding(false);
+              }}
+            />
+            {name !== '' && (
+              <ActionIcon
+                variant="filled"
+                size="md"
+                radius="xl"
+                aria-label={`Add ${name} under ${node.name}`}
+                // Kept from taking the keyboard, so the field doesn't close first
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={save}
+              >
+                <Plus size={14} />
+              </ActionIcon>
+            )}
+          </span>
+        ) : (
+          !reordering &&
+          node.subcategories.length > 0 && (
+            <span role="listitem">
+              <AddButton
+                parent={node.name}
+                onClick={() => onAdding(true)}
+              />
+            </span>
+          )
+        )}
+      </div>
+      {adding && node.kind === 'expense' && (
+        <p className={classes.hint}>
+          {isDesktop ? (
+            <>
+              <Key>Enter</Key> <span>counts toward {node.name}'s budget</span>
+            </>
+          ) : (
+            <span>Counts toward {node.name}'s budget</span>
+          )}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** + : a new subcategory under `parent` */
+function AddButton({ parent, onClick }: { parent: string; onClick: () => void }) {
+  return (
+    <ActionIcon
+      variant="subtle"
+      color="gray"
+      size="lg"
+      radius="xl"
+      aria-label={`Add a subcategory under ${parent}`}
+      onClick={onClick}
+    >
+      <Plus size={16} />
+    </ActionIcon>
+  );
+}
+
+/** Up and down, among the listed ones beside it */
+function Arrows({
+  category,
+  listed,
+  onStep,
+}: {
+  category: Category;
+  listed: Category[];
+  onStep: (category: Category, listed: Category[], by: -1 | 1) => void;
+}) {
+  const at = listed.findIndex((c) => c.id === category.id);
+  return (
+    <span className={classes.arrows}>
       <ActionIcon
         variant="subtle"
         color="gray"
@@ -327,7 +528,7 @@ function Row({
       >
         <ArrowDown size={18} />
       </ActionIcon>
-    </div>
+    </span>
   );
 }
 

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import type {
   Account,
   Category,
+  ImportRecord,
   Ledger,
   MonthSummary,
   MonthTrend,
@@ -17,7 +18,10 @@ import type { Found as SearchFound } from './search-totals';
 import { searchTotals } from './search-totals';
 import type { QueueState } from './save-queue';
 import {
+  IMPORTS_KEY,
   LEDGER_KEY,
+  applyToImports,
+  fetchImports,
   accountTransactionsKey,
   dataAge,
   fetchLedger,
@@ -280,4 +284,25 @@ export function useMonthTrend(month: string): Trend {
 export function useDataAge(month: string): number | null {
   const age = useCallback(() => dataAge(month), [month]);
   return useSyncExternalStore(subscribeDataAge, age);
+}
+
+export interface Imports {
+  /** Recent imports, newest first, those recorded or undone here included; null until loaded */
+  imports: ImportRecord[] | null;
+  failed: boolean;
+  retry: () => void;
+}
+
+/** The person's recent imports, as every device lists them (ledger.ts records and undoes them) */
+export function useImports(): Imports {
+  const pending = useSyncExternalStore(subscribeUnsaved, pendingChanges);
+  const select = useCallback((data: ImportRecord[]) => applyToImports(data, pending), [pending]);
+  const { data, isError, refetch } = useQuery({
+    queryKey: IMPORTS_KEY,
+    queryFn: fetchImports,
+    select,
+    // Asked for offline too, so the copy kept on the device shows
+    networkMode: 'offlineFirst',
+  });
+  return { imports: data ?? null, failed: isError && data == null, retry: () => void refetch() };
 }

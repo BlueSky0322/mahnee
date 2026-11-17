@@ -126,7 +126,7 @@ function goOffline(server: FakeServer) {
 /** Opens a category's edit sheet from its row on the Categories page */
 async function editCategory(name: string) {
   const user = userEvent.setup();
-  const spending = within(await screen.findByRole('region', { name: 'Spending' }));
+  const spending = within(await screen.findByRole('region', { name: 'Expenses' }));
   await user.click(await spending.findByRole('button', { name }));
   return within(await screen.findByRole('dialog'));
 }
@@ -237,8 +237,13 @@ describe('budgets on the month card', () => {
 /** From Categories up to Settings, out of Settings to Home, then to Plan, which has the card */
 async function categoriesToHome() {
   const user = userEvent.setup();
-  await user.click(screen.getByRole('button', { name: 'Settings' }));
-  await user.click(await screen.findByRole('button', { name: /^(Home|Close settings)$/ }));
+  // A computer's Settings closes at once; a phone goes up to Settings, then Home
+  const close = screen.queryByRole('button', { name: 'Close settings' });
+  if (close != null) await user.click(close);
+  else {
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    await user.click(await screen.findByRole('button', { name: 'Home' }));
+  }
   // The month card is on Plan
   await goToPlace('Plan');
 }
@@ -261,8 +266,8 @@ describe("setting a budget from the category's row", () => {
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
       // The row says so
-      const spending = within(await screen.findByRole('region', { name: 'Spending' }));
-      expect(spending.getByText('RM 300.00 a month')).toBeTruthy();
+      const spending = within(await screen.findByRole('region', { name: 'Expenses' }));
+      expect(spending.getByText('RM 300 a month')).toBeTruthy();
       await waitFor(() =>
         expect(budgetsOf(server)).toEqual([budget(FOOD, 30_000, { fromMonth: NOW })]),
       );
@@ -277,7 +282,7 @@ describe("setting a budget from the category's row", () => {
       const server = withBudgets();
       renderApp(server, '/?categories', { size });
       const user = userEvent.setup();
-      const coffee = await editCategory('Coffee, in Food');
+      const coffee = await editCategory('Coffee');
       // Coffee's own sheet, drawn in full
       expect(coffee.getByLabelText<HTMLInputElement>('Name').value).toBe('Coffee');
       expect(coffee.getByRole('button', { name: 'Save' })).toBeTruthy();
@@ -367,12 +372,12 @@ describe("setting a budget from the category's row", () => {
       await user.type(form.getByLabelText('Monthly budget'), '100');
       await user.click(form.getByRole('button', { name: 'Save' }));
       // Shown straight away, before the server answers
-      const spending = within(await screen.findByRole('region', { name: 'Spending' }));
-      expect(await spending.findByText('RM 100.00 a month')).toBeTruthy();
+      const spending = within(await screen.findByRole('region', { name: 'Expenses' }));
+      expect(await spending.findByText('RM 100 a month')).toBeTruthy();
 
       held.release();
       expect(await screen.findByText('Fun is archived')).toBeTruthy();
-      await waitFor(() => expect(spending.queryByText('RM 100.00 a month')).toBeNull());
+      await waitFor(() => expect(spending.queryByText('RM 100 a month')).toBeNull());
       expect(budgetsOf(server)).toEqual([]);
       await categoriesToHome();
       const card = await monthCard(NOW);
@@ -454,7 +459,7 @@ describe("setting a budget from the category's row", () => {
       const card = await monthCard(NOW);
       await waitFor(() => expect(card.getByLabelText('Spent').textContent).toBe('RM 180.00'));
       await openSettings();
-      await user.click(screen.getByRole('link', { name: 'Categories' }));
+      await user.click(screen.getByRole('link', { name: /^Categories( |$)/ }));
 
       const back = goOffline(server);
       const form = await editCategory('Food');

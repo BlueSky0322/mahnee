@@ -65,17 +65,28 @@ describe('addresses', () => {
     expect(window.location.search).toBe(`?activity&account=${WALLET}`);
   });
 
-  test('?categories, the old address, opens Categories inside Settings', async () => {
-    const before = window.history.length;
-    renderApp(withWallet(), '/?categories');
-    expect(await pageTitle('Categories')).toBeTruthy();
-    expect(window.location.search).toBe('?settings=categories');
-    expect(window.history.length).toBe(before);
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(await pageTitle('Settings')).toBeTruthy();
-    expect(window.location.search).toBe('?settings');
-  });
+  test.each(['phone', 'desktop'] as const)(
+    '?categories, the old address, opens Categories inside Settings (%s)',
+    async (size) => {
+      const before = window.history.length;
+      renderApp(withWallet(), '/?categories', { size });
+      expect(await pageTitle('Categories')).toBeTruthy();
+      expect(window.location.search).toBe('?settings=categories');
+      expect(window.history.length).toBe(before);
+      const user = userEvent.setup();
+      if (size === 'phone') {
+        await user.click(screen.getByRole('button', { name: 'Settings' }));
+        expect(await pageTitle('Settings')).toBeTruthy();
+        expect(window.location.search).toBe('?settings');
+      } else {
+        // A pane of Settings, its section marked beside it
+        const nav = within(screen.getByRole('navigation', { name: 'Settings' }));
+        expect(nav.getByRole('link', { name: 'Categories' }).getAttribute('aria-current')).toBe(
+          'page',
+        );
+      }
+    },
+  );
 
   test('?accounts opens Accounts, with each account and its balance', async () => {
     renderApp(withWallet(), '/?accounts');
@@ -127,9 +138,20 @@ describe('addresses', () => {
     expect(window.location.search).toBe('');
   });
 
-  // Interim: the sections of Settings get their own pages in pieces 10 to 13
-  test('a section of Settings not built yet opens the Settings page', async () => {
-    renderApp(withWallet(), '/?settings=money');
+  // Each section has its own page (its controls come with pieces 12, 13 and 16)
+  test.each([
+    ['money', 'Money'],
+    ['adding', 'Adding entries'],
+    ['look', 'Look and start'],
+    ['budgets', 'Budgets and reminders'],
+    ['account', 'My account'],
+  ])('?settings=%s opens %s', async (section, title) => {
+    renderApp(withWallet(), `/?settings=${section}`);
+    expect(await pageTitle(title)).toBeTruthy();
+  });
+
+  test('an unknown section of Settings opens Settings itself', async () => {
+    renderApp(withWallet(), '/?settings=nothing', { size: 'phone' });
     expect(await pageTitle('Settings')).toBeTruthy();
   });
 

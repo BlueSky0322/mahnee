@@ -4,15 +4,18 @@
 // is the signed-in person's own: an id of someone else's is answered exactly like one
 // that doesn't exist. A person's first change of any kind saves the default categories
 // with it. Repeating items are checked the same way, and logging one saves its
-// transaction and moves it on to its next due date together.
+// transaction and moves it on to its next due date together. An import is recorded before
+// the transactions that name it, and undoing one deletes exactly those, in one batch.
 
 import {
   type Category,
   type ChangesBody,
   type LedgerChange,
   MAX_CHANGES,
+  MAX_FILE_NAME,
   isRowId,
 } from '../../shared/api';
+import { MAX_IMPORT_ROWS } from '../../shared/csv-import';
 import {
   DEFAULT_CATEGORIES,
   MAX_CATEGORIES,
@@ -96,6 +99,9 @@ const NOT_NEXT = 'That was logged or skipped already';
 const STOPPED = 'That no longer repeats';
 const OFF_SCHEDULE = 'Next due has to fall on its schedule';
 const LOGGED_ON_DUE = 'A repeating item is logged on the day it was due';
+const IMPORT_NOT_FOUND = 'Import not found';
+const FILE_NAME_LENGTH = `Give the file a name of up to ${MAX_FILE_NAME} characters`;
+const IMPORT_COUNT = `A count is a whole number from 0 to ${MAX_IMPORT_ROWS.toLocaleString('en')}`;
 
 /** What a check needs to know of a saved transaction */
 interface TransactionState {
@@ -129,6 +135,8 @@ interface Model {
   transactions: Map<string, TransactionState>;
   counts: Map<string, number>;
   recurring: Map<string, RecurringState>;
+  /** The imports the batch names, and whether each was undone (one not here doesn't exist) */
+  imports: Map<string, { undone: boolean }>;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -504,8 +512,9 @@ function changeStatements(
       ];
     }
     case 'addTransaction': {
-      onlyFields(change, ['op', 'transaction']);
+      onlyFields(change, ['op', 'transaction', 'importId']);
       const t = change.transaction;
+      const importId = 'importId' in change ? readImport(model, change.importId) : null;
       if (!isObject(t)) throw new Refused(400, 'Invalid transaction');
       onlyFields(t, [
         'id',
@@ -537,8 +546,9 @@ function changeStatements(
         db
           .prepare(
             `INSERT INTO transactions (email, id, kind, account_id, to_account_id, amount_cents,
-                                       category_id, payee, note, date, created_at, updated_at)
-             SELECT ?1, ?4, ?5, ${withRoom('?2', sides)}, ?3, ?6, ?7, ?8, ?9, ?10, ?11, ?11`,
+                                       category_id, payee, note, date, created_at, updated_at,
+                                       import_id)
+             SELECT ?1, ?4, ?5, ${withRoom('?2', sides)}, ?3, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12`,
           )
           .bind(
             email,
@@ -552,6 +562,7 @@ function changeStatements(
             note,
             date,
             now,
+            importId,
           ),
       ];
     }
@@ -671,6 +682,50 @@ function changeStatements(
             'DELETE FROM transactions WHERE email = ? AND id IN (SELECT value FROM json_each(?))',
           )
           .bind(email, JSON.stringify(change.ids)),
+      ];
+    }
+    case 'addImport': {
+      onlyFields(change, ['op', 'import']);
+      const record = change.import;
+      if (!isObject(record)) throw new Refused(400, 'Invalid import');
+      onlyFields(record, ['id', 'fileName', 'accountId', 'addedCount', 'skippedCount']);
+      if (!isRowId(record.id)) throw new Refused(400, 'Invalid import id');
+      if (model.imports.has(record.id)) throw new Refused(409, 'That import is already recorded');
+      const fileName = typeof record.fileName === 'string' ? record.fileName.trim() : '';
+      if (fileName.length < 1 || fileName.length > MAX_FILE_NAME) {
+        throw new Refused(400, FILE_NAME_LENGTH);
+      }
+      const accountId = record.accountId ?? null;
+      if (accountId != null && !(isRowId(accountId) && model.accounts.has(accountId))) {
+        throw new Refused(404, NOT_FOUND);
+      }
+      const added = readImportCount(record.addedCount);
+      const skipped = readImportCount(record.skippedCount);
+      model.imports.set(record.id, { undone: false });
+      return [
+        db
+          .prepare(
+            `INSERT INTO imports (email, id, file_name, account_id, added_count, skipped_count,
+                                  created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(email, record.id, fileName, accountId, added, skipped, now),
+      ];
+    }
+    case 'undoImport': {
+      onlyFields(change, ['op', 'id']);
+      const record = isRowId(change.id) ? model.imports.get(change.id) : undefined;
+      if (record == null) throw new Refused(404, IMPORT_NOT_FOUND);
+      // Undone already, on another device or by this change sent again: nothing more goes
+      if (record.undone) return [];
+      record.undone = true;
+      return [
+        db
+          .prepare('DELETE FROM transactions WHERE email = ? AND import_id = ?')
+          .bind(email, change.id),
+        db
+          .prepare('UPDATE imports SET undone_at = ? WHERE email = ? AND id = ?')
+          .bind(now, email, change.id),
       ];
     }
     case 'setBudget': {
@@ -957,6 +1012,22 @@ function readNextDue(schedule: Schedule, day: number, value: unknown, now: numbe
   return value;
 }
 
+/** The import an entry came in with: one of the person's own, not undone */
+function readImport(model: Model, value: unknown): string {
+  const record = isRowId(value) ? model.imports.get(value) : undefined;
+  if (record == null) throw new Refused(404, IMPORT_NOT_FOUND);
+  if (record.undone) throw new Refused(409, 'That import was undone');
+  return value as string;
+}
+
+/** How many lines an import added or left out: a whole number up to MAX_IMPORT_ROWS */
+function readImportCount(value: unknown): number {
+  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > MAX_IMPORT_ROWS) {
+    throw new Refused(400, IMPORT_COUNT);
+  }
+  return value as number;
+}
+
 /**
  * The transactions a change to many names (`ids`): a list of 1 to MAX_BULK_TRANSACTIONS,
  * each once, every one the person's
@@ -1025,11 +1096,17 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
   const named = new Set<string>();
   const addingTo = new Set<string>();
   let repeating = false;
+  const importIds = new Set<string>();
   for (const i of fresh) {
     const change: unknown = changes[i];
     if (!isObject(change)) continue;
     const op = String(change.op);
     if (op.endsWith('Recurring')) repeating = true;
+    // The imports it records, adds to or undoes
+    const record = op === 'addImport' && isObject(change.import) ? change.import.id : undefined;
+    for (const id of [record, change.importId, op === 'undoImport' ? change.id : undefined]) {
+      if (isRowId(id)) importIds.add(id);
+    }
     // Logging a repeating item adds its transaction
     const adds = op === 'addTransaction' || op === 'logRecurring';
     const t = adds ? change.transaction : change;
@@ -1046,7 +1123,7 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
     if (isRowId(t.accountId)) addingTo.add(t.accountId);
     if (isRowId(t.toAccountId)) addingTo.add(t.toAccountId);
   }
-  const [accounts, savedCategories, transactions, counts, recurring] = await Promise.all([
+  const [accounts, savedCategories, transactions, counts, recurring, imports] = await Promise.all([
     db
       .prepare('SELECT id, name, archived FROM accounts WHERE email = ?')
       .bind(email)
@@ -1085,6 +1162,15 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
           )
           .bind(email)
           .all<Omit<RecurringState, 'archived'> & { id: string; archived: 0 | 1 }>(),
+    importIds.size === 0
+      ? { results: [] }
+      : db
+          .prepare(
+            `SELECT id, undone_at AS undoneAt FROM imports
+             WHERE email = ? AND id IN (SELECT value FROM json_each(?))`,
+          )
+          .bind(email, JSON.stringify([...importIds]))
+          .all<{ id: string; undoneAt: number | null }>(),
   ]);
   const model: Model = {
     accounts: new Map(
@@ -1096,6 +1182,7 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
     recurring: new Map(
       recurring.results.map(({ id, archived, ...r }) => [id, { ...r, archived: archived === 1 }]),
     ),
+    imports: new Map(imports.results.map((r) => [r.id, { undone: r.undoneAt != null }])),
   };
   const now = Date.now();
   // None saved yet: the defaults are saved first, so the changes after can name them

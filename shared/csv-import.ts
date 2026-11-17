@@ -5,7 +5,15 @@
 //
 // Amounts are read digit by digit into whole cents, never through floating point.
 
-import { CSV_BOM, EXPORT_COLUMNS, EXPORT_KINDS, OPENING_KIND, REPEATING_KINDS } from './export';
+import {
+  CSV_BOM,
+  EXPORT_COLUMNS,
+  EXPORT_KINDS,
+  OPENING_KIND,
+  RANGE_KIND,
+  REPEATING_KINDS,
+} from './export';
+import type { ExportRange } from './api';
 import type { TransactionKind } from './ledger';
 import { MAX_NOTE, MAX_PAYEE, MAX_TRANSACTION_CENTS, isDay } from './ledger';
 import type { Schedule } from './recurring';
@@ -282,43 +290,65 @@ function readSchedule(text: string): ExportRow['repeat'] | null {
 
 type Column = (typeof EXPORT_COLUMNS)[number];
 
-/** Each line of Mahnee's export (header first), or why it can't be imported */
+const kindCell = (cells: string[]) => (cells[EXPORT_COLUMNS.indexOf('Kind')] ?? '').trim();
+
+/**
+ * The days a file of some dates holds, from the line that says so (rangeCells); null for a
+ * file of everything
+ */
+export function readExportRange(table: string[][]): ExportRange | null {
+  const line = table.slice(1).find((cells) => kindCell(cells) === RANGE_KIND);
+  if (line == null) return null;
+  const days = /(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/.exec(
+    line[EXPORT_COLUMNS.indexOf('Note')] ?? '',
+  );
+  return days == null ? null : { from: days[1], to: days[2] };
+}
+
+/**
+ * Each line of Mahnee's export (header first), or why it can't be imported. The line saying
+ * a file holds some dates only is no row to import, and is left out (its row numbers kept).
+ */
 export function readExportRows(table: string[][], now = Date.now()): Read<ExportRow>[] {
-  return table.slice(1).map((cells, i): Read<ExportRow> => {
-    const row = i + 2;
-    const raw = (name: Column) => cells[EXPORT_COLUMNS.indexOf(name)] ?? '';
-    const text = (name: Column) => textOf(unguarded(raw(name)));
-    const repeats = REPEATING_BY_NAME.get(raw('Kind').trim());
-    if (repeats != null) return readRepeating(row, repeats, raw, text, now);
-    const kind = KIND_BY_NAME.get(raw('Kind').trim());
-    if (kind == null) return { row, problem: 'Unknown kind of line' };
-    const account = text('Account');
-    if (account == null) return { row, problem: 'No account named' };
-    const toAccount = kind === 'transfer' ? text('To account') : null;
-    if (kind === 'transfer' && toAccount == null) {
-      return { row, problem: 'No account named to move it to' };
-    }
-    // An opening balance is dated the day its account was added, in UTC: taken as it is
-    const date = kind === 'opening' ? readDay(raw('Date')) : dayOrProblem(raw('Date'), now);
-    if (date == null) return { row, problem: `Can't read the date "${raw('Date').trim()}"` };
-    if (typeof date !== 'string') return { row, ...date };
-    const cents = readCents(raw('Amount'));
-    if (cents == null || (kind !== 'opening' && cents <= 0)) return { row, problem: NO_AMOUNT };
-    if (Math.abs(cents) > MAX_TRANSACTION_CENTS) return { row, problem: AMOUNT_RANGE };
-    const categorised = kind === 'expense' || kind === 'income';
-    return {
-      row,
-      kind,
-      date,
-      account,
-      toAccount,
-      cents,
-      category: categorised ? text('Category') : null,
-      parentCategory: categorised ? text('Parent category') : null,
-      payee: kind === 'opening' ? null : fit(text('Payee'), MAX_PAYEE)[0],
-      note: kind === 'opening' ? null : fit(text('Note'), MAX_NOTE)[0],
-    };
-  });
+  return table.flatMap((cells, i): Read<ExportRow>[] =>
+    i === 0 || kindCell(cells) === RANGE_KIND ? [] : [readExportLine(cells, i + 1, now)],
+  );
+}
+
+/** One line of an export, the file's row `row` */
+function readExportLine(cells: string[], row: number, now: number): Read<ExportRow> {
+  const raw = (name: Column) => cells[EXPORT_COLUMNS.indexOf(name)] ?? '';
+  const text = (name: Column) => textOf(unguarded(raw(name)));
+  const repeats = REPEATING_BY_NAME.get(raw('Kind').trim());
+  if (repeats != null) return readRepeating(row, repeats, raw, text, now);
+  const kind = KIND_BY_NAME.get(raw('Kind').trim());
+  if (kind == null) return { row, problem: 'Unknown kind of line' };
+  const account = text('Account');
+  if (account == null) return { row, problem: 'No account named' };
+  const toAccount = kind === 'transfer' ? text('To account') : null;
+  if (kind === 'transfer' && toAccount == null) {
+    return { row, problem: 'No account named to move it to' };
+  }
+  // An opening balance is dated the day its account was added, in UTC: taken as it is
+  const date = kind === 'opening' ? readDay(raw('Date')) : dayOrProblem(raw('Date'), now);
+  if (date == null) return { row, problem: `Can't read the date "${raw('Date').trim()}"` };
+  if (typeof date !== 'string') return { row, ...date };
+  const cents = readCents(raw('Amount'));
+  if (cents == null || (kind !== 'opening' && cents <= 0)) return { row, problem: NO_AMOUNT };
+  if (Math.abs(cents) > MAX_TRANSACTION_CENTS) return { row, problem: AMOUNT_RANGE };
+  const categorised = kind === 'expense' || kind === 'income';
+  return {
+    row,
+    kind,
+    date,
+    account,
+    toAccount,
+    cents,
+    category: categorised ? text('Category') : null,
+    parentCategory: categorised ? text('Parent category') : null,
+    payee: kind === 'opening' ? null : fit(text('Payee'), MAX_PAYEE)[0],
+    note: kind === 'opening' ? null : fit(text('Note'), MAX_NOTE)[0],
+  };
 }
 
 /**

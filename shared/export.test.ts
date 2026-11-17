@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Recurring } from './api';
-import { readExportRows, parseCsv } from './csv-import';
-import { EXPORT_COLUMNS, csvLine, openingCells, repeatingLines } from './export';
+import { readExportRange, readExportRows, parseCsv } from './csv-import';
+import {
+  EXPORT_COLUMNS,
+  csvLine,
+  exportFileName,
+  openingCells,
+  rangeCells,
+  repeatingLines,
+} from './export';
 
 describe('export lines', () => {
   it('keeps a negative amount a number, while text starting with "-" gets a \'', () => {
@@ -135,5 +142,42 @@ describe('repeating lines', () => {
   it('writes nothing for someone with nothing running', () => {
     expect(repeatingLines([], names)).toBe('');
     expect(repeatingLines([item('5', { archived: true })], names)).toBe('');
+  });
+});
+
+// A file of some dates only (D11): it says so on its first line after the header, and
+// names its days in its file name
+describe('a file of some dates', () => {
+  it('says on its own line that it holds only those days and cannot restore balances', () => {
+    expect(csvLine(rangeCells({ from: '2026-10-01', to: '2026-10-31' }))).toBe(
+      '2026-10-01,Only these dates,,,,,,,,' +
+        "Entries from 2026-10-01 to 2026-10-31 only. It can't restore balances on its own.,\r\n",
+    );
+  });
+
+  it('is named for its days; everything is named for the day it was made', () => {
+    expect(exportFileName('2026-11-05')).toBe('mahnee-2026-11-05.csv');
+    expect(exportFileName('2026-11-05', { from: '2026-01-01', to: '2026-12-31' })).toBe(
+      'mahnee-2026-01-01-to-2026-12-31.csv',
+    );
+  });
+
+  it('reads back as the days it holds, its note line never a row to import', () => {
+    const table = parseCsv(
+      csvLine(EXPORT_COLUMNS) +
+        csvLine(rangeCells({ from: '2026-10-01', to: '2026-10-31' })) +
+        '2026-10-05,Spent,Wallet,,8.00,MYR,Food,,Kopi,,' +
+        'a'.repeat(16) +
+        '\r\n',
+    );
+    expect(readExportRange(table)).toEqual({ from: '2026-10-01', to: '2026-10-31' });
+    const rows = readExportRows(table, Date.UTC(2026, 10, 6));
+    expect(rows).toEqual([
+      expect.objectContaining({ row: 3, kind: 'expense', date: '2026-10-05', account: 'Wallet' }),
+    ]);
+  });
+
+  it('is not a file of some dates without that line', () => {
+    expect(readExportRange(parseCsv(csvLine(EXPORT_COLUMNS)))).toBeNull();
   });
 });

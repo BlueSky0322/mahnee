@@ -8,6 +8,7 @@
 import {
   CSV_BOM,
   EXPORT_COLUMNS,
+  EXPORT_COLUMNS_BEFORE_TIMES,
   EXPORT_KINDS,
   OPENING_KIND,
   RANGE_KIND,
@@ -18,6 +19,7 @@ import type { TransactionKind } from './ledger';
 import { MAX_NOTE, MAX_PAYEE, MAX_TRANSACTION_CENTS, isDay } from './ledger';
 import type { Schedule } from './recurring';
 import { fallsOn, isScheduleDay, latestDue } from './recurring';
+import { isTimeOfDay } from './settings';
 
 /** The most rows one file may hold (its header aside); a longer one is refused whole */
 export const MAX_IMPORT_ROWS = 5000;
@@ -61,6 +63,8 @@ export interface BankRow {
 export interface ExportRow {
   kind: 'opening' | TransactionKind;
   date: string;
+  /** The entry's time of day (08:12), when the file gives one; null otherwise */
+  time: string | null;
   account: string;
   toAccount: string | null;
   /** Whole cents: above zero for a transaction; signed for an opening balance */
@@ -192,9 +196,12 @@ export function readCents(text: string): number | null {
   return negative && cents !== 0 ? -cents : cents;
 }
 
-/** Whether a file's header is Mahnee's own export's */
+const sameColumns = (header: readonly string[], columns: readonly string[]) =>
+  header.length === columns.length && header.every((h, i) => h === columns[i]);
+
+/** Whether a file's header is Mahnee's own export's, as it is now or from before times */
 export const isMahneeExport = (header: readonly string[]): boolean =>
-  header.length === EXPORT_COLUMNS.length && header.every((h, i) => h === EXPORT_COLUMNS[i]);
+  sameColumns(header, EXPORT_COLUMNS) || sameColumns(header, EXPORT_COLUMNS_BEFORE_TIMES);
 
 /** Text that's empty once trimmed is none */
 const textOf = (cell: string | undefined) => {
@@ -290,18 +297,32 @@ function readSchedule(text: string): ExportRow['repeat'] | null {
 
 type Column = (typeof EXPORT_COLUMNS)[number];
 
-const kindCell = (cells: string[]) => (cells[EXPORT_COLUMNS.indexOf('Kind')] ?? '').trim();
+/**
+ * Where each column is in a file: by its header when it's one of the export's, so a file
+ * from before times (no Time column) reads as it always did
+ */
+const columnsOf = (header: readonly string[] | undefined): readonly string[] =>
+  header != null && sameColumns(header, EXPORT_COLUMNS_BEFORE_TIMES)
+    ? EXPORT_COLUMNS_BEFORE_TIMES
+    : EXPORT_COLUMNS;
+
+const cellOf = (columns: readonly string[], cells: string[], name: Column) => {
+  const at = columns.indexOf(name);
+  return at < 0 ? '' : cells[at] ?? '';
+};
+
+const kindCell = (columns: readonly string[], cells: string[]) =>
+  cellOf(columns, cells, 'Kind').trim();
 
 /**
  * The days a file of some dates holds, from the line that says so (rangeCells); null for a
  * file of everything
  */
 export function readExportRange(table: string[][]): ExportRange | null {
-  const line = table.slice(1).find((cells) => kindCell(cells) === RANGE_KIND);
+  const columns = columnsOf(table[0]);
+  const line = table.slice(1).find((cells) => kindCell(columns, cells) === RANGE_KIND);
   if (line == null) return null;
-  const days = /(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/.exec(
-    line[EXPORT_COLUMNS.indexOf('Note')] ?? '',
-  );
+  const days = /(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/.exec(cellOf(columns, line, 'Note'));
   return days == null ? null : { from: days[1], to: days[2] };
 }
 
@@ -310,14 +331,22 @@ export function readExportRange(table: string[][]): ExportRange | null {
  * a file holds some dates only is no row to import, and is left out (its row numbers kept).
  */
 export function readExportRows(table: string[][], now = Date.now()): Read<ExportRow>[] {
+  const columns = columnsOf(table[0]);
   return table.flatMap((cells, i): Read<ExportRow>[] =>
-    i === 0 || kindCell(cells) === RANGE_KIND ? [] : [readExportLine(cells, i + 1, now)],
+    i === 0 || kindCell(columns, cells) === RANGE_KIND
+      ? []
+      : [readExportLine(columns, cells, i + 1, now)],
   );
 }
 
 /** One line of an export, the file's row `row` */
-function readExportLine(cells: string[], row: number, now: number): Read<ExportRow> {
-  const raw = (name: Column) => cells[EXPORT_COLUMNS.indexOf(name)] ?? '';
+function readExportLine(
+  columns: readonly string[],
+  cells: string[],
+  row: number,
+  now: number,
+): Read<ExportRow> {
+  const raw = (name: Column) => cellOf(columns, cells, name);
   const text = (name: Column) => textOf(unguarded(raw(name)));
   const repeats = REPEATING_BY_NAME.get(raw('Kind').trim());
   if (repeats != null) return readRepeating(row, repeats, raw, text, now);
@@ -333,6 +362,9 @@ function readExportLine(cells: string[], row: number, now: number): Read<ExportR
   const date = kind === 'opening' ? readDay(raw('Date')) : dayOrProblem(raw('Date'), now);
   if (date == null) return { row, problem: `Can't read the date "${raw('Date').trim()}"` };
   if (typeof date !== 'string') return { row, ...date };
+  const timeText = raw('Time').trim();
+  const unreadableTime = `Can't read the time "${timeText}"`;
+  if (timeText !== '' && !isTimeOfDay(timeText)) return { row, problem: unreadableTime };
   const cents = readCents(raw('Amount'));
   if (cents == null || (kind !== 'opening' && cents <= 0)) return { row, problem: NO_AMOUNT };
   if (Math.abs(cents) > MAX_TRANSACTION_CENTS) return { row, problem: AMOUNT_RANGE };
@@ -341,6 +373,7 @@ function readExportLine(cells: string[], row: number, now: number): Read<ExportR
     row,
     kind,
     date,
+    time: kind === 'opening' || timeText === '' ? null : timeText,
     account,
     toAccount,
     cents,
@@ -384,6 +417,7 @@ function readRepeating(
     row,
     kind,
     date,
+    time: null,
     account,
     toAccount,
     cents,

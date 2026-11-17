@@ -12,9 +12,10 @@ import type { TransactionKind } from './ledger';
 import type { Schedule } from './recurring';
 import { MAX_RECURRING } from './recurring';
 
-/** The file's first line: what each column holds */
+/** The file's first line: what each column holds. Time is an entry's time of day, if any. */
 export const EXPORT_COLUMNS = [
   'Date',
+  'Time',
   'Kind',
   'Account',
   'To account',
@@ -26,6 +27,9 @@ export const EXPORT_COLUMNS = [
   'Note',
   'Id',
 ] as const;
+
+/** The first line of a file made before entries had a time: no Time column. Still read. */
+export const EXPORT_COLUMNS_BEFORE_TIMES = EXPORT_COLUMNS.filter((c) => c !== 'Time');
 
 /** How each kind of transaction is written */
 export const EXPORT_KINDS: Record<TransactionKind, string> = {
@@ -77,6 +81,7 @@ export const rangeNote = ({ from, to }: ExportRange) =>
 /** The line after the header of a file of some dates, in EXPORT_COLUMNS' order */
 export const rangeCells = (range: ExportRange): Cell[] => [
   range.from,
+  '',
   RANGE_KIND,
   '',
   '',
@@ -148,6 +153,7 @@ export interface ExportAccount {
  */
 export const openingCells = (a: ExportAccount): Cell[] => [
   new Date(a.createdAt).toISOString().slice(0, 10),
+  '',
   OPENING_KIND,
   a.name,
   '',
@@ -172,7 +178,7 @@ export interface ExportNames {
  * `names` (never, while they're only archived) is written empty rather than dropped.
  */
 export function exportCells(
-  t: Omit<Transaction, 'createdAt'>,
+  t: Omit<Transaction, 'createdAt' | 'time'> & { time?: string | null },
   { accounts, categories }: ExportNames,
 ): Cell[] {
   const account = accounts.get(t.accountId);
@@ -180,6 +186,7 @@ export function exportCells(
   const parent = category?.parentId == null ? null : categories.get(category.parentId);
   return [
     t.date,
+    t.time ?? '',
     EXPORT_KINDS[t.kind],
     account?.name ?? '',
     t.toAccountId == null ? '' : accounts.get(t.toAccountId)?.name ?? '',
@@ -199,9 +206,9 @@ export function exportCells(
  * unsigned), how often it falls in the Note (Monday is day 1) and its own id
  */
 export function repeatingCells(r: Omit<Recurring, 'startDate'>, names: ExportNames): Cell[] {
-  const cells = exportCells({ ...r, note: null, date: r.nextDue }, names);
-  cells[1] = REPEATING_KINDS[r.kind];
-  cells[9] = scheduleText(r.schedule, r.day);
+  const cells = exportCells({ ...r, note: null, date: r.nextDue, time: null }, names);
+  cells[EXPORT_COLUMNS.indexOf('Kind')] = REPEATING_KINDS[r.kind];
+  cells[EXPORT_COLUMNS.indexOf('Note')] = scheduleText(r.schedule, r.day);
   return cells;
 }
 

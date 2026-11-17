@@ -197,7 +197,12 @@ export interface Transaction {
   note: string | null;
   /** The person's own calendar day it happened on, as 2026-11-05 */
   date: string;
-  /** When the server saved it (ms), which orders transactions on the same day */
+  /**
+   * The time of day on the person's own clock, as 08:12 (24-hour), when one was given
+   * ("Ask for a time"); null or missing for none. Orders transactions on the same day.
+   */
+  time?: string | null;
+  /** When the server saved it (ms), which orders transactions on the same day after the time */
   createdAt: number;
 }
 

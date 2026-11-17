@@ -277,12 +277,18 @@
   color: var(--ink-3);
 }
 
-/* Amounts say which way (R-System): spending in ink, income green, a transfer grey */
+/* Amounts say which way (R-System): spending in ink (or red, as chosen in Look and start),
+   income green, a transfer grey */
 .amount {
   font-size: 0.9375rem;
   font-weight: 500;
   white-space: nowrap;
   color: var(--ink);
+}
+
+.amount[data-kind='expense'],
+.headline[data-kind='expense'] {
+  color: var(--expense);
 }
 
 .amount[data-kind='income'],

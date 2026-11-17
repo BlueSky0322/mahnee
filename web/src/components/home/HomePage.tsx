@@ -15,7 +15,6 @@ import { useProfile } from '../../profile/ProfileContext';
 import { addMonths, monthHeading } from '../../utils/date-input';
 import { balanceText } from '../accounts/account-text';
 import Freshness from '../common/Freshness';
-import ThemeToggle from '../common/ThemeToggle';
 import YouLink from '../common/YouLink';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import type { ComingUpRow } from './ComingUp';
@@ -28,6 +27,7 @@ import { isStartedHidden } from './getting-started';
 import classes from './Home.module.css';
 import HomeBudgets from './HomeBudgets';
 import {
+  essentialRows,
   expensesLine,
   heroLine,
   incomeLine,
@@ -73,8 +73,8 @@ const HomePage = ({ month }: { month: string | null }) => {
       <Header
         month={shown}
         isDesktop={isDesktop}
-        // Until the accounts are known it may yet be the first run, with an initial and theme
-        // switch of its own; if they can't be loaded, Home keeps them (Settings, Sign out)
+        // Until the accounts are known it may yet be the first run, with an initial of its own;
+        // if they can't be loaded, Home keeps its own (Settings, Sign out)
         known={accounts != null || failed}
       />
       {accounts != null ? (
@@ -147,6 +147,9 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
   const { data: ledger } = useWholeLedger();
   const { profile } = useProfile();
   const weekStart: WeekStart = profile?.settings.weekStart ?? 'monday';
+  // Essentials (Look and start): the month end and what needs you; the two cards, the
+  // calendar and the budgets are left out
+  const essentials = profile?.settings.homeDensity === 'essentials';
   // Hide is kept per account: decided only once who's signed in is known
   const email = profile?.email ?? null;
   const [hiddenNow, setHiddenNow] = useState<string | null>(null);
@@ -175,7 +178,8 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
     steps != null &&
     !(steps.logged && steps.pastMonths && steps.scheduled && steps.budget);
 
-  const coming = isCurrent && ledger != null ? comingRows(ledger, categories, today) : [];
+  const allComing = isCurrent && ledger != null ? comingRows(ledger, categories, today) : [];
+  const coming = essentials ? essentialRows(allComing) : allComing;
   const due = isCurrent && ledger != null ? dueByDay(ledger, categories, today, lastDay) : null;
   const bothEmpty =
     summary != null && summary.spentByDay.length === 0 && (lines ?? []).length === 0;
@@ -214,29 +218,28 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
       added={[]}
     />
   );
-  const days =
-    summary == null ? (
-      !monthFailed && (
-        <Skeleton
-          width="100%"
-          height={isDesktop ? 300 : 340}
-        />
-      )
-    ) : (
-      <DayByDay
-        month={month}
-        firstDay={figures.firstDay}
-        lastDay={figures.lastDay}
-        today={figures.today}
-        isCurrent={isCurrent}
-        spentByDay={summary.spentByDay}
-        due={due ?? new Map()}
-        weekStart={weekStart}
-        tapHint={!isDesktop}
+  const days = essentials ? null : summary == null ? (
+    !monthFailed && (
+      <Skeleton
+        width="100%"
+        height={isDesktop ? 300 : 340}
       />
-    );
+    )
+  ) : (
+    <DayByDay
+      month={month}
+      firstDay={figures.firstDay}
+      lastDay={figures.lastDay}
+      today={figures.today}
+      isCurrent={isCurrent}
+      spentByDay={summary.spentByDay}
+      due={due ?? new Map()}
+      weekStart={weekStart}
+      tapHint={!isDesktop}
+    />
+  );
   const budgets =
-    lines == null ? null : (
+    essentials || lines == null ? null : (
       <HomeBudgets
         lines={lines}
         at={figures.at}
@@ -262,6 +265,7 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
           ledger={answered ? ledger : null}
           lines={lines}
           isDesktop
+          essentials={essentials}
         />
         {failedMonth}
         {isCurrent && <DueItems />}
@@ -273,9 +277,11 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
               {comingUp}
             </div>
           )}
-          {bothEmpty
-            ? combined
-            : days && <div className={`${classes.card} ${classes.daysCard}`}>{days}</div>}
+          {essentials
+            ? null
+            : bothEmpty
+              ? combined
+              : days && <div className={`${classes.card} ${classes.daysCard}`}>{days}</div>}
         </div>
         {!bothEmpty && budgets}
       </>
@@ -290,13 +296,14 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
         ledger={answered ? ledger : null}
         lines={lines}
         isDesktop={false}
+        essentials={essentials}
       />
       {failedMonth}
       {isCurrent && <DueItems />}
       {tidy}
       {started}
       {comingUp}
-      {bothEmpty ? (
+      {essentials ? null : bothEmpty ? (
         combined
       ) : (
         <>
@@ -384,7 +391,6 @@ function Header({
         {arrows}
         <div className={classes.headerEnd}>
           <SearchEverything />
-          {known && <ThemeToggle />}
         </div>
       </header>
     );
@@ -398,10 +404,7 @@ function Header({
           reserve
         />
       </div>
-      <div className={classes.headerEnd}>
-        {known && <ThemeToggle />}
-        {known && <YouLink />}
-      </div>
+      <div className={classes.headerEnd}>{known && <YouLink />}</div>
     </header>
   );
 }
@@ -453,6 +456,7 @@ function Answers({
   ledger,
   lines,
   isDesktop,
+  essentials,
 }: {
   month: string;
   figures: Figures;
@@ -460,6 +464,8 @@ function Answers({
   ledger: Ledger | null;
   lines: ReturnType<typeof budgetLines> | null;
   isDesktop: boolean;
+  /** Home shows Essentials: the month end alone, without the two cards */
+  essentials: boolean;
 }) {
   const heroId = useId();
   const { isCurrent, today, at } = figures;
@@ -573,8 +579,8 @@ function Answers({
           {figure(hero.cents, false)}
           {line}
         </PageLink>
-        {spentCard}
-        {incomeCard}
+        {!essentials && spentCard}
+        {!essentials && incomeCard}
       </section>
     );
   }
@@ -593,10 +599,12 @@ function Answers({
         {figure(hero.cents, true)}
         {line}
       </section>
-      <div className={classes.cards}>
-        {spentCard}
-        {incomeCard}
-      </div>
+      {!essentials && (
+        <div className={classes.cards}>
+          {spentCard}
+          {incomeCard}
+        </div>
+      )}
     </>
   );
 }

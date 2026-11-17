@@ -666,9 +666,9 @@ describe('changing the month start day', () => {
     goOffline(server);
     await reloadApp(server, '/', { size: 'desktop' });
     expect(await screen.findByRole('heading', { level: 1, name: 'December 2026' })).toBeTruthy();
-    expect(
-      await within(screen.getByRole('complementary')).findByText('From this device, 2 h old'),
-    ).toBeTruthy();
+    // The sidebar comes once the accounts are known, after the heading
+    const sidebar = await screen.findByRole('complementary');
+    expect(await within(sidebar).findByText('From this device, 2 h old')).toBeTruthy();
   });
 });
 

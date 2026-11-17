@@ -5,14 +5,14 @@ import { Root } from './Root';
 import { trackKeyboardInset } from './pwa/keyboard-inset';
 import { trackInstall } from './pwa/install';
 import { hideLaunchScreen } from './pwa/launch-screen';
-import { restoreLastPage } from './hooks/useRoute';
+import { openStartScreen } from './hooks/useRoute';
 import { dropSignInMark } from './offline/cache';
 import { keepStorageOnceInstalled } from './offline/storage';
 
-// Back from signing in: the address as it was, then (on a fresh start) the page that was
-// open last time, before anything reads the address
+// Back from signing in: the address as it was, then (on a fresh start) the page chosen to
+// open on, before anything reads the address
 dropSignInMark();
-restoreLastPage();
+openStartScreen();
 // Bottom sheets stay above the on-screen keyboard
 trackKeyboardInset();
 // The browser's install prompt comes once, early; keep it for the app's own buttons

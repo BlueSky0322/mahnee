@@ -330,6 +330,7 @@ function EntryRow({
       <span
         className={`${classes.rowAmount} sf-tabular`}
         data-incoming={(incoming && t.kind === 'income') || undefined}
+        data-kind={t.kind}
       >
         {amount}
       </span>

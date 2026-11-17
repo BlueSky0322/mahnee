@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { isRowId } from '@shared/api';
+import { START_SCREENS, type StartScreen, isRowId } from '@shared/api';
 import { isMonth } from '@shared/ledger';
-import { LAST_PAGE_KEY } from '../offline/cache';
+import { LAST_EMAIL_KEY, START_SCREEN_KEY } from '../offline/cache';
 import { addMonths, thisMonth } from '../utils/date-input';
 import { quietly } from '../utils/quietly';
 
@@ -136,38 +136,75 @@ const readCategory = (category: string | null) =>
   category != null && (isAll(category) || isRowId(category)) ? category : null;
 
 const ROUTE_CHANGE = 'routechange';
-const SESSION_KEY = 'mahnee:session';
-/**
- * One-off parts of an address, never reopened on a fresh start: Home opens on this month,
- * and Activity isn't selecting
- */
-const TRANSIENT: string[] = ['month', 'select'];
+/** Marks this tab as started, so a reload isn't taken for a fresh start */
+export const SESSION_KEY = 'mahnee:session';
 
-/** Remembers the page that's open, so the app can reopen there */
-function rememberPage() {
-  const params = new URLSearchParams(window.location.search);
-  for (const key of TRANSIENT) params.delete(key);
-  const search = params.toString();
-  // Without storage, the app opens on the home page
-  quietly(() => localStorage.setItem(LAST_PAGE_KEY, search ? `?${search}` : ''));
-}
+/**
+ * A fresh start at the app's own address, until the account is known: what it opened, and
+ * whose choice that was ({ opened, chosenBy }), kept for this tab
+ */
+const FRESH_START_KEY = 'mahnee:freshStart';
+
+/** The page a start screen is at: Home's address is bare */
+const startAddress = (start: StartScreen) => (start === 'home' ? '' : `?${start}`);
 
 /**
  * Opening the app afresh at its start address (the installed app's icon, or typing the
- * address) goes back to the page that was open last time. A reload, or a link to a
- * particular page, keeps its own address. Called once at start, before the first render.
+ * address) opens on the place chosen in Look and start: Home, Activity or Plan. The choice
+ * kept on this device is used only while its account is the one last signed in here, so the
+ * first paint is right; rememberStartScreen() puts it right once the account is known. A
+ * reload, or a link to a particular page, keeps its own address. Called once at start,
+ * before the first render.
  */
-export function restoreLastPage() {
+export function openStartScreen() {
   // Without storage, the app opens where the address says
   quietly(() => {
+    sessionStorage.removeItem(FRESH_START_KEY);
     const fresh = sessionStorage.getItem(SESSION_KEY) == null;
     sessionStorage.setItem(SESSION_KEY, '1');
     if (!fresh || window.location.search !== '') return;
-    const last = localStorage.getItem(LAST_PAGE_KEY);
-    if (last?.startsWith('?')) {
-      window.history.replaceState(null, '', `${window.location.pathname}${last}`);
+    const kept = readKept();
+    const chosenBy = localStorage.getItem(LAST_EMAIL_KEY);
+    const start = kept != null && kept.email === chosenBy ? kept.start : 'home';
+    sessionStorage.setItem(
+      FRESH_START_KEY,
+      JSON.stringify({
+        opened: startAddress(start),
+        chosenBy: kept != null && kept.email === chosenBy ? chosenBy : null,
+      }),
+    );
+    if (start !== 'home') {
+      window.history.replaceState(null, '', `${window.location.pathname}${startAddress(start)}`);
     }
   });
+}
+
+/** The page to open on kept on this device, and whose choice it is */
+function readKept(): { email: string; start: StartScreen } | null {
+  const kept = quietly(
+    () => JSON.parse(localStorage.getItem(START_SCREEN_KEY) ?? 'null') as unknown,
+  ) as { email?: unknown; start?: unknown } | null | undefined;
+  if (kept == null || typeof kept.email !== 'string') return null;
+  return (START_SCREENS as readonly unknown[]).includes(kept.start)
+    ? { email: kept.email, start: kept.start as StartScreen }
+    : null;
+}
+
+/**
+ * Once it's known who's signed in and where they open the app: keeps that for the next
+ * fresh start, and if this was one that opened somewhere else (someone else's choice, or
+ * none kept yet) and nothing has been opened since, goes there now
+ */
+export function rememberStartScreen(email: string, start: StartScreen) {
+  quietly(() => localStorage.setItem(START_SCREEN_KEY, JSON.stringify({ email, start })));
+  const started = quietly(() => {
+    const text = sessionStorage.getItem(FRESH_START_KEY);
+    sessionStorage.removeItem(FRESH_START_KEY);
+    return text == null ? null : (JSON.parse(text) as { opened: string; chosenBy: string | null });
+  });
+  if (started == null || started.chosenBy === email) return;
+  if (window.location.search !== started.opened || startAddress(start) === started.opened) return;
+  navigate(startAddress(start), { replace: true });
 }
 
 export function navigate(search: string, { replace = false } = {}) {
@@ -217,11 +254,7 @@ export function useRoute(): Route {
   const [route, setRoute] = useState(readRoute);
 
   useEffect(() => {
-    const update = () => {
-      setRoute(readRoute());
-      rememberPage();
-    };
-    rememberPage();
+    const update = () => setRoute(readRoute());
     window.addEventListener('popstate', update);
     window.addEventListener(ROUTE_CHANGE, update);
     return () => {

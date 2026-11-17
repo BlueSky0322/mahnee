@@ -3,7 +3,6 @@ import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { AccountKind } from '@shared/ledger';
 import AccountForm from '../accounts/AccountForm';
 import KindIcon from '../accounts/KindIcon';
-import ThemeToggle from '../common/ThemeToggle';
 import YouLink from '../common/YouLink';
 import classes from './Home.module.css';
 
@@ -19,8 +18,7 @@ const count = (kind: 'expense' | 'income') =>
 
 // The first run, in place of everything until there's an account: where the money is
 // kept, one kind at a time, each opening Add account with that kind chosen. The round
-// initial still leads to Settings (and Sign out), and the theme switch is beside it until
-// Look and start has it.
+// initial still leads to Settings (and Sign out, and the theme in Look and start).
 export default function FirstRun() {
   const [open, setOpen] = useState<{ account: null; kind: AccountKind } | null>(null);
   return (
@@ -28,7 +26,6 @@ export default function FirstRun() {
       <div className={classes.firstTop}>
         <p className={classes.brand}>Mahnee</p>
         <div className={classes.headerEnd}>
-          <ThemeToggle />
           <YouLink />
         </div>
       </div>

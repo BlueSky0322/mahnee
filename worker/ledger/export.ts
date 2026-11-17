@@ -38,6 +38,7 @@ interface ExportRow {
   categoryId: string | null;
   payee: string | null;
   note: string | null;
+  time: string | null;
   date: string;
   createdAt: number;
 }
@@ -177,7 +178,7 @@ export async function exportTransactions(
         .prepare(
           `SELECT id, kind, account_id AS accountId, to_account_id AS toAccountId,
                   amount_cents AS amountCents, category_id AS categoryId, payee, note, date,
-                  created_at AS createdAt
+                  time, created_at AS createdAt
            FROM transactions
            WHERE email = ? ${range == null ? '' : 'AND date BETWEEN ? AND ?'}
              ${after == null ? '' : 'AND (date, created_at, id) > (?, ?, ?)'}

@@ -986,7 +986,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
     await addEntry('80', async (form) => {
       await user.click(form.getByRole('button', { name: /^From / }));
       await user.click(await screen.findByRole('radio', { name: /^Maybank/ }));
-      await user.type(form.getByRole('textbox', { name: 'Payee or note' }), 'Phone');
+      await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Phone');
       await user.click(form.getByRole('button', { name: 'Repeat' }));
       await user.click(await screen.findByRole('radio', { name: 'Monthly' }));
     });

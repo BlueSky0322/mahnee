@@ -424,6 +424,8 @@ describe('Plan: budgets and where it went', () => {
     expect(within(food).getByText('Leftover rolls into next month')).toBeTruthy();
   });
 
+  // A new budget carries over, as "Carry over, for new budgets" is by default (owner
+  // decision D14; settings/BudgetsPage.test.tsx has it off)
   test('on a computer, sets a budget from a row, in the pane, from this month', async () => {
     tenthJustAfterMidnight();
     const server = aPlannedMonth();
@@ -441,14 +443,16 @@ describe('Plan: budgets and where it went', () => {
     await user.type(field, '200{Enter}');
 
     // At once on screen: RM 180.00 of RM 200.00 by day 10 of 30 is ahead of the month
-    await waitFor(() => expect(tableRows(table)).toContain('Groceries 3 entries | 180.00 | 20.00'));
+    await waitFor(() =>
+      expect(tableRows(table)).toContain('Groceries 3 entries · carries over | 180.00 | 20.00'),
+    );
     expect(within(table).getByRole('meter', { name: 'Groceries: 90% spent' })).toBeTruthy();
     await waitFor(() =>
       expect(budgetsOf(server)).toContainEqual({
         categoryId: GROCERIES,
         fromMonth: '2026-11',
         amountCents: 20_000,
-        carryOver: false,
+        carryOver: true,
       }),
     );
   });
@@ -554,7 +558,7 @@ describe('Plan: budgets and where it went', () => {
         categoryId: GROCERIES,
         fromMonth: '2026-11',
         amountCents: 1_000_000_000,
-        carryOver: false,
+        carryOver: true,
       }),
     );
     expect(within(groceries).queryByText('Up to 10,000,000')).toBeNull();
@@ -595,13 +599,17 @@ describe('Plan: budgets and where it went', () => {
     const back = goOffline(server);
     await user.type(within(groceries).getByLabelText('Monthly budget'), '200{Enter}');
     await waitFor(async () =>
-      expect(tableRows(await expensesTable())).toContain('Groceries 3 entries | 180.00 | 20.00'),
+      expect(tableRows(await expensesTable())).toContain(
+        'Groceries 3 entries · carries over | 180.00 | 20.00',
+      ),
     );
 
     // Opened again offline: kept on the device, still to send
     await reloadApp(server, `/?plan&category=${GROCERIES}`, { size: 'desktop' });
     await waitFor(async () =>
-      expect(tableRows(await expensesTable())).toContain('Groceries 3 entries | 180.00 | 20.00'),
+      expect(tableRows(await expensesTable())).toContain(
+        'Groceries 3 entries · carries over | 180.00 | 20.00',
+      ),
     );
     expect(budgetsOf(server).some((b) => b.categoryId === GROCERIES)).toBe(false);
 
@@ -609,12 +617,14 @@ describe('Plan: budgets and where it went', () => {
     await waitFor(
       () =>
         expect(budgetsOf(server).filter((b) => b.categoryId === GROCERIES)).toEqual([
-          { categoryId: GROCERIES, fromMonth: '2026-11', amountCents: 20_000, carryOver: false },
+          { categoryId: GROCERIES, fromMonth: '2026-11', amountCents: 20_000, carryOver: true },
         ]),
       { timeout: 8000 },
     );
     await waitFor(() => expect(screen.queryByText(/changes? waiting/)).toBeNull());
-    expect(tableRows(await expensesTable())).toContain('Groceries 3 entries | 180.00 | 20.00');
+    expect(tableRows(await expensesTable())).toContain(
+      'Groceries 3 entries · carries over | 180.00 | 20.00',
+    );
   }, 15_000);
 
   test("on a computer, puts a budget the server refuses back, with the server's explanation", async () => {
@@ -628,7 +638,9 @@ describe('Plan: budgets and where it went', () => {
     const table = await expensesTable();
     await user.type(within(fun).getByLabelText('Monthly budget'), '100{Enter}');
     // Shown straight away, before the server answers
-    await waitFor(() => expect(tableRows(table)).toContain('Fun Arcade | 0.50 | 99.50'));
+    await waitFor(() =>
+      expect(tableRows(table)).toContain('Fun Arcade · carries over | 0.50 | 99.50'),
+    );
 
     held.release();
     expect(await screen.findByText('Fun is archived')).toBeTruthy();

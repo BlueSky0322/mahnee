@@ -86,3 +86,23 @@ export function payeeHint(
     text: `${known.payee} was in ${categoryName(categories, category.id)}`,
   };
 }
+
+/** The most payees Add suggests as you type */
+export const MAX_SUGGESTIONS = 200;
+
+/**
+ * The payees Add suggests (Suggest as you type): each once, compared trimmed and ignoring
+ * case, as it was last written, the latest first, at most MAX_SUGGESTIONS
+ */
+export function suggestedPayees(payees: readonly PayeeCategory[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const { payee } of payees) {
+    const key = payee.trim().toLowerCase();
+    if (key === '' || seen.has(key)) continue;
+    seen.add(key);
+    out.push(payee.trim());
+    if (out.length === MAX_SUGGESTIONS) break;
+  }
+  return out;
+}

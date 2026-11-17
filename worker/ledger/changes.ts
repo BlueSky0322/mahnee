@@ -16,6 +16,7 @@ import {
   isRowId,
 } from '../../shared/api';
 import { MAX_IMPORT_ROWS } from '../../shared/csv-import';
+import { isTimeOfDay } from '../../shared/settings';
 import {
   DEFAULT_CATEGORIES,
   MAX_CATEGORIES,
@@ -254,6 +255,13 @@ const readAmount = (value: unknown) => {
 
 const readDay = (value: unknown, now: number) => {
   if (!isDay(value, now)) throw new Refused(400, DAY_RANGE);
+  return value;
+};
+
+/** A time of day on the person's clock (08:12), or none: null */
+const readTime = (value: unknown) => {
+  if (value === null) return null;
+  if (!isTimeOfDay(value)) throw new Refused(400, 'Invalid time');
   return value;
 };
 
@@ -529,6 +537,7 @@ function changeStatements(
         'payee',
         'note',
         'date',
+        'time',
       ]);
       if (!isRowId(t.id)) throw new Refused(400, 'Invalid transaction id');
       if (model.transactions.has(t.id)) throw new Refused(409, 'That transaction already exists');
@@ -540,6 +549,7 @@ function changeStatements(
       const payee = readText(t.payee, MAX_PAYEE, 'payee');
       const note = readText(t.note, MAX_NOTE, 'note');
       const date = readDay(t.date, now);
+      const time = 'time' in t ? readTime(t.time) : null;
       const saved = { kind, accountId, toAccountId, categoryId };
       for (const side of sidesOf(saved)) countOn(model, side, 1);
       model.transactions.set(t.id, saved);
@@ -550,8 +560,9 @@ function changeStatements(
           .prepare(
             `INSERT INTO transactions (email, id, kind, account_id, to_account_id, amount_cents,
                                        category_id, payee, note, date, created_at, updated_at,
-                                       import_id)
-             SELECT ?1, ?4, ?5, ${withRoom('?2', sides)}, ?3, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12`,
+                                       import_id, time)
+             SELECT ?1, ?4, ?5, ${withRoom('?2', sides)}, ?3, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12,
+                    ?13`,
           )
           .bind(
             email,
@@ -566,6 +577,7 @@ function changeStatements(
             date,
             now,
             importId,
+            time,
           ),
       ];
     }
@@ -581,6 +593,7 @@ function changeStatements(
         'payee',
         'note',
         'date',
+        'time',
       ]);
       const saved = isRowId(change.id) ? model.transactions.get(change.id) : undefined;
       if (saved == null) throw new Refused(404, TRANSACTION_NOT_FOUND);
@@ -635,6 +648,7 @@ function changeStatements(
       if ('payee' in change) set('payee', readText(change.payee, MAX_PAYEE, 'payee'));
       if ('note' in change) set('note', readText(change.note, MAX_NOTE, 'note'));
       if ('date' in change) set('date', readDay(change.date, now));
+      if ('time' in change) set('time', readTime(change.time));
       set('updated_at', now);
       return [
         db

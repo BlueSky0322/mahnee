@@ -15,6 +15,7 @@ import {
 } from '@shared/categories';
 import { change } from '../../ledger/ledger';
 import { useThisMonth } from '../../ledger/month-start';
+import { useProfile } from '../../profile/ProfileContext';
 import { newId } from '../../utils/id';
 import { showRefusal } from '../../utils/notify';
 import { showUndo } from '../common/undo-toast';
@@ -100,7 +101,9 @@ function Fields({
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const carryHintId = useId();
   const budgetShown = budgetTyped ?? (budget == null ? '' : budgetText(budget.amountCents));
-  const carryShown = carryTyped ?? budget?.carryOver ?? false;
+  // A budget set where there was none starts as "Carry over, for new budgets" says
+  const carryForNew = useProfile().profile?.settings.carryOverDefault ?? false;
+  const carryShown = carryTyped ?? budget?.carryOver ?? carryForNew;
 
   // What it can go under: the listed top-level categories of its kind, other than itself.
   // One it can't is shown, but can't be picked, and says why.

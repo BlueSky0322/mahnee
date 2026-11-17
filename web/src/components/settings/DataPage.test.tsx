@@ -530,15 +530,15 @@ describe('exporting', () => {
     expect(saved[0].name).toBe(`mahnee-${toDateInput(new Date())}.csv`);
     const lines = await linesOf(saved[0].blob);
     expect(lines[0]).toBe(
-      'Date,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id',
+      'Date,Time,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id',
     );
-    expect(lines.slice(1).map((line) => line.split(',').slice(0, 2).join(','))).toEqual([
-      `${YEAR - 1}-01-01,Opening balance`,
-      `${YEAR - 1}-01-01,Opening balance`,
-      `${YEAR - 1}-12-01,Spent`,
-      `${YEAR}-01-03,Spent`,
-      `${YEAR}-02-10,Transfer`,
-      `${YEAR}-03-14,Spent`,
+    expect(lines.slice(1).map((line) => line.split(',').slice(0, 3).join(','))).toEqual([
+      `${YEAR - 1}-01-01,,Opening balance`,
+      `${YEAR - 1}-01-01,,Opening balance`,
+      `${YEAR - 1}-12-01,,Spent`,
+      `${YEAR}-01-03,,Spent`,
+      `${YEAR}-02-10,,Transfer`,
+      `${YEAR}-03-14,,Spent`,
       '',
     ]);
     if (size === 'desktop') {
@@ -582,13 +582,13 @@ describe('exporting', () => {
     expect(saved[0].name).toBe(`mahnee-${YEAR}-01-01-to-${YEAR}-12-31.csv`);
     const lines = await linesOf(saved[0].blob);
     expect(lines[1]).toBe(
-      `${YEAR}-01-01,Only these dates,,,,,,,,` +
+      `${YEAR}-01-01,,Only these dates,,,,,,,,` +
         `Entries from ${YEAR}-01-01 to ${YEAR}-12-31 only. It can't restore balances on its own.,`,
     );
-    expect(lines.slice(2).map((line) => line.split(',').slice(0, 2).join(','))).toEqual([
-      `${YEAR}-01-03,Spent`,
-      `${YEAR}-02-10,Transfer`,
-      `${YEAR}-03-14,Spent`,
+    expect(lines.slice(2).map((line) => line.split(',').slice(0, 3).join(','))).toEqual([
+      `${YEAR}-01-03,,Spent`,
+      `${YEAR}-02-10,,Transfer`,
+      `${YEAR}-03-14,,Spent`,
       '',
     ]);
   });

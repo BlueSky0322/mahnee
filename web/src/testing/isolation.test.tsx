@@ -17,12 +17,10 @@ describe('screen tests, one after another', () => {
     server.me.settings.theme = 'dark';
     renderApp(server, '/?settings', { size: 'phone' });
     await screen.findByText('Bali', {}, { timeout: 3000 });
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Home' }));
+    await userEvent.setup().click(screen.getByRole('link', { name: /^Look and start/ }));
     // The server answers the save only once this test has finished
     const save = holdNext(server, 'PATCH', '/api/me');
-    await userEvent
-      .setup()
-      .click(await screen.findByRole('button', { name: 'Switch to light mode' }));
+    await userEvent.setup().click(await screen.findByRole('radio', { name: 'Light' }));
     setTimeout(() => save.release(), 0);
   });
 

@@ -1,6 +1,7 @@
 import type { CSSVariablesResolver } from '@mantine/core';
 import { createTheme } from '@mantine/core';
-import { ACCENT_SHADE, COBALT_RAMP } from '@shared/accents';
+import type { Accent } from '@shared/api';
+import { ACCENT_RAMPS, ACCENT_SHADE } from '@shared/accents';
 
 // "Paper ledger" dark neutrals (tokens.css), laid out the way Mantine reads them: text at
 // 0, the page at 7 and raised surfaces at 6
@@ -19,16 +20,15 @@ const dark = [
 
 const FONT = "Geist, 'Helvetica Neue', Arial, sans-serif";
 
-// Every accent is drawn cobalt for now: the saved accent is kept, but the setting's
-// choices are rebuilt with the redesign's own colours before it is offered again
-export const buildTheme = () =>
+// The accent chosen in Look and start (cobalt until another is) is Mantine's primary colour
+export const buildTheme = (accent: Accent = 'cobalt') =>
   createTheme({
     fontFamily: FONT,
     fontFamilyMonospace: "'Geist Mono', monospace",
     headings: { fontFamily: FONT, fontWeight: '600' },
     defaultRadius: 'md',
     radius: { xs: '4px', sm: '6px', md: '12px', lg: '18px', xl: '26px' },
-    colors: { dark: [...dark], accent: COBALT_RAMP },
+    colors: { dark: [...dark], accent: [...ACCENT_RAMPS[accent]] },
     primaryColor: 'accent',
     primaryShade: { ...ACCENT_SHADE },
     cursorType: 'pointer',

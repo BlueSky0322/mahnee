@@ -7,7 +7,6 @@ import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
 import { fakeServer, goToPlace, reloadApp, renderApp, setupAppTests } from '../../testing/app';
 import { change } from '../../ledger/ledger';
-import { LAST_PAGE_KEY } from '../../offline/cache';
 
 // Activity (?activity, R-Activity, R-Desk-Activity): the one list of every entry, this
 // month's unless the filters say otherwise, with a search and four chips (account,
@@ -562,12 +561,12 @@ describe('addresses other pages link to', () => {
     expect(chip('All months').getAttribute('aria-pressed')).toBe('true');
   });
 
-  test('on a phone, &select opens selecting, but the page to reopen afresh is Activity', async () => {
+  // A fresh start no longer reopens the last page: it opens where Look and start says (D15,
+  // hooks/start-screen.test.tsx)
+  test('on a phone, &select opens selecting, and a reload keeps it', async () => {
     const server = withMonth();
     await open(server, 'phone', '/?activity&select');
     expect(screen.getByRole('heading', { name: '0 selected' })).toBeTruthy();
-    // Kept once the person is known; selecting is never kept
-    await waitFor(() => expect(localStorage.getItem(LAST_PAGE_KEY)).toMatch(/^\?activity=?$/));
     // A reload keeps its own address, so it is still selecting
     await reloadApp(server, '/?activity&select', { size: 'phone' });
     expect(await screen.findByRole('heading', { name: '0 selected' })).toBeTruthy();

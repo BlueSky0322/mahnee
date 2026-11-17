@@ -227,9 +227,13 @@
   white-space: nowrap;
 }
 
-/* Income in green; spending and transfers in ink */
+/* Income in green; spending in ink (or red, as chosen in Look and start); transfers in ink */
 .rowAmount[data-incoming] {
   color: var(--pos);
+}
+
+.rowAmount[data-kind='expense'] {
+  color: var(--expense);
 }
 
 .rowNote {

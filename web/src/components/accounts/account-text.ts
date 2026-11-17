@@ -1,3 +1,4 @@
+import { clockText } from '../../utils/date-input';
 import type { Account, Category, Transaction } from '@shared/api';
 import type { AccountKind } from '@shared/ledger';
 import { DEFAULT_CURRENCY, MAX_TRANSACTION, balanceEffect, fitsOpeningCents } from '@shared/ledger';
@@ -199,9 +200,10 @@ export function entryRow(
   }
   const category = categoryName(categories, t.categoryId);
   const title = payee ?? note ?? category;
+  const subtitle = payee != null && note != null ? `${category} · ${note}` : category;
   return {
     title,
-    subtitle: payee != null && note != null ? `${category} · ${note}` : category,
+    subtitle: t.time != null ? `${subtitle} · ${clockText(t.time)}` : subtitle,
     amount,
     incoming,
   };

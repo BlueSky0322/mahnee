@@ -2,7 +2,7 @@ import type { Account, Category, SearchTotals, Transaction } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
 import { periodMonthOf, periodOf, shiftMonth } from '@shared/period';
 import { foldCase, isCalendarDay } from '@shared/search';
-import { fromDateInput, monthHeading } from '../../utils/date-input';
+import { clockText, fromDateInput, monthHeading } from '../../utils/date-input';
 import { formatAmount, formatMoney } from '../../utils/money';
 import { categoryName } from '../common/category-name';
 
@@ -217,6 +217,7 @@ export function rowText(
         : `${what} · ${account}`;
   }
   if (selecting) subtitle = `${subtitle} · ${shortDay(t.date, today)}`;
+  if (t.time != null) subtitle = `${subtitle} · ${clockText(t.time)}`;
   return { title, subtitle };
 }
 

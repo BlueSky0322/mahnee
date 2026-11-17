@@ -363,8 +363,9 @@ describe("setting a budget from the category's row", () => {
 
       const form = await editCategory('Food');
       const carry = form.getByRole('switch', { name: 'Carry over' });
-      // Off by default
-      expect((carry as HTMLInputElement).checked).toBe(false);
+      // On to start with, as "Carry over, for new budgets" is by default (owner decision D14;
+      // settings/BudgetsPage.test.tsx has it off)
+      expect((carry as HTMLInputElement).checked).toBe(true);
       await user.type(form.getByLabelText('Monthly budget'), '300');
       await user.click(form.getByRole('button', { name: 'Save' }));
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -373,7 +374,9 @@ describe("setting a budget from the category's row", () => {
       const spending = within(await screen.findByRole('region', { name: 'Expenses' }));
       expect(spending.getByText('RM 300 a month')).toBeTruthy();
       await waitFor(() =>
-        expect(budgetsOf(server)).toEqual([budget(FOOD, 30_000, { fromMonth: NOW })]),
+        expect(budgetsOf(server)).toEqual([
+          budget(FOOD, 30_000, { fromMonth: NOW, carryOver: true }),
+        ]),
       );
       await categoriesToPlan();
       await showsBudget(size, 'Food', {
@@ -582,9 +585,13 @@ describe("setting a budget from the category's row", () => {
       expect(budgetsOf(server)).toEqual([]);
 
       back();
-      await waitFor(() => expect(budgetsOf(server)).toEqual([budget(FOOD, 30_000)]), {
-        timeout: 8000,
-      });
+      // Carried over, as new budgets are by default (D14)
+      await waitFor(
+        () => expect(budgetsOf(server)).toEqual([budget(FOOD, 30_000, { carryOver: true })]),
+        {
+          timeout: 8000,
+        },
+      );
       expect(planBudget(size, 'Food')).toBe(set[size]);
     },
     15_000,

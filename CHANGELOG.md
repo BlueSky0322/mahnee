@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-17
 
-- Added: scheduled bills and pay are added on their day, from Scheduled, with amounts that change marked to check; Plan › Scheduled lists them by month [#?]
+- Added: scheduled bills and pay are added on their day, from Scheduled, with amounts that change marked to check; Plan › Scheduled lists them by month [#42]
 - Fixed: an opening balance typed as a sum is worked out exactly, as in Add [#40]
 - Added: choose the day your month starts, or payday, in Settings › Money; every monthly figure and budget follows it [#39]
 - Added: settings for how Add starts, the account it uses, suggestions, a time on entries, accent colours, a shorter Home and the opening page; new budgets carry over by default [#38]
@@ -111,3 +111,4 @@ For agents:
 [#38]: https://github.com/BlueSky0322/mahnee/pull/38
 [#39]: https://github.com/BlueSky0322/mahnee/pull/39
 [#40]: https://github.com/BlueSky0322/mahnee/pull/40
+[#42]: https://github.com/BlueSky0322/mahnee/pull/42

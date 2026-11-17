@@ -186,6 +186,37 @@ export function isKeypadSum(expr: string): boolean {
   );
 }
 
+/** A number as typed in a box: digits with at most two decimals, "7.", ".5" */
+const TYPED_NUMBER = /^(\d+(\.\d{0,2})?|\.\d{1,2})$/;
+
+/** A number's digits as the keypad keeps them: "007" is "7", "1.50" is "1.5" */
+const keptDigits = (number: string) => {
+  const [whole, decimals = ''] = number.split('.');
+  return whole.replace(/^0+/, '') + decimals.replace(/0+$/, '');
+};
+
+/**
+ * A sum typed into a box rather than on the keypad (an account's opening balance), worked
+ * out exactly as Add would: the same numbers joined by + and - (or −) and *, x or × for
+ * ×, with thousands separators and spaces passed by. `tooMuch` when it, or a sum on the way
+ * as each digit is typed, goes past the largest amount; `notASum` for anything Add's keys
+ * couldn't have typed. Empty is 0.
+ */
+export function readTypedSum(text: string): { cents: number } | { error: 'notASum' | 'tooMuch' } {
+  const expr = text.replace(/[,\s]/g, '').replace(/-/g, '−').replace(/[*xX]/g, '×');
+  if (expr === '') return { cents: 0 };
+  if (!/^[\d.+−×]+$/.test(expr)) return { error: 'notASum' };
+  const { numbers } = split(expr);
+  const all = numbers.length > 1 && numbers.at(-1) === '' ? numbers.slice(0, -1) : numbers;
+  if (!all.every((n) => TYPED_NUMBER.test(n))) return { error: 'notASum' };
+  // The keypad checks the largest amount at every digit, before the nine digits
+  for (let i = 1; i <= expr.length; i++) {
+    if (isDigit(expr[i - 1]) && !withinLimit(expr.slice(0, i))) return { error: 'tooMuch' };
+  }
+  if (all.some((n) => keptDigits(n).length > MAX_DIGITS)) return { error: 'notASum' };
+  return { cents: totalCents(expr) };
+}
+
 /** "1250" as "1,250" */
 const grouped = (whole: string) => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 

@@ -2,8 +2,7 @@ import { clockText } from '../../utils/date-input';
 import type { Account, Category, Transaction } from '@shared/api';
 import type { AccountKind } from '@shared/ledger';
 import { DEFAULT_CURRENCY, MAX_TRANSACTION, balanceEffect, fitsOpeningCents } from '@shared/ledger';
-import { toCents } from '@shared/rates';
-import { evaluateSum } from '../../utils/math';
+import { readTypedSum } from '@shared/keypad';
 import { formatAmount, formatMoney } from '../../utils/money';
 import { categoryName } from '../common/category-name';
 import { transactionTitle } from '../entry/entry-text';
@@ -38,18 +37,21 @@ export function openingText(openingCents: number, kind: AccountKind) {
 
 /**
  * The opening balance typed, in cents as kept (below zero for what's owed on a card), or
- * why it can't be one. Empty is nothing; sums like "100+20" are worked out.
+ * why it can't be one. Empty is nothing; sums like "100+20" or "0.25*4.14" are worked out
+ * in whole cents as Add's keypad does, so the same keys always come to the same amount.
  */
 export function readOpening(
   text: string,
   kind: AccountKind,
 ): { cents: number } | { error: string } {
-  const typed = text.replace(/[,\s]/g, '');
-  if (typed === '') return { cents: 0 };
-  const value = evaluateSum(typed);
-  if (value == null) return { error: 'Enter an amount, like 120.50' };
+  const read = readTypedSum(text);
+  if ('error' in read) {
+    return read.error === 'tooMuch'
+      ? { error: `Up to ${MAX_TRANSACTION.toLocaleString('en')} either way` }
+      : { error: 'Enter an amount, like 120.50' };
+  }
   // Never -0, which would show as a change from 0
-  const cents = (kind === 'card' ? -toCents(value) : toCents(value)) || 0;
+  const cents = (kind === 'card' ? -read.cents : read.cents) || 0;
   if (!fitsOpeningCents(cents)) {
     return { error: `Up to ${MAX_TRANSACTION.toLocaleString('en')} either way` };
   }

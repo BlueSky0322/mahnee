@@ -1,5 +1,5 @@
 import { Button, TextInput } from '@mantine/core';
-import { MagnifyingGlass } from '@phosphor-icons/react';
+import { SearchIcon } from '../ui/icons';
 import { useState } from 'react';
 import type { Account, Category, Transaction } from '@shared/api';
 import { MAX_SEARCH_TEXT } from '@shared/search';
@@ -78,14 +78,14 @@ export default function AccountPane({ account }: { account: Account }) {
           ) : (
             <>
               <Button
-                size="compact-md"
+                size="xs"
                 onClick={addHere}
               >
                 Add here
               </Button>
               <Button
                 variant="light"
-                size="compact-md"
+                size="xs"
                 onClick={transfer}
               >
                 Transfer
@@ -94,7 +94,7 @@ export default function AccountPane({ account }: { account: Account }) {
           )}
           <Button
             variant="light"
-            size="compact-md"
+            size="xs"
             onClick={() => setEditing(true)}
           >
             Edit
@@ -107,7 +107,7 @@ export default function AccountPane({ account }: { account: Account }) {
           className={classes.paneSearch}
           aria-label="Search this account"
           placeholder="Search this account"
-          leftSection={<MagnifyingGlass size={16} />}
+          leftSection={<SearchIcon size={16} />}
           maxLength={MAX_SEARCH_TEXT}
           value={words}
           onChange={(e) => setWords(e.currentTarget.value)}

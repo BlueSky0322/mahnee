@@ -1,6 +1,7 @@
 import { Button } from '@mantine/core';
 import { useNetwork } from '@mantine/hooks';
-import { CloudSlash, SignIn, WarningCircle } from '@phosphor-icons/react';
+import { CloudSlash, SignIn } from '@phosphor-icons/react';
+import { AlertIcon } from '../ui/icons';
 import { useIsDesktop, useIsMobile } from '../../hooks/useBreakpoints';
 import { useUnsaved } from '../../ledger/useLedger';
 import { useKeepingWork } from '../../offline/storage-health';
@@ -42,7 +43,7 @@ const OfflineNotice = () => {
         : 'Signed out. Sign in again to see what has changed.';
     counted = true;
   } else if (!keeping) {
-    icon = <WarningCircle size={16} />;
+    icon = <AlertIcon size={16} />;
     text =
       "This device's storage is full or blocked. Keep the app open until your changes are saved.";
     counted = true;

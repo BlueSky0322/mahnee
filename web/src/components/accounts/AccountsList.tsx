@@ -1,5 +1,5 @@
 import { Button } from '@mantine/core';
-import { CaretRight, Plus, Wallet } from '@phosphor-icons/react';
+import { AccountsIcon, ForwardIcon, PlusIcon } from '../ui/icons';
 import type { MouseEvent } from 'react';
 import { useState } from 'react';
 import type { Account } from '@shared/api';
@@ -85,9 +85,9 @@ export default function AccountsList({ selected }: { selected?: string | null })
         {accounts != null && accounts.length > 0 && (
           <Button
             variant={desktop ? 'default' : 'light'}
-            size="compact-md"
+            size="xs"
             className={classes.addAccount}
-            leftSection={desktop ? undefined : <Plus size={16} />}
+            leftSection={desktop ? undefined : <PlusIcon size={16} />}
             aria-label={desktop ? undefined : 'Add account'}
             onClick={() => setAdding(true)}
           >
@@ -156,7 +156,7 @@ export default function AccountsList({ selected }: { selected?: string | null })
       ) : running.length === 0 && archived.length === 0 ? (
         <div className={classes.card}>
           <span className={classes.emptyIcon}>
-            <Wallet size={28} />
+            <AccountsIcon size={28} />
           </span>
           <p className={classes.emptyTitle}>Add your first account</p>
           <p className={classes.muted}>
@@ -164,7 +164,7 @@ export default function AccountsList({ selected }: { selected?: string | null })
             now.
           </p>
           <Button
-            leftSection={<Plus size={16} />}
+            leftSection={<PlusIcon size={16} />}
             onClick={() => setAdding(true)}
           >
             Add account
@@ -225,7 +225,7 @@ export default function AccountsList({ selected }: { selected?: string | null })
                 aria-expanded={showArchived}
                 onClick={() => setToggled(!showArchived)}
               >
-                <CaretRight
+                <ForwardIcon
                   size={14}
                   aria-hidden
                   className={classes.caret}

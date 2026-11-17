@@ -1,4 +1,4 @@
-import { CaretLeft, CaretRight, Plus } from '@phosphor-icons/react';
+import { BackIcon, ForwardIcon, PlusIcon } from '../ui/icons';
 import type { KeyboardEvent } from 'react';
 import { useEffect, useId, useState } from 'react';
 import type { Category, PayeeCategory } from '@shared/api';
@@ -217,7 +217,7 @@ export default function CategoryPicker({
                   className={`${classes.option} ${classes.optionOn}`}
                   onClick={() => onCreate({ name, parentId: hint.parentId })}
                 >
-                  <Plus
+                  <PlusIcon
                     size={16}
                     aria-hidden
                   />
@@ -235,7 +235,7 @@ export default function CategoryPicker({
                 className={classes.option}
                 onClick={() => onCreate({ name, parentId: null })}
               >
-                <Plus
+                <PlusIcon
                   size={16}
                   aria-hidden
                 />
@@ -248,12 +248,12 @@ export default function CategoryPicker({
                 className={classes.option}
                 onClick={() => setChoosingParent(true)}
               >
-                <Plus
+                <PlusIcon
                   size={16}
                   aria-hidden
                 />
                 <span className={classes.optionText}>Under another category</span>
-                <CaretRight
+                <ForwardIcon
                   size={14}
                   aria-hidden
                 />
@@ -275,7 +275,7 @@ export default function CategoryPicker({
             className={classes.back}
             onClick={onBack}
           >
-            <CaretLeft
+            <BackIcon
               size={18}
               aria-hidden
             />

@@ -10,7 +10,9 @@
 }
 
 .desktop {
-  max-width: 1120px;
+  /* A computer's Home fills the room beside the sidebar */
+  max-width: none;
+  margin: 0;
   gap: 24px;
   padding: 24px 32px 48px;
 }
@@ -63,6 +65,11 @@
   justify-content: space-between;
   gap: 12px;
   min-height: 56px;
+}
+
+/* A computer's header is as tall as what's in it */
+.desktop .header {
+  min-height: 0;
 }
 
 .heading {

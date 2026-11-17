@@ -97,13 +97,13 @@ function DueRow({
       </div>
       <div className={classes.dueActions}>
         <Button
-          size="compact-md"
+          size="xs"
           onClick={log}
         >
           Log it
         </Button>
         <Button
-          size="compact-md"
+          size="xs"
           variant="default"
           onClick={skip}
         >

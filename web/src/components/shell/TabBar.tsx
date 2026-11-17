@@ -1,10 +1,10 @@
-import { ChartPieSlice, House, ListBullets, Plus, Wallet } from '@phosphor-icons/react';
+import { AccountsIcon, ActivityIcon, HomeIcon, PlanIcon, PlusIcon } from '../ui/icons';
 import { useEffect } from 'react';
 import type { Place } from '../../hooks/useRoute';
 import { PLACES, goToPlace, hrefOf } from './places';
 import classes from './TabBar.module.css';
 
-const ICONS = { home: House, activity: ListBullets, plan: ChartPieSlice, accounts: Wallet };
+const ICONS = { home: HomeIcon, activity: ActivityIcon, plan: PlanIcon, accounts: AccountsIcon };
 
 // The phone's and tablet's places, fixed at the bottom: Home, Activity, Add, Plan and
 // Accounts, the open one marked. Add opens a new entry; it waits for the accounts, and
@@ -63,9 +63,8 @@ export default function TabBar({
           onClick={onAdd}
         >
           <span className={classes.addSquare}>
-            <Plus
+            <PlusIcon
               size={24}
-              weight="bold"
               aria-hidden
             />
           </span>

@@ -1,4 +1,4 @@
-import { MagnifyingGlass } from '@phosphor-icons/react';
+import { SearchIcon } from '../ui/icons';
 import { forwardRef } from 'react';
 import { navigate } from '../../hooks/useRoute';
 import Key from '../ui/Key';
@@ -29,7 +29,7 @@ export const SettingsSearch = forwardRef<HTMLInputElement, SearchProps>(function
 ) {
   return (
     <label className={classes.search}>
-      <MagnifyingGlass
+      <SearchIcon
         size={16}
         aria-hidden
       />

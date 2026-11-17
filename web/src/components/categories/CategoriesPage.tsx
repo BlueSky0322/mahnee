@@ -1,6 +1,7 @@
 import { useThisMonth } from '../../ledger/month-start';
 import { ActionIcon, Button } from '@mantine/core';
-import { ArrowDown, ArrowUp, CaretDown, CaretRight, Plus } from '@phosphor-icons/react';
+import { ArrowDown, ArrowUp } from '@phosphor-icons/react';
+import { DownIcon, ForwardIcon, PlusIcon } from '../ui/icons';
 import { Fragment, useState } from 'react';
 import type { Category, MonthBudget } from '@shared/api';
 import { DEFAULT_CURRENCY } from '@shared/ledger';
@@ -82,8 +83,8 @@ export default function CategoriesPage() {
       <Button
         variant="subtle"
         color="gray"
-        size="compact-md"
-        leftSection={showArchived ? <CaretDown size={14} /> : <CaretRight size={14} />}
+        size="xs"
+        leftSection={showArchived ? <DownIcon size={14} /> : <ForwardIcon size={14} />}
         aria-expanded={showArchived}
         onClick={() => setShowArchived((shown) => !shown)}
       >
@@ -99,8 +100,8 @@ export default function CategoriesPage() {
           <>
             {tree != null && (
               <Button
-                variant="default"
-                size="compact-md"
+                variant="light"
+                size="xs"
                 aria-pressed={reordering}
                 onClick={() => setReordering((on) => !on)}
               >
@@ -448,7 +449,7 @@ function Subcategories({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={save}
               >
-                <Plus size={14} />
+                <PlusIcon size={14} />
               </ActionIcon>
             )}
           </span>
@@ -490,7 +491,7 @@ function AddButton({ parent, onClick }: { parent: string; onClick: () => void })
       aria-label={`Add a subcategory under ${parent}`}
       onClick={onClick}
     >
-      <Plus size={16} />
+      <PlusIcon size={16} />
     </ActionIcon>
   );
 }

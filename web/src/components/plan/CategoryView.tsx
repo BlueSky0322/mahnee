@@ -1,5 +1,4 @@
 import { Button, Switch, TextInput } from '@mantine/core';
-import { CaretLeft } from '@phosphor-icons/react';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { Category, MonthBudget, MonthTrend } from '@shared/api';
@@ -24,6 +23,7 @@ import BudgetBar from './BudgetBar';
 import { activityAddress, planAddress } from './plan-address';
 import type { PlanMonth } from './plan-month';
 import { entriesText, usualText, yearComparison } from './plan-text';
+import BackButton from '../ui/BackButton';
 
 const money = (cents: number) => formatMoney(cents, DEFAULT_CURRENCY);
 const amount = (cents: number) => formatAmount(cents, DEFAULT_CURRENCY);
@@ -78,16 +78,7 @@ export default function CategoryView({
 
   const header = isPage && (
     <header className={classes.pageHeader}>
-      <Button
-        variant="subtle"
-        color="gray"
-        size="compact-md"
-        className={classes.back}
-        leftSection={<CaretLeft size={16} />}
-        onClick={back}
-      >
-        Plan
-      </Button>
+      <BackButton onClick={back}>Plan</BackButton>
       {category != null && (
         <PageLink
           href="?settings=categories"

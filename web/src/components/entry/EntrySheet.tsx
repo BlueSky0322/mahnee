@@ -8,7 +8,8 @@ import {
   TextInput,
   Textarea,
 } from '@mantine/core';
-import { CaretDown, CaretRight, Trash } from '@phosphor-icons/react';
+import { Trash } from '@phosphor-icons/react';
+import { DownIcon, ForwardIcon } from '../ui/icons';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
 import type { LedgerChange, Transaction } from '@shared/api';
@@ -340,7 +341,7 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
         color="gray"
         size="compact-sm"
         className={classes.more}
-        leftSection={more ? <CaretDown size={14} /> : <CaretRight size={14} />}
+        leftSection={more ? <DownIcon size={14} /> : <ForwardIcon size={14} />}
         aria-expanded={more}
         onClick={() => setMore((shown) => !shown)}
       >

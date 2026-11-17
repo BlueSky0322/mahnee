@@ -1,4 +1,4 @@
-import { CaretRight } from '@phosphor-icons/react';
+import { ForwardIcon } from '../ui/icons';
 import { useState } from 'react';
 import type { StartWith } from '@shared/api';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
@@ -71,7 +71,7 @@ export default function AddingPage() {
             >
               {!isDesktop && <span className="sr-only">Account to use </span>}
               {accountName}
-              <CaretRight
+              <ForwardIcon
                 size={16}
                 aria-hidden
               />

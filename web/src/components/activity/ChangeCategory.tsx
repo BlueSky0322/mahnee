@@ -1,5 +1,5 @@
 import { Button, TextInput } from '@mantine/core';
-import { MagnifyingGlass } from '@phosphor-icons/react';
+import { SearchIcon } from '../ui/icons';
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
 import type { Category, LedgerChange, Transaction } from '@shared/api';
@@ -62,6 +62,14 @@ export default function ChangeCategory({
       opened={chosen != null}
       onClose={onClose}
       title={`Change the category of ${isMobile ? n : entriesText(n)}`}
+      subtitle={
+        n > 0 && (
+          <WhatMoves
+            chosen={shown.chosen}
+            wide={!isMobile}
+          />
+        )
+      }
       width={720}
     >
       {n > 0 && (
@@ -75,6 +83,20 @@ export default function ChangeCategory({
       )}
     </ResponsiveDialog>
   );
+}
+
+/** Under the title: which they are and where they are now */
+function WhatMoves({ chosen, wide }: { chosen: Transaction[]; wide: boolean }) {
+  const { categories } = useCategories();
+  const all = categories ?? [];
+  const name = (id: string | null) => categoryName(all, id);
+  if (!wide) return movingLine(chosen, name, toDateInput(new Date()));
+  const payee = chosen.every((t) => t.payee != null && t.payee === chosen[0].payee)
+    ? chosen[0].payee
+    : null;
+  return payee != null
+    ? `All ${payee}, now in ${nowIn(chosen, name)}`
+    : `Now in ${nowIn(chosen, name)}`;
 }
 
 function Moving({
@@ -132,9 +154,6 @@ function Moving({
       ? undefined
       : budgetLines(summary, all).find((b) => b.id === top.id);
   const short = target?.name ?? '';
-  const payee = chosen.every((t) => t.payee != null && t.payee === chosen[0].payee)
-    ? chosen[0].payee
-    : null;
 
   const move = () => {
     if (to == null) return;
@@ -182,13 +201,8 @@ function Moving({
 
   return (
     <div className={classes.moving}>
-      {wide ? (
+      {wide && (
         <>
-          <p className={classes.soft}>
-            {payee != null
-              ? `All ${payee}, now in ${nowIn(chosen, name)}`
-              : `Now in ${nowIn(chosen, name)}`}
-          </p>
           <div className={classes.movingList}>
             {chosen.slice(0, LISTED).map((t) => (
               <div
@@ -219,14 +233,14 @@ function Moving({
           </div>
           <h3 className={classes.movingHeading}>Move them to</h3>
         </>
-      ) : (
-        <p className={classes.soft}>{movingLine(chosen, name, today)}</p>
       )}
       <TextInput
         type="search"
         aria-label="Find a category"
         placeholder={`Find an ${kind === 'income' ? 'income' : 'expense'} category`}
-        leftSection={<MagnifyingGlass size={16} />}
+        leftSection={<SearchIcon size={16} />}
+        leftSectionWidth={40}
+        leftSectionProps={{ className: 'sf-lead' }}
         value={find}
         onChange={(e) => setFind(e.currentTarget.value)}
       />
@@ -261,14 +275,16 @@ function Moving({
           </p>
         )}
         <div className={classes.movingActions}>
-          <Button
-            variant="subtle"
-            color="gray"
-            onClick={onCancel}
-            rightSection={wide ? <Key>Esc</Key> : undefined}
-          >
-            Cancel
-          </Button>
+          {/* A phone's sheet has Cancel at its top */}
+          {wide && (
+            <Button
+              variant="light"
+              onClick={onCancel}
+              rightSection={<Key>Esc</Key>}
+            >
+              Cancel
+            </Button>
+          )}
           <Button
             disabled={target == null}
             onClick={move}

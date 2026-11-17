@@ -452,6 +452,14 @@
   font-size: 0.875rem;
 }
 
+/* Its keycap is drawn in the button's own ink, as on every filled button (tokens.css) */
+.saveSmall:not([aria-disabled='true']) kbd {
+  background: transparent;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--accent-ink) 40%, transparent);
+  color: var(--accent-ink);
+}
+
 .save[aria-disabled='true'],
 .saveSmall[aria-disabled='true'] {
   background: var(--sunk);

@@ -13,10 +13,6 @@
   min-height: 48px;
 }
 
-.back {
-  margin-left: -8px;
-}
-
 /* A computer's Close, at the top right with its key under it */
 .close {
   display: flex;
@@ -605,7 +601,7 @@ section > .cardTitle {
 /* One of a few: a segmented control */
 .choice {
   display: grid;
-  gap: 2px;
+  gap: 3px;
   padding: 3px;
   border-radius: 999px;
   background: var(--sunk);
@@ -620,6 +616,7 @@ section > .cardTitle {
   color: var(--ink-2);
   font: inherit;
   font-size: 0.875rem;
+  font-weight: 500;
   cursor: pointer;
 }
 

@@ -1,5 +1,5 @@
 import { Button, TextInput } from '@mantine/core';
-import { CaretDown } from '@phosphor-icons/react';
+import { DownIcon } from '../ui/icons';
 import { useState } from 'react';
 import type { TransactionKind } from '@shared/ledger';
 import { periodMonthOf, shiftMonth } from '@shared/period';
@@ -99,7 +99,7 @@ export default function FilterChips({
           >
             {chip.label}
             {carets && (
-              <CaretDown
+              <DownIcon
                 size={14}
                 aria-hidden
               />

@@ -1,7 +1,7 @@
 import { useThisMonth } from '../../ledger/month-start';
 import { Button, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { CaretRight } from '@phosphor-icons/react';
+import { ForwardIcon } from '../ui/icons';
 import { useState } from 'react';
 import { MAX_DISPLAY_NAME } from '@shared/api';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
@@ -31,7 +31,7 @@ export default function MyAccount() {
   const changeName = (
     <Button
       variant="default"
-      size="compact-md"
+      size="xs"
       onClick={() => setNaming(true)}
     >
       Change name
@@ -127,7 +127,7 @@ export default function MyAccount() {
               </div>
               <Button
                 variant="default"
-                size="compact-md"
+                size="xs"
                 onClick={() => void run()}
               >
                 Install
@@ -144,7 +144,7 @@ export default function MyAccount() {
                 <div className={classes.label}>Install the app</div>
                 <div className={classes.detail}>Opens offline</div>
               </div>
-              <CaretRight
+              <ForwardIcon
                 size={16}
                 className={classes.caret}
                 aria-hidden

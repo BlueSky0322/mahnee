@@ -1,4 +1,4 @@
-import { WarningCircle } from '@phosphor-icons/react';
+import { AlertIcon } from '../ui/icons';
 import { useId } from 'react';
 import type { PeriodDay } from '@shared/period';
 import type { BudgetLine } from '../../ledger/budgets';
@@ -82,7 +82,7 @@ export default function HomeBudgets({
                 />
                 <span className={`${classes.budgetMeta} ${tone}`}>
                   {text.pace === 'faster' && (
-                    <WarningCircle
+                    <AlertIcon
                       size={14}
                       aria-hidden
                     />

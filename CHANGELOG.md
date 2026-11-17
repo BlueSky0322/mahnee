@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-17
 
-- Added: Settings for adding entries and the look of the app: what Add starts with, the account it uses, payee suggestions, a time on entries, accent colours, expenses in red, a shorter Home and the page the app opens on; new budgets carry over by default [#?]
+- Added: settings for how Add starts, the account it uses, suggestions, a time on entries, accent colours, a shorter Home and the opening page; new budgets carry over by default [#38]
 - Changed: Plan shows budgets against the month, where the money went and income by category, each over 12 months, with budgets set in place on a computer; Home's Expenses so far and Income open all of either over 12 months [#37]
 - Removed: Left this month and Over this month; Home's month end takes their place [#37]
 - Added: Settings with search, My account, a new Categories page, and Import and export with export ranges and Undo for recent imports [#36]
@@ -105,3 +105,4 @@ For agents:
 [#35]: https://github.com/BlueSky0322/mahnee/pull/35
 [#36]: https://github.com/BlueSky0322/mahnee/pull/36
 [#37]: https://github.com/BlueSky0322/mahnee/pull/37
+[#38]: https://github.com/BlueSky0322/mahnee/pull/38

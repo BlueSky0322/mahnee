@@ -6,7 +6,7 @@ import { MAX_SEARCH_TEXT, isCalendarDay, readKinds } from '@shared/search';
 
 // Activity's filters, as its address holds them (docs/feature-map.md, Pages): ?activity is
 // this month on every account; &q=, &account=, &category=, &kind= (one kind, or two joined by
-// a comma); the days as &day= (that day alone), &from= and &to= (both included), or
+// a comma); &scheduled (only what Scheduled added); the days as &day= (that day alone), &from= and &to= (both included), or
 // &dates=all (every month); and &select (a phone opens selecting). A part that makes no
 // sense is left out: a day that isn't one, a kind not known, and (once the ledger is
 // known) an account or category the person doesn't have. A day wins over from and to, and
@@ -28,6 +28,8 @@ export interface Filters {
   /** Only these kinds, in TRANSACTION_KINDS' order; null for every kind */
   kinds: TransactionKind[] | null;
   days: Days;
+  /** Only entries added from Scheduled (Plan's "See them") */
+  scheduled: boolean;
   select: boolean;
 }
 
@@ -35,6 +37,7 @@ export const NO_FILTERS: Omit<Filters, 'q' | 'days' | 'select'> = {
   account: null,
   category: null,
   kinds: null,
+  scheduled: false,
 };
 
 const day = (v: string | null) => (v != null && isCalendarDay(v) ? v : null);
@@ -68,6 +71,7 @@ export function readFilters(query: string): Filters {
     account: params.get('account') || null,
     category: params.get('category') || null,
     kinds: kindsOf(params.get('kind')),
+    scheduled: params.has('scheduled'),
     days,
     select: params.has('select'),
   };
@@ -83,6 +87,7 @@ export function writeFilters(filters: Filters) {
   put('account', filters.account);
   put('category', filters.category);
   put('kind', filters.kinds?.join(',') ?? null);
+  if (filters.scheduled) parts.push('scheduled');
   const { days } = filters;
   if (days.kind === 'day') put('day', days.day);
   if (days.kind === 'range') {
@@ -125,4 +130,5 @@ export const searchOf = (filters: Filters, today: string, start = 1): SearchQuer
   category: filters.category,
   kinds: filters.kinds,
   ...dayRange(filters.days, today, start),
+  ...(filters.scheduled && { scheduled: true }),
 });

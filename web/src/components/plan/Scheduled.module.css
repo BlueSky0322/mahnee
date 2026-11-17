@@ -1,0 +1,238 @@
+/* Plan › Scheduled (R-Bills, R-Desk-Bills, R-Empty-Bills) and its sheet (R-Bill-Edit) */
+
+.scheduled {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.group {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.groupHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 6px;
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.groupAside {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rows li + li {
+  border-top: 1px solid var(--line);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--accent-tint);
+}
+
+.tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.rowText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-size: 15px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.rowLine {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.rowEnd {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.rowNext {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.changes {
+  margin-left: 4px;
+  color: var(--due);
+}
+
+.about {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.amount {
+  flex: none;
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.amount[data-kind='income'] {
+  color: var(--pos);
+}
+
+.amount[data-kind='transfer'] {
+  color: var(--ink-3);
+}
+
+[data-waiting] {
+  color: var(--due);
+}
+
+.note {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--due-tint);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.noteLink,
+.addedLink {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.added {
+  align-self: flex-start;
+  color: var(--ink-2);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.soft {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.commonTitle {
+  margin: 12px 0 0;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.chip {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldLabel {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.next {
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

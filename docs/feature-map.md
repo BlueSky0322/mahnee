@@ -584,8 +584,8 @@ R-Category): the month's budgets, where the money went and what came in (Home dr
 figures from the same totals; see Home at a glance). This month unless the address names an
 earlier one (`?plan&month=2026-10`; the arrows step between months, never past this one,
 and Back returns). "Plan" heads it, with the month ("Nov 2026"; on a computer "November
-2026 · day 10 of 30") and its two halves, Budgets and Scheduled (`?plan=scheduled`; for now
-the month-end total, see Repeating bills).
+2026 · day 10 of 30") and its two halves, Budgets and Scheduled (`?plan=scheduled`; see
+Scheduled).
 
 - Budgets (phone and tablet): "Budgets Day 10 of 30" with "Budget" (Categories, where a
   budget is set on a phone); each budget "RM 584.78 left" (or "RM 40.00 over"), a bar named
@@ -861,16 +861,19 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   item next due, or "No pay scheduled"), each opening every expense or all income over 12
   months, ending at the month shown (see Plan). On a computer the three sit across the
   top, in a region "November at a glance".
-- What's due now, to log or skip (Repeating bills and month end).
+- What's due now, to log or skip: only items that ask first (Scheduled).
 - Tidy up, on the due tint, this month only and only when there are any: "2 entries since
   Oct 1, still in Other" (Other's own name), with Sort them opening
   `?activity&category=<OTHER_EXPENSE_ID>&from=<tidyUp.from>&select`.
-- Coming up: each listed repeating item's next day after today (one row per item, soonest
-  first, at most 3), "TNB electricity · RM 189.00" / "Nov 20 · Maybank Savings", income
-  "+RM 6,800.00", a transfer unsigned with "Maybank Savings to Cash"; "All scheduled" opens
-  `?plan=scheduled`. It can say "amount to check" for a row and "Added this month: Rent,
-  Netflix" under the list (ComingUp's `toCheck` and `added`), which Scheduled fills in;
-  Home passes neither yet.
+- Coming up: first each entry Scheduled added this month whose amount is still to check
+  (every one, from the month's `fromScheduled`), "Water · RM 30.15" / "Nov 5 · amount to
+  check", a link to `?activity&day=<day>` where it's confirmed; then each listed repeating
+  item's next day after today (one row per item, soonest first, at most 3), "TNB
+  electricity · RM 189.00" / "Nov 20 · Maybank Savings" (or "Nov 20 · amount to check" for
+  an item whose amount changes), income "+RM 6,800.00", a transfer unsigned with "Maybank
+  Savings to Cash"; under the list "Added this month: Rent, Netflix", each item Scheduled
+  added to this month by name, in the order of its first; "All scheduled" opens
+  `?plan=scheduled`.
 - "Day by day": the month's days in weeks from the Week starts on setting (Monday unless
   set), each a link to `?activity&day=<day>` named as it reads ("November 10, spent RM
   9.00, more than the middle day, TNB electricity due"), against "middle day RM 1.50"
@@ -1062,7 +1065,8 @@ that exact amount, and text containing them ("8" finds RM 8.00, and a note "8 re
 not RM 8.50 or RM 80). Four chips narrow it: the account (transfers into it too), the
 category (a top-level one with its subcategories), the days (This month, Last month, All
 months, or From and To, both included) and the kind (All kinds, Expenses, Income,
-Transfers, Expenses and income). "12 found · RM 43.18 spent" (and "· RM x received"
+Transfers, Expenses and income); `&scheduled` (Scheduled's "See them") keeps only entries
+added from Scheduled, with a pressed "From Scheduled" chip that takes it off. "12 found · RM 43.18 spent" (and "· RM x received"
 when income is found) counts everything found, loaded or not. Amounts say which way:
 spending "−8.50" in ink, income "+50.00" green, a transfer "100.00" grey with no sign.
 
@@ -1129,7 +1133,7 @@ requests. The filters live in the address
   (the words and signs) and [address.ts](../web/src/components/activity/address.ts).
   "Log your first one" opens the shell's new entry
   ([shell/add-entry.ts](../web/src/components/shell/add-entry.ts)).
-- API: `GET /api/search?q=&account=&category=&from=&to=&kind=&before=&limit=`
+- API: `GET /api/search?q=&account=&category=&from=&to=&kind=&scheduled=1&before=&limit=`
   (`searchTransactions` in [worker/ledger/read.ts](../worker/ledger/read.ts): `instr(lower(...))`
   on the payee, note and both category names (no pattern, so no length limit and no
   wildcards), or the amount, paged by the same cursor as `/api/transactions`). Every page
@@ -1182,98 +1186,154 @@ else's never counted, refusals with their messages, a resend counted once, 500 a
 
 ## Repeating bills and month end
 
-**What it is.** Bills and income that repeat, monthly on a day of the month (on a shorter
-month's last day past its end) or weekly on a weekday. Set one up with Repeat (Monthly or
-Weekly) in Add, or under More on a transaction's own sheet when changing it: it repeats on that
-transaction's day of the month or weekday, and its first due date is the next one after
-the person's own today, so one set up from an old transaction never has the occurrences
-since due (they're taken as handled); one already set up keeps asking about each it missed,
-as those may be real unpaid bills. Each one due (its next due date today or before, the person's own
-day) is on Home under the two cards (only there), "Due: Rent RM 1,200.00 from Maybank" (income "into Maybank",
-a transfer "from Maybank to Visa"; with no payee, its category's name), with Log it, which
-records it as a transaction on the day it was due and moves it on to its next date, and
-Skip, which moves it on recording nothing; each has Undo. Nothing is recorded until one is
-tapped, so balances never show money that didn't move. Plan's Scheduled half
-(`?plan=scheduled`, until Scheduled is rebuilt) shows one total while anything repeats, and
-"Nothing scheduled" while nothing does, "Expected at month end: RM 2,340.00" (Home's month-end
-figure is the same sum; see Home at a glance): today's balances of every listed account
-(a card's owed amount counts against them), less the bills still due this month, plus the
-income still due. Still due is every occurrence of a listed item on a listed account not yet
-logged or skipped, from its next due date (overdue and today's too) up to and including the
-month's last day; transfers change nothing whatever their ends. So Log it leaves the total
-as it was (the money moves from still due into the balance) and Skip raises it. Below zero
-it says by how much in words ("RM 1,100.00 below zero"). Tapping it lists today's balances
-and each occurrence still due, by day (the first 100, then how many more), and every
-repeating item; tapping one opens its sheet to change what it records and when, or Stop
-repeating (Undo brings it back). A stopped item is listed nowhere, so once the last one
-stops the total goes and only Undo brings it back.
+**What it is.** Bills, income and transfers that repeat ("Scheduled"), monthly on a day of
+the month (on a shorter month's last day past its end) or weekly on a weekday, each added
+on its day by the server (owner decision D8, "Add on the day"). Set one up on Plan ›
+Scheduled (Schedule something, a common one, or Schedule one under a card's note), with
+Repeat (Monthly or Weekly) in Add, or under More on a transaction's own sheet when
+changing it (its first due date the next one after the person's own today).
+
+- **Added on its day.** A cron trigger runs every 15 minutes (`wrangler.jsonc`
+  `triggers.crons`, `*/15 * * * *`, shared with reminders later). Each run works out each
+  stored time zone's day from the run's scheduled time and adds every occurrence whose day
+  has begun where its person is: an entry dated that day, "from Scheduled", and "amount to
+  check" when the item's amount changes. Missed runs are caught up from the item's next due
+  date, oldest first, at most 31 occurrences of one item and 200 entries a run; the rest
+  come in the runs after. Someone with no stored time zone is left until the app sends one.
+- **Asks first (D19, "Ask once, then automatic").** An item that was overdue when 0009 ran,
+  or is saved, moved back (Undo of Log it or Skip) or brought back (stopped, or its account
+  archived) with its next due date on or before the person's own today, asks first: it
+  stays on Home, "Due: Rent RM 1,200.00 from Maybank" (income "into Maybank", a transfer
+  "from Maybank to Visa"; with no payee, its category's name), with Log it, which records it
+  on the day it was due (from Scheduled) and moves it on, and Skip, which moves it on
+  recording nothing; each has Undo. It stops asking once logged or skipped past today, and
+  from then on is added on its day. Nothing is guessed about a bill that may not have been
+  paid.
+- **Amounts that change.** "Each time: Same amount / It changes". An entry added at an
+  amount that changes reads "amount to check" in Activity, on its account's page and first
+  in Home's Coming up; opening it says "Added at RM 189.00 from Scheduled, for you to
+  check" with the amount ready to type; Save confirms it as it is, or at the amount the
+  bill came to, which on the item's latest entry becomes the item's amount next time.
+- **Undo.** An entry from Scheduled is deleted as any entry is, with Undo (it comes back
+  still from Scheduled, still to check); its occurrence stays done, never added again.
+  Stop scheduling has Undo.
+- **Scheduled** (`?plan=scheduled`; R-Bills, R-Desk-Bills, R-Empty-Bills): Expenses and
+  Income, each with what it comes to in the person's month ("RM 1,443.90 a month": a monthly
+  item once, a weekly one each time it falls in the month), and Transfers ("not an
+  expense"), in the order set up; each row its tile, name (income by its category; a
+  transfer "Top-up to Touch 'n Go"), day ("1st · Maybank Savings", "20th · amount
+  changes"; on a computer "1st of the month" and "Next Nov 20 · amount changes about"),
+  signed amount and "Next Dec 1" (one asking first "Was due Nov 1"). A listed card owed
+  with no running transfer into it: "Visa Platinum: RM 14,130.38 owed by Dec 3, no payment
+  scheduled." (owed today plus its scheduled spending up to its last charge in the next 30
+  days, by that day; "owed, no payment scheduled." with none ahead) with Schedule one. "3
+  added this month · See them" (entries from Scheduled in the person's month) opens
+  `?activity&scheduled`. Nothing scheduled: "Rent, bills and pay, added on their day.",
+  Schedule something and the common ones (Rent, Salary, Phone bill, Netflix, Car loan),
+  each filling in a new schedule.
+- **The sheet** (named after the item; "New schedule" for a new one): Name, Amount ("last
+  time" when it changes), Amount each time, From (income Into; a transfer From and To),
+  For, Repeats ("Monthly on the 3rd", "Weekly on Mondays"), then for an item "Next" ("Dec 3
+  · added automatically from Visa Platinum", "Nov 20 · added at RM 189.00, for you to
+  check") and Stop scheduling, or for a new one What it is and First on (the first after
+  today on its repeat). A new schedule or day falls first on or after the one it was next
+  due on.
+- **Month end.** Home's hero, "Expected at month end", is today's balances of every listed
+  account (a card's owed amount counts against them), less the bills still due this
+  month, plus the income still due (see Home at a glance). Still due is every occurrence
+  of a listed item on a listed account not yet added, logged or skipped, from its next due
+  date up to the month's last day; transfers change nothing.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts): repeating items are part of the
-ledger (`Ledger.recurring`), read with the balances in one request, so the total's two
-halves always come from one copy, and the never-count-twice rule (`alreadySaved`) covers a
-log with no second read. Every change goes through `change()`:
-`addRecurring`, `updateRecurring`, `archiveRecurring`, `logRecurring` { id, due, transaction }
-and `skipRecurring` { id, due }. [ledger/apply.ts](../web/src/ledger/apply.ts) makes a log
-into its transaction and the move to the next date (`oneByOne`), and leaves out a log a copy
-holds already (its item moved on past `due`), so the balance and the date move together,
-once. `isDueOn` keeps a second tap from logging twice. Transactions saved lately are
-remembered (`recentlySaved`) so deleting a logged one (Undo) moves the balance at once,
-though no list on screen holds it. [ledger/forecast.ts](../web/src/ledger/forecast.ts)
-works out the total (`monthEndForecast`) and what's due now (`dueNow`) from the ledger as
-shown, read through `useWholeLedger()`.
+ledger (`Ledger.recurring`, with `amountVaries` and the server's `askFirst`), read with the
+balances in one request, so the total's two halves always come from one copy, and the
+never-count-twice rule (`alreadySaved`) covers a log with no second read. Every change goes
+through `change()`: `addRecurring`, `updateRecurring`, `archiveRecurring`, `logRecurring` {
+id, due, transaction } and `skipRecurring` { id, due }; a confirmed amount is an
+`updateTransaction` with `toCheck: false` (or the new amount), with the item's
+`updateRecurring` in the same change. [ledger/apply.ts](../web/src/ledger/apply.ts) makes a
+log into its transaction and the move to the next date (`oneByOne`), and a confirmation
+into an entry with nothing to check. [ledger/summary.ts](../web/src/ledger/summary.ts)
+counts entries from Scheduled on top of the month's totals (`fromScheduled`).
+[ledger/forecast.ts](../web/src/ledger/forecast.ts) works out the total
+(`monthEndForecast`) and what's due now (`dueNow`: asking first only). **Boundary
+exception, owner decision D8:** the nightly job writes entries on the server, outside the
+app's owner, through the same `applyChanges` path and checks as the app's changes; the app
+sees them on its next read.
 
 **Parts.**
 
-- UI: [components/home/DueItems.tsx](../web/src/components/home/DueItems.tsx),
-  [MonthEnd.tsx](../web/src/components/home/MonthEnd.tsx) (the total, its list and the
-  items), [RecurringSheet.tsx](../web/src/components/home/RecurringSheet.tsx) and
-  [recurring-text.ts](../web/src/components/home/recurring-text.ts), what's due on
-  [HomePage.tsx](../web/src/components/home/HomePage.tsx), the month-end total on Plan's
-  Scheduled half ([PlanPage.tsx](../web/src/components/plan/PlanPage.tsx)); Repeat in [AddEntry.tsx](../web/src/components/entry/AddEntry.tsx) and
-  [EntrySheet.tsx](../web/src/components/entry/EntrySheet.tsx).
+- UI: [components/plan/ScheduledView.tsx](../web/src/components/plan/ScheduledView.tsx),
+  [ScheduleSheet.tsx](../web/src/components/plan/ScheduleSheet.tsx) and
+  [scheduled-text.ts](../web/src/components/plan/scheduled-text.ts) on
+  [PlanPage.tsx](../web/src/components/plan/PlanPage.tsx);
+  [components/home/DueItems.tsx](../web/src/components/home/DueItems.tsx) and
+  [recurring-text.ts](../web/src/components/home/recurring-text.ts) and Coming up on
+  [HomePage.tsx](../web/src/components/home/HomePage.tsx); "from Scheduled" in rows
+  ([common/scheduled-note.ts](../web/src/components/common/scheduled-note.ts)) and
+  confirming in [activity/EntryEditor.tsx](../web/src/components/activity/EntryEditor.tsx)
+  and [entry/EntrySheet.tsx](../web/src/components/entry/EntrySheet.tsx); Repeat in
+  [AddEntry.tsx](../web/src/components/entry/AddEntry.tsx) and EntrySheet.
 - API: read with the accounts (`readLedger` in
   [worker/ledger/read.ts](../worker/ledger/read.ts); `recurring` only for someone who has
-  any); the five changes in [worker/ledger/changes.ts](../worker/ledger/changes.ts).
-- Shared: `Recurring` and the change shapes in [shared/api.ts](../shared/api.ts); schedules,
-  `nextAfter`, `fallsOn`, `onOrAfter`, `dayFor`, `monthEnd` and `MAX_RECURRING` in
-  [shared/recurring.ts](../shared/recurring.ts), which the Worker, the app and the test
+  any; each entry's `scheduled` only on one from Scheduled); the changes in
+  [worker/ledger/changes.ts](../worker/ledger/changes.ts); the month's `fromScheduled` in
+  [summary.ts](../worker/ledger/summary.ts); `?scheduled=1` on `/api/search`; the job in
+  [worker/ledger/post-scheduled.ts](../worker/ledger/post-scheduled.ts), run by the
+  `scheduled` handler in [worker/index.ts](../worker/index.ts).
+- Shared: `Recurring`, `ScheduledMark`, `ScheduledInMonth` and the change shapes in
+  [shared/api.ts](../shared/api.ts); schedules, `nextAfter`, `fallsOn`, `onOrAfter`,
+  `dayFor`, `monthEnd` and `MAX_RECURRING` in [shared/recurring.ts](../shared/recurring.ts);
+  `dayIn`, `dueThrough`, `monthlyCents`, `MAX_POSTED_PER_ITEM` and `MAX_POSTED_PER_RUN` in
+  [shared/scheduled.ts](../shared/scheduled.ts), which the Worker, the app and the test
   stand-in use alike.
 
 **Invariants.**
 
 - What an item records is checked as a transaction's is: a listed account (and for a
   transfer another listed one), a listed category of its kind, an amount of 1 cent to
-  `MAX_TRANSACTION`, a payee of at most `MAX_PAYEE`. Its start is a day a transaction can be
-  on (up to tomorrow in UTC). Its kind never changes.
-- Its first due date comes with it from the app (`nextDue`: the next after the person's own
-  today, or an imported one's) and is checked as a moved one is, on its schedule and within a
-  year, but never against today, so a change sent days later from an offline device still
-  applies. Without it (an app from before) it's the next after its start.
-- `next_due` always falls on its schedule, and is moved at most a year ahead
-  (`MAX_DUE_AHEAD_DAYS`). A new schedule or day comes with the next due
-  date, worked out by the app as the first it falls on from the old one.
-- A log's transaction is checked as any added one and dated the day it was due; it's saved
-  with the move to the next date in one batch, only from the occurrence named (else 409
-  "That was logged or skipped already"), so two devices never log one twice. A stopped item,
-  or one on an archived account, is never logged or skipped.
-- At most `MAX_RECURRING` (200) per person, stopped ones included, checked again as each row
-  is saved. The total stays exact: at most 200 items due at most weekly since 2000 at most
-  `MAX_TRANSACTION_CENTS` add about 2.8e14 to balances of at most 5e15.
+  `MAX_TRANSACTION`, a payee of at most `MAX_PAYEE`. Its kind never changes.
+- Its first due date comes with it from the app (`nextDue`) and is checked as a moved one
+  is, on its schedule and within a year, but never against today.
+- An occurrence is added once: the job's change id and transaction id are the first 16 hex
+  characters of SHA-256 of `sched:<item>:<day>`, so a run repeated, retried or overlapping
+  is stopped by the receipt, the next due guard or the transaction's own id; an entry
+  deleted is never added again. A log's transaction is saved with the move to the next
+  date in one batch, only from the occurrence named (else 409 "That was logged or skipped
+  already").
+- The job never reads an item that can't be added (its account, its transfer's other
+  account or its category archived), so those take nothing from a run; anything else
+  refused is left, without holding back the person's other items or anyone else's. Each
+  run reads at most 200 items and adds at most 200 entries, each exact in cents, for at most
+  40 people and 100 saves; a person whose save fails outright is left for the next run and
+  the others still go, and the run then fails so the trigger shows it. Bringing an account
+  or category back makes its overdue items ask first. It logs
+  only an error's name and message.
+- `to_check` is set only by the job, on an item whose amount changes; the app clears it
+  (`toCheck: false`, or a new amount), never sets it. An entry's mark names one of the
+  person's own items.
+- At most `MAX_RECURRING` (200) per person, stopped ones included. The total stays exact:
+  at most 200 items due at most weekly since 2000 at most `MAX_TRANSACTION_CENTS` add about
+  2.8e14 to balances of at most 5e15.
 - Someone else's item, account or category is answered as one that doesn't exist (404).
 
-**Tests.** [forecast.test.ts](../web/src/ledger/forecast.test.ts) (when each schedule falls,
-the total with bills, income, cards, transfers, stopped and archived, overdue and today's,
-the month's last day, exactly zero, the exactness bound; due now; each change made before
-the server has it, a log steady and a skip raising the total, applied twice),
-[Recurring.test.tsx](../web/src/components/home/Recurring.test.tsx) (due at the top in
-words, the total and its list, below zero and zero, Log it, Skip and Undo, overdue weekly,
-a lost answer across a reload, set up from adding and changing a transaction and from an
-old one (first due after today, monthly and weekly, a day that falls today, shown at once,
-set up offline, by the person's own day in Kuala Lumpur and Los Angeles), one set up before
-still asking about each it missed, changing and stopping, a refusal put back, a double tap, offline, the person's own
-day in Kuala Lumpur; desktop and phone), and the repeating cases in
-[worker/test/api.test.ts](../worker/test/api.test.ts) (setting up, with its first due date
-given or not and each refusal of one, each schedule, logging and skipping once, refusals with their messages, someone else's, all or nothing, the limit).
+**Tests.** [worker/test/scheduled.test.ts](../worker/test/scheduled.test.ts) (the job fired
+at fixed instants: midnight in Kuala Lumpur, Kathmandu and Los Angeles across the end of
+summer time, a zone changed, once only across repeats, overlaps, deletes and Undo, missed
+runs, 31 and 200 a run, refused items taking none of it, no zone, stopped and archived,
+asking first, amounts to check, the month's entries from the 25th, the search filter, and
+the cron entry), [worker/test/migrations.test.ts](../worker/test/migrations.test.ts) (0009),
+[shared/scheduled.test.ts](../shared/scheduled.test.ts),
+[forecast.test.ts](../web/src/ledger/forecast.test.ts),
+[scheduled-summary.test.ts](../web/src/ledger/scheduled-summary.test.ts),
+[Scheduled.test.tsx](../web/src/components/plan/Scheduled.test.tsx) (groups and totals, the
+person's month, card notes, added this month, empty and common ones, the sheet, new ones
+weekly, offline and refused, stop with Undo),
+[scheduled-home.test.tsx](../web/src/components/home/scheduled-home.test.tsx),
+[from-scheduled.test.tsx](../web/src/components/activity/from-scheduled.test.tsx),
+[Recurring.test.tsx](../web/src/components/home/Recurring.test.tsx) (Log it, Skip and Undo
+for items that ask first, the total on Home, set up from a transaction, the person's own
+day), and the repeating cases in [worker/test/api.test.ts](../worker/test/api.test.ts).
 
 ## Export
 
@@ -1667,28 +1727,28 @@ Accounts marked; Settings, its sections and Import cover them,
 and so does the first run, before there is an account, and a phone or tablet selecting on
 Activity (`&select`), and a category's page under Plan on a phone or tablet
 (`?plan&category=<id>`), which then have no freshness strip either. Plan is budgets and
-where the money went (see Plan); its Scheduled half is the month-end total until Scheduled
-is rebuilt. Home is at a glance (see Home at a glance).
+where the money went (see Plan); its Scheduled half is every scheduled item (see
+Scheduled). Home is at a glance (see Home at a glance).
 
 **Addresses.** Later pieces link to these; each is a query string read by `readRoute`.
 
-| Page                      | Address                                                                                                                    | Now                                                                                                                                                             |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home                      | none, or `?month=2026-10` for an earlier month                                                                             | live                                                                                                                                                            |
-| Activity                  | `?activity`, with `&q=`, `&account=`, `&category=`, `&kind=`, `&from=`, `&to=`, `&day=2026-11-10`, `&dates=all`, `&select` | live; see below                                                                                                                                                 |
-| Plan                      | `?plan`, with `&month=2026-10`                                                                                             | live                                                                                                                                                            |
-| Scheduled                 | `?plan=scheduled`                                                                                                          | Plan's other half: the month-end total until rebuilt                                                                                                            |
-| A category over 12 months | `?plan&category=<id>` (after `&month=` for an earlier month); `expenses` or `income` for all of them                       | live; a page on phones and tablets, beside the table on a computer                                                                                              |
-| Accounts                  | `?accounts`                                                                                                                | live                                                                                                                                                            |
-| One account               | `?account=<id>`                                                                                                            | live; on a computer, Accounts with it beside the list                                                                                                           |
-| Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`                           | live; Budgets and reminders' reminder rows are read-only until reminders (piece 16); `&setting=<key>` opens one in view; a computer's `?settings` is My account |
-| Importing a file          | `?import`                                                                                                                  | live, opened from `?settings=data`                                                                                                                              |
+| Page                      | Address                                                                                                                                  | Now                                                                                                                                                             |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home                      | none, or `?month=2026-10` for an earlier month                                                                                           | live                                                                                                                                                            |
+| Activity                  | `?activity`, with `&q=`, `&account=`, `&category=`, `&kind=`, `&scheduled`, `&from=`, `&to=`, `&day=2026-11-10`, `&dates=all`, `&select` | live; see below                                                                                                                                                 |
+| Plan                      | `?plan`, with `&month=2026-10`                                                                                                           | live                                                                                                                                                            |
+| Scheduled                 | `?plan=scheduled`                                                                                                                        | Plan's other half: every scheduled item, with Schedule something; see Scheduled                                                                                 |
+| A category over 12 months | `?plan&category=<id>` (after `&month=` for an earlier month); `expenses` or `income` for all of them                                     | live; a page on phones and tablets, beside the table on a computer                                                                                              |
+| Accounts                  | `?accounts`                                                                                                                              | live                                                                                                                                                            |
+| One account               | `?account=<id>`                                                                                                                          | live; on a computer, Accounts with it beside the list                                                                                                           |
+| Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`                                         | live; Budgets and reminders' reminder rows are read-only until reminders (piece 16); `&setting=<key>` opens one in view; a computer's `?settings` is My account |
+| Importing a file          | `?import`                                                                                                                                | live, opened from `?settings=data`                                                                                                                              |
 
 Activity's filters (components/activity/address.ts): plain `?activity` is this month on
 every account. `&q=` is the words; `&account=` an account (transfers into it too);
 `&category=` a category (a top-level one with its subcategories); `&kind=` one of
 `expense`, `income`, `transfer`, or two joined by a comma (`expense,income` is "Expenses and
-income"); `&day=` one day (Home's calendar: `?activity&day=2026-11-10`); `&from=` and
+income"); `&scheduled` only entries from Scheduled; `&day=` one day (Home's calendar: `?activity&day=2026-11-10`); `&from=` and
 `&to=` days, both included, either alone ("Since Oct 1"); `&dates=all` every month; and
 `&select` opens a phone or tablet selecting (Tidy up:
 `?activity&category=<OTHER_EXPENSE_ID>&from=<tidyUp.from>&select`). A day wins over from

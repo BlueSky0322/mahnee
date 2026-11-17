@@ -601,8 +601,9 @@ describe('what Home keeps and offers whatever loads first', () => {
     tenthJustAfterMidnight();
     const server = firstDay();
     server.categories = DEFAULT_CATEGORIES.map((c) => ({ ...c }));
+    // It asks first (D19): only such items are asked about on Home
     server.recurring.push(
-      repeating('Rent', { amountCents: 5_000, day: 10, nextDue: '2026-11-10' }),
+      repeating('Rent', { amountCents: 5_000, day: 10, nextDue: '2026-11-10', askFirst: true }),
     );
     renderApp(server, '/', { size });
     const due = await screen.findByText('Due: Rent RM 50.00 from Maybank Savings');

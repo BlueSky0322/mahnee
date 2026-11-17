@@ -202,8 +202,23 @@ export interface Transaction {
    * ("Ask for a time"); null or missing for none. Orders transactions on the same day.
    */
   time?: string | null;
+  /**
+   * The scheduled occurrence it was added from (by the nightly job, or Log it); only on an
+   * entry from Scheduled
+   */
+  scheduled?: ScheduledMark;
   /** When the server saved it (ms), which orders transactions on the same day after the time */
   createdAt: number;
+}
+
+/** Where an entry from Scheduled came from, and whether its amount is still to check */
+export interface ScheduledMark {
+  /** The person's own repeating item */
+  recurringId: string;
+  /** The day the occurrence was due, as 2026-11-20 */
+  due: string;
+  /** Added at an amount that changes, not yet confirmed by the person */
+  toCheck: boolean;
 }
 
 /**
@@ -329,17 +344,36 @@ export interface MonthSummary {
    */
   budgets?: MonthBudget[];
   /**
+   * The entries from Scheduled in the month, by item, in the order of each item's first
+   * one (then the order the items were set up); only when there are any
+   */
+  fromScheduled?: ScheduledInMonth[];
+  /**
    * Of the change ids the read named (PENDING_CHANGES_HEADER), the ones counted in already;
    * only when it named any
    */
   alreadySaved?: string[];
 }
 
+/** One scheduled item's entries in a month */
+export interface ScheduledInMonth {
+  recurringId: string;
+  /** How many, at least 1 */
+  entries: number;
+  /** The day of its first in the month */
+  firstDate: string;
+  /** Those still to check, oldest first */
+  toCheck: { id: string; date: string; amountCents: number }[];
+}
+
 /**
  * A month's spending and income in total and by category, as a month's totals have them,
  * without the month's own days, Tidy up and budgets
  */
-export type MonthTotals = Omit<MonthSummary, 'budgets' | 'alreadySaved' | 'spentByDay' | 'tidyUp'>;
+export type MonthTotals = Omit<
+  MonthSummary,
+  'budgets' | 'alreadySaved' | 'spentByDay' | 'tidyUp' | 'fromScheduled'
+>;
 
 /**
  * GET /api/summary/trend: a person's spending and income in each of the 12 months ending at
@@ -430,9 +464,9 @@ export const MAX_PAYEE_CATEGORIES = 10_000;
 export type NewTransaction = Omit<Transaction, 'createdAt'>;
 
 /**
- * A bill or income that repeats, monthly or weekly (shared/recurring.ts), and what Log it
- * records each time: nothing is recorded until the person logs it. Stopped (archived), never
- * deleted.
+ * A bill or income that repeats, monthly or weekly (shared/recurring.ts), and what is added
+ * each time: on its day, by the nightly job, or with Log it while it asks first. Stopped
+ * (archived), never deleted.
  */
 export interface Recurring {
   id: string;
@@ -455,6 +489,13 @@ export interface Recurring {
   nextDue: string;
   /** Stopped repeating; it can be brought back */
   archived: boolean;
+  /** Its amount changes ("It changes"): each one added is for the person to check */
+  amountVaries?: boolean;
+  /**
+   * It waits for Log it or Skip on Home rather than being added on its day: it was overdue
+   * when saved, moved back or brought back (owner decision D19). Read only; the server says.
+   */
+  askFirst?: boolean;
 }
 
 /**
@@ -462,7 +503,9 @@ export interface Recurring {
  * app's to say (the first after the person's today, or an imported one's); without it (an
  * app from before) it's the schedule's next day after startDate.
  */
-export type NewRecurring = Omit<Recurring, 'nextDue' | 'archived'> & { nextDue?: string };
+export type NewRecurring = Omit<Recurring, 'nextDue' | 'archived' | 'askFirst'> & {
+  nextDue?: string;
+};
 
 /**
  * GET /api/accounts: the person's ledger, archived accounts and categories too, each in
@@ -514,7 +557,10 @@ export type LedgerChange =
    * income a category of its kind and toAccountId null, a transfer categoryId null and
    * the account it goes to.
    */
-  | ({ op: 'updateTransaction'; id: string } & Partial<Omit<NewTransaction, 'id'>>)
+  | ({ op: 'updateTransaction'; id: string } & Partial<Omit<NewTransaction, 'id' | 'scheduled'>> & {
+        /** false: the person confirmed the amount of an entry from Scheduled (never true) */
+        toCheck?: false;
+      })
   /** Deletes it for good; Undo adds it again, with the same id */
   | { op: 'removeTransaction'; id: string }
   /**
@@ -559,6 +605,7 @@ export type LedgerChange =
         | 'schedule'
         | 'day'
         | 'nextDue'
+        | 'amountVaries'
       >
     >)
   /** archived: true stops it repeating, false brings it back */

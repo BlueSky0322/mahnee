@@ -37,7 +37,24 @@ hack-proof, and the limits below are real.
   month starts on) are checked to be the person's own, and foreign keys with the email
   hold the same in the database.
 
+- **What the server writes on its own (owner decision D8).** A cron trigger runs the
+  nightly job every 15 minutes (`worker/ledger/post-scheduled.ts`): it adds each person's
+  scheduled entries on their day, through the same checks as the app's own changes
+  (`applyChanges`), as that person only, each item's rows read and written with its email.
+  It adds nothing for someone with no stored time zone, nothing for an item that asks
+  first, and never twice (fixed ids per item and day, receipts, the next-due guard). It is
+  not reachable from the API: only the trigger runs it. It logs only an error's name and
+  message, never an amount, payee, account or email.
+
 ## Limits that bound abuse
+
+- The nightly job: at most 200 items read and 200 entries added a run, at most 31 of one
+  item (`shared/scheduled.ts`), for at most 40 people and 100 saves; the rest wait for the
+  next run, 15 minutes later. A person whose save fails outright is left for the next run
+  and the others still go. An item refused for a lasting reason other than an archived
+  account or category (an account holding its most transactions, say) keeps its place,
+  oldest due first, and takes part of each run until it's changed: about seven such weekly
+  items could fill a run. Checked by hand, not by the job.
 
 - Changes: 60 a minute per account (`API_LIMITER`), counted per Cloudflare location.
   Reading is never limited.

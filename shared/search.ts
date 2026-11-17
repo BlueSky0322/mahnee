@@ -27,6 +27,8 @@ export interface SearchQuery {
   to: string | null;
   /** Only these kinds, each once, in the order of TRANSACTION_KINDS; null for every kind */
   kinds: TransactionKind[] | null;
+  /** Only entries added from Scheduled (?scheduled=1); left out or false for every entry */
+  scheduled?: boolean;
 }
 
 export const EMPTY_SEARCH: SearchQuery = {
@@ -61,7 +63,7 @@ export function isCalendarDay(v: string) {
 }
 
 /**
- * The search an address asks for (?q=&account=&category=&from=&to=&kind=, each read with
+ * The search an address asks for (?q=&account=&category=&from=&to=&kind=&scheduled=, each read with
  * `get`),
  * or why it can't be one
  */
@@ -82,7 +84,9 @@ export function readSearch(params: {
   if (kinds != null && 'error' in kinds) return kinds;
   const account = params.get('account') || null;
   const category = params.get('category') || null;
-  return { q, account, category, ...days, kinds };
+  const scheduled = params.get('scheduled');
+  if (scheduled != null && scheduled !== '1') return { error: 'Say scheduled=1, or leave it out' };
+  return { q, account, category, ...days, kinds, ...(scheduled === '1' && { scheduled: true }) };
 }
 
 /** A search's parts for its address, as readSearch reads them, only those it filters by */
@@ -96,6 +100,7 @@ export function searchParams(query: SearchQuery): Record<string, string> {
   if (query.kinds != null && query.kinds.length < TRANSACTION_KINDS.length) {
     params.kind = query.kinds.join(',');
   }
+  if (query.scheduled === true) params.scheduled = '1';
   return params;
 }
 
@@ -126,6 +131,7 @@ export function matchesSearch(
   categories: readonly Category[],
 ): boolean {
   if (query.kinds != null && !query.kinds.includes(t.kind)) return false;
+  if (query.scheduled === true && t.scheduled == null) return false;
   if (query.account != null && !isOnAccount(t, query.account)) return false;
   if (query.category != null) {
     if (t.categoryId == null || !categoriesIn(categories, query.category).has(t.categoryId)) {

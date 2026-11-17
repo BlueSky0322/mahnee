@@ -6,6 +6,7 @@ import { readTypedSum } from '@shared/keypad';
 import { formatAmount, formatMoney } from '../../utils/money';
 import { categoryName } from '../common/category-name';
 import { transactionTitle } from '../entry/entry-text';
+import { scheduledNote } from '../common/scheduled-note';
 
 // An account's kind and balance as people read them, and its opening balance as they
 // type it. A card's is what's owed on it, typed and shown as a plain amount but kept
@@ -177,7 +178,8 @@ export function startedLine(account: Account) {
 /**
  * An entry as `accountId`'s own page shows it: titled by the other account for a transfer,
  * else its payee, its note or its category; the category (or "Transfer") under it, with the
- * note when it isn't the title; and the amount signed by what it did to this account
+ * note when it isn't the title, and "from Scheduled" (or "amount to check") for an entry
+ * Scheduled added; and the amount signed by what it did to this account
  */
 export function entryRow(
   t: Transaction,
@@ -195,14 +197,14 @@ export function entryRow(
     const detail = note ?? payee;
     return {
       title: transactionTitle(t, accountId, accounts, categories),
-      subtitle: detail == null ? 'Transfer' : `Transfer · ${detail}`,
+      subtitle: `${detail == null ? 'Transfer' : `Transfer · ${detail}`}${scheduledNote(t)}`,
       amount,
       incoming,
     };
   }
   const category = categoryName(categories, t.categoryId);
   const title = payee ?? note ?? category;
-  const subtitle = payee != null && note != null ? `${category} · ${note}` : category;
+  const subtitle = `${payee != null && note != null ? `${category} · ${note}` : category}${scheduledNote(t)}`;
   return {
     title,
     subtitle: t.time != null ? `${subtitle} · ${clockText(t.time)}` : subtitle,

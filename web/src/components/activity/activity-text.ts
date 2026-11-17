@@ -5,6 +5,7 @@ import { foldCase, isCalendarDay } from '@shared/search';
 import { clockText, fromDateInput, monthHeading } from '../../utils/date-input';
 import { formatAmount, formatMoney } from '../../utils/money';
 import { categoryName } from '../common/category-name';
+import { scheduledNote } from '../common/scheduled-note';
 
 // Activity's words (R-Activity, R-Activity-Select, R-Activity-Move, R-Desk-Activity,
 // R-Desk-Bulk, R-Empty-Search). Amounts say which way the money went (R-System): spending
@@ -179,8 +180,8 @@ const accountName = (accounts: readonly Pick<Account, 'id' | 'name'>[], id: stri
 /**
  * A row's title (its payee, else its note, else what it was: its category, or a
  * transfer's two accounts) and subtitle (its category and account, or a transfer's two
- * accounts). A note the words found shows in place of the category; while selecting, the
- * day is added.
+ * accounts), then whether it came from Scheduled. A note the words found shows in place of
+ * the category; while selecting, the day is added.
  */
 export function rowText(
   t: Transaction,
@@ -216,6 +217,7 @@ export function rowText(
         ? account
         : `${what} · ${account}`;
   }
+  subtitle = `${subtitle}${scheduledNote(t)}`;
   if (selecting) subtitle = `${subtitle} · ${shortDay(t.date, today)}`;
   if (t.time != null) subtitle = `${subtitle} · ${clockText(t.time)}`;
   return { title, subtitle };

@@ -46,8 +46,13 @@ export function changedTransaction(
       return before ?? { ...change.transaction, createdAt: Date.now() };
     case 'updateTransaction': {
       if (before == null) return undefined;
-      const { op: _op, id: _id, ...fields } = change;
-      return { ...before, ...fields };
+      const { op: _op, id: _id, toCheck, ...fields } = change;
+      const after: Transaction = { ...before, ...fields };
+      // Confirmed, or given what the bill came to: nothing left to check, as the server says
+      if (before.scheduled != null && (toCheck === false || 'amountCents' in fields)) {
+        after.scheduled = { ...before.scheduled, toCheck: false };
+      }
+      return after;
     }
     case 'removeTransaction':
       return before == null ? undefined : null;

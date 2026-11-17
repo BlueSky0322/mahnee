@@ -12,11 +12,12 @@ import { budgetLines } from '../../ledger/budgets';
 import type { CategorySpending } from '../../ledger/derive';
 import { rollUpEntries } from '../../ledger/derive';
 import { anyRepeating, nextPay } from '../../ledger/forecast';
+import ScheduleSheet, { type Opened } from './ScheduleSheet';
+import ScheduledView from './ScheduledView';
 import { useMonthSummary, useWholeLedger } from '../../ledger/useLedger';
 import { categoryColour } from '../../utils/category-colour';
 import { addMonths, monthHeading, monthLabel } from '../../utils/date-input';
 import { formatAmount, formatMoney } from '../../utils/money';
-import MonthEnd from '../home/MonthEnd';
 import PageLink from '../home/PageLink';
 import { incomeLine } from '../home/home-text';
 import { recurringName } from '../home/recurring-text';
@@ -42,8 +43,8 @@ const amount = (cents: number) => formatAmount(cents, DEFAULT_CURRENCY);
 // category, with the one chosen open on the right, its budget changed there. Every expense and all
 // income over 12 months (Home's cards open them, ?plan&category=expenses or income) open the same
 // way. The arrows step back a month at a time, never past this one (?plan&month=2026-10). Scheduled
-// (?plan=scheduled) is Plan's other half: for now the month-end total and every repeating item
-// behind it, until it is rebuilt.
+// (?plan=scheduled) is Plan's other half: every scheduled item (ScheduledView), with Schedule (a
+// phone) or Schedule something (a computer) to set one up.
 export default function PlanPage({
   month,
   half,
@@ -55,6 +56,8 @@ export default function PlanPage({
 }) {
   const isDesktop = useIsDesktop() === true;
   const shown = planMonth(month, useMonths());
+  const [opened, setOpened] = useState<Opened>(null);
+  const { data: ledger } = useWholeLedger();
   if (half === 'budgets' && category != null && !isDesktop) {
     return (
       <div className={classes.page}>
@@ -73,9 +76,20 @@ export default function PlanPage({
         half={half}
         category={category}
         isDesktop={isDesktop}
+        onSchedule={
+          half === 'scheduled' && ledger != null && anyRepeating(ledger)
+            ? () => setOpened({ prefill: {} })
+            : null
+        }
       />
       {half === 'scheduled' ? (
-        <Scheduled />
+        <>
+          <ScheduledView onOpen={setOpened} />
+          <ScheduleSheet
+            opened={opened}
+            onClose={() => setOpened(null)}
+          />
+        </>
       ) : (
         <Budgets
           shown={shown}
@@ -121,11 +135,14 @@ function Header({
   half,
   category,
   isDesktop,
+  onSchedule,
 }: {
   shown: PlanMonth;
   half: 'budgets' | 'scheduled';
   category: string | null;
   isDesktop: boolean;
+  /** Scheduled with something set up: a new one */
+  onSchedule: (() => void) | null;
 }) {
   // Each month is its own address, so Back returns; a computer keeps the category open
   const step = (to: string) =>
@@ -181,6 +198,15 @@ function Header({
       </PageLink>
     </nav>
   );
+  const schedule = onSchedule != null && (
+    <Button
+      variant="subtle"
+      leftSection={<Plus size={16} />}
+      onClick={onSchedule}
+    >
+      {isDesktop ? 'Schedule something' : 'Schedule'}
+    </Button>
+  );
   if (isDesktop) {
     return (
       <header className={classes.header}>
@@ -189,6 +215,7 @@ function Header({
           {halves}
         </div>
         {arrows}
+        {schedule}
       </header>
     );
   }
@@ -197,27 +224,11 @@ function Header({
       <header className={classes.header}>
         <h1 className={classes.title}>Plan</h1>
         {arrows}
+        {schedule}
       </header>
       {halves}
     </>
   );
-}
-
-/** Scheduled, until it is rebuilt: the month-end total and every repeating item behind it */
-function Scheduled() {
-  const { data: ledger } = useWholeLedger();
-  if (ledger == null) return null;
-  if (!anyRepeating(ledger)) {
-    return (
-      <section className={`${classes.card} ${classes.empty}`}>
-        <h2 className={classes.emptyTitle}>Nothing scheduled</h2>
-        <p className={classes.soft}>
-          Set rent, bills or pay to repeat from an entry&apos;s Repeat.
-        </p>
-      </section>
-    );
-  }
-  return <MonthEnd />;
 }
 
 /** What Plan works out from the month's totals and the ledger */

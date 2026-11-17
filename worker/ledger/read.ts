@@ -83,7 +83,11 @@ const categoriesStatement = (db: D1Database, email: string) =>
 
 const toCategory = (r: CategoryRow): Category => ({ ...r, archived: r.archived === 1 });
 
-type RecurringRow = Omit<Recurring, 'archived'> & { archived: 0 | 1 };
+type RecurringRow = Omit<Recurring, 'archived' | 'amountVaries' | 'askFirst'> & {
+  archived: 0 | 1;
+  amountVaries: 0 | 1;
+  askFirst: 0 | 1;
+};
 
 /** Every repeating item of `email`, stopped ones too, in the order they were set up */
 const recurringStatement = (db: D1Database, email: string) =>
@@ -91,7 +95,8 @@ const recurringStatement = (db: D1Database, email: string) =>
     .prepare(
       `SELECT id, kind, account_id AS accountId, to_account_id AS toAccountId,
               amount_cents AS amountCents, category_id AS categoryId, payee, schedule, day,
-              start_date AS startDate, next_due AS nextDue, archived
+              start_date AS startDate, next_due AS nextDue, archived,
+              amount_varies AS amountVaries, ask_first AS askFirst
        FROM recurring
        WHERE email = ?
        ORDER BY position, id`,
@@ -133,7 +138,14 @@ export async function readLedger(
     categories: (categories.results as CategoryRow[]).map(toCategory),
     // Only for someone who has any, so the answer is as it always was for everyone else
     ...(repeating.length > 0 && {
-      recurring: repeating.map((r): Recurring => ({ ...r, archived: r.archived === 1 })),
+      recurring: repeating.map(
+        (r): Recurring => ({
+          ...r,
+          archived: r.archived === 1,
+          amountVaries: r.amountVaries === 1,
+          askFirst: r.askFirst === 1,
+        }),
+      ),
     }),
     // Only for a read that named any
     ...(saved != null && { alreadySaved: (saved.results as { id: string }[]).map((r) => r.id) }),
@@ -148,7 +160,24 @@ export const MAX_PAGE_SIZE = 200;
 const transactionColumns = (t = 'transactions') =>
   `${t}.id, ${t}.kind, ${t}.account_id AS accountId, ${t}.to_account_id AS toAccountId,
   ${t}.amount_cents AS amountCents, ${t}.category_id AS categoryId, ${t}.payee, ${t}.note,
-  ${t}.date, ${t}.time, ${t}.created_at AS createdAt`;
+  ${t}.date, ${t}.time, ${t}.created_at AS createdAt, ${t}.recurring_id AS recurringId,
+  ${t}.recurring_due AS recurringDue, ${t}.to_check AS toCheck`;
+
+/** A transaction's row as read with transactionColumns */
+type TransactionRow = Omit<Transaction, 'scheduled'> & {
+  recurringId: string | null;
+  recurringDue: string | null;
+  toCheck: 0 | 1;
+};
+
+/** A row as the API answers it: `scheduled` only on an entry from Scheduled */
+export function toTransaction({ recurringId, recurringDue, toCheck, ...t }: TransactionRow) {
+  const out: Transaction = t;
+  if (recurringId != null && recurringDue != null) {
+    out.scheduled = { recurringId, due: recurringDue, toCheck: toCheck === 1 };
+  }
+  return out;
+}
 
 /**
  * Where the next page starts: the last transaction's day, its time of day ('' for none,
@@ -252,8 +281,8 @@ function readCursor(params: URLSearchParams): Cursor | null | undefined {
 /** A page from `query`, which takes `values` and then how many (one more than `limit`) */
 async function pageOf(query: D1PreparedStatement, values: (string | number)[], limit: number) {
   // One more than asked for says whether there's another page
-  const { results } = await query.bind(...values, limit + 1).all<Transaction>();
-  const transactions = results.slice(0, limit);
+  const { results } = await query.bind(...values, limit + 1).all<TransactionRow>();
+  const transactions = results.slice(0, limit).map(toTransaction);
   const more = results.length > limit;
   return json<TransactionPage>({
     transactions,
@@ -264,7 +293,7 @@ async function pageOf(query: D1PreparedStatement, values: (string | number)[], l
 /**
  * GET /api/search: a page of the person's transactions on every account, newest first,
  * found by shared/search.ts's rules (?q= words or an amount, ?account=, ?category= with its
- * subcategories, ?from= and ?to= days, ?kind=), carrying on from ?before= as
+ * subcategories, ?from= and ?to= days, ?kind=, ?scheduled=1 for entries from Scheduled), carrying on from ?before= as
  * /api/transactions does. With it, what matches beyond the page (rest, and the part of it
  * on the page's last day), and on the first page of a search for days how many match
  * outside them (elsewhere). Someone else's account or category is answered as one that
@@ -310,6 +339,7 @@ export async function searchTransactions(
     where.push(`t.category_id IN (${ids.map(() => '?').join(', ')})`);
     values.push(...ids);
   }
+  if (query.scheduled === true) where.push('t.recurring_id IS NOT NULL');
   if (query.kinds != null) {
     where.push(`t.kind IN (${query.kinds.map(() => '?').join(', ')})`);
     values.push(...query.kinds);
@@ -368,11 +398,11 @@ export async function searchTransactions(
        WHERE ${where.join(' AND ')} AND NOT (${days.join(' AND ') || '1'})`,
     )
     .bind(...values, ...dayValues);
-  const [found, outside] = await db.batch<Transaction | { n: number }>(
+  const [found, outside] = await db.batch<TransactionRow | { n: number }>(
     askElsewhere ? [page, elsewhere] : [page],
   );
-  const results = found.results as Transaction[];
-  const transactions = results.slice(0, limit);
+  const results = found.results as TransactionRow[];
+  const transactions = results.slice(0, limit).map(toTransaction);
   const last = results.length > limit ? transactions[transactions.length - 1] : null;
 
   const none: SearchTotals = { entries: 0, spentCents: 0, receivedCents: 0 };

@@ -23,6 +23,7 @@ erDiagram
   recurring |o--o{ user_settings : "month starts on"
   accounts ||--o{ recurring : "repeats on"
   categories ||--o{ recurring : "sorts"
+  recurring |o--o{ transactions : "added"
   profiles {
     TEXT email PK
     TEXT display_name "null, or 1 to 32 characters"
@@ -89,6 +90,9 @@ erDiagram
     TEXT date "the person's own day, as 2026-11-05"
     TEXT time "null, or the person's clock, as 20:12"
     TEXT import_id "null, or one of the person's imports"
+    TEXT recurring_id "null, or one of the person's scheduled items"
+    TEXT recurring_due "the day its occurrence was due; with recurring_id"
+    INTEGER to_check "0 or 1: its amount is for the person to check"
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
@@ -125,6 +129,8 @@ erDiagram
     TEXT next_due "the next occurrence not logged or skipped"
     INTEGER position "set up in this order, first at 0"
     INTEGER archived "0 or 1: stopped repeating"
+    INTEGER amount_varies "0 or 1: it changes, added to check"
+    INTEGER ask_first "0 or 1: waits for Log it or Skip"
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
@@ -195,6 +201,10 @@ erDiagram
   by when saved and id, and the place a page carries on from names all four. `import_id` names the
   import it came in with; triggers refuse one that isn't the person's own (SQLite can't
   add a foreign key with the email to an existing table), and are indexed to undo one.
+  `recurring_id` and `recurring_due` name the scheduled occurrence an entry came from (the
+  nightly job's, or Log it's), both or neither, and triggers hold the item to one of the
+  person's own; `to_check` is 1 only on one from Scheduled whose amount changes, until the
+  person confirms or changes the amount.
 - **`budgets`**: a monthly amount a person means to spend in a top-level spending
   category, its subcategories counting toward it. One row per category and month it was
   set in (`from_month`): the amount applies from that month on, until a later row, so
@@ -208,11 +218,17 @@ erDiagram
   level.
 - **`recurring`**: bills and income that repeat, monthly on a day of the month (the
   month's last day when it's shorter) or weekly on a weekday (1 Monday to 7 Sunday), with
-  what Log it records each time, written like a transaction's columns and checked the same
-  way. Nothing is recorded until an occurrence is logged: logging saves its transaction and
-  moves `next_due` on in one batch, only from the occurrence it names (`next_due` is NULL
-  otherwise, which the table refuses), so it's never recorded twice; skipping moves it on
-  alone. Stopped (archived), never deleted; at most 200 per person, stopped ones included,
+  what's added each time, written like a transaction's columns and checked the same way.
+  The nightly job (`worker/ledger/post-scheduled.ts`, a cron trigger every 15 minutes) adds
+  each occurrence on its day where the person is (`user_settings.time_zone`), as Log it
+  does: saving its transaction and moving `next_due` on in one batch, only from the
+  occurrence it names (`next_due` is NULL otherwise, which the table refuses), so it's never
+  recorded twice; skipping moves it on alone. `ask_first` items (0009 set it on those
+  overdue the day it ran; since, one saved, moved back or brought back with its day passed)
+  wait for Log it or Skip instead, until moved past the person's today. `amount_varies`
+  marks what's added to check. The job reads only running items not asking first, each
+  person's due by their own day, at most 200 a run; no index of its own (a person has at
+  most 200 items, scanned from the zones the people have). Stopped (archived), never deleted; at most 200 per person, stopped ones included,
   checked again as each row is saved. Keyed by email and then id, its accounts and category
   foreign keys with the email. Read with the accounts (`GET /api/accounts`, only for someone
   who has any).

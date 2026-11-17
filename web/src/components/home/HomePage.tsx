@@ -17,7 +17,7 @@ import { balanceText } from '../accounts/account-text';
 import Freshness from '../common/Freshness';
 import YouLink from '../common/YouLink';
 import Skeleton, { Loading } from '../ui/Skeleton';
-import type { ComingUpRow } from './ComingUp';
+import type { ComingUpCheck, ComingUpRow } from './ComingUp';
 import ComingUp from './ComingUp';
 import DayByDay, { type DueOnDay } from './DayByDay';
 import DueItems from './DueItems';
@@ -180,6 +180,19 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
 
   const allComing = isCurrent && ledger != null ? comingRows(ledger, categories, today) : [];
   const coming = essentials ? essentialRows(allComing) : allComing;
+  // What Scheduled added this month: the entries still to check, and each item by name
+  const fromScheduled = isCurrent && ledger != null ? summary?.fromScheduled ?? [] : [];
+  const itemName = (id: string) => {
+    const r = ledger?.recurring?.find((item) => item.id === id);
+    return r == null ? null : recurringName(r, categories);
+  };
+  const checks: ComingUpCheck[] = fromScheduled
+    .flatMap((s) => s.toCheck.map((c) => ({ ...c, name: itemName(s.recurringId) ?? 'Scheduled' })))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const added = fromScheduled.flatMap((s) => {
+    const name = itemName(s.recurringId);
+    return name == null ? [] : [name];
+  });
   const due = isCurrent && ledger != null ? dueByDay(ledger, categories, today, lastDay) : null;
   const bothEmpty =
     summary != null && summary.spentByDay.length === 0 && (lines ?? []).length === 0;
@@ -211,11 +224,11 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
       onHide={() => setHiddenNow(email)}
     />
   );
-  const comingUp = coming.length > 0 && (
+  const comingUp = (coming.length > 0 || checks.length > 0 || added.length > 0) && (
     <ComingUp
       rows={coming}
-      // Filled in by Scheduled, which adds entries on their day
-      added={[]}
+      checks={checks}
+      added={added}
     />
   );
   const days = essentials ? null : summary == null ? (
@@ -328,7 +341,8 @@ function comingRows(ledger: Ledger, categories: Category[], today: string): Comi
     date,
     where:
       r.kind === 'transfer' ? `${name(r.accountId)} to ${name(r.toAccountId)}` : name(r.accountId),
-    toCheck: false,
+    // Its amount changes: it's added for the person to check
+    toCheck: r.amountVaries === true,
   }));
 }
 

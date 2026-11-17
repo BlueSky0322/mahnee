@@ -1,8 +1,8 @@
 import type { Ledger, Recurring } from '@shared/api';
 import { monthEnd, nextAfter, onOrAfter } from '@shared/recurring';
 
-// What's expected at the end of this month, and what's due now, worked out from one copy of
-// the ledger (balances and repeating items read together), so a log is never counted in
+// What's expected at the end of this month, and what's due now (items that ask first),
+// worked out from one copy of the ledger (balances and repeating items read together), so a log is never counted in
 // both the balance and what's still due.
 //
 // Expected at month end: today's balances of every listed account (what's owed on a card
@@ -118,11 +118,14 @@ export function comingUp(ledger: Ledger, today: string, count: number): Upcoming
   return byDay(next).slice(0, count);
 }
 
-/** Every listed item due now (next due `today` or before), oldest first */
+/**
+ * Every listed item due now (next due `today` or before) that asks first, oldest first: the
+ * rest are added on their day by the server (owner decisions D8 and D19)
+ */
 export function dueNow(ledger: Ledger, today: string): DueNow[] {
   return byDay(
     (ledger.recurring ?? [])
-      .filter((r) => active(ledger, r) && r.nextDue <= today)
+      .filter((r) => active(ledger, r) && r.askFirst === true && r.nextDue <= today)
       .map((recurring) => ({ recurring, date: recurring.nextDue })),
   ).map(({ recurring, date }) => ({ recurring, due: date }));
 }

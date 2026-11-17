@@ -1,6 +1,6 @@
 import { Button, NativeSelect, SegmentedControl, TextInput } from '@mantine/core';
 import type { FormEvent } from 'react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { LedgerChange, Transaction } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
 import {
@@ -10,8 +10,9 @@ import {
   categoryKindFor,
   readOptionalText,
 } from '@shared/ledger';
+import { nextAfter } from '@shared/recurring';
 import { change } from '../../ledger/ledger';
-import { useAccounts, useCategories } from '../../ledger/useLedger';
+import { useAccounts, useCategories, useWholeLedger } from '../../ledger/useLedger';
 import { useProfile } from '../../profile/ProfileContext';
 import { clockText, isPastDay, toDateInput } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
@@ -32,7 +33,9 @@ const WAYS = [
 // changed: the amount, the category (or, for a transfer, the account it went to), the
 // account, the day (and its time, when Ask for a time is on or it has one), the payee and
 // the note. Save (or Enter) sends only what changed, through
-// the ledger; Delete takes it out, with Undo.
+// the ledger; Delete takes it out, with Undo. An entry Scheduled added at an amount that
+// changes says so, with the amount ready to type: Save confirms it as it is, or at the
+// amount the bill came to, which (on the item's latest entry) is the item's amount next time.
 export default function EntryEditor({
   transaction: editing,
   title,
@@ -47,7 +50,16 @@ export default function EntryEditor({
 }) {
   const { accounts } = useAccounts();
   const { categories, tree } = useCategories();
+  const { data: ledger } = useWholeLedger();
   const today = toDateInput(new Date());
+  const toCheck = editing.scheduled?.toCheck === true;
+  const amountField = useRef<HTMLInputElement>(null);
+  // Opened to check its amount, the amount is ready to type in
+  useEffect(() => {
+    if (!toCheck) return;
+    const focus = setTimeout(() => amountField.current?.focus(), 0);
+    return () => clearTimeout(focus);
+  }, [toCheck]);
   const [amount, setAmount] = useState(amountText(editing.amountCents));
   const [kind, setKind] = useState<TransactionKind>(editing.kind);
   const [accountId, setAccountId] = useState(editing.accountId);
@@ -115,7 +127,23 @@ export default function EntryEditor({
         Object.assign(update, { [key]: fields[key] });
       }
     }
-    if (Object.keys(update).length > 2) change(update);
+    // Saved as it is, an amount to check is confirmed; a new amount confirms it too
+    if (toCheck && !('amountCents' in update)) update.toCheck = false;
+    // The amount the bill came to is the item's amount next time, when its amount changes
+    // and this is its latest entry
+    const mark = editing.scheduled;
+    const item = ledger?.recurring?.find((r) => r.id === mark?.recurringId);
+    const nextTime =
+      mark != null &&
+      item != null &&
+      !item.archived &&
+      item.amountVaries === true &&
+      'amountCents' in update &&
+      update.amountCents !== item.amountCents &&
+      nextAfter(item.schedule, item.day, mark.due) === item.nextDue;
+    if (nextTime && update.amountCents != null) {
+      change(update, { op: 'updateRecurring', id: item.id, amountCents: update.amountCents });
+    } else if (Object.keys(update).length > 2) change(update);
     onSaved?.();
   };
 
@@ -155,10 +183,17 @@ export default function EntryEditor({
         onChange={(value) => setKind(value as TransactionKind)}
         data={WAYS}
       />
+      {toCheck && (
+        <p className={classes.muted}>
+          {`Added at ${formatMoney(editing.amountCents, currency)} from Scheduled, for you to check`}
+        </p>
+      )}
       <TextInput
+        ref={amountField}
         label="Amount"
         inputMode="decimal"
         autoComplete="off"
+        data-autofocus={toCheck || undefined}
         value={amount}
         onChange={(e) => setAmount(e.currentTarget.value)}
         error={errors.amount}

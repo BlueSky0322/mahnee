@@ -10,6 +10,7 @@ import type { FakeServer } from '../../testing/app';
 import {
   addEntry,
   fakeServer,
+  goToPlace,
   holdNext,
   reloadApp,
   renderApp,
@@ -929,7 +930,7 @@ describe('Plan: budgets and where it went', () => {
 
 describe("Plan's other half: Scheduled", () => {
   test.each(SIZES)(
-    'opens Scheduled in its place, with the month-end total, and Budgets back (%s)',
+    'opens Scheduled in its place, with what is scheduled, and Budgets back (%s)',
     async (size) => {
       tenthJustAfterMidnight();
       renderApp(aPlannedMonth(), '/?plan', { size });
@@ -944,11 +945,11 @@ describe("Plan's other half: Scheduled", () => {
           .getByRole('link', { name: 'Scheduled' })
           .getAttribute('aria-current'),
       ).toBe('page');
-      // Today's month-end total, with every repeating item behind it, until Scheduled is
-      // rebuilt: RM 7,999.50 now, plus Salary's RM 6,800.00 on the 25th
-      expect(
-        await screen.findByRole('button', { name: 'Expected at month end: RM 14,799.50' }),
-      ).toBeTruthy();
+      // Scheduled as drawn (R-Bills): Salary's RM 6,800.00 a month on the 25th. The month-end
+      // total (RM 7,999.50 now, plus Salary's RM 6,800.00) is Home's hero since D8
+      const income = await screen.findByRole('region', { name: 'Income' });
+      expect(income.textContent).toContain('RM 6,800.00 a month');
+      expect(within(income).getByRole('button', { name: /^Salary/ })).toBeTruthy();
       expect(screen.queryByRole('region', { name: /^Where it went/ })).toBeNull();
       expect(screen.queryByRole('table')).toBeNull();
 
@@ -959,6 +960,13 @@ describe("Plan's other half: Scheduled", () => {
       );
       await waitFor(() => expect(window.location.search).toBe('?plan'));
       expect(await screen.findByRole('region', { name: 'Income' })).toBeTruthy();
+      // The month-end total, kept from before on Home's hero: RM 7,999.50 now, plus Salary
+      await goToPlace('Home');
+      const hero =
+        size === 'phone'
+          ? await screen.findByRole('region', { name: 'Expected at month end' })
+          : await screen.findByRole('link', { name: /^Expected at month end/ });
+      await waitFor(() => expect(hero.textContent).toContain('RM 14,799.50'));
     },
   );
 

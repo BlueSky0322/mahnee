@@ -16,6 +16,7 @@ import { clockText, dayHeading, toDateInput } from '../../utils/date-input';
 import { showRefusal } from '../../utils/notify';
 import EntryTile from '../common/EntryTile';
 import { categoryName } from '../common/category-name';
+import { scheduledNote } from '../common/scheduled-note';
 import { showUndo } from '../common/undo-toast';
 import { useAddEntry } from '../shell/add-entry';
 import Key from '../ui/Key';
@@ -908,6 +909,7 @@ function Register({
                         {categoryName(categories, t.categoryId)}
                       </button>
                     )}
+                    {scheduledNote(t)}
                   </td>
                   <td className={classes.soft}>{what}</td>
                   <td className={classes.right}>

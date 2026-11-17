@@ -14,8 +14,8 @@ For agents:
 
 ## 2026-11-17
 
-- Changed: Plan shows budgets against the month, where the money went and income by category, each over 12 months, with budgets set in place on a computer; Home's Expenses so far and Income open all of either over 12 months [#?]
-- Removed: Left this month and Over this month; Home's month end takes their place [#?]
+- Changed: Plan shows budgets against the month, where the money went and income by category, each over 12 months, with budgets set in place on a computer; Home's Expenses so far and Income open all of either over 12 months [#37]
+- Removed: Left this month and Over this month; Home's month end takes their place [#37]
 - Added: Settings with search, My account, a new Categories page, and Import and export with export ranges and Undo for recent imports [#36]
 
 ## 2026-11-16
@@ -103,3 +103,4 @@ For agents:
 [#34]: https://github.com/BlueSky0322/mahnee/pull/34
 [#35]: https://github.com/BlueSky0322/mahnee/pull/35
 [#36]: https://github.com/BlueSky0322/mahnee/pull/36
+[#37]: https://github.com/BlueSky0322/mahnee/pull/37

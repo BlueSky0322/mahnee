@@ -7,7 +7,7 @@ import { OTHER_EXPENSE_ID, categoriesOrDefaults } from '@shared/categories';
 import { DEFAULT_CURRENCY, FIRST_DAY } from '@shared/ledger';
 import { monthEnd } from '@shared/recurring';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
-import { navigate } from '../../hooks/useRoute';
+import { ALL_EXPENSES, ALL_INCOME, navigate } from '../../hooks/useRoute';
 import { budgetLines } from '../../ledger/budgets';
 import { comingUp, monthEndForecast, nextPay } from '../../ledger/forecast';
 import { useAccounts, useMonthSummary, useWholeLedger } from '../../ledger/useLedger';
@@ -47,12 +47,12 @@ const COMING_UP = 3;
 /** Home's address for `month`: this month's names none */
 const homeAddress = (month: string) => (month >= thisMonth() ? '' : `?month=${month}`);
 
-// The first screen, at a glance: where the month will land with the sum under it, spent
-// so far and what came in, what needs you (what's due now, Tidy up, Coming up), a day by
-// day calendar and the budgets with a marker for today. The full lists live in Activity,
-// Plan and Accounts. An earlier month (`month`, ?month=2026-10; null for this one) says
-// what it left instead, with its days and budgets. Until the first account is added, the
-// first run asks where the money is kept.
+// The first screen, at a glance: where the month will land with the sum under it, spent so far and
+// what came in (each opening its last 12 months), what needs you (what's due now, Tidy up, Coming
+// up), a day by day calendar and the budgets with a marker for today. The full lists live in
+// Activity, Plan and Accounts. An earlier month (`month`, ?month=2026-10; null for this one) says
+// what it left instead, with its days and budgets. Until the first account is added, the first run
+// asks where the money is kept.
 const HomePage = ({ month }: { month: string | null }) => {
   const { accounts, failed, retry } = useAccounts();
   const isDesktop = useIsDesktop() === true;
@@ -520,9 +520,11 @@ function Answers({
     </span>
   );
 
+  // Each card opens its last 12 months, over Home so Back returns
   const card = (label: string, cents: number | null, sub: string | null, href: string) => (
     <PageLink
       href={href}
+      push
       className={`${classes.card} ${classes.answer}`}
     >
       <span className={classes.answerLabel}>{label}</span>
@@ -530,9 +532,18 @@ function Answers({
       {sub != null && <span className={classes.answerLine}>{lineWithFast(sub, isDesktop)}</span>}
     </PageLink>
   );
-  const spentCard = card('Expenses so far', summary?.spentCents ?? null, spentLine, planHref);
-  const incomeCard = (href: string) =>
-    card('Income', summary?.incomeCents ?? null, incomeText, href);
+  const spentCard = card(
+    'Expenses so far',
+    summary?.spentCents ?? null,
+    spentLine,
+    `${planHref}&category=${ALL_EXPENSES}`,
+  );
+  const incomeCard = card(
+    'Income',
+    summary?.incomeCents ?? null,
+    incomeText,
+    `${planHref}&category=${ALL_INCOME}`,
+  );
 
   if (isDesktop) {
     return (
@@ -549,7 +560,7 @@ function Answers({
           {line}
         </PageLink>
         {spentCard}
-        {incomeCard(planHref)}
+        {incomeCard}
       </section>
     );
   }
@@ -570,7 +581,7 @@ function Answers({
       </section>
       <div className={classes.cards}>
         {spentCard}
-        {incomeCard(isCurrent ? '?plan=scheduled' : planHref)}
+        {incomeCard}
       </div>
     </>
   );

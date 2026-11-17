@@ -1,0 +1,782 @@
+/* Plan, "Paper ledger" (R-Plan, R-Desk-Plan, R-Empty-Plan, R-Category) */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(24px + var(--sf-safe-bottom));
+}
+
+.desktop {
+  max-width: 1200px;
+  padding: 24px 32px 48px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.soft {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.muted {
+  color: var(--ink-3);
+}
+
+.neg {
+  color: var(--neg);
+}
+
+.due {
+  color: var(--due);
+}
+
+.end {
+  text-align: right;
+}
+
+.failed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* The header: "Plan", the month between arrows, and the two halves */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 0 4px;
+}
+
+.headerStart {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.desktop .title {
+  font-size: 26px;
+}
+
+.monthNav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.monthName {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.iconButton:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.halves {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 3px;
+  margin-top: -4px;
+  border-radius: 999px;
+  background: var(--sunk);
+}
+
+.desktop .halves {
+  width: 280px;
+  margin-top: 0;
+}
+
+.halves a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.halves a[aria-current='page'] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgb(20 20 20 / 12%);
+}
+
+/* Cards' heads */
+
+.cardHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.desktop .cardTitle {
+  font-size: 16px;
+}
+
+.headNote {
+  margin-left: 4px;
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.headFigure {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.inlineLink {
+  color: var(--accent);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+/* Budgets on a phone */
+
+.budgets {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px;
+}
+
+.budgetList {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.budget {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.budgetHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+}
+
+.budgetName {
+  font-weight: 500;
+}
+
+.budgetMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.metaStart {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Nothing yet: no budgets, nothing scheduled */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 20px;
+  border-radius: 20px;
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.primaryLink {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  margin-top: 6px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+/* Where it went */
+
+.went {
+  overflow: hidden;
+}
+
+.wentHead {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 16px 12px;
+}
+
+.share {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+.share span {
+  min-width: 2px;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rows li + li {
+  border-top: 1px solid var(--line);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px 16px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--dot);
+}
+
+.rowMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowTitle {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowSub {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowAmount {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* Income */
+
+.income {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 16px;
+}
+
+.income .soft {
+  grid-column: 1 / -1;
+}
+
+.incomeDesk {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+}
+
+.incomeDesk .headFigure {
+  font-size: 18px;
+}
+
+.incomeText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.incomeDesk {
+  flex-wrap: wrap;
+}
+
+/* What came in by category, edge to edge under the figure, as Where it went's rows */
+.incomeRows {
+  grid-column: 1 / -1;
+  flex-basis: 100%;
+  margin: 4px -16px -16px;
+  border-top: 1px solid var(--line);
+}
+
+.incomeDesk .incomeRows {
+  flex-basis: calc(100% + 40px);
+  margin: 0 -20px -16px;
+}
+
+.incomeRows a[aria-current='true'] {
+  background: var(--ground);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* A computer: the table beside the category open */
+
+.split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.mainColumn {
+  display: flex;
+  flex: 999 1 520px;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.tableCard {
+  overflow: hidden;
+}
+
+.tableHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 12px;
+}
+
+.tableHeadEnd {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  font-size: 14px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.table th.end {
+  text-align: right;
+}
+
+.table td {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.table tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tr[data-open] {
+  background: var(--ground);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.rowButton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.rowSubDesk {
+  display: block;
+  padding-left: 18px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.barCell {
+  width: 30%;
+}
+
+.setBudget {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* A category over 12 months: a page on a phone, a pane on a computer */
+
+.pane {
+  display: flex;
+  flex: 1 1 360px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px;
+}
+
+.categoryPage {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+}
+
+.back {
+  margin-left: -6px;
+  color: var(--ink);
+}
+
+.quietButton,
+.wideQuiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--sunk);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.wideQuiet {
+  height: 40px;
+}
+
+.categoryTop,
+.paneTop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.paneTop {
+  padding: 0;
+}
+
+.paneHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.categoryTitle,
+.paneTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.paneTitle {
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.bigDot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--dot);
+}
+
+.bigFigure,
+.paneFigure {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 500;
+}
+
+.paneFigure {
+  font-size: 30px;
+}
+
+.year {
+  padding: 16px 12px 12px;
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.barArea {
+  position: relative;
+  height: 170px;
+}
+
+.yearPane .barArea {
+  height: 140px;
+}
+
+.barList {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 6px;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.barItem {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+.barFill {
+  display: block;
+  max-height: calc(100% - 20px);
+  border-radius: 6px 6px 2px 2px;
+  background: var(--line-2);
+}
+
+.barFill[data-shown] {
+  background: var(--dot);
+}
+
+.barLetter {
+  color: var(--ink-3);
+  font-size: 11px;
+  text-align: center;
+}
+
+.barLetter[data-shown] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.average {
+  position: absolute;
+  right: 0;
+  left: 0;
+  margin-bottom: 20px;
+  border-top: 1.5px dashed var(--ink-3);
+  pointer-events: none;
+}
+
+.averageText {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  bottom: 2px;
+  padding-left: 4px;
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.inside {
+  overflow: hidden;
+}
+
+.insidePane {
+  margin: 0 -20px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.insideList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.insideRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 16px;
+}
+
+.insidePane .insideRow {
+  padding: 8px 20px;
+}
+
+.insideRow + .insideRow {
+  border-top: 1px solid var(--line);
+}
+
+.insideName {
+  font-size: 15px;
+}
+
+.budgetCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.budgetRead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.budgetForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.carry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.carryText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.carryName {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.small {
+  font-size: 12px;
+}

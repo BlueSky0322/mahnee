@@ -207,10 +207,11 @@ describe('Home at a glance', () => {
       await waitFor(() =>
         expect(text(spent)).toBe('Expenses so far RM 39.00 Day 10 of 30 · Food running fast'),
       );
-      expect(spent.getAttribute('href')).toBe('?plan');
+      // Each opens its last 12 months (the owner kept them, 2026-11-17)
+      expect(spent.getAttribute('href')).toBe('?plan&category=expenses');
       const income = screen.getByRole('link', { name: /^Income/ });
       expect(text(income)).toBe('Income RM 3,000.00 Salary due Nov 25');
-      expect(income.getAttribute('href')).toBe(size === 'phone' ? '?plan=scheduled' : '?plan');
+      expect(income.getAttribute('href')).toBe('?plan&category=income');
     },
   );
 

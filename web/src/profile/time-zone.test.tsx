@@ -62,7 +62,7 @@ describe("the device's time zone", () => {
     deviceIn('Asia/Kathmandu');
     const server = fakeServer();
     server.me.settings.timeZone = null;
-    renderApp(server, '/?plan');
+    renderApp(server, '/?accounts');
     await waitFor(() => expect(server.me.settings.timeZone).toBe('Asia/Kathmandu'), WAIT);
     await started();
     expect(profileSaves()).toEqual([{ settings: { timeZone: 'Asia/Kathmandu' } }]);
@@ -72,7 +72,7 @@ describe("the device's time zone", () => {
     deviceIn('Europe/London');
     const server = fakeServer();
     server.me.settings.timeZone = 'Asia/Kuala_Lumpur';
-    renderApp(server, '/?plan', { size: 'phone' });
+    renderApp(server, '/?accounts', { size: 'phone' });
     await waitFor(() => expect(server.me.settings.timeZone).toBe('Europe/London'), WAIT);
   });
 
@@ -80,7 +80,7 @@ describe("the device's time zone", () => {
     deviceIn('Asia/Kuala_Lumpur');
     const server = fakeServer();
     server.me.settings.timeZone = 'Asia/Kuala_Lumpur';
-    renderApp(server, '/?plan');
+    renderApp(server, '/?accounts');
     await started();
     expect(profileSaves()).toEqual([]);
   });
@@ -89,7 +89,7 @@ describe("the device's time zone", () => {
     deviceIn(undefined);
     const server = fakeServer();
     server.me.settings.timeZone = null;
-    renderApp(server, '/?plan');
+    renderApp(server, '/?accounts');
     await started();
     expect(profileSaves()).toEqual([]);
     expect(server.me.settings.timeZone).toBeNull();
@@ -105,13 +105,13 @@ describe("the device's time zone", () => {
       const server = fakeServer();
       server.me.settings.timeZone = null;
       server.failNext.profile = status;
-      renderApp(server, '/?plan');
+      renderApp(server, '/?accounts');
       await started();
       expect(profileSaves()).toHaveLength(1);
       expect(server.me.settings.timeZone).toBeNull();
       expect(screen.queryByText(/could not save/i)).toBeNull();
 
-      await reloadApp(server, '/?plan');
+      await reloadApp(server, '/?accounts');
       await waitFor(() => expect(server.me.settings.timeZone).toBe('Asia/Kathmandu'), WAIT);
     },
   );
@@ -153,7 +153,7 @@ describe("the device's time zone", () => {
     } finally {
       done();
     }
-    await reloadApp(server, '/?plan');
+    await reloadApp(server, '/?accounts');
     await waitFor(() => expect(server.me.settings.timeZone).toBe('Asia/Kathmandu'), WAIT);
   });
 });

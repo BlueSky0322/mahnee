@@ -1,27 +1,819 @@
-import AccountList from '../accounts/AccountList';
-import DueItems from '../home/DueItems';
-import MonthCard from '../home/MonthCard';
+import { Button } from '@mantine/core';
+import { CaretLeft, CaretRight, Plus, WarningCircle } from '@phosphor-icons/react';
+import type { CSSProperties, ReactNode } from 'react';
+import { useId, useState } from 'react';
+import type { Category, Ledger, MonthSummary } from '@shared/api';
+import { categoriesOrDefaults } from '@shared/categories';
+import { DEFAULT_CURRENCY, FIRST_DAY } from '@shared/ledger';
+import { useIsDesktop } from '../../hooks/useBreakpoints';
+import { isAll, navigate } from '../../hooks/useRoute';
+import type { BudgetLine } from '../../ledger/budgets';
+import { budgetLines } from '../../ledger/budgets';
+import type { CategorySpending } from '../../ledger/derive';
+import { rollUpEntries } from '../../ledger/derive';
+import { anyRepeating, nextPay } from '../../ledger/forecast';
+import { useMonthSummary, useWholeLedger } from '../../ledger/useLedger';
+import { categoryColour } from '../../utils/category-colour';
+import { addMonths, monthHeading, monthLabel } from '../../utils/date-input';
+import { formatAmount, formatMoney } from '../../utils/money';
 import MonthEnd from '../home/MonthEnd';
-import classes from './PlanPage.module.css';
+import PageLink from '../home/PageLink';
+import { incomeLine } from '../home/home-text';
+import { recurringName } from '../home/recurring-text';
+import Skeleton, { Loading } from '../ui/Skeleton';
+import BudgetBar from './BudgetBar';
+import CategoryView from './CategoryView';
+import classes from './Plan.module.css';
+import TotalView from './TotalView';
+import { planAddress } from './plan-address';
+import { type PlanMonth, planMonth } from './plan-month';
+import { budgetWords, deskSubtitle, phoneSubtitle, shareLabel } from './plan-text';
 
-/** Plan's address for `month`: this month's names none */
-const planAddress = (month: string | null) => (month == null ? '?plan' : `?plan&month=${month}`);
+/** The earliest month a transaction can be in */
+const FIRST_MONTH = FIRST_DAY.slice(0, 7);
 
-// Plan (?plan), until Plan and Scheduled are rebuilt, is the month as Home showed it before
-// Home was at a glance: what's due now to log or skip (Home lists it too, under what needs
-// you), where the spending went with each budget, what's expected at the month's end, and
-// the accounts behind it. Its arrows step between months on Plan (?plan&month=2026-10).
-export default function PlanPage({ month }: { month: string | null }) {
+const money = (cents: number) => formatMoney(cents, DEFAULT_CURRENCY);
+const amount = (cents: number) => formatAmount(cents, DEFAULT_CURRENCY);
+
+// Plan (?plan): the month's budgets with a marker for how much of it has gone, where the spending
+// went with each category's share, and what came in by category. On a phone each category opens a
+// page of its own over 12 months (?plan&category=<id>); on a computer, a table of every spending
+// category, with the one chosen open on the right, its budget changed there. Every expense and all
+// income over 12 months (Home's cards open them, ?plan&category=expenses or income) open the same
+// way. The arrows step back a month at a time, never past this one (?plan&month=2026-10). Scheduled
+// (?plan=scheduled) is Plan's other half: for now the month-end total and every repeating item
+// behind it, until it is rebuilt.
+export default function PlanPage({
+  month,
+  half,
+  category,
+}: {
+  month: string | null;
+  half: 'budgets' | 'scheduled';
+  category: string | null;
+}) {
+  const isDesktop = useIsDesktop() === true;
+  const shown = planMonth(month);
+  if (half === 'budgets' && category != null && !isDesktop) {
+    return (
+      <div className={classes.page}>
+        <Opened
+          id={category}
+          shown={shown}
+          variant="page"
+        />
+      </div>
+    );
+  }
   return (
-    <div className={classes.page}>
-      <h1 className={classes.title}>Plan</h1>
-      <DueItems />
-      <MonthCard
-        month={month}
-        address={planAddress}
+    <div className={isDesktop ? `${classes.page} ${classes.desktop}` : classes.page}>
+      <Header
+        shown={shown}
+        half={half}
+        category={category}
+        isDesktop={isDesktop}
       />
-      <MonthEnd />
-      <AccountList />
+      {half === 'scheduled' ? (
+        <Scheduled />
+      ) : (
+        <Budgets
+          shown={shown}
+          category={category}
+          isDesktop={isDesktop}
+        />
+      )}
     </div>
+  );
+}
+
+/** A category over 12 months, or every expense or all income */
+function Opened({
+  id,
+  shown,
+  variant,
+  focusBudget = null,
+}: {
+  id: string;
+  shown: PlanMonth;
+  variant: 'page' | 'pane';
+  focusBudget?: { id: string } | null;
+}) {
+  return isAll(id) ? (
+    <TotalView
+      which={id}
+      shown={shown}
+      variant={variant}
+    />
+  ) : (
+    <CategoryView
+      id={id}
+      shown={shown}
+      variant={variant}
+      focusBudget={focusBudget}
+    />
+  );
+}
+
+/** "Plan", the month and its arrows, and the Budgets / Scheduled halves */
+function Header({
+  shown,
+  half,
+  category,
+  isDesktop,
+}: {
+  shown: PlanMonth;
+  half: 'budgets' | 'scheduled';
+  category: string | null;
+  isDesktop: boolean;
+}) {
+  // Each month is its own address, so Back returns; a computer keeps the category open
+  const step = (to: string) =>
+    navigate(
+      planAddress({
+        month: to >= shown.current ? null : to,
+        category: isDesktop ? category : null,
+      }),
+    );
+  const arrows = half === 'budgets' && (
+    <div className={classes.monthNav}>
+      <button
+        type="button"
+        className={classes.iconButton}
+        aria-label="Previous month"
+        disabled={shown.month <= FIRST_MONTH}
+        onClick={() => step(addMonths(shown.month, -1))}
+      >
+        <CaretLeft size={20} />
+      </button>
+      <span className={classes.monthName}>
+        {isDesktop
+          ? `${monthHeading(shown.month)}${shown.isCurrent ? ` · day ${shown.at.day} of ${shown.at.days}` : ''}`
+          : monthLabel(shown.month)}
+      </span>
+      <button
+        type="button"
+        className={classes.iconButton}
+        aria-label="Next month"
+        disabled={shown.isCurrent}
+        onClick={() => step(addMonths(shown.month, 1))}
+      >
+        <CaretRight size={20} />
+      </button>
+    </div>
+  );
+  const halves = (
+    <nav
+      aria-label="Plan"
+      className={classes.halves}
+    >
+      <PageLink
+        href="?plan"
+        aria-current={half === 'budgets' ? 'page' : undefined}
+      >
+        Budgets
+      </PageLink>
+      <PageLink
+        href="?plan=scheduled"
+        aria-current={half === 'scheduled' ? 'page' : undefined}
+      >
+        Scheduled
+      </PageLink>
+    </nav>
+  );
+  if (isDesktop) {
+    return (
+      <header className={classes.header}>
+        <div className={classes.headerStart}>
+          <h1 className={classes.title}>Plan</h1>
+          {halves}
+        </div>
+        {arrows}
+      </header>
+    );
+  }
+  return (
+    <>
+      <header className={classes.header}>
+        <h1 className={classes.title}>Plan</h1>
+        {arrows}
+      </header>
+      {halves}
+    </>
+  );
+}
+
+/** Scheduled, until it is rebuilt: the month-end total and every repeating item behind it */
+function Scheduled() {
+  const { data: ledger } = useWholeLedger();
+  if (ledger == null) return null;
+  if (!anyRepeating(ledger)) {
+    return (
+      <section className={`${classes.card} ${classes.empty}`}>
+        <h2 className={classes.emptyTitle}>Nothing scheduled</h2>
+        <p className={classes.soft}>
+          Set rent, bills or pay to repeat from an entry&apos;s Repeat.
+        </p>
+      </section>
+    );
+  }
+  return <MonthEnd />;
+}
+
+/** What Plan works out from the month's totals and the ledger */
+interface Month {
+  summary: MonthSummary;
+  categories: Category[];
+  ledger: Ledger;
+  lines: BudgetLine[];
+  rows: CategorySpending[];
+}
+
+function Budgets({
+  shown,
+  category,
+  isDesktop,
+}: {
+  shown: PlanMonth;
+  category: string | null;
+  isDesktop: boolean;
+}) {
+  const { summary, failed, retry } = useMonthSummary(shown.month);
+  const { data: ledger } = useWholeLedger();
+  const [focusing, setFocusing] = useState<{ id: string } | null>(null);
+
+  if (summary == null || ledger == null) {
+    if (failed) {
+      return (
+        <div className={`${classes.card} ${classes.failed}`}>
+          <p className={classes.soft}>Couldn&apos;t load this month.</p>
+          <Button
+            variant="default"
+            onClick={retry}
+          >
+            Try again
+          </Button>
+        </div>
+      );
+    }
+    return (
+      <Loading
+        label="Loading this month"
+        className={classes.loading}
+      >
+        <Skeleton
+          width="100%"
+          height={isDesktop ? 360 : 220}
+        />
+        <Skeleton
+          width="100%"
+          height={isDesktop ? 96 : 320}
+        />
+      </Loading>
+    );
+  }
+  const categories = categoriesOrDefaults(ledger.categories);
+  const data: Month = {
+    summary,
+    categories,
+    ledger,
+    lines: budgetLines(summary, categories),
+    rows: rollUpEntries(summary.spentByCategory, categories),
+  };
+
+  const nothing = data.lines.length === 0 && summary.spentCents === 0;
+  if (!isDesktop || nothing) {
+    const cards = (
+      <>
+        <PhoneBudgets
+          data={data}
+          shown={shown}
+        />
+        <WhereItWent
+          data={data}
+          shown={shown}
+        />
+        <Income
+          data={data}
+          shown={shown}
+          isDesktop={false}
+          open={null}
+        />
+      </>
+    );
+    // A computer with nothing to list still opens what was asked for beside the cards
+    if (!isDesktop || category == null) return cards;
+    return (
+      <div className={classes.split}>
+        <div className={classes.mainColumn}>{cards}</div>
+        <Opened
+          key={category}
+          id={category}
+          shown={shown}
+          variant="pane"
+        />
+      </div>
+    );
+  }
+
+  const tableRows = deskRows(data);
+  const open = category ?? tableRows[0]?.id ?? null;
+  return (
+    <div className={classes.split}>
+      <div className={classes.mainColumn}>
+        <ExpensesTable
+          data={data}
+          rows={tableRows}
+          shown={shown}
+          open={open}
+          onOpen={(id, focus) => {
+            navigate(planAddress({ month: shown.isCurrent ? null : shown.month, category: id }), {
+              replace: true,
+            });
+            setFocusing(focus ? { id } : null);
+          }}
+        />
+        <Income
+          data={data}
+          shown={shown}
+          isDesktop
+          open={open}
+        />
+      </div>
+      {open != null && (
+        <Opened
+          // A fresh pane for each category, so what's typed in one never shows in another
+          key={open}
+          id={open}
+          shown={shown}
+          variant="pane"
+          focusBudget={focusing?.id === open ? focusing : null}
+        />
+      )}
+    </div>
+  );
+}
+
+/** A phone's budgets: each with what's left and a bar against the month; none says so */
+function PhoneBudgets({ data, shown }: { data: Month; shown: PlanMonth }) {
+  const titleId = useId();
+  if (data.lines.length === 0) {
+    // A month gone by can't be given a budget now
+    if (!shown.isCurrent) return null;
+    return (
+      <section
+        aria-label="Budgets"
+        className={`${classes.card} ${classes.empty}`}
+      >
+        <h2 className={classes.emptyTitle}>No budgets yet</h2>
+        <p className={classes.soft}>
+          A monthly amount per category, with a bar for what&apos;s left.
+        </p>
+        <PageLink
+          href="?settings=categories"
+          push
+          className={classes.primaryLink}
+        >
+          Set a budget
+        </PageLink>
+      </section>
+    );
+  }
+  return (
+    <section
+      aria-labelledby={titleId}
+      className={`${classes.card} ${classes.budgets}`}
+    >
+      <div className={classes.cardHead}>
+        <h2
+          id={titleId}
+          className={classes.cardTitle}
+        >
+          Budgets
+          {shown.isCurrent && (
+            <span className={classes.headNote}>
+              {' '}
+              Day {shown.at.day} of {shown.at.days}
+            </span>
+          )}
+        </h2>
+        {shown.isCurrent && (
+          <PageLink
+            href="?settings=categories"
+            push
+            className={classes.more}
+          >
+            <Plus
+              size={14}
+              aria-hidden
+            />
+            Budget
+          </PageLink>
+        )}
+      </div>
+      <ul className={classes.budgetList}>
+        {data.lines.map((line) => {
+          const words = budgetWords(line, shown.at, { short: false });
+          const tone =
+            words.pace === 'over' ? classes.neg : words.pace === 'faster' ? classes.due : '';
+          const carryOver = data.summary.budgets?.find((b) => b.categoryId === line.id)?.carryOver;
+          const carried =
+            line.carriedCents !== 0
+              ? `incl. ${line.carriedCents < 0 ? '−' : ''}${money(Math.abs(line.carriedCents))} carried over`
+              : carryOver
+                ? 'Carry over on'
+                : null;
+          return (
+            <li
+              key={line.id}
+              className={classes.budget}
+            >
+              <div className={classes.budgetHead}>
+                <span className={classes.budgetName}>{line.name}</span>
+                <span className={`${classes.num} ${tone}`}>
+                  {words.left.replace(/ (left|over)$/, '')}{' '}
+                  <span className={tone === '' ? classes.muted : ''}>
+                    {words.left.endsWith(' over') ? 'over' : 'left'}
+                  </span>
+                </span>
+              </div>
+              <BudgetBar
+                line={line}
+                shown={shown}
+              />
+              <div className={`${classes.budgetMeta} ${tone || classes.muted}`}>
+                <span className={classes.metaStart}>
+                  {words.pace === 'faster' && (
+                    <WarningCircle
+                      size={14}
+                      aria-hidden
+                    />
+                  )}
+                  {words.meta}
+                </span>
+                {carried != null && <span>{carried}</span>}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/** Where the month's spending went: its total, a share bar and a row for each category */
+function WhereItWent({ data, shown }: { data: Month; shown: PlanMonth }) {
+  const titleId = useId();
+  const total = data.summary.spentCents;
+  const name = monthHeading(shown.month, { short: true });
+  return (
+    <section
+      aria-labelledby={titleId}
+      className={`${classes.card} ${classes.went}`}
+    >
+      <div className={classes.wentHead}>
+        <div className={classes.cardHead}>
+          <h2
+            id={titleId}
+            className={classes.cardTitle}
+          >
+            Where it went
+          </h2>
+          <span className={`${classes.num} ${classes.headFigure}`}>{money(total)}</span>
+        </div>
+        {total === 0 ? (
+          <p
+            className={classes.soft}
+          >{`Nothing spent in ${name}${shown.isCurrent ? ' yet' : ''}.`}</p>
+        ) : (
+          <div
+            role="img"
+            aria-label={shareLabel(data.rows, total)}
+            className={classes.share}
+          >
+            {data.rows.map((row) => (
+              <span
+                key={row.id}
+                style={{
+                  // A share of the bar's width, for drawing only: the amounts stay in cents
+                  width: `${(row.cents * 100) / total}%`,
+                  background: categoryColour(data.categories, row.id),
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      {total > 0 && (
+        <ul className={classes.rows}>
+          {data.rows.map((row) => {
+            const known = data.categories.some((c) => c.id === row.id && c.parentId == null);
+            const content = (
+              <>
+                <span
+                  className={classes.dot}
+                  style={{ '--dot': categoryColour(data.categories, row.id) } as CSSProperties}
+                  aria-hidden
+                />
+                <span className={classes.rowMain}>
+                  <span className={classes.rowTitle}>{row.name}</span>
+                  <span className={classes.rowSub}>{phoneSubtitle(row, total)}</span>
+                </span>
+                <span className={`${classes.num} ${classes.rowAmount}`}>{amount(row.cents)}</span>
+              </>
+            );
+            return (
+              <li key={row.id}>
+                {known ? (
+                  <PageLink
+                    href={planAddress({
+                      month: shown.isCurrent ? null : shown.month,
+                      category: row.id,
+                    })}
+                    // A page of its own under Plan: Back returns
+                    push
+                    className={classes.row}
+                  >
+                    {content}
+                  </PageLink>
+                ) : (
+                  <div className={classes.row}>{content}</div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * What came in this month, and when the next pay is due; then what came in by category,
+ * largest first, each opening its own 12 months (a page on a phone, beside the table on a
+ * computer, where `open` is the one open)
+ */
+function Income({
+  data,
+  shown,
+  isDesktop,
+  open,
+}: {
+  data: Month;
+  shown: PlanMonth;
+  isDesktop: boolean;
+  open: string | null;
+}) {
+  const titleId = useId();
+  const rows = rollUpEntries(data.summary.incomeByCategory, data.categories);
+  const pay = nextPay(data.ledger);
+  const received = data.summary.incomeCents;
+  let line: ReactNode = null;
+  if (shown.isCurrent) {
+    line =
+      pay != null ? (
+        incomeLine({ name: recurringName(pay.recurring, data.categories), date: pay.due })
+      ) : (
+        <>
+          {received === 0 && 'Nothing in yet. '}
+          <PageLink
+            href="?plan=scheduled"
+            className={classes.inlineLink}
+          >
+            Schedule your pay
+          </PageLink>
+        </>
+      );
+  }
+  return (
+    <section
+      aria-labelledby={titleId}
+      className={`${classes.card} ${isDesktop ? classes.incomeDesk : classes.income}`}
+    >
+      <div className={classes.incomeText}>
+        <h2
+          id={titleId}
+          className={classes.cardTitle}
+        >
+          Income
+        </h2>
+        {isDesktop && line != null && <p className={classes.soft}>{line}</p>}
+      </div>
+      <span className={`${classes.num} ${classes.headFigure}`}>{money(received)}</span>
+      {!isDesktop && line != null && <p className={classes.soft}>{line}</p>}
+      {rows.length > 0 && (
+        <ul
+          aria-label="Income by category"
+          className={`${classes.rows} ${classes.incomeRows}`}
+        >
+          {rows.map((row) => {
+            const known = data.categories.some((c) => c.id === row.id && c.parentId == null);
+            const content = (
+              <>
+                <span
+                  className={classes.dot}
+                  style={{ '--dot': categoryColour(data.categories, row.id) } as CSSProperties}
+                  aria-hidden
+                />
+                <span className={classes.rowMain}>
+                  <span className={classes.rowTitle}>{row.name}</span>
+                  <span className={classes.rowSub}>{phoneSubtitle(row, received)}</span>
+                </span>
+                <span className={`${classes.num} ${classes.rowAmount}`}>{amount(row.cents)}</span>
+              </>
+            );
+            return (
+              <li key={row.id}>
+                {known ? (
+                  <PageLink
+                    href={planAddress({
+                      month: shown.isCurrent ? null : shown.month,
+                      category: row.id,
+                    })}
+                    // A page of its own on a phone, so Back returns; beside the table on a
+                    // computer, in this page's place
+                    push={!isDesktop}
+                    aria-current={isDesktop && row.id === open ? 'true' : undefined}
+                    className={classes.row}
+                  >
+                    {content}
+                  </PageLink>
+                ) : (
+                  <div className={classes.row}>{content}</div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** A row of the computer's table: a category with its spending, or with none this month */
+interface DeskRow {
+  id: string;
+  name: string;
+  spending: CategorySpending | null;
+  /** Whether a budget can be set on it: a listed top-level spending category */
+  budgetable: boolean;
+}
+
+/**
+ * Every category the month spent in, largest first, then the listed top-level spending
+ * categories with nothing in it, in their order
+ */
+function deskRows({ rows, categories }: Month): DeskRow[] {
+  const budgetable = (id: string) =>
+    categories.some(
+      (c) => c.id === id && c.parentId == null && c.kind === 'expense' && !c.archived,
+    );
+  const spent: DeskRow[] = rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    spending: row,
+    budgetable: budgetable(row.id),
+  }));
+  const rest = categories
+    .filter(
+      (c) =>
+        c.kind === 'expense' &&
+        c.parentId == null &&
+        !c.archived &&
+        !rows.some((r) => r.id === c.id),
+    )
+    .sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : 1))
+    .map((c) => ({ id: c.id, name: c.name, spending: null, budgetable: true }));
+  return [...spent, ...rest];
+}
+
+/** The computer's table of every spending category, with its budget and what's left */
+function ExpensesTable({
+  data,
+  rows,
+  shown,
+  open,
+  onOpen,
+}: {
+  data: Month;
+  rows: DeskRow[];
+  shown: PlanMonth;
+  open: string | null;
+  onOpen: (id: string, focusBudget: boolean) => void;
+}) {
+  const titleId = useId();
+  return (
+    <section
+      aria-labelledby={titleId}
+      className={`${classes.card} ${classes.tableCard}`}
+    >
+      <div className={classes.tableHead}>
+        <h2
+          id={titleId}
+          className={classes.cardTitle}
+        >
+          Expenses by category
+        </h2>
+        <span className={classes.tableHeadEnd}>
+          <span className={`${classes.num} ${classes.soft}`}>
+            {money(data.summary.spentCents)} spent
+          </span>
+          <PageLink
+            href="?settings=categories"
+            push
+            className={classes.more}
+          >
+            Edit categories
+          </PageLink>
+        </span>
+      </div>
+      <table
+        aria-label="Expenses by category"
+        className={classes.table}
+      >
+        <thead>
+          <tr>
+            <th scope="col">Category</th>
+            <th
+              scope="col"
+              className={classes.end}
+            >
+              Spent
+            </th>
+            <th scope="col">Budget, with today marked</th>
+            <th
+              scope="col"
+              className={classes.end}
+            >
+              Left
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const line = data.lines.find((l) => l.id === row.id);
+            const carriesOver =
+              line != null &&
+              (data.summary.budgets?.find((b) => b.categoryId === row.id)?.carryOver ?? false);
+            const words = line == null ? null : budgetWords(line, shown.at, { short: true });
+            const tone =
+              words?.pace === 'over' ? classes.neg : words?.pace === 'faster' ? classes.due : '';
+            return (
+              <tr
+                key={row.id}
+                data-open={row.id === open || undefined}
+              >
+                <td>
+                  <button
+                    type="button"
+                    className={classes.rowButton}
+                    aria-current={row.id === open ? 'true' : undefined}
+                    onClick={() => onOpen(row.id, false)}
+                  >
+                    <span
+                      className={classes.dot}
+                      style={{ '--dot': categoryColour(data.categories, row.id) } as CSSProperties}
+                      aria-hidden
+                    />
+                    {row.name}
+                  </button>
+                  <span className={classes.rowSubDesk}>
+                    {deskSubtitle(row.spending, {
+                      carriesOver,
+                      month: shown.month,
+                      isCurrent: shown.isCurrent,
+                    })}
+                  </span>
+                </td>
+                <td className={`${classes.end} ${classes.num}`}>
+                  {amount(row.spending?.cents ?? 0)}
+                </td>
+                <td className={classes.barCell}>
+                  {line != null ? (
+                    <BudgetBar
+                      line={line}
+                      shown={shown}
+                    />
+                  ) : (
+                    shown.isCurrent &&
+                    row.budgetable && (
+                      <button
+                        type="button"
+                        className={classes.setBudget}
+                        onClick={() => onOpen(row.id, true)}
+                      >
+                        Set a budget
+                      </button>
+                    )
+                  )}
+                </td>
+                <td className={`${classes.end} ${classes.num}`}>
+                  {words != null && <span className={tone}>{words.left}</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
   );
 }

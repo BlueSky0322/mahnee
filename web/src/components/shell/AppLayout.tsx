@@ -19,10 +19,11 @@ import UpdateNotice from './UpdateNotice';
 // out, and a new version to reload into. Home, Activity, Plan, Accounts and an account's
 // page have the places: a tab bar under phones' and tablets' pages, a sidebar beside a
 // computer's. Settings and Import cover them, and so does the first run, before there's an
-// account. Add (New entry, or N) opens a new entry, on the account whose page is open; it
-// can't be used while every account is archived. How fresh the figures are shows in the
-// sidebar, and on a phone's or tablet's pages other than Home (which has its own) whenever
-// it isn't "Up to date", so changes waiting are never out of sight.
+// account, and a category's own page under Plan on a phone or tablet. Add (New entry, or N)
+// opens a new entry, on the account whose page is open; it can't be used while every
+// account is archived. How fresh the figures are shows in the sidebar, and on a phone's or
+// tablet's pages other than Home (which has its own) whenever it isn't "Up to date", so
+// changes waiting are never out of sight.
 export default function AppLayout({ route, children }: { route: Route; children: ReactNode }) {
   const isDesktop = useIsDesktop();
   const { accounts, failed } = useAccounts();
@@ -47,9 +48,13 @@ export default function AppLayout({ route, children }: { route: Route; children:
   // The keys work from the start, but for the first run, which has nowhere to go
   useShortcuts({ 'n': add, '/': focusSearch }, place != null && accounts?.length !== 0);
 
-  // A phone or tablet selecting on Activity has its own bar at the foot instead
-  const selecting = route.view === 'activity' && route.select && !isDesktop;
-  const shell = !shown ? undefined : isDesktop ? 'sidebar' : selecting ? undefined : 'tabs';
+  // A phone or tablet selecting on Activity has its own bar at the foot instead, and a
+  // category over 12 months is a page of its own under Plan, with Back to it
+  const ownPage =
+    !isDesktop &&
+    ((route.view === 'activity' && route.select) ||
+      (route.view === 'plan' && route.half === 'budgets' && route.category != null));
+  const shell = !shown ? undefined : isDesktop ? 'sidebar' : ownPage ? undefined : 'tabs';
   // Home's open month, this one elsewhere
   const month = (route.view === 'home' ? route.month : null) ?? thisMonth();
   return (

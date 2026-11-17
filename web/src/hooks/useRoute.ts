@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isRowId } from '@shared/api';
 import { isMonth } from '@shared/ledger';
 import { LAST_PAGE_KEY } from '../offline/cache';
 import { thisMonth } from '../utils/date-input';
@@ -25,7 +26,17 @@ export type Route =
    * select: a phone opens selecting, with no tab bar
    */
   | { view: 'activity'; query: string; select: boolean }
-  | { view: 'plan'; month: string | null }
+  /**
+   * half: Budgets (?plan) or Scheduled (?plan=scheduled); category: the one open
+   * (?plan&category=<id>), a page of its own on phones and tablets, beside the table on a
+   * computer
+   */
+  | {
+      view: 'plan';
+      month: string | null;
+      half: 'budgets' | 'scheduled';
+      category: string | null;
+    }
   | { view: 'accounts' }
   | { view: 'account'; id: string }
   /** section: null for the index, and for a section that has no page yet */
@@ -91,12 +102,34 @@ function readRoute(): Route {
   if (params.has('activity')) {
     return { view: 'activity', query: params.toString(), select: params.has('select') };
   }
-  if (params.has('plan')) return { view: 'plan', month: readMonth(params) };
+  if (params.has('plan')) {
+    return {
+      view: 'plan',
+      month: readMonth(params),
+      half: params.get('plan') === 'scheduled' ? 'scheduled' : 'budgets',
+      category: readCategory(params.get('category')),
+    };
+  }
   if (params.has('accounts')) return { view: 'accounts' };
   const account = params.get('account');
   if (account) return { view: 'account', id: account };
   return { view: 'home', month: readMonth(params) };
 }
+
+/**
+ * What ?plan&category= names in place of a category for every expense, or all income, over
+ * 12 months (Home's "Expenses so far" and "Income" open them). A category's id is 16
+ * hexadecimal digits, so neither can be one.
+ */
+export const ALL_EXPENSES = 'expenses';
+export const ALL_INCOME = 'income';
+
+export const isAll = (category: string): category is typeof ALL_EXPENSES | typeof ALL_INCOME =>
+  category === ALL_EXPENSES || category === ALL_INCOME;
+
+/** The category an address opens: all of them, or one by its id; any other text opens none */
+const readCategory = (category: string | null) =>
+  category != null && (isAll(category) || isRowId(category)) ? category : null;
 
 const ROUTE_CHANGE = 'routechange';
 const SESSION_KEY = 'mahnee:session';

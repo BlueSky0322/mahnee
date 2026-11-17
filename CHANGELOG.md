@@ -12,6 +12,11 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-17
+
+- Changed: Plan shows budgets against the month, where the money went and income by category, each over 12 months, with budgets set in place on a computer; Home's Expenses so far and Income open all of either over 12 months [#?]
+- Removed: Left this month and Over this month; Home's month end takes their place [#?]
+
 ## 2026-11-16
 
 - Changed: Home is at a glance: the month end with its sum, spent and received, Tidy up, Coming up, a day-by-day calendar, budgets against the month, and a first run [#35]

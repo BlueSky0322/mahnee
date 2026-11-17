@@ -76,14 +76,17 @@ async function openImportAndExport() {
   return user;
 }
 
-/** Out of Settings, from Import and export (where an import goes back to), on to Plan's list */
-async function settingsToPlan() {
+/** Out of Settings, from Import and export (where an import goes back to), on to Accounts */
+async function settingsToAccounts() {
   const user = userEvent.setup();
   await user.click(await screen.findByRole('button', { name: 'Settings' }));
   await user.click(await screen.findByRole('button', { name: /^(Home|Close settings)$/ }));
-  // Today's list of balances is on Plan until it's rebuilt
-  await goToPlace('Plan');
+  await goToPlace('Accounts');
 }
+
+/** Maybank's row on Accounts, read out with its balance, which a list shows without RM */
+const maybankShows = (balance: string) =>
+  screen.findByRole('link', { name: `Maybank, Bank, ${balance}` });
 
 /** The Import page, from Settings › Import and export */
 async function openImport() {
@@ -497,10 +500,10 @@ describe('the limit', () => {
       timeout: 10_000,
     });
     expect(server.transactions).toHaveLength(5_000);
-    // And Plan's list still says so
+    // And Accounts still says so
     await user.keyboard('{Escape}');
-    await settingsToPlan();
-    expect((await screen.findAllByText('−RM 4,000.00')).length).toBeGreaterThan(0);
+    await settingsToAccounts();
+    expect(await maybankShows('−4,000.00')).toBeTruthy();
   }, 90_000);
 
   test('imports offline, knows what it has imported, and saves it once back', async () => {
@@ -721,9 +724,9 @@ describe("Mahnee's own export", () => {
       await user.click(screen.getByRole('button', { name: 'Import 1 transaction' }));
       await waitFor(() => expect(server.transactions).toHaveLength(1));
       expect(server.accounts.find((a) => a.id === MAYBANK)?.openingCents).toBe(100_000);
-      // The import goes back to Import and export; Plan's list shows the balance
-      await settingsToPlan();
-      expect(await screen.findByText('RM 992.00')).toBeTruthy();
+      // The import goes back to Import and export; Accounts shows the balance
+      await settingsToAccounts();
+      expect(await maybankShows('992.00')).toBeTruthy();
 
       // Ticked, it's applied, once
       await openImport();
@@ -735,8 +738,8 @@ describe("Mahnee's own export", () => {
         expect(server.accounts.find((a) => a.id === MAYBANK)?.openingCents).toBe(150_000),
       );
       expect(server.transactions).toHaveLength(1);
-      await settingsToPlan();
-      expect(await screen.findByText('RM 1,492.00')).toBeTruthy();
+      await settingsToAccounts();
+      expect(await maybankShows('1,492.00')).toBeTruthy();
 
       // Now the same: nothing to say about it
       await openImport();

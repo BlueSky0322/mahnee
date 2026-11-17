@@ -47,7 +47,13 @@ function App() {
     <AppLayout route={route}>
       {route.view === 'home' && <HomePage month={route.month} />}
       {route.view === 'activity' && <ActivityPage query={route.query} />}
-      {route.view === 'plan' && <PlanPage month={route.month} />}
+      {route.view === 'plan' && (
+        <PlanPage
+          month={route.month}
+          half={route.half}
+          category={route.category}
+        />
+      )}
       {(route.view === 'accounts' || route.view === 'account') && (
         <AccountsPage id={route.view === 'account' ? route.id : null} />
       )}

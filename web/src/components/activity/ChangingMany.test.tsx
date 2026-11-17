@@ -15,7 +15,6 @@ import {
   setupAppTests,
 } from '../../testing/app';
 import { queryClient } from '../../query-client';
-import { monthHeading } from '../../utils/date-input';
 
 // Changing many entries at once on Activity (R-Activity-Select, R-Activity-Move,
 // R-Desk-Activity, R-Desk-Bulk). On a phone, Select (or a long press) ticks rows, with
@@ -453,18 +452,15 @@ describe('deleting several', () => {
     await waitFor(() => expect(server.transactions).toHaveLength(3));
     const resend = holdNext(server, 'POST', '/api/changes');
 
-    // The balances and the month's card are both on Plan for now
-    await goToPlace('Plan');
-    const walletBalance = () =>
-      screen
-        .queryByRole('button', { name: /^Wallet,/ })
-        ?.getAttribute('aria-label')
-        ?.split(', ')
-        .at(-1) ?? null;
-    const spent = () => {
-      const card = screen.queryByRole('region', { name: monthHeading('2026-11') });
-      return card == null ? null : within(card).queryByLabelText('Spent')?.textContent ?? null;
-    };
+    // Home has both: its month end is the Wallet's balance with nothing scheduled, beside
+    // the month's spending so far
+    await goToPlace('Home');
+    const figure = (name: RegExp) =>
+      new RegExp(`^${name.source}\\s*(−?RM [\\d,.]+)`).exec(
+        screen.queryByRole('link', { name })?.textContent ?? '',
+      )?.[1] ?? null;
+    const walletBalance = () => figure(/Expected at month end/);
+    const spent = () => figure(/Expenses so far/);
     // RM 80 + RM 5 back, RM 17 - RM 5 spent: counted once, though the server has it
     await waitFor(() => expect(walletBalance()).toBe('RM 85.00'));
     await waitFor(() => expect(spent()).toBe('RM 12.00'));

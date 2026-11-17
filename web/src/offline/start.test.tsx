@@ -139,8 +139,8 @@ describe('starting with the server out of reach', () => {
       archived: false,
     });
     // Seen once with a connection, so this device keeps the profile and the numbers
-    renderApp(server, '/?plan');
-    await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ });
+    renderApp(server, '/?accounts');
+    await screen.findByRole('link', { name: /^Wallet, Cash, 100\.00$/ });
     await wait(100);
     expect(await screen.findByText('Up to date')).toBeTruthy();
     expect(screen.queryByText(/^From this device/)).toBeNull();
@@ -148,14 +148,12 @@ describe('starting with the server out of reach', () => {
     server.health = 'down';
     const done = openedFromDevice();
     try {
-      await reloadApp(server, '/?plan');
+      await reloadApp(server, '/?accounts');
       const settings = await screen.findByRole('link', {
         name: 'Settings: you, categories, import and export',
       });
       expect(within(settings).getByText(RYAN)).toBeTruthy();
-      expect(
-        await screen.findByRole('button', { name: /^Wallet, Cash, RM 100\.00$/ }),
-      ).toBeTruthy();
+      expect(await screen.findByRole('link', { name: /^Wallet, Cash, 100\.00$/ })).toBeTruthy();
       expect(await screen.findByText(/^From this device, .* old$/)).toBeTruthy();
       expect(screen.queryByText('Up to date')).toBeNull();
     } finally {
@@ -293,7 +291,7 @@ describe('starting once Access asks to sign in again', () => {
     const done = openedSignedOut();
     const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     try {
-      renderApp(server, '/?plan');
+      renderApp(server, '/?accounts');
       expect(await screen.findByText(RYAN)).toBeTruthy();
       expect(await screen.findByText(OFFLINE_NOTICE.desktop)).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();

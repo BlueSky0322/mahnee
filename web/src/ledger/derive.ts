@@ -62,3 +62,50 @@ export function rollUp(
   for (const top of rolled) top.subcategories.sort(largestFirst);
   return rolled.sort(largestFirst);
 }
+
+/** A subcategory's share, with how many entries make it */
+export interface SubcategorySpending extends SubcategoryTotal {
+  entries: number;
+}
+
+/** A top-level category's total as Plan lists it: how many entries make it, and who */
+export interface CategorySpending extends Omit<CategoryRollUp, 'subcategories'> {
+  /** Every entry filed under it, its subcategories' included */
+  entries: number;
+  /** Who was paid, when it is one entry in all and that entry names one; else null */
+  payee: string | null;
+  subcategories: SubcategorySpending[];
+}
+
+/**
+ * rollUp, with each category's and subcategory's entries counted in, and the payee kept
+ * only when the category and its subcategories hold a single entry in all
+ */
+export function rollUpEntries(
+  totals: readonly Pick<CategoryTotal, 'categoryId' | 'cents' | 'entries' | 'payee'>[],
+  categories: readonly Category[],
+): CategorySpending[] {
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const topOf = (categoryId: string) => {
+    const category = byId.get(categoryId);
+    const parent = category?.parentId == null ? null : byId.get(category.parentId);
+    return (parent ?? category)?.id ?? categoryId;
+  };
+  const counts = new Map<string, { entries: number; payee: string | null }>();
+  for (const { categoryId, entries, payee } of totals) {
+    const topId = topOf(categoryId);
+    const was = counts.get(topId);
+    const all = (was?.entries ?? 0) + entries;
+    counts.set(topId, { entries: all, payee: all === 1 ? payee ?? null : null });
+  }
+  const subEntries = new Map(totals.map((t) => [t.categoryId, t.entries]));
+  return rollUp(totals, categories).map((top) => ({
+    ...top,
+    entries: counts.get(top.id)?.entries ?? 0,
+    payee: counts.get(top.id)?.payee ?? null,
+    subcategories: top.subcategories.map((sub) => ({
+      ...sub,
+      entries: subEntries.get(sub.id) ?? 0,
+    })),
+  }));
+}

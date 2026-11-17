@@ -17,13 +17,14 @@ import {
 } from '../../testing/app';
 import { outboxKey } from '../../offline/outbox';
 import { queryClient } from '../../query-client';
-import { addMonths, monthHeading, thisMonth } from '../../utils/date-input';
+import { addMonths, thisMonth } from '../../utils/date-input';
 
 // Budgets (B1, B2): an optional monthly amount on a top-level spending category, its
 // subcategories counting toward it, set from the category's row on the Categories page.
-// The month card shows each as "RM 120.00 left of RM 300.00", or "RM 40.00 over" in words
-// and colour; the same amount every month until changed. With Carry over on, last month's
-// leftover is added (or its overspending taken away), "incl. RM 30.00 carried over".
+// Plan shows each: on a phone "RM 120.00 left" and "RM 180.00 of RM 300.00", or "RM 40.00
+// over" in words and colour; on a computer, its row's Left column and its bar's name. The
+// same amount every month until changed. With Carry over on, last month's leftover is added
+// (or its overspending taken away), "incl. RM 30.00 carried over".
 
 setupAppTests();
 
@@ -98,16 +99,92 @@ function spend(server: FakeServer, amountCents: number, categoryId: string, date
   server.transactions.push(t);
 }
 
-/** The month card showing `month` */
-const monthCard = async (month: string) =>
-  within(await screen.findByRole('region', { name: monthHeading(month) }));
+type Size = (typeof SIZES)[number];
 
-/** Each budget row on the card, as its text reads */
-const budgetRows = async (month = NOW) => {
-  const card = await monthCard(month);
-  return within(await card.findByRole('list', { name: 'Budgets' }))
+/** What an element says, each piece of text on its own separated by a space */
+function text(el: HTMLElement) {
+  const parts: string[] = [];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node != null; node = walker.nextNode()) {
+    const words = node.textContent?.replace(/\s+/g, ' ').trim();
+    if (words) parts.push(words);
+  }
+  return parts.join(' ');
+}
+
+/**
+ * Plan's figures for a category's budget, as a person reads them, or null while it has
+ * none. On a phone or tablet its line: what's left (or over), what's spent of what's
+ * available, and what carried over ("RM 150.00 left · RM 180.00 of RM 330.00 · incl. RM
+ * 30.00 carried over"). On a computer its row: the Left column and the bar's name, which
+ * says how much is spent ("120.00 · Food: 60% spent").
+ */
+function planBudget(size: Size, name: string): string | null {
+  if (size === 'desktop') {
+    const table = screen.queryByRole('table', { name: 'Expenses by category' });
+    const row =
+      table == null
+        ? undefined
+        : within(table)
+            .queryAllByRole('row')
+            .find((tr) => text(tr).startsWith(`${name} `));
+    const meter = row == null ? null : within(row).queryByRole('meter');
+    if (row == null || meter == null) return null;
+    const cells = within(row).getAllByRole('cell');
+    return `${text(cells[cells.length - 1])} · ${meter.getAttribute('aria-label')}`;
+  }
+  const region = screen.queryByRole('region', { name: /^Budgets/ });
+  const line =
+    region == null
+      ? undefined
+      : within(region)
+          .queryAllByRole('listitem')
+          .find((li) => text(li).startsWith(`${name} `));
+  if (line == null) return null;
+  const said = text(line);
+  return [
+    /RM [\d,.]+ (left|over)/.exec(said)?.[0],
+    /RM [\d,.]+ of −?RM [\d,.]+/.exec(said)?.[0],
+    /incl\. −?RM [\d,.]+ carried over/.exec(said)?.[0],
+  ]
+    .filter((part) => part != null)
+    .join(' · ');
+}
+
+/** Waits for Plan to show `want` for a category's budget: the phone's, or the computer's */
+const showsBudget = (size: Size, name: string, want: { phone: string; desktop: string }) =>
+  waitFor(() =>
+    expect(planBudget(size, name)).toBe(size === 'desktop' ? want.desktop : want.phone),
+  );
+
+/** What's left of a budget, as drawn: "RM 40.00 over" on a phone, "40.00 over" on a computer */
+function leftShown(size: Size, name: string) {
+  if (size === 'desktop') {
+    const row = within(screen.getByRole('table', { name: 'Expenses by category' }))
+      .getAllByRole('row')
+      .find((tr) => text(tr).startsWith(`${name} `))!;
+    const cells = within(row).getAllByRole('cell');
+    return within(cells[cells.length - 1]).getByText(/^[\d,.]+( over)?$/);
+  }
+  const region = screen.getByRole('region', { name: /^Budgets/ });
+  const line = within(region)
     .getAllByRole('listitem')
-    .map((li) => li.textContent ?? '');
+    .find((li) => text(li).startsWith(`${name} `))!;
+  // The figure and its word are drawn as one, the word in a span of its own
+  return [...line.querySelectorAll('span')].find((span) =>
+    /^RM [\d,.]+ (left|over)$/.test(span.textContent ?? ''),
+  )!;
+}
+
+/** Plan's spending this month, once shown: "Where it went", or the table's "spent" */
+const spentShown = async (size: Size, figure: string) => {
+  // A computer with no budgets and nothing spent shows Where it went, as a phone does
+  if (size === 'desktop' && figure !== 'RM 0.00') {
+    expect(await screen.findByText(`${figure} spent`)).toBeTruthy();
+    return;
+  }
+  const went = await screen.findByRole('region', { name: /^Where it went/ });
+  await waitFor(() => expect(text(went)).toMatch(new RegExp(`^Where it went ${figure}`)));
 };
 
 /** Offline, as the browser says; answers how to be back */
@@ -131,7 +208,7 @@ async function editCategory(name: string) {
   return within(await screen.findByRole('dialog'));
 }
 
-describe('budgets on the month card', () => {
+describe('budgets on Plan', () => {
   test.each(SIZES)("show what's left of each, in the categories' order (%s)", async (size) => {
     const server = withBudgets(budget(FUN, 10_000), budget(FOOD, 30_000), budget(TRANSPORT, 1_000));
     // RM 150 on Food and RM 30 on Coffee, which counts toward Food
@@ -140,27 +217,40 @@ describe('budgets on the month card', () => {
     spend(server, 5_000, TRANSPORT);
     renderApp(server, '/?plan', { size });
 
-    const card = await monthCard(NOW);
-    expect(await card.findByText('RM 120.00 left of RM 300.00')).toBeTruthy();
-    const rows = await budgetRows();
-    expect(rows).toHaveLength(3);
-    expect(rows[0]).toMatch(/^Food.*RM 120\.00 left of RM 300\.00/);
-    expect(rows[1]).toMatch(/^Transport.*RM 40\.00 over/);
+    await showsBudget(size, 'Food', {
+      phone: 'RM 120.00 left · RM 180.00 of RM 300.00',
+      desktop: '120.00 · Food: 60% spent',
+    });
+    await showsBudget(size, 'Transport', {
+      phone: 'RM 40.00 over · RM 50.00 of RM 10.00',
+      desktop: '40.00 over · Transport: 500% spent',
+    });
     // Nothing spent yet: all of it left
-    expect(rows[2]).toMatch(/^Fun.*RM 100\.00 left of RM 100\.00/);
+    await showsBudget(size, 'Fun', {
+      phone: 'RM 100.00 left · RM 0.00 of RM 100.00',
+      desktop: '100.00 · Fun: 0% spent',
+    });
+    if (size !== 'desktop') {
+      // In the categories' order
+      const region = screen.getByRole('region', { name: /^Budgets/ });
+      expect(
+        within(region)
+          .getAllByRole('listitem')
+          .map((li) => text(li).split(' ')[0]),
+      ).toEqual(['Food', 'Transport', 'Fun']);
+    }
     // Over, in words and in the negative colour
-    expect(card.getByText('RM 40.00 over').className).toMatch(/negative/);
-    expect(card.getByText('RM 120.00 left of RM 300.00').className).not.toMatch(/negative/);
+    expect(leftShown(size, 'Transport').className).toMatch(/neg/);
+    expect(leftShown(size, 'Food').className).not.toMatch(/neg/);
   });
 
   test.each(SIZES)('are not shown for a month without any (%s)', async (size) => {
     const server = withBudgets();
     spend(server, 15_000, FOOD);
     renderApp(server, '/?plan', { size });
-    const card = await monthCard(NOW);
-    await waitFor(() => expect(card.getByLabelText('Spent').textContent).toBe('RM 150.00'));
-    expect(card.queryByRole('list', { name: 'Budgets' })).toBeNull();
-    expect(card.queryByText(/ left of /)).toBeNull();
+    await spentShown(size, 'RM 150.00');
+    expect(screen.queryAllByRole('meter')).toEqual([]);
+    expect(screen.queryByText(/ left$/)).toBeNull();
   });
 
   test.each(SIZES)(
@@ -180,13 +270,19 @@ describe('budgets on the month card', () => {
       spend(server, 18_000, FOOD);
       renderApp(server, '/?plan', { size });
 
-      const card = await monthCard(NOW);
-      expect(await card.findByText('RM 150.00 left of RM 330.00')).toBeTruthy();
-      expect(card.getByText('incl. RM 30.00 carried over')).toBeTruthy();
-      expect(card.getByText('RM 80.00 left of RM 80.00')).toBeTruthy();
-      expect(card.getByText('incl. −RM 20.00 carried over')).toBeTruthy();
-      expect(card.getByText('RM 100.00 left of RM 100.00')).toBeTruthy();
-      expect(card.getAllByText(/carried over/)).toHaveLength(2);
+      await showsBudget(size, 'Food', {
+        phone: 'RM 150.00 left · RM 180.00 of RM 330.00 · incl. RM 30.00 carried over',
+        desktop: '150.00 · Food: 55% spent',
+      });
+      await showsBudget(size, 'Transport', {
+        phone: 'RM 80.00 left · RM 0.00 of RM 80.00 · incl. −RM 20.00 carried over',
+        desktop: '80.00 · Transport: 0% spent',
+      });
+      await showsBudget(size, 'Fun', {
+        phone: 'RM 100.00 left · RM 0.00 of RM 100.00',
+        desktop: '100.00 · Fun: 0% spent',
+      });
+      if (size !== 'desktop') expect(screen.getAllByText(/carried over/)).toHaveLength(2);
     },
   );
 
@@ -199,11 +295,16 @@ describe('budgets on the month card', () => {
       );
       renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
-      expect(await (await monthCard(NOW)).findByText('RM 300.00 left of RM 300.00')).toBeTruthy();
+      await showsBudget(size, 'Food', {
+        phone: 'RM 300.00 left · RM 0.00 of RM 300.00',
+        desktop: '300.00 · Food: 0% spent',
+      });
       await user.click(screen.getByRole('button', { name: 'Previous month' }));
-      expect(
-        await (await monthCard(BEFORE)).findByText('RM 200.00 left of RM 200.00'),
-      ).toBeTruthy();
+      await waitFor(() => expect(window.location.search).toBe(`?plan&month=${BEFORE}`));
+      await showsBudget(size, 'Food', {
+        phone: 'RM 200.00 left · RM 0.00 of RM 200.00',
+        desktop: '200.00 · Food: 0% spent',
+      });
     },
   );
 
@@ -212,10 +313,12 @@ describe('budgets on the month card', () => {
     spend(server, 15_000, FOOD);
     spend(server, 3_000, COFFEE);
     renderApp(server, '/?plan', { size });
-    const card = await monthCard(NOW);
-    const left = await card.findByText('RM 0.00 left of RM 180.00');
-    expect(left.className).not.toMatch(/negative/);
-    expect(card.queryByText(/ over$/)).toBeNull();
+    await showsBudget(size, 'Food', {
+      phone: 'RM 0.00 left · RM 180.00 of RM 180.00',
+      desktop: '0.00 · Food: 100% spent',
+    });
+    expect(leftShown(size, 'Food').className).not.toMatch(/neg/);
+    expect(screen.queryByText(/\d over$/)).toBeNull();
   });
 
   test.each(SIZES)(
@@ -226,16 +329,17 @@ describe('budgets on the month card', () => {
       spend(server, 12_000, TRANSPORT, `${BEFORE}-10`);
       spend(server, 9_000, TRANSPORT);
       renderApp(server, '/?plan', { size });
-      const card = await monthCard(NOW);
-      const over = await card.findByText('RM 10.00 over');
-      expect(over.className).toMatch(/negative/);
-      expect(card.getByText('incl. −RM 20.00 carried over')).toBeTruthy();
+      await showsBudget(size, 'Transport', {
+        phone: 'RM 10.00 over · RM 90.00 of RM 80.00 · incl. −RM 20.00 carried over',
+        desktop: '10.00 over · Transport: 113% spent',
+      });
+      expect(leftShown(size, 'Transport').className).toMatch(/neg/);
     },
   );
 });
 
-/** From Categories up to Settings, out of Settings to Home, then to Plan, which has the card */
-async function categoriesToHome() {
+/** Out of Settings from Categories, then to Plan, which has budgets */
+async function categoriesToPlan() {
   const user = userEvent.setup();
   // A computer's Settings closes at once; a phone goes up to Settings, then Home
   const close = screen.queryByRole('button', { name: 'Close settings' });
@@ -244,7 +348,7 @@ async function categoriesToHome() {
     await user.click(screen.getByRole('button', { name: 'Settings' }));
     await user.click(await screen.findByRole('button', { name: 'Home' }));
   }
-  // The month card is on Plan
+  // Budgets are on Plan
   await goToPlace('Plan');
 }
 
@@ -271,8 +375,11 @@ describe("setting a budget from the category's row", () => {
       await waitFor(() =>
         expect(budgetsOf(server)).toEqual([budget(FOOD, 30_000, { fromMonth: NOW })]),
       );
-      await categoriesToHome();
-      expect(await (await monthCard(NOW)).findByText('RM 120.00 left of RM 300.00')).toBeTruthy();
+      await categoriesToPlan();
+      await showsBudget(size, 'Food', {
+        phone: 'RM 120.00 left · RM 180.00 of RM 300.00',
+        desktop: '120.00 · Food: 60% spent',
+      });
     },
   );
 
@@ -324,13 +431,17 @@ describe("setting a budget from the category's row", () => {
           budget(FOOD, 30_000, { carryOver: true }),
         ]),
       );
-      await categoriesToHome();
+      await categoriesToPlan();
       // RM 300 and last month's RM 30 left over, less RM 180
-      const card = await monthCard(NOW);
-      expect(await card.findByText('RM 150.00 left of RM 330.00')).toBeTruthy();
-      expect(card.getByText('incl. RM 30.00 carried over')).toBeTruthy();
+      await showsBudget(size, 'Food', {
+        phone: 'RM 150.00 left · RM 180.00 of RM 330.00 · incl. RM 30.00 carried over',
+        desktop: '150.00 · Food: 55% spent',
+      });
       await user.click(screen.getByRole('button', { name: 'Previous month' }));
-      expect(await (await monthCard(BEFORE)).findByText('RM 30.00 left of RM 200.00')).toBeTruthy();
+      await showsBudget(size, 'Food', {
+        phone: 'RM 30.00 left · RM 170.00 of RM 200.00',
+        desktop: '30.00 · Food: 85% spent',
+      });
     },
   );
 
@@ -379,10 +490,9 @@ describe("setting a budget from the category's row", () => {
       expect(await screen.findByText('Fun is archived')).toBeTruthy();
       await waitFor(() => expect(spending.queryByText('RM 100 a month')).toBeNull());
       expect(budgetsOf(server)).toEqual([]);
-      await categoriesToHome();
-      const card = await monthCard(NOW);
-      await waitFor(() => expect(card.getByLabelText('Spent')).toBeTruthy());
-      expect(card.queryByRole('list', { name: 'Budgets' })).toBeNull();
+      await categoriesToPlan();
+      await spentShown(size, 'RM 0.00');
+      expect(screen.queryAllByRole('meter')).toEqual([]);
     },
   );
 
@@ -443,10 +553,9 @@ describe("setting a budget from the category's row", () => {
     await waitFor(() =>
       expect(budgetsOf(server)).toEqual([budget(FOOD, null, { fromMonth: NOW })]),
     );
-    await categoriesToHome();
-    const card = await monthCard(NOW);
-    await waitFor(() => expect(card.getByLabelText('Spent')).toBeTruthy());
-    expect(card.queryByRole('list', { name: 'Budgets' })).toBeNull();
+    await categoriesToPlan();
+    await spentShown(size, 'RM 0.00');
+    expect(screen.queryAllByRole('meter')).toEqual([]);
   });
 
   test.each(SIZES)(
@@ -456,8 +565,7 @@ describe("setting a budget from the category's row", () => {
       spend(server, 18_000, FOOD);
       renderApp(server, '/?plan', { size });
       const user = userEvent.setup();
-      const card = await monthCard(NOW);
-      await waitFor(() => expect(card.getByLabelText('Spent').textContent).toBe('RM 180.00'));
+      await spentShown(size, 'RM 180.00');
       await openSettings();
       await user.click(screen.getByRole('link', { name: /^Categories( |$)/ }));
 
@@ -465,29 +573,31 @@ describe("setting a budget from the category's row", () => {
       const form = await editCategory('Food');
       await user.type(form.getByLabelText('Monthly budget'), '300');
       await user.click(form.getByRole('button', { name: 'Save' }));
-      await categoriesToHome();
-      expect(await (await monthCard(NOW)).findByText('RM 120.00 left of RM 300.00')).toBeTruthy();
+      await categoriesToPlan();
+      const set = {
+        phone: 'RM 120.00 left · RM 180.00 of RM 300.00',
+        desktop: '120.00 · Food: 60% spent',
+      };
+      await showsBudget(size, 'Food', set);
       expect(budgetsOf(server)).toEqual([]);
 
       back();
       await waitFor(() => expect(budgetsOf(server)).toEqual([budget(FOOD, 30_000)]), {
         timeout: 8000,
       });
-      expect((await monthCard(NOW)).getByText('RM 120.00 left of RM 300.00')).toBeTruthy();
+      expect(planBudget(size, 'Food')).toBe(set[size]);
     },
     15_000,
   );
 });
 
 describe("what's left is never counted twice", () => {
-  /** Every "left of" or "over" figure the card shows from now on, at any moment */
-  function watchLeft() {
+  /** Every figure Plan shows for Food's budget from now on, at any moment */
+  function watchLeft(size: Size) {
     const seen = new Set<string>();
     const note = () => {
-      for (const el of document.querySelectorAll('li')) {
-        const found = /RM [\d,.]+ (left of RM [\d,.]+|over)/.exec(el.textContent ?? '');
-        if (found != null) seen.add(found[0]);
-      }
+      const found = planBudget(size, 'Food');
+      if (found != null) seen.add(found);
     };
     const observer = new MutationObserver(note);
     observer.observe(document.body, {
@@ -512,8 +622,16 @@ describe("what's left is never counted twice", () => {
       const server = withBudgets(budget(FOOD, 30_000));
       spend(server, 10_000, FOOD);
       renderApp(server, '/?plan', { size });
-      expect(await (await monthCard(NOW)).findByText('RM 200.00 left of RM 300.00')).toBeTruthy();
-      const left = watchLeft();
+      const before = {
+        phone: 'RM 200.00 left · RM 100.00 of RM 300.00',
+        desktop: '200.00 · Food: 33% spent',
+      };
+      const after = {
+        phone: 'RM 192.00 left · RM 108.00 of RM 300.00',
+        desktop: '192.00 · Food: 36% spent',
+      };
+      await showsBudget(size, 'Food', before);
+      const left = watchLeft(size);
       let resend = { release: () => {} };
       try {
         // RM 8 on Food, saved, its answer lost
@@ -525,7 +643,7 @@ describe("what's left is never counted twice", () => {
         resend = holdNext(server, 'POST', '/api/changes');
         await act(() => queryClient.refetchQueries({ type: 'active' }));
         await act(() => new Promise((r) => setTimeout(r, 50)));
-        expect((await monthCard(NOW)).getByText('RM 192.00 left of RM 300.00')).toBeTruthy();
+        expect(planBudget(size, 'Food')).toBe(after[size]);
 
         resend.release();
         await waitFor(
@@ -535,7 +653,7 @@ describe("what's left is never counted twice", () => {
         );
         await act(() => new Promise((r) => setTimeout(r, 50)));
         expect(server.transactions).toHaveLength(2);
-        expect(left.seen()).toEqual(['RM 192.00 left of RM 300.00', 'RM 200.00 left of RM 300.00']);
+        expect(left.seen()).toEqual([after[size], before[size]].sort());
       } finally {
         resend.release();
         left.stop();

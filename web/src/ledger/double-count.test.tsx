@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import { get } from 'idb-keyval';
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
@@ -14,7 +14,7 @@ import {
 } from '../testing/app';
 import { outboxKey } from '../offline/outbox';
 import { queryClient } from '../query-client';
-import { monthHeading, thisMonth } from '../utils/date-input';
+import { thisMonth } from '../utils/date-input';
 
 // A change the server saved whose answer never reached the app stays waiting on the
 // device, and is sent again (the server counts it once by its id). A fresh copy of the
@@ -70,34 +70,38 @@ function withWallet() {
   return server;
 }
 
-/** The Wallet's balance on Home, as shown ("RM 140.00"), or null while it isn't */
-function walletBalance() {
-  const row = screen.queryByRole('button', { name: /^Wallet,/ });
-  return row?.getAttribute('aria-label')?.split(', ').at(-1) ?? null;
+/**
+ * A figure on Home, as shown ("RM 10.00"), or null while it isn't: the month end (its own
+ * section on a phone, the first of three on a computer), "Expenses so far" or "Income"
+ */
+function homeFigure(name: 'Expected at month end' | 'Expenses so far' | 'Income') {
+  const place =
+    screen.queryByRole('region', { name }) ??
+    screen.queryByRole('link', { name: new RegExp(`^${name}`) });
+  return new RegExp(`^${name}\\s*(−?RM [\\d,.]+)`).exec(place?.textContent ?? '')?.[1] ?? null;
 }
 
-/** A figure on this month's card, as shown ("RM 10.00"), or null while it isn't */
-function monthFigure(label: string) {
-  const card = screen.queryByRole('region', { name: monthHeading(NOW) });
-  if (card == null) return null;
-  return within(card).queryByLabelText(label)?.textContent ?? null;
-}
+/**
+ * The Wallet's balance on Home ("RM 140.00"): with the one account and nothing scheduled,
+ * the month end is its balance
+ */
+const walletBalance = () => homeFigure('Expected at month end');
+
+/** This month's totals on Home: what was spent and what came in (Left is the two together) */
+const monthFigure = (label: 'Spent' | 'Income') =>
+  homeFigure(label === 'Spent' ? 'Expenses so far' : 'Income');
 
 /**
  * Every balance and month total the screen shows from now on, each time anything on it
  * changes, so a double count shown for a moment is caught too
  */
 function watchFigures() {
-  const seen = { balance: new Set<string>(), spent: new Set<string>(), left: new Set<string>() };
+  const seen = { balance: new Set<string>(), spent: new Set<string>(), income: new Set<string>() };
   const note = () => {
-    const [balance, spent, left] = [
-      walletBalance(),
-      monthFigure('Spent'),
-      monthFigure('Left this month'),
-    ];
+    const [balance, spent, income] = [walletBalance(), monthFigure('Spent'), monthFigure('Income')];
     if (balance != null) seen.balance.add(balance);
     if (spent != null) seen.spent.add(spent);
-    if (left != null) seen.left.add(left);
+    if (income != null) seen.income.add(income);
   };
   const observer = new MutationObserver(note);
   observer.observe(document.body, {
@@ -113,7 +117,7 @@ function watchFigures() {
       return {
         balance: [...seen.balance].sort(),
         spent: [...seen.spent].sort(),
-        left: [...seen.left].sort(),
+        income: [...seen.income].sort(),
       };
     },
     stop: () => observer.disconnect(),
@@ -137,15 +141,15 @@ async function savedWithAnswerLost(server: FakeServer) {
 }
 
 /** Before: RM 100 less RM 10 plus RM 50. After: RM 8 less, counted once. */
-const BEFORE = { balance: 'RM 140.00', spent: 'RM 10.00', left: 'RM 40.00' };
-const AFTER = { balance: 'RM 132.00', spent: 'RM 18.00', left: 'RM 32.00' };
+const BEFORE = { balance: 'RM 140.00', spent: 'RM 10.00', income: 'RM 50.00' };
+const AFTER = { balance: 'RM 132.00', spent: 'RM 18.00', income: 'RM 50.00' };
 
 describe('a change saved whose answer was lost is counted once', () => {
   test.each(SIZES)(
     'with fresh balances and totals fetched before it is sent again (%s)',
     async (size) => {
       const server = withWallet();
-      renderApp(server, '/?plan', { size });
+      renderApp(server, '/', { size });
       await waitFor(() => expect(walletBalance()).toBe(BEFORE.balance));
       await waitFor(() => expect(monthFigure('Spent')).toBe(BEFORE.spent));
       const figures = watchFigures();
@@ -162,7 +166,7 @@ describe('a change saved whose answer was lost is counted once', () => {
         await act(() => new Promise((r) => setTimeout(r, 50)));
         // The month's totals first, then the balance, so each is shown to fail on its own
         expect(monthFigure('Spent')).toBe(AFTER.spent);
-        expect(monthFigure('Left this month')).toBe(AFTER.left);
+        expect(monthFigure('Income')).toBe(AFTER.income);
         expect(walletBalance()).toBe(AFTER.balance);
 
         // Sent again, counted once by the server, and once on screen
@@ -177,7 +181,8 @@ describe('a change saved whose answer was lost is counted once', () => {
         expect(figures.seen()).toEqual({
           balance: [AFTER.balance, BEFORE.balance].sort(),
           spent: [BEFORE.spent, AFTER.spent].sort(),
-          left: [BEFORE.left, AFTER.left].sort(),
+          // The RM 8 is spending: what came in never moves
+          income: [BEFORE.income],
         });
       } finally {
         // Let go even when a check above failed, so the next test starts from nothing
@@ -192,7 +197,7 @@ describe('a change saved whose answer was lost is counted once', () => {
     'with the page reloaded before it is sent again (%s)',
     async (size) => {
       const server = withWallet();
-      renderApp(server, '/?plan', { size });
+      renderApp(server, '/', { size });
       await waitFor(() => expect(walletBalance()).toBe(BEFORE.balance));
       await waitFor(() => expect(monthFigure('Spent')).toBe(BEFORE.spent));
       await savedWithAnswerLost(server);
@@ -200,7 +205,7 @@ describe('a change saved whose answer was lost is counted once', () => {
       // Reopened: the RM 8 is picked up from the device and sent again, which is held up,
       // while the balances and totals are fetched afresh, holding it already
       const resend = holdNext(server, 'POST', '/api/changes');
-      await reloadApp(server, '/?plan', { size });
+      await reloadApp(server, '/', { size });
       const figures = watchFigures();
       try {
         await waitFor(() => expect(walletBalance()).not.toBeNull());
@@ -220,7 +225,7 @@ describe('a change saved whose answer was lost is counted once', () => {
         expect(figures.seen()).toEqual({
           balance: [AFTER.balance],
           spent: [AFTER.spent],
-          left: [AFTER.left],
+          income: [AFTER.income],
         });
       } finally {
         // Let go even when a check above failed, so the next test starts from nothing

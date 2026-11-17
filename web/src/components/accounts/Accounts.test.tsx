@@ -23,18 +23,19 @@ function seed(server: FakeServer, account: Partial<Account> & Pick<Account, 'id'
   });
 }
 
-/** The account's row in today's list (on Plan until it's rebuilt), found by its name */
-const homeRow = (name: string) => screen.findByRole('button', { name: new RegExp(`^${name},`) });
-
 /** The account's row on Accounts (?accounts), found by its name */
 const row = (name: string) => screen.findByRole('link', { name: new RegExp(`^${name},`) });
 
 const dialog = () => screen.findByRole('dialog');
 
-/** Opens an account's Edit form: from its row on Home or Accounts, on its page or beside the list */
-async function edit(name: string, from: 'home' | 'accounts' = 'accounts') {
+/** Opens an account's Edit form: from its row on Accounts, on its page or beside the list */
+async function edit(name: string) {
   const user = userEvent.setup();
-  await user.click(await (from === 'home' ? homeRow(name) : row(name)));
+  // Any sheet before it (Add account) closed first, so the one found is Edit's
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  await user.click(await row(name));
+  // Its page, or beside the list on a computer, in place of the one open before
+  await screen.findByRole('heading', { name });
   await user.click(await screen.findByRole('button', { name: 'Edit' }));
   return within(await dialog());
 }
@@ -56,12 +57,6 @@ const saves = () =>
     .mocked(fetch)
     .mock.calls.filter(([path, init]) => path === '/api/changes' && init?.method === 'POST').length;
 
-/** Waits for an account's row in today's list (Plan) to show this kind and balance */
-async function showsOnHome(name: string, kind: string, balance: string) {
-  const found = await screen.findByRole('button', { name: `${name}, ${kind}, ${balance}` });
-  expect(within(found).getByText(balance)).toBeTruthy();
-}
-
 /** Waits for an account's row on Accounts to show this kind and balance, read out and drawn */
 async function shows(name: string, kind: string, balance: string) {
   const found = await screen.findByRole('link', { name: `${name}, ${kind}, ${balance}` });
@@ -77,7 +72,7 @@ const listed = async (group: string) =>
 describe('accounts', () => {
   test.each(SIZES)('adds the first account and shows its balance (%s)', async (size) => {
     const server = fakeServer();
-    renderApp(server, '/?plan', { size });
+    renderApp(server, '/?accounts', { size });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));
@@ -86,7 +81,7 @@ describe('accounts', () => {
     await user.type(form.getByLabelText('Opening balance'), '1,250.5');
     await user.click(form.getByRole('button', { name: 'Add account' }));
 
-    await showsOnHome('Wallet', 'Cash', 'RM 1,250.50');
+    await shows('Wallet', 'Cash', '1,250.50');
     await waitFor(() =>
       expect(server.accounts).toEqual([
         expect.objectContaining({ name: 'Wallet', kind: 'cash', openingCents: 125_050 }),
@@ -98,7 +93,7 @@ describe('accounts', () => {
   test('shows placeholders until the accounts arrive, never the empty list first', async () => {
     const server = fakeServer();
     const held = holdNext(server, 'GET', '/api/accounts');
-    renderApp(server, '/?plan', { size: 'phone' });
+    renderApp(server, '/?accounts', { size: 'phone' });
     expect(await screen.findByText('Loading your accounts')).toBeTruthy();
     // Long enough for anything else to have loaded (who's signed in)
     await act(() => new Promise((r) => setTimeout(r, 100)));
@@ -112,7 +107,7 @@ describe('accounts', () => {
   test.each(SIZES)("shows what's owed on a card (%s)", async (size) => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-    renderApp(server, '/?plan', { size });
+    renderApp(server, '/?accounts', { size });
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));
@@ -122,7 +117,7 @@ describe('accounts', () => {
     await user.type(form.getByLabelText('Amount owed'), '120');
     await user.click(form.getByRole('button', { name: 'Add account' }));
 
-    await showsOnHome('Visa', 'Card', 'RM 120.00 owed');
+    await shows('Visa', 'Card', '120.00 owed');
     await waitFor(() =>
       expect(server.accounts[1]).toMatchObject({
         name: 'Visa',
@@ -131,10 +126,7 @@ describe('accounts', () => {
       }),
     );
     // Opened again, it's still the amount owed, as typed
-    expect((await edit('Visa', 'home')).getByLabelText('Amount owed')).toHaveProperty(
-      'value',
-      '120',
-    );
+    expect((await edit('Visa')).getByLabelText('Amount owed')).toHaveProperty('value', '120');
   });
 
   test('lists accounts in their order, an overdrawn one below zero', async () => {
@@ -184,7 +176,7 @@ describe('accounts', () => {
 
   test('says what is wrong with a name or amount, and saves nothing', async () => {
     const server = fakeServer();
-    renderApp(server, '/?plan');
+    renderApp(server, '/?accounts');
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }));

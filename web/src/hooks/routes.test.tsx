@@ -94,31 +94,40 @@ describe('addresses', () => {
     expect(await screen.findByRole('link', { name: /^Wallet, Cash, 100\.00$/ })).toBeTruthy();
   });
 
+  /** Plan's month, as its header names it ("November 2026 · day 6 of 30" for this one) */
+  const planMonth = (name: string) =>
+    screen.findByText(new RegExp(`^${name}( · day \\d+ of \\d+)?$`));
+
   test('?plan opens Plan on this month', async () => {
     onTheSixth();
     renderApp(withWallet(), '/?plan');
     expect(await pageTitle('Plan')).toBeTruthy();
-    expect(await screen.findByRole('region', { name: 'November 2026' })).toBeTruthy();
+    expect(await screen.findByText('November 2026 · day 6 of 30')).toBeTruthy();
   });
 
   test('?plan&month= opens Plan on that month, and its arrows stay on Plan', async () => {
     onTheSixth();
     renderApp(withWallet(), '/?plan&month=2026-09');
     expect(await pageTitle('Plan')).toBeTruthy();
-    const month = within(await screen.findByRole('region', { name: 'September 2026' }));
+    expect(await planMonth('September 2026')).toBeTruthy();
     const user = userEvent.setup();
-    await user.click(month.getByRole('button', { name: 'Next month' }));
-    expect(await screen.findByRole('region', { name: 'October 2026' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Next month' }));
+    expect(await planMonth('October 2026')).toBeTruthy();
     expect(window.location.search).toBe('?plan&month=2026-10');
     expect(await pageTitle('Plan')).toBeTruthy();
-    await user.click(
-      within(screen.getByRole('region', { name: 'October 2026' })).getByRole('button', {
-        name: 'Next month',
-      }),
-    );
+    await user.click(screen.getByRole('button', { name: 'Next month' }));
     // This month's address names none
-    expect(await screen.findByRole('region', { name: 'November 2026' })).toBeTruthy();
+    expect(await planMonth('November 2026')).toBeTruthy();
     expect(window.location.search).toBe('?plan');
+  });
+
+  test('?plan&category= with text that names no category opens Plan itself', async () => {
+    onTheSixth();
+    renderApp(withWallet(), '/?plan&category=not-a-category', { size: 'phone' });
+    expect(await pageTitle('Plan')).toBeTruthy();
+    // A phone names the month short
+    expect(await screen.findByText('Nov 2026')).toBeTruthy();
+    expect(screen.queryByText('Category not found')).toBeNull();
   });
 
   test("Home keeps its month: an earlier one at ?month=, its arrows on Home's address", async () => {

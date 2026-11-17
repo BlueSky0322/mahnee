@@ -1998,6 +1998,8 @@ describe('transactions', () => {
         status: 200,
         data: {
           month: '2025-10',
+          firstDay: '2025-10-01',
+          lastDay: '2025-10-31',
           incomeCents: 5_000,
           spentCents: 1_420,
           leftCents: 3_580,
@@ -2020,6 +2022,8 @@ describe('transactions', () => {
       // A month with nothing in it, and more spent than came in
       expect((await summary(me, '2025-08')).data).toEqual({
         month: '2025-08',
+        firstDay: '2025-08-01',
+        lastDay: '2025-08-31',
         incomeCents: 0,
         spentCents: 0,
         leftCents: 0,
@@ -2199,6 +2203,11 @@ describe('transactions', () => {
     /** A month with nothing spent or received in it */
     const nothingIn = (month: string) => ({
       month,
+      // The calendar month: a month from the 1st
+      firstDay: `${month}-01`,
+      lastDay: new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0))
+        .toISOString()
+        .slice(0, 10),
       incomeCents: 0,
       spentCents: 0,
       leftCents: 0,
@@ -2242,6 +2251,8 @@ describe('transactions', () => {
       const filled: Record<string, object> = {
         '2024-11': {
           month: '2024-11',
+          firstDay: '2024-11-01',
+          lastDay: '2024-11-30',
           incomeCents: 0,
           spentCents: 50,
           leftCents: -50,
@@ -2250,6 +2261,8 @@ describe('transactions', () => {
         },
         '2025-03': {
           month: '2025-03',
+          firstDay: '2025-03-01',
+          lastDay: '2025-03-31',
           incomeCents: 4_000,
           spentCents: 0,
           leftCents: 4_000,
@@ -2258,6 +2271,8 @@ describe('transactions', () => {
         },
         '2025-09': {
           month: '2025-09',
+          firstDay: '2025-09-01',
+          lastDay: '2025-09-30',
           incomeCents: 0,
           spentCents: 7_000,
           leftCents: -7_000,
@@ -2266,6 +2281,8 @@ describe('transactions', () => {
         },
         '2025-10': {
           month: '2025-10',
+          firstDay: '2025-10-01',
+          lastDay: '2025-10-31',
           incomeCents: 5_000,
           spentCents: 1_220,
           leftCents: 3_780,
@@ -2293,6 +2310,8 @@ describe('transactions', () => {
         ...TO_OCTOBER.slice(0, 11).map(nothingIn),
         {
           month: '2025-10',
+          firstDay: '2025-10-01',
+          lastDay: '2025-10-31',
           incomeCents: 0,
           spentCents: 6_600,
           leftCents: -6_600,
@@ -2513,6 +2532,8 @@ describe('transactions', () => {
         status: 200,
         data: {
           month: '2999-12',
+          firstDay: '2999-12-01',
+          lastDay: '2999-12-31',
           incomeCents: 0,
           spentCents: 0,
           leftCents: 0,

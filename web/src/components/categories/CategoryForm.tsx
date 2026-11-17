@@ -14,7 +14,7 @@ import {
   whyStaysOnTop,
 } from '@shared/categories';
 import { change } from '../../ledger/ledger';
-import { thisMonth } from '../../utils/date-input';
+import { useThisMonth } from '../../ledger/month-start';
 import { newId } from '../../utils/id';
 import { showRefusal } from '../../utils/notify';
 import { showUndo } from '../common/undo-toast';
@@ -87,6 +87,8 @@ function Fields({
   budget: MonthBudget | null | undefined;
   onDone: () => void;
 }) {
+  // A budget set now applies from this month, the person's (shared/period.ts)
+  const thisMonth = useThisMonth();
   // A new one's id is made now, so the rule can be asked about it
   const [id] = useState(() => category?.id ?? newId());
   const [name, setName] = useState(category?.name ?? '');
@@ -139,7 +141,7 @@ function Fields({
     return {
       op: 'setBudget',
       categoryId: category.id,
-      fromMonth: thisMonth(),
+      fromMonth: thisMonth,
       amountCents: read.cents,
       carryOver,
     };

@@ -7,9 +7,10 @@ import { DEFAULT_CURRENCY, categoryKindFor } from '@shared/ledger';
 import { foldCase } from '@shared/search';
 import { budgetLines } from '../../ledger/budgets';
 import { change } from '../../ledger/ledger';
+import { useMonths } from '../../ledger/month-start';
 import { useAccounts, useCategories, useMonthSummary } from '../../ledger/useLedger';
 import { useIsMobile } from '../../hooks/useBreakpoints';
-import { thisMonth, toDateInput } from '../../utils/date-input';
+import { toDateInput } from '../../utils/date-input';
 import { categoryColour } from '../../utils/category-colour';
 import { formatMoney } from '../../utils/money';
 import { categoryName } from '../common/category-name';
@@ -89,8 +90,9 @@ function Moving({
 }) {
   const { accounts } = useAccounts();
   const { categories, tree } = useCategories();
-  const month = thisMonth();
-  const { summary } = useMonthSummary(month);
+  // This month, the person's (shared/period.ts)
+  const { current } = useMonths();
+  const { summary } = useMonthSummary(current.month);
   const [find, setFind] = useState('');
   const [to, setTo] = useState<string | null>(null);
   const all = categories ?? [];
@@ -119,7 +121,10 @@ function Moving({
   };
   // What newly lands in the target's budget this month
   const intoBudget = chosen
-    .filter((t) => t.date.startsWith(`${month}-`) && topOf(t.categoryId) !== top?.id)
+    .filter(
+      (t) =>
+        t.date >= current.firstDay && t.date <= current.lastDay && topOf(t.categoryId) !== top?.id,
+    )
     .reduce((total, t) => total + t.amountCents, 0);
   // This month's budget on it, if it has one
   const line =

@@ -1,7 +1,6 @@
-import type { PeriodDay } from '@shared/budgets';
-import { periodDay } from '@shared/budgets';
-import { monthEnd } from '@shared/recurring';
-import { thisMonth, toDateInput } from '../../utils/date-input';
+import type { PeriodDay } from '@shared/period';
+import { periodDay } from '@shared/period';
+import type { Months } from '../../ledger/month-start';
 
 /** The month Plan shows, and how far through it today is */
 export interface PlanMonth {
@@ -17,15 +16,14 @@ export interface PlanMonth {
 }
 
 // The month Plan shows (`month`, null for this one), its first and last day and how far
-// through it today is, the person's own day. Its days come from the shared period rules
-// (periodDay), so a month start day changes them in one place.
-export function planMonth(month: string | null): PlanMonth {
-  const current = thisMonth();
+// through it today is, the person's own day: the person's month (shared/period.ts, through
+// useMonths), the one place Plan's month and its day N of M come from.
+export function planMonth(month: string | null, months: Months): PlanMonth {
+  const current = months.current.month;
   const shown = month != null && month < current ? month : current;
   const isCurrent = shown === current;
-  const firstDay = `${shown}-01`;
-  const lastDay = monthEnd(firstDay);
-  const today = isCurrent ? toDateInput(new Date()) : lastDay;
+  const { firstDay, lastDay } = months.of(shown);
+  const today = isCurrent ? months.today : lastDay;
   return {
     month: shown,
     current,

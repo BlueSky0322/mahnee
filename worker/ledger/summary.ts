@@ -1,5 +1,8 @@
 // A month at a glance: what a person spent and received in it, across every account,
-// summed here in the database rather than by sending every transaction to the app.
+// summed here in the database rather than by sending every transaction to the app. A month
+// is the person's own (shared/period.ts): from the day their month starts on, read from
+// their settings on every read, to the day before the next starts, named for the month
+// holding most of its days; the answer says which days it summed (firstDay, lastDay).
 //
 // Only spending and income count. A transfer moves money between the person's own
 // accounts, so it is never spending or income, and is left out by name.
@@ -12,15 +15,16 @@
 // for a category with only one, its payee.
 //
 // With them, for Home's calendar and Tidy up: spending by day, one grouped sum over the
-// month, so at most 31 rows; and how many spending transactions from the first of the
-// month before to the month's end are in Other (OTHER_EXPENSE_ID) or a category under it,
+// month, so at most 31 rows; and how many spending transactions from the first day of the
+// month before to the month's last are in Other (OTHER_EXPENSE_ID) or a category under it,
 // one count over that window, with those categories' ids (at most MAX_CATEGORIES).
 //
 // A month's budgets come with it (shared/budgets.ts): the budgets kept on the person's
 // top-level spending categories, and, to work out what each month before left, their
-// spending by month and top-level category since the first budget, subcategories rolled up
-// by their parent as it is now. Read in the same batch as the totals, and only for a month
-// up to tomorrow's in UTC (the latest a budget can be set from): a month still to come
+// spending by month (the person's, grouped by periodMonthSql) and top-level category since
+// the first budget, subcategories rolled up by their parent as it is now. Read in the same
+// batch as the totals, and only for a month up to the one holding tomorrow in UTC (the
+// latest a budget can be set from): a month still to come
 // has no budgets. So the chain runs from the first budget (2000 at the earliest) to this
 // month at most, about 330 months in 2027, and the spending read is at most one row per
 // such month and category.
@@ -29,8 +33,10 @@ import type { CategoryTotal, DayTotal, MonthSummary } from '../../shared/api';
 import type { BudgetRow } from '../../shared/budgets';
 import { isBudgetMonth, monthBudgets } from '../../shared/budgets';
 import { OTHER_EXPENSE_ID, tidyUpFrom } from '../../shared/categories';
-import { isMonth } from '../../shared/ledger';
+import { isPeriodMonth, periodOf } from '../../shared/period';
 import { fail, json } from '../http';
+import { readMonthStart } from './month-start';
+import { periodMonthSql } from './period-sql';
 import { savedIdsStatement } from './receipts';
 
 /** A budget as read: carry over as 0 or 1 */
@@ -70,14 +76,16 @@ export async function readSummary(
   pending: string[] = [],
 ): Promise<Response> {
   const month = params.get('month');
-  if (!isMonth(month)) return fail('Give a month from 2000, like 2026-11', 400);
+  if (!isPeriodMonth(month)) return fail('Give a month from 2000, like 2026-11', 400);
 
-  // Budgets only for a month one can be set in or before (up to tomorrow's month in UTC):
-  // a month still to come has none, so the chain never walks past this month
-  const withBudgets = isBudgetMonth(month);
+  const start = await readMonthStart(db, email);
+  const { firstDay, lastDay } = periodOf(month, start);
+  // Budgets only for a month one can be set in or before (up to the month holding tomorrow
+  // in UTC): a month still to come has none, so the chain never walks past this month
+  const withBudgets = isBudgetMonth(month, Date.now(), start);
   // In one batch with which of `pending` are saved, and the budgets, so all of it describes
   // the same moment
-  const from = tidyUpFrom(month);
+  const from = tidyUpFrom(month, start);
   const answers = await db.batch<
     TotalRow | DayTotal | TidyRow | KeptBudget | SpentRow | { id: string }
   >([
@@ -90,7 +98,7 @@ export async function readSummary(
        GROUP BY kind, category_id
        ORDER BY cents DESC, category_id`,
       )
-      .bind(email, `${month}-01`, `${month}-31`),
+      .bind(email, firstDay, lastDay),
     db
       .prepare(
         `SELECT date, SUM(amount_cents) AS cents
@@ -99,7 +107,7 @@ export async function readSummary(
          GROUP BY date
          ORDER BY date`,
       )
-      .bind(email, `${month}-01`, `${month}-31`),
+      .bind(email, firstDay, lastDay),
     // Other's subcategories now, and the count, each row one or the other
     db
       .prepare(
@@ -112,8 +120,8 @@ export async function readSummary(
            AND (category_id = ?2 OR category_id IN
                  (SELECT id FROM categories WHERE email = ?1 AND parent_id = ?2))`,
       )
-      .bind(email, OTHER_EXPENSE_ID, from, `${month}-31`),
-    ...(withBudgets ? budgetStatements(db, email, month) : []),
+      .bind(email, OTHER_EXPENSE_ID, from, lastDay),
+    ...(withBudgets ? budgetStatements(db, email, month, start) : []),
     ...(pending.length > 0 ? [savedIdsStatement(db, email, pending)] : []),
   ]);
   const [totals, byDay, tidy] = answers;
@@ -152,6 +160,8 @@ export async function readSummary(
   const incomeCents = sum(incomeByCategory);
   return json<MonthSummary>({
     month,
+    firstDay,
+    lastDay,
     incomeCents,
     spentCents,
     leftCents: incomeCents - spentCents,
@@ -178,10 +188,12 @@ export async function readSummary(
 /**
  * The month's budgets as kept, and their spending before it: the budgets that can apply up
  * to `month` on categories at the top level now, in the categories' order; and what was
- * spent in each month from the first budget on (none without one) up to the one before,
- * each subcategory's under its parent
+ * spent in each month (each period, for a month starting on `start`) from the first budget
+ * on (none without one) up to the one before, each subcategory's under its parent. A
+ * period named for a month can start in the month before, so spending is read from the
+ * first of the month before the first budget's; any earlier period read is never asked for.
  */
-function budgetStatements(db: D1Database, email: string, month: string) {
+function budgetStatements(db: D1Database, email: string, month: string, start: number) {
   return [
     db
       .prepare(
@@ -195,16 +207,17 @@ function budgetStatements(db: D1Database, email: string, month: string) {
       .bind(email, month),
     db
       .prepare(
-        `SELECT substr(t.date, 1, 7) AS month, COALESCE(c.parent_id, c.id) AS categoryId,
-                SUM(t.amount_cents) AS cents
+        `SELECT ${periodMonthSql('t.date', '?3')} AS month,
+                COALESCE(c.parent_id, c.id) AS categoryId, SUM(t.amount_cents) AS cents
          FROM transactions t
          JOIN categories c ON c.email = t.email AND c.id = t.category_id
          WHERE t.email = ?1 AND t.kind = 'expense'
-           AND t.date >= (SELECT MIN(from_month) FROM budgets WHERE email = ?1) || '-01'
-           AND t.date < ?2 || '-01'
+           AND t.date >= date((SELECT MIN(from_month) FROM budgets WHERE email = ?1) || '-01',
+                              '-1 month')
+           AND t.date < ?2
            AND COALESCE(c.parent_id, c.id) IN (SELECT category_id FROM budgets WHERE email = ?1)
          GROUP BY month, COALESCE(c.parent_id, c.id)`,
       )
-      .bind(email, month),
+      .bind(email, periodOf(month, start).firstDay, start),
   ];
 }

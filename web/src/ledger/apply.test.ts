@@ -476,6 +476,8 @@ describe('changing many transactions at once', () => {
   /** November as the server summed `known` */
   const november: MonthSummary = {
     month: '2026-11',
+    firstDay: '2026-11-01',
+    lastDay: '2026-11-30',
     incomeCents: 5_000,
     spentCents: 1_400,
     leftCents: 3_600,
@@ -557,6 +559,8 @@ describe('changing many transactions at once', () => {
   test("a month's totals lose what was deleted, spending and income alike", () => {
     expect(applyToSummary(november, [removeThree], lookup)).toEqual({
       month: '2026-11',
+      firstDay: '2026-11-01',
+      lastDay: '2026-11-30',
       incomeCents: 0,
       spentCents: 1_000,
       leftCents: -1_000,

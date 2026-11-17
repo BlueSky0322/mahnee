@@ -32,6 +32,8 @@ const CATEGORIES: Category[] = [
  */
 const november = (budgets?: MonthSummary['budgets']): MonthSummary => ({
   month: '2026-11',
+  firstDay: '2026-11-01',
+  lastDay: '2026-11-30',
   incomeCents: 200_000,
   spentCents: 23_000,
   leftCents: 177_000,
@@ -196,7 +198,12 @@ describe('setting a budget before the server has it', () => {
   });
 
   test('applies from the month it was set in onward, never to the months before', () => {
-    const october = { ...november([food]), month: '2026-10' };
+    const october = {
+      ...november([food]),
+      month: '2026-10',
+      firstDay: '2026-10-01',
+      lastDay: '2026-10-31',
+    };
     expect(applyToSummary(october, [set({ amountCents: 50_000 })], none).budgets).toEqual([food]);
     // Set from an earlier month, it applies to this one too
     const after = applyToSummary(

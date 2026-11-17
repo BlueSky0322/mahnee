@@ -1,6 +1,7 @@
 import type { TransactionKind } from '@shared/ledger';
 import { TRANSACTION_KINDS } from '@shared/ledger';
 import type { SearchQuery } from '@shared/search';
+import { periodMonthOf, periodOf } from '@shared/period';
 import { MAX_SEARCH_TEXT, isCalendarDay, readKinds } from '@shared/search';
 
 // Activity's filters, as its address holds them (docs/feature-map.md, Pages): ?activity is
@@ -93,27 +94,35 @@ export function writeFilters(filters: Filters) {
   return `?${parts.join('&')}`;
 }
 
-const pad = (n: number) => String(n).padStart(2, '0');
-
-/** The first and last days of `month` (2026-11) */
-export function monthDays(month: string): { from: string; to: string } {
-  const [y, m] = month.split('-').map(Number);
-  return { from: `${month}-01`, to: `${month}-${pad(new Date(y, m, 0).getDate())}` };
+/**
+ * The first and last days of `month` (2026-11), the person's month from `start`
+ * (shared/period.ts; the 1st when not given)
+ */
+export function monthDays(month: string, start = 1): { from: string; to: string } {
+  const { firstDay, lastDay } = periodOf(month, start);
+  return { from: firstDay, to: lastDay };
 }
 
-/** The first and last day the days ask for (null for no end), with `today` for this month */
-export function dayRange(days: Days, today: string): { from: string | null; to: string | null } {
-  if (days.kind === 'month') return monthDays(today.slice(0, 7));
+/**
+ * The first and last day the days ask for (null for no end), with `today` for this month,
+ * the person's from `start`
+ */
+export function dayRange(
+  days: Days,
+  today: string,
+  start = 1,
+): { from: string | null; to: string | null } {
+  if (days.kind === 'month') return monthDays(periodMonthOf(today, start), start);
   if (days.kind === 'all') return { from: null, to: null };
   if (days.kind === 'day') return { from: days.day, to: days.day };
   return { from: days.from, to: days.to };
 }
 
-/** The search the filters make, on `today` */
-export const searchOf = (filters: Filters, today: string): SearchQuery => ({
+/** The search the filters make, on `today`, months from `start` */
+export const searchOf = (filters: Filters, today: string, start = 1): SearchQuery => ({
   q: filters.q,
   account: filters.account,
   category: filters.category,
   kinds: filters.kinds,
-  ...dayRange(filters.days, today),
+  ...dayRange(filters.days, today, start),
 });

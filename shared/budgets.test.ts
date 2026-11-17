@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import type { BudgetRow } from './budgets';
-import { budgetFigures, budgetPace, monthBudgets, periodDay, periodDays } from './budgets';
+import { budgetFigures, budgetPace, monthBudgets } from './budgets';
+import { periodDay, periodDays } from './period';
 
 // The budget rule both the Worker and the app use (B1, B2): an amount from a month on until
 // changed; with Carry over, last month's leftover added (or its overspending taken away),

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { isRowId } from '@shared/api';
 import { isMonth } from '@shared/ledger';
 import { LAST_PAGE_KEY } from '../offline/cache';
-import { thisMonth } from '../utils/date-input';
+import { addMonths, thisMonth } from '../utils/date-input';
 import { quietly } from '../utils/quietly';
 
 /** The sections of Settings, each at ?settings=<section>; the index is plain ?settings */
@@ -53,10 +53,14 @@ export function placeOf(route: Route): Place | null {
   return route.view;
 }
 
-/** An earlier month named in the address (?month=2026-10); null for this one or none */
+/**
+ * A month named in the address (?month=2026-10); null for none. The person's month can be
+ * named for the calendar month after this one (from the 16th on, shared/period.ts), so any
+ * up to that one is read; the page shows this month for one that isn't earlier.
+ */
 function readMonth(params: URLSearchParams) {
   const month = params.get('month');
-  return isMonth(month) && month < thisMonth() ? month : null;
+  return isMonth(month) && month <= addMonths(thisMonth(), 1) ? month : null;
 }
 
 const isSection = (value: string | null): value is SettingsSection =>

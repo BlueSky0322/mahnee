@@ -1,0 +1,179 @@
+/* Settings › Money (R-Set-Money, R-Desk-Prefs): the month and week rows, and the sheet
+   for when the month starts */
+
+.named {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.new {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* A phone's row is one button, the whole width */
+.rowHolder {
+  padding: 0;
+}
+
+.rowButton {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The week's choice sits under its name on a phone */
+.wrapRow {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 767px) {
+  .wrapRow > :first-child {
+    flex-basis: 100%;
+  }
+
+  .wrapRow .segmented {
+    flex: 1;
+  }
+}
+
+.note {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.segmented {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 3px;
+  min-width: 200px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--sunk);
+}
+
+.segment {
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.segment[data-on] {
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(20 20 20 / 12%);
+  color: var(--ink);
+}
+
+.segment:focus-visible,
+.day:focus-visible,
+.lastDay:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.day,
+.lastDay {
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.lastDay {
+  grid-column: 1 / -1;
+}
+
+.day[data-on],
+.lastDay[data-on] {
+  background: var(--ink);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+.pay {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pay p {
+  margin: 0;
+}
+
+.lands {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.payHeading {
+  margin-bottom: -4px;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.link {
+  color: var(--accent);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.preview {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--sunk);
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

@@ -9,6 +9,7 @@ import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { navigate } from '../../hooks/useRoute';
 import { takeSearchFocus, useShortcuts } from '../../hooks/useShortcuts';
 import { change } from '../../ledger/ledger';
+import { useMonthStart } from '../../ledger/month-start';
 import { useAccounts, useCategories, useSearch } from '../../ledger/useLedger';
 import type { Found as Totals } from '../../ledger/search-totals';
 import { dayHeading, toDateInput } from '../../utils/date-input';
@@ -114,7 +115,9 @@ export default function ActivityPage({ query }: { query: string }) {
     // Only the words start the wait; setFilters reads the latest filters through `latest`
   }, [text]);
 
-  const search = useMemo(() => searchOf(filters, today), [filters, today]);
+  // Months are the person's (shared/period.ts)
+  const start = useMonthStart();
+  const search = useMemo(() => searchOf(filters, today, start), [filters, today, start]);
   const waiting = (filters.account != null || filters.category != null) && !known;
   const found = useSearch(search, { enabled: !waiting });
   const rows = found.transactions;
@@ -122,7 +125,7 @@ export default function ActivityPage({ query }: { query: string }) {
   // Drawn once the rows can be: until then, placeholders the size of what's to come
   const ready = rows != null && accounts != null && categories != null;
   const totals = ready ? found.totals : null;
-  const days = dayRange(filters.days, today);
+  const days = dayRange(filters.days, today, start);
   const currency = DEFAULT_CURRENCY;
   const nothingSet =
     filters.account == null &&
@@ -382,6 +385,7 @@ export default function ActivityPage({ query }: { query: string }) {
                     elsewhere: totals?.elsewhere ?? null,
                   },
                   today,
+                  start,
                 )}
               </p>
               <div className={classes.stateActions}>

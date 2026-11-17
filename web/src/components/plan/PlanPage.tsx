@@ -27,6 +27,7 @@ import classes from './Plan.module.css';
 import TotalView from './TotalView';
 import { planAddress } from './plan-address';
 import { type PlanMonth, planMonth } from './plan-month';
+import { useMonths } from '../../ledger/month-start';
 import { budgetWords, deskSubtitle, phoneSubtitle, shareLabel } from './plan-text';
 
 /** The earliest month a transaction can be in */
@@ -53,7 +54,7 @@ export default function PlanPage({
   category: string | null;
 }) {
   const isDesktop = useIsDesktop() === true;
-  const shown = planMonth(month);
+  const shown = planMonth(month, useMonths());
   if (half === 'budgets' && category != null && !isDesktop) {
     return (
       <div className={classes.page}>

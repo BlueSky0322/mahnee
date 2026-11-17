@@ -65,7 +65,6 @@ import {
   fitsTransactionCents,
   isAccountKind,
   isDay,
-  isMonth,
   isOnAccount,
   isTransactionKind,
   readAccountName,
@@ -106,6 +105,7 @@ import {
 } from '@shared/recurring';
 import { matchesSearch, readSearch } from '@shared/search';
 import { trendMonths } from '@shared/trend';
+import { isPeriodMonth, monthStartDayOf, periodMonthOf, periodOf } from '@shared/period';
 import { Root } from '../Root';
 import { queryClient } from '../query-client';
 import { clearCache } from '../offline/cache';
@@ -377,13 +377,13 @@ function answerNow(server: FakeServer) {
     }
     if (path === '/api/summary' && method === 'GET') {
       const month = url.searchParams.get('month');
-      return isMonth(month)
+      return isPeriodMonth(month)
         ? json({ ...summarize(server, month), ...alreadySaved() })
         : json({ error: 'Give a month from 2000, like 2026-11' }, 400);
     }
     if (path === '/api/summary/trend' && method === 'GET') {
       const month = url.searchParams.get('month');
-      return isMonth(month)
+      return isPeriodMonth(month)
         ? json({ ...trendOf(server, month), ...alreadySaved() })
         : json({ error: 'Give a month from 2000, like 2026-11' }, 400);
     }
@@ -456,14 +456,20 @@ function answerNow(server: FakeServer) {
 const balanceOf = (server: FakeServer, account: Pick<Account, 'id' | 'openingCents'>) =>
   server.transactions.reduce((sum, t) => sum + balanceEffect(t, account.id), account.openingCents);
 
+/** The day the person's month starts on, as the real one reads it (worker/ledger/period-sql.ts) */
+const monthStartOf = (server: FakeServer) => monthStartDayOf(server.me.settings, server.recurring);
+
 /**
- * GET /api/summary as the real one (worker/ledger/summary.ts) sums a month: spending and
- * income only (never a transfer), by each category's own id with how many transactions
- * make it and a lone one's payee, largest first then by id; spending by day, oldest first;
- * and Tidy up, spending from the first of the month before in Other or under it
+ * GET /api/summary as the real one (worker/ledger/summary.ts) sums a month, the person's
+ * own from their month start day: spending and income only (never a transfer), by each
+ * category's own id with how many transactions make it and a lone one's payee, largest
+ * first then by id; spending by day, oldest first; and Tidy up, spending from the first day
+ * of the month before in Other or under it
  */
 function summarize(server: FakeServer, month: string): MonthSummary {
-  const inMonth = (t: Transaction) => t.date.startsWith(`${month}-`);
+  const start = monthStartOf(server);
+  const { firstDay, lastDay } = periodOf(month, start);
+  const inMonth = (t: Transaction) => t.date >= firstDay && t.date <= lastDay;
   const totals = (kind: 'expense' | 'income') => {
     const byId = new Map<string, Transaction[]>();
     for (const t of server.transactions) {
@@ -487,7 +493,7 @@ function summarize(server: FakeServer, month: string): MonthSummary {
   const spentByDay = [...spentOn]
     .map(([date, cents]) => ({ date, cents }))
     .sort((a, b) => (a.date < b.date ? -1 : 1));
-  const from = tidyUpFrom(month);
+  const from = tidyUpFrom(month, start);
   const categoryIds = [
     OTHER_EXPENSE_ID,
     ...server.categories
@@ -503,7 +509,7 @@ function summarize(server: FakeServer, month: string): MonthSummary {
         t.categoryId != null &&
         categoryIds.includes(t.categoryId) &&
         t.date >= from &&
-        t.date <= `${month}-31`,
+        t.date <= lastDay,
     ).length,
     categoryIds,
   };
@@ -531,13 +537,17 @@ function summarize(server: FakeServer, month: string): MonthSummary {
     server.transactions
       .filter(
         (t) =>
-          t.kind === 'expense' && t.date.startsWith(`${m}-`) && topOf(t.categoryId) === categoryId,
+          t.kind === 'expense' &&
+          periodMonthOf(t.date, start) === m &&
+          topOf(t.categoryId) === categoryId,
       )
       .reduce((all, t) => all + t.amountCents, 0);
   // A month still to come has none, as the real one says
-  const budgets = isBudgetMonth(month) ? monthBudgets(month, rows, spentIn) : [];
+  const budgets = isBudgetMonth(month, Date.now(), start) ? monthBudgets(month, rows, spentIn) : [];
   return {
     month,
+    firstDay,
+    lastDay,
     incomeCents,
     spentCents,
     leftCents: incomeCents - spentCents,
@@ -868,7 +878,7 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
       continue;
     }
     if (change.op === 'setBudget') {
-      const refusal = checkBudget(categories, change);
+      const refusal = checkBudget(categories, change, monthStartOf(server));
       if (refusal != null) return refusal;
       const { categoryId, fromMonth, amountCents, carryOver } = change;
       // From this month on: what was set for later months goes
@@ -1160,6 +1170,7 @@ function saveTransactionChange(
 function checkBudget(
   categories: Category[],
   change: Extract<LedgerChange, { op: 'setBudget' }>,
+  monthStart: number,
 ): [number, string] | null {
   const allowed = ['op', 'categoryId', 'fromMonth', 'amountCents', 'carryOver'];
   const extra = Object.keys(change).find((k) => !allowed.includes(k));
@@ -1168,7 +1179,9 @@ function checkBudget(
   if (category == null) return [404, 'Category not found'];
   const reason = whyNoBudget(category);
   if (reason != null) return [409, reason];
-  if (!isBudgetMonth(change.fromMonth)) return [400, 'Give a month from 2000 up to this one'];
+  if (!isBudgetMonth(change.fromMonth, Date.now(), monthStart)) {
+    return [400, 'Give a month from 2000 up to this one'];
+  }
   if (change.amountCents !== null && !fitsBudgetCents(change.amountCents)) {
     return [400, BUDGET_RANGE];
   }

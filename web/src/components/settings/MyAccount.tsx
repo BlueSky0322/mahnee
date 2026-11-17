@@ -1,3 +1,4 @@
+import { useThisMonth } from '../../ledger/month-start';
 import { Button, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { CaretRight } from '@phosphor-icons/react';
@@ -5,7 +6,6 @@ import { useState } from 'react';
 import { MAX_DISPLAY_NAME } from '@shared/api';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { useProfile } from '../../profile/ProfileContext';
-import { thisMonth } from '../../utils/date-input';
 import Freshness from '../common/Freshness';
 import { useInstallAction } from '../common/use-install-action';
 import { useYou } from '../common/you';
@@ -19,6 +19,8 @@ import classes from './Settings.module.css';
 // device, saying whether everything is saved ("Up to date", or what waits), and Install the
 // app where the browser can
 export default function MyAccount() {
+  // The person's month (shared/period.ts)
+  const month = useThisMonth();
   const you = useYou();
   const isDesktop = useIsDesktop();
   const [naming, setNaming] = useState(false);
@@ -110,7 +112,7 @@ export default function MyAccount() {
           <div className={classes.rowText}>
             <div className={classes.label}>Saved</div>
           </div>
-          <Freshness month={thisMonth()} />
+          <Freshness month={month} />
         </div>
         {install.available &&
           (isDesktop ? (

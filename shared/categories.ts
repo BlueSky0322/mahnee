@@ -6,6 +6,7 @@
 // Categories go one level deep: a top-level category can have subcategories, and a
 // subcategory has none of its own. A subcategory is always its parent's kind.
 
+import { periodOf, shiftMonth } from './period';
 import type { Category } from './api';
 
 /** Spending (money going out) or income (money coming in) */
@@ -67,13 +68,12 @@ export const OTHER_EXPENSE_ID = DEFAULT_CATEGORIES.find(
 )!.id;
 
 /**
- * The first day Tidy up counts from, for a month's totals: the first of the month before
- * (2026-10-01 for November 2026). With a month start day this becomes the period's start.
+ * The first day Tidy up counts from, for a month's totals: the first day of the month before,
+ * for a month starting on `startDay` (2026-10-01 for November 2026 from the 1st; October
+ * 25 for December from the 25th)
  */
-export function tidyUpFrom(month: string): string {
-  const [year, m] = month.split('-').map(Number);
-  return m === 1 ? `${year - 1}-12-01` : `${year}-${String(m - 1).padStart(2, '0')}-01`;
-}
+export const tidyUpFrom = (month: string, startDay: number): string =>
+  periodOf(shiftMonth(month, -1), startDay).firstDay;
 
 /**
  * A person's categories: the ones saved, or the defaults while none are. Nothing is

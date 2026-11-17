@@ -50,10 +50,13 @@ offered; Home no longer has a card). Search (`components/settings/settings-searc
 static index; no server) finds a setting by its name, its line, or words not on it
 ("the month end" finds Main currency), name matches first, quoting what was found with the
 match marked; a result, or Enter for the first, opens `?settings=<section>&setting=<key>`
-with that setting in view and the keyboard on it. Money, Adding entries, Look and start
-and Budgets and reminders list their settings read-only for now (name, line, value);
-their controls come with month start (piece 12), the adding and look settings (13) and
-reminders (16). The theme switch on Home saves the account's choice of light or dark.
+with that setting in view and the keyboard on it. Money
+([settings/MoneyPage.tsx](../web/src/components/settings/MoneyPage.tsx)) sets when the
+month starts (see Month view, The month start day) and when the week starts (Home's
+calendar); its Main currency stays read-only until a home currency can be chosen, and
+Other currencies is hidden. Adding entries, Look and start and Budgets and reminders list
+their settings read-only for now (name, line, value); their controls come with the adding
+and look settings (piece 13) and reminders (16). The theme switch on Home saves the account's choice of light or dark.
 The profile also holds a display name, an accent colour, where exchange rates come from,
 and the redesign's settings (week and month start, start screen, Home density, what Add
 asks first, the account Add starts on, suggestions, a time on entries, expense colour,
@@ -602,7 +605,7 @@ the old month card (Home's month end takes its place; see the changelog).
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), as for transactions; Plan keeps
 no state of its own but what's typed, and changes budgets through `setBudget` (Budgets). A
 month's totals are a query keyed by month (`summaryKey`), fetched from the server
-(`fetchSummary`) with a device copy (`summary-v2:<month>`) shown offline. They're kept
+(`fetchSummary`) with a device copy (`summary-v3:<month>`) shown offline. They're kept
 as the server summed them, with each saved batch counted in (before the lists take it,
 so an edited transaction is taken out as it was), and the changes still to send counted
 on top as they're shown (`shownSummary`). Once nothing is left to send they're fetched
@@ -611,7 +614,7 @@ counting the way the server sums; [ledger/derive.ts](../web/src/ledger/derive.ts
 (`rollUp`) puts subcategories inside their top-level category for showing. Screens read
 through `useMonthSummary(month)` in [ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
 The 12 months up to the month shown are a query of their own (`trendKey`, fetched by
-`fetchTrend`, device copy `trend-v2:<month>`), kept and counted the same way
+`fetchTrend`, device copy `trend-v3:<month>`), kept and counted the same way
 (`shownTrend`, `applyToTrend`, each change in whichever of the 12 it falls in); screens
 read them through `useMonthTrend(month)`. The month's figures never wait on them.
 
@@ -624,19 +627,26 @@ read them through `useMonthTrend(month)`. The month's figures never wait on them
   [BudgetBar.tsx](../web/src/components/plan/BudgetBar.tsx), the words in
   [plan-text.ts](../web/src/components/plan/plan-text.ts), the addresses in
   [plan-address.ts](../web/src/components/plan/plan-address.ts), the month and day N of M in
-  [plan-month.ts](../web/src/components/plan/plan-month.ts) (from `periodDay`, so the month
-  start day changes it in one place); months in
+  [plan-month.ts](../web/src/components/plan/plan-month.ts) (the person's month through
+  `useMonths`, and `periodDay`); months in
   [utils/date-input.ts](../web/src/utils/date-input.ts) (`thisMonth`, `addMonths`,
   `monthHeading`, `monthLabel`).
 - API: `GET /api/summary?month=2026-11` (`readSummary` in
   [worker/ledger/summary.ts](../worker/ledger/summary.ts)): one grouped SQL sum.
   `GET /api/summary/trend?month=2026-11` (`readTrend` in
   [worker/ledger/trend.ts](../worker/ledger/trend.ts)): the 12 months ending there, each
-  in the month's shape, in one grouped SQL sum over a fixed window.
+  in the month's shape, in one grouped SQL sum over a fixed window. Both read the
+  person's month start first (`readMonthStart` in
+  [worker/ledger/month-start.ts](../worker/ledger/month-start.ts)) and group earlier
+  months by `periodMonthSql` ([worker/ledger/period-sql.ts](../worker/ledger/period-sql.ts)).
 - Shared: `MonthSummary`, `MonthTrend` and `CategoryTotal` in
-  [shared/api.ts](../shared/api.ts); the 12 months, the average and the comparison in
+  [shared/api.ts](../shared/api.ts); the person's month in
+  [shared/period.ts](../shared/period.ts); the 12 months, the average and the comparison in
   [shared/trend.ts](../shared/trend.ts);
   `isMonth` in [shared/ledger.ts](../shared/ledger.ts).
+- App: the person's month in [ledger/month-start.ts](../web/src/ledger/month-start.ts)
+  (`useMonths`, `useMonthStart`; and `useForgetMonthsWhenTheStartChanges`, called by the
+  shell), and `forgetMonthTotals` in [ledger/ledger.ts](../web/src/ledger/ledger.ts).
 
 **Flow.** The server sums the person's spending and income in the month (by the day a
 transaction is on) across every account, grouped by each category's own id, largest
@@ -655,8 +665,8 @@ for Home and Plan:
   the mean of the two middle days in whole cents rounded half up; a day above it is
   "more", at or below it "less", a day still to come neither.
 - `tidyUp { from, entries, categoryIds }`: how many spending transactions from the first
-  of the month before (`tidyUpFrom` in [shared/categories.ts](../shared/categories.ts)) to
-  the month's last day are in Other (`OTHER_EXPENSE_ID`, the default's fixed id, renamed
+  day of the month before (`tidyUpFrom` in [shared/categories.ts](../shared/categories.ts))
+  to the month's last day are in Other (`OTHER_EXPENSE_ID`, the default's fixed id, renamed
   or not) or a category under it, archived ones included, with those categories' ids so
   changes still to send are counted on top. It runs to the month's end, not today: an entry
   dated after this month counts on no month's Home, though an Activity filter with only
@@ -668,8 +678,8 @@ more is spent than is available (carried amount included), "faster than the mont
 spent x days is more than available x day (`periodDay`: day N of M, 0 before the period,
 M once it's over), else on track. `periodDay` and `periodDays` take the period's first
 and last day, never assuming the 1st, and work in calendar days from the digits, never a
-Date in the device's zone; they move to a period module of their own with the month
-start day, and nothing else should import them from `budgets.ts`. Callers pass today as the person's own
+Date in the device's zone; they live in [shared/period.ts](../shared/period.ts) with the
+month start day. Callers pass today as the person's own
 day, `toDateInput(new Date())` ([utils/date-input.ts](../web/src/utils/date-input.ts)),
 never `toISOString()`, and screen tests pin the clock at a time where the local and UTC
 days differ.
@@ -680,8 +690,47 @@ Home names the budget "running fast" by the largest lead spent x days - availabl
 level; Home shows Tidy up for this month only. Plan's roll-up (`rollUpEntries` in
 `derive.ts`, beside `rollUp`) sums `entries` into the top-level category and keeps a payee
 only when the category and its subcategories hold one transaction in all. Each share and
-each bar's percent is worked in whole numbers (BigInt), so it is exact at 5e15 cents. The month start day moves
-Tidy up's `from` to the period's start, on the server alone.
+each bar's percent is worked in whole numbers (BigInt), so it is exact at 5e15 cents.
+
+### The month start day
+
+Every monthly figure runs over the person's month (owner decision D7): Home's month, its
+days, Day N of M, Tidy up, the month end and budgets; budgets' carry-over; Plan and a
+category's 12 months; Activity's and an account's This month and Last month; Change
+category's budget line; a new budget's first month; and which month the freshness label
+judges. Export's "This year" stays the calendar year, and so does the Worker's unused
+`GET /api/transactions?month=` list (no screen asks for it).
+
+- The month starts on a day (`monthStartDay` 1 to 28, or 31 for each month's last day) or
+  on payday (`monthStartPayId`): the day of the month a running monthly income is due, 1
+  to 31. A start past a month's last day starts that month on its last day, so a period
+  is 28 to 31 days. A pay that stops or isn't monthly income falls back to the day
+  (`monthStartDayOf`), as the server's settings already do.
+- A period is named for the month holding most of its days: from the 15th or before, the
+  month it starts in; from the 16th, the month it ends in ("November" is October 25 to
+  November 24). That rule names every month once and skips none; for a start on the 15th
+  in a 28-day February (14 and 14) and on the 16th (16 and 15, or 15 and 15) it settles
+  what a count of days can't (`shared/period.test.ts` checks four years of every start).
+- The Worker reads the start on every read (`readMonthStart`) and sums the period's days;
+  a month's totals and each of the 12 months say which (`firstDay`, `lastDay`), and the app
+  counts changes still to send by those days. Nothing stored is rewritten: changing the
+  start re-buckets every figure when it's next read. Budgets keep their `fromMonth`, now
+  the name of a period; a budget can be set up to the period holding tomorrow in UTC.
+- The app works the month out the same way from the profile and the repeating items
+  (`useMonths`): which month today is in, and an earlier one's days. Home's Day N of M and
+  calendar use the days the totals were summed over once they're in. `?month=` names an
+  earlier month; one naming this month or a later one (up to next calendar month, the
+  latest a month can be named) is cleaned to Home's own address.
+- Device copies: when the start changes on this page (a save on Money, or the pay it starts
+  on moved or stopped), every `summary-v3:` and `trend-v3:` copy of the signed-in account
+  is deleted and the totals shown are dropped and fetched again; Money's save does it again
+  once the save is through or undone. Another account's copies stay.
+- Money's "Month starts on" is a sheet on phones and a dialog on computers holding a draft
+  ("A date" with the days and "Last day of the month", or "Payday" with the pay picked
+  from Scheduled's running monthly incomes), with this month's days as a preview; Done
+  saves it through `useProfile().rememberSettings` (undone with a message on failure),
+  Cancel, Back and Esc keep nothing. With no pay scheduled, Payday says so and Done keeps
+  the date. Week starts on saves as it's picked.
 
 **Invariants.**
 
@@ -708,9 +757,9 @@ Tidy up's `from` to the period's start, on the server alone.
   `applyToSummary` the same way, and answered alike by the test stand-in. A category's
   payee is known on top only while it has one entry: one taken out of two leaves none
   named (it reads "1 entry") until the totals are fetched again.
-- The device copies are `summary-v2` and `trend-v2`, since copies from before days,
-  entries and Tidy up are in an older shape: those (`summary-v1`, `trend-v1`) are never
-  read, and stay unused on the device. The service worker keeps no copy of these keys or
+- The device copies are `summary-v3` and `trend-v3`, since copies from before the days
+  they were summed over (`summary-v2`, `trend-v2`) or before days, entries and Tidy up
+  (`-v1`) are in an older shape: those are never read, and stay unused on the device. The service worker keeps no copy of these keys or
   shapes (it knows only the outbox, whose it is, the shell and assets), so it doesn't
   change with them.
 
@@ -832,8 +881,9 @@ thing it keeps, per device.
   [ui/Bar.tsx](../web/src/components/ui/Bar.tsx) (`today` null draws no marker).
 - Ledger: `monthEndForecast` (with `billsCents` and `payCents`), `comingUp` and `nextPay` in
   [ledger/forecast.ts](../web/src/ledger/forecast.ts); `budgetLines`; `dayByDay`.
-- Shared: `periodDay` and `budgetPace` in [shared/budgets.ts](../shared/budgets.ts);
-  `monthEnd` in [shared/recurring.ts](../shared/recurring.ts).
+- Shared: `budgetPace` in [shared/budgets.ts](../shared/budgets.ts); `periodDay` in
+  [shared/period.ts](../shared/period.ts); the month end is the last day of the person's
+  month (Month view, The month start day).
 
 **Invariants.**
 
@@ -902,7 +952,8 @@ stand-in alike.
   `budgets` ([migrations/0005_budgets.sql](../migrations/0005_budgets.sql)).
 - Shared: `MonthBudget` and the change shape in [shared/api.ts](../shared/api.ts); the
   rule, limits and sums in [shared/budgets.ts](../shared/budgets.ts), with a budget's pace
-  against the month (`budgetPace`, `periodDay`; see Month view).
+  against the month (`budgetPace`; `periodDay` in shared/period.ts; see Month view). A
+  budget's month is the person's (The month start day).
 
 **Flow.** `setBudget { categoryId, fromMonth, amountCents | null, carryOver }` saves a row
 for that category and month (null: none from then on, kept as its own row so earlier
@@ -986,7 +1037,7 @@ Change category lists the kind's categories (each top-level one with its subcate
 searchable), says what moves ("RM 30.90 from Other to Food") and what it does to that
 category's budget this month ("Food budget: RM 312.50 → RM 291.75 left", "Groceries has no
 budget"), then "Move 3 to Food". Only the entries dated in the budget month Home shows (the
-calendar month until a month start day is set) move the budget, and none already in it:
+person's month, from their month start day) move the budget, and none already in it:
 a budget is a month's, so an October entry moved to Food changes October's Food, not the
 one shown. Spending or income
 alone, no transfers. Delete N takes them out at once, with Undo. More than 500 ticked is
@@ -1574,17 +1625,17 @@ is rebuilt. Home is at a glance (see Home at a glance).
 
 **Addresses.** Later pieces link to these; each is a query string read by `readRoute`.
 
-| Page                      | Address                                                                                                                    | Now                                                                                                                                                                     |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home                      | none, or `?month=2026-10` for an earlier month                                                                             | live                                                                                                                                                                    |
-| Activity                  | `?activity`, with `&q=`, `&account=`, `&category=`, `&kind=`, `&from=`, `&to=`, `&day=2026-11-10`, `&dates=all`, `&select` | live; see below                                                                                                                                                         |
-| Plan                      | `?plan`, with `&month=2026-10`                                                                                             | live                                                                                                                                                                    |
-| Scheduled                 | `?plan=scheduled`                                                                                                          | Plan's other half: the month-end total until rebuilt                                                                                                                    |
-| A category over 12 months | `?plan&category=<id>` (after `&month=` for an earlier month); `expenses` or `income` for all of them                       | live; a page on phones and tablets, beside the table on a computer                                                                                                      |
-| Accounts                  | `?accounts`                                                                                                                | live                                                                                                                                                                    |
-| One account               | `?account=<id>`                                                                                                            | live; on a computer, Accounts with it beside the list                                                                                                                   |
-| Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`                           | live; `money`, `adding`, `look`, `budgets` list their settings read-only until their pieces; `&setting=<key>` opens one in view; a computer's `?settings` is My account |
-| Importing a file          | `?import`                                                                                                                  | live, opened from `?settings=data`                                                                                                                                      |
+| Page                      | Address                                                                                                                    | Now                                                                                                                                                            |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home                      | none, or `?month=2026-10` for an earlier month                                                                             | live                                                                                                                                                           |
+| Activity                  | `?activity`, with `&q=`, `&account=`, `&category=`, `&kind=`, `&from=`, `&to=`, `&day=2026-11-10`, `&dates=all`, `&select` | live; see below                                                                                                                                                |
+| Plan                      | `?plan`, with `&month=2026-10`                                                                                             | live                                                                                                                                                           |
+| Scheduled                 | `?plan=scheduled`                                                                                                          | Plan's other half: the month-end total until rebuilt                                                                                                           |
+| A category over 12 months | `?plan&category=<id>` (after `&month=` for an earlier month); `expenses` or `income` for all of them                       | live; a page on phones and tablets, beside the table on a computer                                                                                             |
+| Accounts                  | `?accounts`                                                                                                                | live                                                                                                                                                           |
+| One account               | `?account=<id>`                                                                                                            | live; on a computer, Accounts with it beside the list                                                                                                          |
+| Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`                           | live; `adding`, `look`, `budgets` list their settings read-only until their pieces; `&setting=<key>` opens one in view; a computer's `?settings` is My account |
+| Importing a file          | `?import`                                                                                                                  | live, opened from `?settings=data`                                                                                                                             |
 
 Activity's filters (components/activity/address.ts): plain `?activity` is this month on
 every account. `&q=` is the words; `&account=` an account (transfers into it too);

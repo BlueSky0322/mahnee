@@ -1,3 +1,4 @@
+import { useThisMonth } from '../../ledger/month-start';
 import { Button } from '@mantine/core';
 import {
   ArrowsDownUp,
@@ -19,7 +20,6 @@ import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { useShortcuts } from '../../hooks/useShortcuts';
 import { useCategories, useImports } from '../../ledger/useLedger';
 import { useProfile } from '../../profile/ProfileContext';
-import { thisMonth } from '../../utils/date-input';
 import { SettingsFooter } from '../common/Freshness';
 import { useConfirmSignOut } from '../common/useConfirmSignOut';
 import { useYou } from '../common/you';
@@ -28,6 +28,7 @@ import Skeleton, { Loading } from '../ui/Skeleton';
 import CategoriesPage from '../categories/CategoriesPage';
 import DataPage from './DataPage';
 import MyAccount from './MyAccount';
+import MoneyPage from './MoneyPage';
 import SectionPage from './SectionPage';
 import { SECTION_NAMES } from './settings-search';
 import { SearchResults, SettingsSearch } from './SettingsSearch';
@@ -84,11 +85,14 @@ function SectionContent({ section }: { section: SettingsSection }) {
   if (section === 'account') return <MyAccount />;
   if (section === 'categories') return <CategoriesPage />;
   if (section === 'data') return <DataPage />;
+  if (section === 'money') return <MoneyPage />;
   return <SectionPage section={section} />;
 }
 
 /** A phone's index: search, who's signed in, the sections with their summaries, Sign out */
 function SettingsIndex() {
+  // The person's month (shared/period.ts)
+  const month = useThisMonth();
   const you = useYou();
   const { profile } = useProfile();
   const { categories } = useCategories();
@@ -212,7 +216,7 @@ function SettingsIndex() {
           >
             Sign out
           </Button>
-          <SettingsFooter month={thisMonth()} />
+          <SettingsFooter month={month} />
         </>
       )}
       {dialog}
@@ -256,6 +260,8 @@ function SectionLink({ section, summary }: { section: SettingsSection; summary: 
  * the figures are; the open section beside them, or what search finds while it's typed
  */
 function DesktopSettings({ section }: { section: SettingsSection }) {
+  // The person's month (shared/period.ts)
+  const month = useThisMonth();
   const [words, setWords] = useState('');
   const search = useRef<HTMLInputElement>(null);
   const { askToSignOut, dialog } = useConfirmSignOut();
@@ -301,7 +307,7 @@ function DesktopSettings({ section }: { section: SettingsSection }) {
           >
             Sign out
           </button>
-          <SettingsFooter month={thisMonth()} />
+          <SettingsFooter month={month} />
         </nav>
       </aside>
       <div className={classes.pane}>

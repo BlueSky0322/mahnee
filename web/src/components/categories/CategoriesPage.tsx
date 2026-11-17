@@ -1,3 +1,4 @@
+import { useThisMonth } from '../../ledger/month-start';
 import { ActionIcon, Button } from '@mantine/core';
 import { ArrowDown, ArrowUp, CaretDown, CaretRight, Plus } from '@phosphor-icons/react';
 import { Fragment, useState } from 'react';
@@ -16,7 +17,6 @@ import { change } from '../../ledger/ledger';
 import type { CategoryNode } from '../../ledger/category-tree';
 import { useCategories, useMonthSummary } from '../../ledger/useLedger';
 import { categoryColour } from '../../utils/category-colour';
-import { thisMonth } from '../../utils/date-input';
 import { newId } from '../../utils/id';
 import { formatMoney } from '../../utils/money';
 import { showRefusal } from '../../utils/notify';
@@ -38,13 +38,15 @@ const LOADING_ROWS = 6;
 // Reorder shows arrows to put one higher or lower among the ones beside it; Archived lists
 // the ones taken out, to bring back.
 export default function CategoriesPage() {
+  // The person's month (shared/period.ts)
+  const month = useThisMonth();
   const { categories, tree, failed, retry } = useCategories();
   const [open, setOpen] = useState<OpenCategory | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [reordering, setReordering] = useState(false);
   const isDesktop = useIsDesktop();
   // This month's budgets, as shown: null until known
-  const { summary } = useMonthSummary(thisMonth());
+  const { summary } = useMonthSummary(month);
   const budgets = summary == null ? null : summary.budgets ?? [];
 
   /** Moves a category past the listed one before or after it */
@@ -186,7 +188,7 @@ export default function CategoriesPage() {
 
       {!isDesktop && (
         <SettingsFooter
-          month={thisMonth()}
+          month={month}
           onlyStale
         />
       )}

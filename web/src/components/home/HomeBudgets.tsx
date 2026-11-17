@@ -1,6 +1,6 @@
 import { WarningCircle } from '@phosphor-icons/react';
 import { useId } from 'react';
-import type { PeriodDay } from '@shared/budgets';
+import type { PeriodDay } from '@shared/period';
 import type { BudgetLine } from '../../ledger/budgets';
 import Bar from '../ui/Bar';
 import classes from './Home.module.css';

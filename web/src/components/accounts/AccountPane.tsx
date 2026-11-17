@@ -9,8 +9,10 @@ import {
   useCategories,
   useSearch,
 } from '../../ledger/useLedger';
-import { addMonths, thisMonth, toDateInput } from '../../utils/date-input';
+import { toDateInput } from '../../utils/date-input';
 import { periodText, shortDay } from '../activity/activity-text';
+import { periodMonthOf, periodOf, shiftMonth } from '@shared/period';
+import { useMonthStart } from '../../ledger/month-start';
 import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
 import { NewTag } from '../ui/Badge';
 import Chip from '../ui/Chip';
@@ -24,11 +26,10 @@ import classes from './AccountsPage.module.css';
 /** The days the register shows: every one (null), or from and/or to, both included */
 type Days = { from: string | null; to: string | null } | null;
 
-const pad = (n: number) => String(n).padStart(2, '0');
-/** The first and last days of `month` (2026-11) */
-function monthDays(month: string) {
-  const [y, m] = month.split('-').map(Number);
-  return { from: `${month}-01`, to: `${month}-${pad(new Date(y, m, 0).getDate())}` };
+/** The first and last days of the person's month `month` (2026-11) from `start` */
+function monthDays(month: string, start: number) {
+  const { firstDay, lastDay } = periodOf(month, start);
+  return { from: firstDay, to: lastDay };
 }
 
 // An account open beside the list on a computer (R-Desk-Accounts, R-Desk-Accounts-Archived):
@@ -46,8 +47,9 @@ export default function AccountPane({ account }: { account: Account }) {
   const [picking, setPicking] = useState(false);
   const { addHere, transfer } = useAccountActions(account);
   const today = toDateInput(new Date());
+  const start = useMonthStart();
   const q = words.trim();
-  const daysLabel = days == null ? 'Any date' : periodText(days, today);
+  const daysLabel = days == null ? 'Any date' : periodText(days, today, start);
 
   return (
     <section
@@ -363,9 +365,11 @@ function PickDays({
   onClose: () => void;
   onPick: (days: Days) => void;
 }) {
-  const month = thisMonth(new Date(`${today}T12:00:00`));
-  const current = monthDays(month);
-  const last = monthDays(addMonths(month, -1));
+  // The person's months (shared/period.ts)
+  const start = useMonthStart();
+  const month = periodMonthOf(today, start);
+  const current = monthDays(month, start);
+  const last = monthDays(shiftMonth(month, -1), start);
   const same = (a: Days, b: Days) => a?.from === b?.from && a?.to === b?.to;
   const own = days != null && !same(days, current) && !same(days, last);
   const [picking, setPicking] = useState(own);

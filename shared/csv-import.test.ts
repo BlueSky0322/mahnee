@@ -258,6 +258,7 @@ describe("Mahnee's own export", () => {
         row: 2,
         kind: 'opening',
         date: '2026-01-01',
+        time: null,
         account: 'Wallet',
         toAccount: null,
         cents: 10_000,
@@ -270,6 +271,7 @@ describe("Mahnee's own export", () => {
         row: 3,
         kind: 'opening',
         date: '1970-01-01',
+        time: null,
         account: 'Visa',
         toAccount: null,
         cents: -32_000,
@@ -282,6 +284,7 @@ describe("Mahnee's own export", () => {
         row: 4,
         kind: 'expense',
         date: '2026-10-04',
+        time: null,
         account: 'Wallet',
         toAccount: null,
         cents: 123_450,
@@ -294,6 +297,7 @@ describe("Mahnee's own export", () => {
         row: 5,
         kind: 'income',
         date: '2026-10-02',
+        time: null,
         account: 'Wallet',
         toAccount: null,
         cents: 500_000,
@@ -306,6 +310,7 @@ describe("Mahnee's own export", () => {
         row: 6,
         kind: 'transfer',
         date: '2026-10-03',
+        time: null,
         account: 'Wallet',
         toAccount: 'Visa',
         cents: 10_000,
@@ -361,13 +366,13 @@ describe("an export's repeating lines", () => {
   it('reads each as the item it repeats: what it records, how often, and its next due date', () => {
     const rows = readExportRows(
       fileOf(
-        `2026-12-15,Repeating spent,Wallet,,1200.50,MYR,Coffee,Food,Rent,"Monthly, day 15",${ID}`,
-        `2026-11-25,Repeating received,Wallet,,5000.00,MYR,Salary,,'=Employer,"Monthly, day 25",${ID}`,
-        `2026-11-11,Repeating transfer,Wallet,Visa,300.00,MYR,,,,"Weekly, day 3",${ID}`,
+        `2026-12-15,,Repeating spent,Wallet,,1200.50,MYR,Coffee,Food,Rent,"Monthly, day 15",${ID}`,
+        `2026-11-25,,Repeating received,Wallet,,5000.00,MYR,Salary,,'=Employer,"Monthly, day 25",${ID}`,
+        `2026-11-11,,Repeating transfer,Wallet,Visa,300.00,MYR,,,,"Weekly, day 3",${ID}`,
         // On a shorter month's last day
-        `2026-11-30,Repeating spent,Wallet,,10.00,MYR,Food,,Gym,"Monthly, day 31",${ID}`,
+        `2026-11-30,,Repeating spent,Wallet,,10.00,MYR,Food,,Gym,"Monthly, day 31",${ID}`,
         // A next due date that has passed is read as written
-        `2026-10-01,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-10-01,,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
       ),
       NOW,
     );
@@ -376,6 +381,7 @@ describe("an export's repeating lines", () => {
         row: 2,
         kind: 'expense',
         date: '2026-12-15',
+        time: null,
         account: 'Wallet',
         toAccount: null,
         cents: 120_050,
@@ -389,6 +395,7 @@ describe("an export's repeating lines", () => {
         row: 3,
         kind: 'income',
         date: '2026-11-25',
+        time: null,
         account: 'Wallet',
         toAccount: null,
         cents: 500_000,
@@ -402,6 +409,7 @@ describe("an export's repeating lines", () => {
         row: 4,
         kind: 'transfer',
         date: '2026-11-11',
+        time: null,
         account: 'Wallet',
         toAccount: 'Visa',
         cents: 30_000,
@@ -415,6 +423,7 @@ describe("an export's repeating lines", () => {
         row: 5,
         kind: 'expense',
         date: '2026-11-30',
+        time: null,
         account: 'Wallet',
         toAccount: null,
         cents: 1_000,
@@ -428,6 +437,7 @@ describe("an export's repeating lines", () => {
         row: 6,
         kind: 'expense',
         date: '2026-10-01',
+        time: null,
         account: 'Wallet',
         toAccount: null,
         cents: 1_000,
@@ -443,12 +453,12 @@ describe("an export's repeating lines", () => {
   it('says what is wrong with a day 0, an amount over the limit and a next due over a year ahead', () => {
     const rows = readExportRows(
       fileOf(
-        `2026-12-01,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 0",${ID}`,
-        `2026-11-09,Repeating spent,Wallet,,10.00,MYR,Food,,,"Weekly, day 0",${ID}`,
-        `2026-12-01,Repeating spent,Wallet,,10000000.01,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 0",${ID}`,
+        `2026-11-09,,Repeating spent,Wallet,,10.00,MYR,Food,,,"Weekly, day 0",${ID}`,
+        `2026-12-01,,Repeating spent,Wallet,,10000000.01,MYR,Food,,,"Monthly, day 1",${ID}`,
         // A year (366 days) from NOW is 7 November 2027: that day is read, the next isn't
-        `2027-11-07,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 7",${ID}`,
-        `2027-11-08,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 8",${ID}`,
+        `2027-11-07,,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 7",${ID}`,
+        `2027-11-08,,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 8",${ID}`,
       ),
       NOW,
     );
@@ -463,7 +473,7 @@ describe("an export's repeating lines", () => {
 
   it('reads an ordinary line as a transaction, not a repeating item', () => {
     const [spent] = readExportRows(
-      fileOf(`2026-10-04,Spent,Wallet,,8.00,MYR,Food,,,"Monthly, day 1",${ID}`),
+      fileOf(`2026-10-04,,Spent,Wallet,,8.00,MYR,Food,,,"Monthly, day 1",${ID}`),
       NOW,
     );
     expect(spent).not.toHaveProperty('repeat');
@@ -473,20 +483,20 @@ describe("an export's repeating lines", () => {
   it('says what is wrong with a repeating line it cannot import, and reads the rest', () => {
     const rows = readExportRows(
       fileOf(
-        `2026-12-01,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 32",${ID}`,
-        `2026-12-01,Repeating spent,Wallet,,10.00,MYR,Food,,,"Fortnightly, day 1",${ID}`,
-        `2026-12-01,Repeating spent,Wallet,,10.00,MYR,Food,,,,${ID}`,
-        `2026-11-09,Repeating spent,Wallet,,10.00,MYR,Food,,,"Weekly, day 8",${ID}`,
+        `2026-12-01,,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 32",${ID}`,
+        `2026-12-01,,Repeating spent,Wallet,,10.00,MYR,Food,,,"Fortnightly, day 1",${ID}`,
+        `2026-12-01,,Repeating spent,Wallet,,10.00,MYR,Food,,,,${ID}`,
+        `2026-11-09,,Repeating spent,Wallet,,10.00,MYR,Food,,,"Weekly, day 8",${ID}`,
         // 2 December is not the 1st; 12 November 2026 is a Thursday, not a Wednesday
-        `2026-12-02,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
-        `2026-11-12,Repeating transfer,Wallet,Visa,10.00,MYR,,,,"Weekly, day 3",${ID}`,
-        `soon,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
-        `2026-12-01,Repeating spent,Wallet,,0.00,MYR,Food,,,"Monthly, day 1",${ID}`,
-        `2026-12-01,Repeating spent,Wallet,,-10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
-        `2026-12-01,Repeating transfer,Wallet,,10.00,MYR,,,,"Monthly, day 1",${ID}`,
-        `2026-12-01,Repeating spent,,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
-        `2026-12-01,Repeating,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
-        `2026-12-01,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-02,,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-11-12,,Repeating transfer,Wallet,Visa,10.00,MYR,,,,"Weekly, day 3",${ID}`,
+        `soon,,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,,Repeating spent,Wallet,,0.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,,Repeating spent,Wallet,,-10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,,Repeating transfer,Wallet,,10.00,MYR,,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,,Repeating spent,,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,,Repeating,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
+        `2026-12-01,,Repeating spent,Wallet,,10.00,MYR,Food,,,"Monthly, day 1",${ID}`,
       ),
       NOW,
     );

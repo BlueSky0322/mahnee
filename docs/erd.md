@@ -190,7 +190,9 @@ erDiagram
   out, summed when read. Indexed for an account's newest first, by day and then time
   (by `account_id`; the transfers into an account are found by scanning the person's rows)
   and for a month across accounts. `time` is the time of day on the person's clock when
-  they add times, null otherwise (and for everything from before). `import_id` names the
+  they add times ("Ask for a time"), null otherwise (and for everything from before); lists
+  order a day's rows by it, latest first, those with none after (`ifnull(time, '')`), then
+  by when saved and id, and the place a page carries on from names all four. `import_id` names the
   import it came in with; triggers refuse one that isn't the person's own (SQLite can't
   add a foreign key with the email to an existing table), and are indexed to undo one.
 - **`budgets`**: a monthly amount a person means to spend in a top-level spending

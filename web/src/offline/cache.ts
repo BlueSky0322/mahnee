@@ -8,8 +8,11 @@ import { quietly } from '../utils/quietly';
 // known who that is, so a different person on the same browser never sees the previous
 // person's data.
 
-/** The page that was open last, reopened on a fresh start (see hooks/useRoute) */
-export const LAST_PAGE_KEY = 'mahnee:lastPage';
+/**
+ * The page a fresh start opens on ("Open the app on"), as { email, start }: that account's
+ * choice, used only while it's the one last signed in here (see hooks/useRoute)
+ */
+export const START_SCREEN_KEY = 'mahnee:startScreen';
 /** Who last signed in on this device, assumed while the server can't say */
 export const LAST_EMAIL_KEY = 'mahnee:lastEmail';
 /**
@@ -142,17 +145,28 @@ export const listCacheIds = async (prefix: string): Promise<string[]> =>
     .filter((k): k is string => typeof k === 'string' && k.startsWith(prefix))
     .map((k) => k.slice(prefix.length));
 
+/** Whose the kept page to open on is, or null */
+function keptFor(text: string): string | null {
+  const kept = quietly(() => JSON.parse(text) as unknown);
+  return typeof kept === 'object' &&
+    kept != null &&
+    typeof (kept as { email?: unknown }).email === 'string'
+    ? (kept as { email: string }).email
+    : null;
+}
+
 /**
  * Call once the signed-in email is known; someone else's cache is dropped
  */
 export async function setCacheUser(email: string): Promise<void> {
   if (lastEmail() !== email) {
-    // The page open now is this person's own: keep it when nobody was signed in before
-    const page = lastEmail() == null ? quietly(() => localStorage.getItem(LAST_PAGE_KEY)) : null;
+    // The page to open on is kept when it's this person's own (nobody was signed in before)
+    const start =
+      lastEmail() == null ? quietly(() => localStorage.getItem(START_SCREEN_KEY)) : null;
     // What the last account hasn't sent yet stays, theirs alone, for when they're back
     await clearCache(() => true);
     quietly(() => {
-      if (page != null) localStorage.setItem(LAST_PAGE_KEY, page);
+      if (start != null && keptFor(start) === email) localStorage.setItem(START_SCREEN_KEY, start);
       localStorage.setItem(LAST_EMAIL_KEY, email);
     });
   }
@@ -218,8 +232,8 @@ export async function clearCache(
   forgetters.forEach((forget) => forget());
   quietly(() => {
     localStorage.removeItem(LAST_EMAIL_KEY);
-    // The page they had open is theirs too
-    localStorage.removeItem(LAST_PAGE_KEY);
+    // The page they open on is theirs too
+    localStorage.removeItem(START_SCREEN_KEY);
   });
   await quietlyAsync(() => clearExceptUnsent(keepUnsentOf));
 }

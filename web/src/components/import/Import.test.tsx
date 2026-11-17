@@ -625,7 +625,7 @@ describe("Mahnee's own export", () => {
   const comparable = (text: string) =>
     text
       .replace(/,[0-9a-f]{16}\r\n/g, '\r\n')
-      .replace(/^\d{4}-\d{2}-\d{2},Opening balance,/gm, 'added,Opening balance,');
+      .replace(/^\d{4}-\d{2}-\d{2},,Opening balance,/gm, 'added,,Opening balance,');
 
   test.each(SIZES)(
     'imported into a fresh account, restores everything: exported again, it matches (%s)',
@@ -859,8 +859,8 @@ describe("repeating bills in Mahnee's export", () => {
         await (await exportFromSettings(files)).arrayBuffer(),
       );
       // Each running one has its line, in the order they were set up; the stopped one has none
-      const rent = `2026-12-01,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${'1'.repeat(16)}\r\n`;
-      const salary = `2026-10-25,Repeating received,Wallet,,5000.00,MYR,Salary,,Salary,"Monthly, day 25",${'3'.repeat(16)}\r\n`;
+      const rent = `2026-12-01,,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${'1'.repeat(16)}\r\n`;
+      const salary = `2026-10-25,,Repeating received,Wallet,,5000.00,MYR,Salary,,Salary,"Monthly, day 25",${'3'.repeat(16)}\r\n`;
       expect(original).toContain(rent + salary);
       expect(original).not.toMatch(/Gym/);
 
@@ -951,7 +951,7 @@ describe("repeating bills in Mahnee's export", () => {
       const file =
         CSV_BOM +
         csvLine(EXPORT_COLUMNS) +
-        `2026-12-01,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${'4'.repeat(16)}\r\n`;
+        `2026-12-01,,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${'4'.repeat(16)}\r\n`;
       await pickFile(user, csv(file, 'mahnee-2026-11-06.csv'));
       await screen.findByText(/Mahnee export/);
       await user.click(await screen.findByRole('button', { name: /^Add \d/ }));
@@ -1007,7 +1007,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
     payee = 'Rent',
     schedule = '"Monthly, day 1"',
   } = {}) =>
-    `${date},Repeating ${kind},${account},${to},${amount},MYR,${category},${parent},${payee},${schedule},${'1'.repeat(16)}`;
+    `${date},,Repeating ${kind},${account},${to},${amount},MYR,${category},${parent},${payee},${schedule},${'1'.repeat(16)}`;
   const fileOf = (...lines: string[]) =>
     csv(
       CSV_BOM + csvLine(EXPORT_COLUMNS) + lines.map((l) => `${l}\r\n`).join(''),
@@ -1046,7 +1046,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
         await (await exportFromSettings(files)).arrayBuffer(),
       );
       expect(original).toContain(
-        '2026-11-23,Repeating spent,Maybank,,1200.00,MYR,Bills,,Gym,"Weekly, day 1"',
+        '2026-11-23,,Repeating spent,Maybank,,1200.00,MYR,Bills,,Gym,"Weekly, day 1"',
       );
 
       await closeApp();

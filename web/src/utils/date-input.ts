@@ -7,6 +7,16 @@ const pad = (n: number) => String(n).padStart(2, '0');
 export const toDateInput = (d: Date) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
+/** The time of day `d` is at, as a time input reads and writes it ("20:12"), in local time */
+export const toTimeInput = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+/** A time of day ("20:12") as the app shows it: "8:12 PM" */
+export function clockText(time: string) {
+  const [hours, minutes] = time.split(':').map(Number);
+  const twelve = hours % 12 === 0 ? 12 : hours % 12;
+  return `${twelve}:${pad(minutes)} ${hours < 12 ? 'AM' : 'PM'}`;
+}
+
 /** The start of the day a date input holds, or null when it doesn't hold one */
 export const fromDateInput = (text: string) => {
   const [y, m, d] = text.split('-').map(Number);

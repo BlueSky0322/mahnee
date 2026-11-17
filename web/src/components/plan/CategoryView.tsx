@@ -12,6 +12,7 @@ import { budgetLines } from '../../ledger/budgets';
 import { change } from '../../ledger/ledger';
 import { rollUp, rollUpEntries } from '../../ledger/derive';
 import { useMonthSummary, useMonthTrend, useWholeLedger } from '../../ledger/useLedger';
+import { useProfile } from '../../profile/ProfileContext';
 import { categoryColour } from '../../utils/category-colour';
 import { monthHeading, monthLabel } from '../../utils/date-input';
 import { formatAmount, formatMoney } from '../../utils/money';
@@ -435,6 +436,8 @@ function BudgetField({
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const hintId = useId();
+  // A budget set where there was none carries over as "Carry over, for new budgets" says
+  const carryForNew = useProfile().profile?.settings.carryOverDefault ?? false;
   const shownText = typed ?? (budget == null ? '' : budgetText(budget.amountCents));
 
   useEffect(() => {
@@ -461,7 +464,7 @@ function BudgetField({
     setTyped(null);
     // Left as it was: nothing to send
     if (read.cents === (budget?.amountCents ?? null)) return;
-    set(read.cents, read.cents == null ? false : budget?.carryOver ?? false);
+    set(read.cents, read.cents == null ? false : budget?.carryOver ?? carryForNew);
   };
 
   return (

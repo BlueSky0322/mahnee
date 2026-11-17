@@ -107,17 +107,21 @@ describe.each(['light', 'dark'] as const)('the %s theme', (theme) => {
     );
   });
 
-  // Every stored accent is drawn cobalt until the accent setting is rebuilt. Pieces 11 and
-  // 13 own changing the green case: there a stored green maps to green (the owner's
-  // interpretation), and they amend this expectation in their own change.
-  test.each(ACCENTS)(
-    'a primary button is filled with cobalt, with the accent saved as %s',
-    async (accent) => {
-      const button = await openIn(theme, accent);
-      expect(background(button)).toBe(TOKENS[theme]['--accent']);
-      expect(textColour(button)).toBe(TOKENS[theme]['--accent-ink']);
-    },
-  );
+  // Each saved accent fills primary buttons in its own colour (Look and start, R-Set-Look):
+  // the light shades are the design's swatches, the dark ones (but Cobalt's) this change's
+  // own. Owner decision D14 built the accent setting; until then every accent was cobalt.
+  const ACCENT_FILLS = {
+    cobalt: { light: '#2d4bd8', dark: '#93a5ff' },
+    green: { light: '#1b7a52', dark: '#6cc59a' },
+    plum: { light: '#8a3c8f', dark: '#d494d8' },
+    rust: { light: '#b04a1c', dark: '#f0956a' },
+    graphite: { light: '#3f4248', dark: '#c4c6cd' },
+  } as const;
+  test.each(ACCENTS)('a primary button is filled with the accent saved, %s', async (accent) => {
+    const button = await openIn(theme, accent);
+    await waitFor(() => expect(background(button)).toBe(ACCENT_FILLS[accent][theme]));
+    expect(textColour(button)).toBe(TOKENS[theme]['--accent-ink']);
+  });
 
   test("a sheet's primary button is filled the same way", async () => {
     const sheet = await openAddAccount(theme);

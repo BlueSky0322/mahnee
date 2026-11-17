@@ -20,7 +20,7 @@ describe('export lines', () => {
       createdAt: Date.UTC(2026, 0, 3, 23, 59),
     });
     expect(csvLine(owed)).toBe(
-      `2026-01-03,Opening balance,'-Old card,,-320.05,MYR,,,,,${'a'.repeat(16)}\r\n`,
+      `2026-01-03,,Opening balance,'-Old card,,-320.05,MYR,,,,,${'a'.repeat(16)}\r\n`,
     );
   });
 });
@@ -90,10 +90,10 @@ describe('repeating lines', () => {
       names,
     );
     expect(lines).toBe(
-      `2026-12-15,Repeating spent,Maybank,,1200.50,MYR,Coffee,Food,Rent,"Monthly, day 15",${'1'.repeat(16)}\r\n` +
+      `2026-12-15,,Repeating spent,Maybank,,1200.50,MYR,Coffee,Food,Rent,"Monthly, day 15",${'1'.repeat(16)}\r\n` +
         // The amount stays unsigned, and a payee a spreadsheet would run gets a '
-        `2026-10-25,Repeating received,Maybank,,5000.00,MYR,Salary,,'=Employer,"Monthly, day 25",${'3'.repeat(16)}\r\n` +
-        `2026-11-11,Repeating transfer,Maybank,Visa,300.00,MYR,,,,"Weekly, day 3",${'4'.repeat(16)}\r\n`,
+        `2026-10-25,,Repeating received,Maybank,,5000.00,MYR,Salary,,'=Employer,"Monthly, day 25",${'3'.repeat(16)}\r\n` +
+        `2026-11-11,,Repeating transfer,Maybank,Visa,300.00,MYR,,,,"Weekly, day 3",${'4'.repeat(16)}\r\n`,
     );
   });
 
@@ -150,7 +150,7 @@ describe('repeating lines', () => {
 describe('a file of some dates', () => {
   it('says on its own line that it holds only those days and cannot restore balances', () => {
     expect(csvLine(rangeCells({ from: '2026-10-01', to: '2026-10-31' }))).toBe(
-      '2026-10-01,Only these dates,,,,,,,,' +
+      '2026-10-01,,Only these dates,,,,,,,,' +
         "Entries from 2026-10-01 to 2026-10-31 only. It can't restore balances on its own.,\r\n",
     );
   });
@@ -166,7 +166,7 @@ describe('a file of some dates', () => {
     const table = parseCsv(
       csvLine(EXPORT_COLUMNS) +
         csvLine(rangeCells({ from: '2026-10-01', to: '2026-10-31' })) +
-        '2026-10-05,Spent,Wallet,,8.00,MYR,Food,,Kopi,,' +
+        '2026-10-05,,Spent,Wallet,,8.00,MYR,Food,,Kopi,,' +
         'a'.repeat(16) +
         '\r\n',
     );

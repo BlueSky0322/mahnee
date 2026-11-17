@@ -28,6 +28,8 @@ import {
   type Settings,
   type ThemeSetting,
 } from '@shared/api';
+import { rememberStartScreen } from '../hooks/useRoute';
+import { showAccent, showExpenseColour } from '../theme/appearance';
 import { showError } from '../utils/notify';
 import { quietly } from '../utils/quietly';
 
@@ -238,14 +240,20 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const { setColorScheme } = useMantineColorScheme();
 
   // Only touch the colour scheme when it changes: re-applying it on every settings change
-  // restyles the whole page. The accent is kept on the device too, though every accent is
-  // drawn cobalt for now (theme/theme.ts).
+  // restyles the whole page. The theme and accent are kept on the device too, so the next
+  // start paints in them before the profile loads.
   const applied = useRef<{ theme: ThemeSetting; accent: Accent } | null>(null);
   const apply = useCallback(
     (next: Profile) => {
-      const { theme, accent } = next.settings;
+      const { theme, expenseColour } = next.settings;
+      // One kept on the device from before the redesign's accents is drawn as the default
+      const accent = isAccent(next.settings.accent)
+        ? next.settings.accent
+        : DEFAULT_SETTINGS.accent;
+      showExpenseColour(expenseColour);
       if (applied.current?.theme === theme && applied.current?.accent === accent) return;
       if (applied.current?.theme !== theme) setColorScheme(theme);
+      if (applied.current?.accent !== accent) showAccent(accent);
       applied.current = { theme, accent };
       saveAppearance({ theme, accent });
     },
@@ -263,6 +271,14 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (profile != null) apply(profile);
   }, [profile, apply]);
+
+  // The page a fresh start opens on is kept for this account, and a start that opened on
+  // someone else's choice (or none yet) goes to theirs
+  const email = profile?.email ?? null;
+  const startScreen = profile?.settings.startScreen ?? null;
+  useEffect(() => {
+    if (email != null && startScreen != null) rememberStartScreen(email, startScreen);
+  }, [email, startScreen]);
 
   // Each change shows straight away. The server's reply only replaces what's on screen
   // if no newer change has been made since, so quick changes never jump back.

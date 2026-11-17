@@ -321,6 +321,7 @@ export function planExport(
         payee: r.payee,
         note: r.note,
         date: r.date,
+        ...(r.time != null && { time: r.time }),
       },
     });
   }

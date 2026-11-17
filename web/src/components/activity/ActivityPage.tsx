@@ -11,7 +11,7 @@ import { takeSearchFocus, useShortcuts } from '../../hooks/useShortcuts';
 import { change } from '../../ledger/ledger';
 import { useAccounts, useCategories, useSearch } from '../../ledger/useLedger';
 import type { Found as Totals } from '../../ledger/search-totals';
-import { dayHeading, toDateInput } from '../../utils/date-input';
+import { clockText, dayHeading, toDateInput } from '../../utils/date-input';
 import { showRefusal } from '../../utils/notify';
 import EntryTile from '../common/EntryTile';
 import { categoryName } from '../common/category-name';
@@ -456,7 +456,9 @@ export default function ActivityPage({ query }: { query: string }) {
         {isDesktop && open != null && paneTitle != null && (
           <aside
             className={classes.pane}
-            aria-label={`${paneTitle}, ${shortDay(open.date, today)}`}
+            aria-label={`${paneTitle}, ${shortDay(open.date, today)}${
+              open.time != null ? `, ${clockText(open.time)}` : ''
+            }`}
           >
             <EntryEditor
               key={open.id}
@@ -870,7 +872,10 @@ function Register({
                       onChange={() => onToggle(t.id)}
                     />
                   </td>
-                  <td className={classes.muted}>{shortDay(t.date, today)}</td>
+                  <td className={classes.muted}>
+                    {shortDay(t.date, today)}
+                    {t.time != null && `, ${clockText(t.time)}`}
+                  </td>
                   <td className={classes.payee}>
                     {/* Opens the row beside the register, from the keyboard too */}
                     <button

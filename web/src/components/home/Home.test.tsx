@@ -593,8 +593,8 @@ describe('what Home keeps and offers whatever loads first', () => {
     server.pathsDown.add('/api/accounts');
     renderApp(server, '/', { size: 'phone' });
     expect(await screen.findByText("Couldn't load your accounts.")).toBeTruthy();
+    // (The theme moved to Look and start, reached from here)
     expect(await screen.findByRole('link', { name: 'You and settings' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Switch to (light|dark) mode$/ })).toBeTruthy();
   });
 
   test.each(SIZES)("asks about what's due now, this month only (%s)", async (size) => {

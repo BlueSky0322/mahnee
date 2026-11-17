@@ -148,17 +148,33 @@ export const MAX_PAGE_SIZE = 200;
 const transactionColumns = (t = 'transactions') =>
   `${t}.id, ${t}.kind, ${t}.account_id AS accountId, ${t}.to_account_id AS toAccountId,
   ${t}.amount_cents AS amountCents, ${t}.category_id AS categoryId, ${t}.payee, ${t}.note,
-  ${t}.date, ${t}.created_at AS createdAt`;
+  ${t}.date, ${t}.time, ${t}.created_at AS createdAt`;
 
 /**
- * Where the next page starts: the last transaction's day, time saved and id, newest
- * first. Ties on the day and time are broken by id, so no transaction is skipped or
- * shown twice.
+ * Where the next page starts: the last transaction's day, its time of day ('' for none,
+ * which comes after any time), when it was saved and its id, newest first. Ties on all
+ * but the id are broken by id, so no transaction is skipped or shown twice.
  */
-const cursorOf = (t: Pick<Transaction, 'date' | 'createdAt' | 'id'>) =>
-  `${t.date}_${t.createdAt}_${t.id}`;
+const cursorOf = (t: Pick<Transaction, 'date' | 'time' | 'createdAt' | 'id'>) =>
+  `${t.date}_${t.time ?? ''}_${t.createdAt}_${t.id}`;
 
-const CURSOR_PATTERN = /^(\d{4}-\d{2}-\d{2})_(\d{1,15})_([0-9a-f]{16})$/;
+/** A place to carry on from; one written before times (day, saved, id) isn't one */
+const CURSOR_PATTERN =
+  /^(\d{4}-\d{2}-\d{2})_((?:[01]\d|2[0-3]):[0-5]\d|)_(\d{1,15})_([0-9a-f]{16})$/;
+
+/**
+ * The order lists are in: newest day first, then the latest time, those with none after
+ * (SQLite puts NULL last when sorting down, as ifnull(time, '') does), so the account's
+ * index serves it
+ */
+const NEWEST_FIRST = (t: string) =>
+  `${t}date DESC, ${t}time DESC, ${t}created_at DESC, ${t}id DESC`;
+
+/** What comes after a place to carry on from, in that order */
+const AFTER = (t: string) =>
+  `(${t}date, ifnull(${t}time, ''), ${t}created_at, ${t}id) < (?, ?, ?, ?)`;
+
+type Cursor = [string, string, number, string];
 const MONTH_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
 /**
@@ -200,14 +216,14 @@ export async function listTransactions(
   const cursor = readCursor(params);
   if (cursor === undefined) return fail('Unknown place to carry on from', 400);
   if (cursor != null) {
-    where.push('(date, created_at, id) < (?, ?, ?)');
+    where.push(AFTER(''));
     values.push(...cursor);
   }
   return pageOf(
     db.prepare(
       `SELECT ${transactionColumns()} FROM transactions
        WHERE ${where.join(' AND ')}
-       ORDER BY date DESC, created_at DESC, id DESC
+       ORDER BY ${NEWEST_FIRST('')}
        LIMIT ?`,
     ),
     values,
@@ -226,11 +242,11 @@ function readLimit(params: URLSearchParams): number | null {
  * Where to carry on from (?before=): its day, time saved and id; null for the start,
  * undefined when it isn't one
  */
-function readCursor(params: URLSearchParams): [string, number, string] | null | undefined {
+function readCursor(params: URLSearchParams): Cursor | null | undefined {
   const before = params.get('before');
   if (before == null) return null;
   const m = CURSOR_PATTERN.exec(before);
-  return m == null ? undefined : [m[1], Number(m[2]), m[3]];
+  return m == null ? undefined : [m[1], m[2], Number(m[3]), m[4]];
 }
 
 /** A page from `query`, which takes `values` and then how many (one more than `limit`) */
@@ -329,10 +345,7 @@ export async function searchTransactions(
   const from = `FROM transactions t
        LEFT JOIN categories c ON c.email = t.email AND c.id = t.category_id
        LEFT JOIN categories p ON p.email = c.email AND p.id = c.parent_id`;
-  const after = (at: [string, number, string]) => ({
-    sql: '(t.date, t.created_at, t.id) < (?, ?, ?)',
-    values: at,
-  });
+  const after = (at: Cursor) => ({ sql: AFTER('t.'), values: at });
   const pageWhere = [...where, ...days];
   const pageValues = [...values, ...dayValues];
   if (cursor != null) {
@@ -344,7 +357,7 @@ export async function searchTransactions(
     .prepare(
       `SELECT ${transactionColumns('t')} ${from}
        WHERE ${pageWhere.join(' AND ')}
-       ORDER BY t.date DESC, t.created_at DESC, t.id DESC
+       ORDER BY ${NEWEST_FIRST('t.')}
        LIMIT ?`,
     )
     .bind(...pageValues, limit + 1);
@@ -366,7 +379,7 @@ export async function searchTransactions(
   let rest = none;
   let restOfLastDay: SearchPage['restOfLastDay'] = null;
   if (last != null) {
-    const past = after([last.date, last.createdAt, last.id]);
+    const past = after([last.date, last.time ?? '', last.createdAt, last.id]);
     const sums = await db
       .prepare(
         `SELECT COUNT(*) AS entries,

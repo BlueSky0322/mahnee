@@ -1326,6 +1326,7 @@ describe('transactions', () => {
       payee: 'Kopi Corner',
       note: null,
       date: DAY,
+      time: null,
       createdAt: expect.any(Number),
     });
 
@@ -1431,6 +1432,7 @@ describe('transactions', () => {
       payee: 'TNG top-up',
       note: null,
       date: DAY,
+      time: null,
       createdAt: expect.any(Number),
     };
     // On both accounts' pages, and once in the month beside the spending
@@ -2664,7 +2666,7 @@ describe('transactions', () => {
 
   describe('the export file', () => {
     const HEADER =
-      'Date,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id\r\n';
+      'Date,Time,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id\r\n';
     /** The file as sent, its headers and its text with the byte-order mark kept */
     async function download(who: string) {
       const res = await api.raw(who, 'GET', '/api/export');
@@ -2724,17 +2726,17 @@ describe('transactions', () => {
       expect(file.text).toBe(
         '\uFEFF' +
           HEADER +
-          `${added},Opening balance,Purse,,100.00,MYR,,,,,${wallet}\r\n` +
-          `${added},Opening balance,Maybank,,0.00,MYR,,,,,${bank}\r\n` +
+          `${added},,Opening balance,Purse,,100.00,MYR,,,,,${wallet}\r\n` +
+          `${added},,Opening balance,Maybank,,0.00,MYR,,,,,${bank}\r\n` +
           // A negative amount stays a number: no ' in front of it
-          `${added},Opening balance,Old card,,-320.00,MYR,,,,,${card}\r\n` +
-          `${added},Opening balance,Savings,,1500.00,MYR,,,,,${savings}\r\n` +
-          `2025-09-15,Spent,Old card,,0.05,MYR,Transport,,,,${early}\r\n` +
-          `2025-10-01,Spent,Purse,,8.00,MYR,Food,,"Kopi, ""Corner""\nSS2",,${kopi}\r\n` +
+          `${added},,Opening balance,Old card,,-320.00,MYR,,,,,${card}\r\n` +
+          `${added},,Opening balance,Savings,,1500.00,MYR,,,,,${savings}\r\n` +
+          `2025-09-15,,Spent,Old card,,0.05,MYR,Transport,,,,${early}\r\n` +
+          `2025-10-01,,Spent,Purse,,8.00,MYR,Food,,"Kopi, ""Corner""\nSS2",,${kopi}\r\n` +
           // A cell a spreadsheet would run as a formula starts with ' instead
-          `2025-10-02,Received,Maybank,,5000.00,MYR,Salary,,"'=HYPERLINK(""x"")",October,${pay}\r\n` +
-          `2025-10-03,Transfer,Maybank,Purse,100.00,MYR,,,,,${topUp}\r\n` +
-          `2025-10-04,Spent,Purse,,1234.50,MYR,Coffee,Food,,'-RM5 off,${latte}\r\n`,
+          `2025-10-02,,Received,Maybank,,5000.00,MYR,Salary,,"'=HYPERLINK(""x"")",October,${pay}\r\n` +
+          `2025-10-03,,Transfer,Maybank,Purse,100.00,MYR,,,,,${topUp}\r\n` +
+          `2025-10-04,,Spent,Purse,,1234.50,MYR,Coffee,Food,,'-RM5 off,${latte}\r\n`,
       );
       expect(await summary(me)).toEqual({
         transactions: 5,
@@ -3222,11 +3224,11 @@ describe('transactions', () => {
       expect(file.headers.get('Cache-Control')).toBe('no-store');
       expect(file.text).toBe(
         '﻿' +
-          'Date,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id\r\n' +
-          '2025-01-01,Only these dates,,,,,,,,' +
+          'Date,Time,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id\r\n' +
+          '2025-01-01,,Only these dates,,,,,,,,' +
           "Entries from 2025-01-01 to 2025-06-30 only. It can't restore balances on its own.,\r\n" +
-          `2025-01-01,Spent,Wallet,,12.00,MYR,Food,,Kopi,,${ids[1]}\r\n` +
-          `2025-06-30,Transfer,Wallet,Bank,30.00,MYR,,,,,${ids[2]}\r\n`,
+          `2025-01-01,,Spent,Wallet,,12.00,MYR,Food,,Kopi,,${ids[1]}\r\n` +
+          `2025-06-30,,Transfer,Wallet,Bank,30.00,MYR,,,,,${ids[2]}\r\n`,
       );
     });
 
@@ -3270,7 +3272,7 @@ describe('transactions', () => {
       const other = person('other');
       const file = await download(other, 'from=2025-01-01&to=2025-12-31');
       expect(file.text.split('\r\n').slice(1, -1)).toEqual([
-        '2025-01-01,Only these dates,,,,,,,,' +
+        '2025-01-01,,Only these dates,,,,,,,,' +
           "Entries from 2025-01-01 to 2025-12-31 only. It can't restore balances on its own.,",
       ]);
     });
@@ -3357,6 +3359,7 @@ describe('transactions', () => {
         payee: null,
         note: 'top-up',
         date: '2025-09-06',
+        time: null,
         createdAt: expect.any(Number),
       });
     });
@@ -3875,6 +3878,193 @@ describe('transactions', () => {
       expect((await listed(me, wallet)).map((t) => t.id)).toHaveLength(5);
     });
   });
+
+  // "Ask for a time" (owner decision D20): an entry may carry a time of day on the person's
+  // own clock (08:12), shown with it and sorting by it within its day; with none it's as
+  // before. The export writes it beside the date.
+  describe('times on entries', () => {
+    it('keeps a time given, and none when none is, whatever Ask for a time says', async () => {
+      const { me, wallet } = await withWallet();
+      // The setting is Add's question alone: the server keeps a time it's given
+      expect((await api.call(me, 'GET', '/api/me')).data.settings.askForTime).toBe(false);
+      const [timed, plain] = [rowId(), rowId()];
+      expect(
+        (await send(me, [add(timed, wallet, 800, { time: '08:12' }), add(plain, wallet, 500)]))
+          .status,
+      ).toBe(200);
+      const byId = Object.fromEntries((await listed(me, wallet)).map((t) => [t.id, t]));
+      expect(byId[timed]).toMatchObject({ date: DAY, time: '08:12' });
+      expect(byId[plain]).toMatchObject({ date: DAY, time: null });
+    });
+
+    it.each([['8:12'], ['24:00'], ['12:60'], ['08:12:00'], [812], ['']])(
+      'refuses a time it cannot read (%s), and saves nothing in the batch',
+      async (time) => {
+        const { me, wallet } = await withWallet();
+        const res = await send(me, [
+          add(rowId(), wallet, 500),
+          add(rowId(), wallet, 800, { time }),
+        ]);
+        expect(res).toEqual({ status: 400, data: { error: 'Invalid time' } });
+        expect(await listed(me, wallet)).toEqual([]);
+      },
+    );
+
+    it('changes a time, and takes it away', async () => {
+      const { me, wallet } = await withWallet();
+      const coffee = rowId();
+      await send(me, [add(coffee, wallet, 800)]);
+      expect(
+        (await send(me, [{ op: 'updateTransaction', id: coffee, time: '21:40' }])).status,
+      ).toBe(200);
+      expect((await listed(me, wallet))[0]).toMatchObject({ time: '21:40' });
+      expect((await send(me, [{ op: 'updateTransaction', id: coffee, time: null }])).status).toBe(
+        200,
+      );
+      expect((await listed(me, wallet))[0]).toMatchObject({ time: null });
+      expect((await send(me, [{ op: 'updateTransaction', id: coffee, time: '9pm' }])).data).toEqual(
+        { error: 'Invalid time' },
+      );
+    });
+
+    /** Four on one day, saved out of order: 07:05, 20:12, none, 12:30; one the day before */
+    async function aDay() {
+      const { me, wallet } = await withWallet();
+      const [breakfast, dinner, untimed, lunch, before] = [
+        rowId(),
+        rowId(),
+        rowId(),
+        rowId(),
+        rowId(),
+      ];
+      // One batch each, so each is saved after the one before
+      for (const change of [
+        add(breakfast, wallet, 100, { time: '07:05' }),
+        add(dinner, wallet, 100, { time: '20:12' }),
+        add(untimed, wallet, 100),
+        add(lunch, wallet, 100, { time: '12:30' }),
+        add(before, wallet, 100, { date: '2025-10-13', time: '23:59' }),
+      ]) {
+        expect((await send(me, [change])).status).toBe(200);
+      }
+      return { me, wallet, order: [dinner, lunch, breakfast, untimed, before] };
+    }
+
+    it("lists a day's entries by their time, latest first, those with none after", async () => {
+      const { me, wallet, order } = await aDay();
+      expect((await listed(me, wallet)).map((t) => t.id)).toEqual(order);
+      const month = await page(me, 'month=2025-10');
+      expect((month.data.transactions as { id: string }[]).map((t) => t.id)).toEqual(order);
+      const found = await api.call(me, 'GET', '/api/search?');
+      expect((found.data.transactions as { id: string }[]).map((t) => t.id)).toEqual(order);
+    });
+
+    it('pages through them one at a time in the same order, none twice or skipped', async () => {
+      const { me, wallet, order } = await aDay();
+      for (const query of [`account=${wallet}`, 'month=2025-10']) {
+        const seen: string[] = [];
+        let before: string | null = null;
+        do {
+          const res = await page(
+            me,
+            `${query}&limit=1${before == null ? '' : `&before=${encodeURIComponent(before)}`}`,
+          );
+          expect(res.status).toBe(200);
+          seen.push(...(res.data.transactions as { id: string }[]).map((t) => t.id));
+          before = res.data.nextBefore as string | null;
+        } while (before != null && seen.length < 10);
+        expect(seen).toEqual(order);
+      }
+      const seen: string[] = [];
+      let before: string | null = null;
+      do {
+        const res = await api.call(
+          me,
+          'GET',
+          `/api/search?limit=1${before == null ? '' : `&before=${encodeURIComponent(before)}`}`,
+        );
+        expect(res.status).toBe(200);
+        seen.push(...(res.data.transactions as { id: string }[]).map((t) => t.id));
+        before = res.data.nextBefore as string | null;
+      } while (before != null && seen.length < 10);
+      expect(seen).toEqual(order);
+    });
+
+    /**
+     * Ties at every place a page can end: two at the same time saved apart (A then B), two at
+     * the same time saved together (C and E, the id decides), two with no time saved apart
+     * (U1 then U2), and one with no time the day before (P)
+     */
+    async function ties() {
+      const { me, wallet } = await withWallet();
+      const [a, b, c, e, u1, u2, p] = Array.from({ length: 7 }, () => rowId());
+      for (const changes of [
+        [add(a, wallet, 100, { time: '09:00' })],
+        [add(b, wallet, 100, { time: '09:00' })],
+        [add(c, wallet, 100, { time: '08:00' }), add(e, wallet, 100, { time: '08:00' })],
+        [add(u1, wallet, 100)],
+        [add(u2, wallet, 100)],
+        [add(p, wallet, 100, { date: '2025-10-13' })],
+      ]) {
+        expect((await send(me, changes)).status).toBe(200);
+      }
+      return { me, wallet, order: [b, a, e, c, u2, u1, p] };
+    }
+
+    /** Every id a read gives, a page of `limit` at a time, as the app carries on */
+    async function pageThrough(me: string, path: string, limit: number) {
+      const seen: string[] = [];
+      let before: string | null = null;
+      for (let pages = 0; pages < 20; pages++) {
+        const res = await api.call(
+          me,
+          'GET',
+          `${path}&limit=${limit}${before == null ? '' : `&before=${encodeURIComponent(before)}`}`,
+        );
+        expect(res.status).toBe(200);
+        seen.push(...(res.data.transactions as { id: string }[]).map((t) => t.id));
+        before = res.data.nextBefore as string | null;
+        if (before == null) break;
+      }
+      return seen;
+    }
+
+    it.each([1, 2])(
+      'pages through ties %s at a time, in order, none twice or skipped',
+      async (limit) => {
+        const { me, wallet, order } = await ties();
+        expect(await pageThrough(me, `/api/transactions?account=${wallet}`, limit)).toEqual(order);
+        expect(await pageThrough(me, '/api/transactions?month=2025-10', limit)).toEqual(order);
+        expect(await pageThrough(me, '/api/search?', limit)).toEqual(order);
+      },
+    );
+
+    it('refuses a place to carry on from written before times (day, saved, id)', async () => {
+      const { me, wallet } = await ties();
+      const old = `${DAY}_${Date.now()}_${'c'.repeat(16)}`;
+      for (const path of [`/api/transactions?account=${wallet}`, '/api/search?']) {
+        const res = await api.call(me, 'GET', `${path}&before=${encodeURIComponent(old)}`);
+        expect(res).toEqual({ status: 400, data: { error: 'Unknown place to carry on from' } });
+      }
+    });
+
+    it('writes the time beside the date in the export', async () => {
+      const { me, wallet } = await withWallet();
+      const [timed, plain] = [rowId(), rowId()];
+      await send(me, [
+        add(timed, wallet, 800, { time: '08:12', date: '2025-10-01' }),
+        add(plain, wallet, 500, { date: '2025-10-02' }),
+      ]);
+      const res = await api.raw(me, 'GET', '/api/export');
+      const text = new TextDecoder().decode(await res.arrayBuffer());
+      const lines = text.split('\r\n');
+      expect(lines[0]).toBe(
+        'Date,Time,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id',
+      );
+      expect(lines).toContain(`2025-10-01,08:12,Spent,Wallet,,8.00,MYR,Food,,,,${timed}`);
+      expect(lines).toContain(`2025-10-02,,Spent,Wallet,,5.00,MYR,Food,,,,${plain}`);
+    });
+  });
 });
 
 describe('recurring', () => {
@@ -4066,7 +4256,7 @@ describe('recurring', () => {
     expect(await send(me, [log], [changeId])).toEqual({ status: 200, data: { ok: true } });
     expect(await balance(me, bank)).toBe(300_000 - 120_000);
     expect(await listed(me, bank)).toEqual([
-      { ...logged(t, bank, '2025-11-01'), createdAt: expect.any(Number) },
+      { ...logged(t, bank, '2025-11-01'), time: null, createdAt: expect.any(Number) },
     ]);
     expect(await nextDue(me, rent)).toBe('2025-12-01');
 
@@ -4667,7 +4857,7 @@ describe('recurring', () => {
 
   describe('in the export file', () => {
     const HEADER =
-      'Date,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id\r\n';
+      'Date,Time,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id\r\n';
     const download = async (who: string) => {
       const res = await api.raw(who, 'GET', '/api/export');
       expect(res.status).toBe(200);
@@ -4713,12 +4903,12 @@ describe('recurring', () => {
       expect(await download(me)).toBe(
         '﻿' +
           HEADER +
-          `${added},Opening balance,Maybank,,3000.00,MYR,,,,,${bank}\r\n` +
-          `${added},Opening balance,Visa,,0.00,MYR,,,,,${card}\r\n` +
-          `2025-11-25,Repeating received,Maybank,,5000.00,MYR,Salary,,Employer,"Monthly, day 25",${pay}\r\n` +
-          `2025-11-01,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${rent}\r\n` +
-          `2025-12-31,Repeating transfer,Maybank,Visa,300.00,MYR,,,,"Weekly, day 3",${topUp}\r\n` +
-          `2025-10-01,Spent,Maybank,,1200.00,MYR,Bills,,Rent,,${paid}\r\n`,
+          `${added},,Opening balance,Maybank,,3000.00,MYR,,,,,${bank}\r\n` +
+          `${added},,Opening balance,Visa,,0.00,MYR,,,,,${card}\r\n` +
+          `2025-11-25,,Repeating received,Maybank,,5000.00,MYR,Salary,,Employer,"Monthly, day 25",${pay}\r\n` +
+          `2025-11-01,,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${rent}\r\n` +
+          `2025-12-31,,Repeating transfer,Maybank,Visa,300.00,MYR,,,,"Weekly, day 3",${topUp}\r\n` +
+          `2025-10-01,,Spent,Maybank,,1200.00,MYR,Bills,,Rent,,${paid}\r\n`,
       );
       // The dialog's counts are of transactions, accounts and categories, as before
       expect((await api.call(me, 'GET', '/api/export/summary')).data).toEqual({

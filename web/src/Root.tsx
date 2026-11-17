@@ -7,17 +7,16 @@ import { Notifications } from '@mantine/notifications';
 import '@mantine/notifications/styles.css';
 import { IconContext } from '@phosphor-icons/react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import App from './App';
 import classes from './Root.module.css';
 import './index.css';
 import { ProfileProvider, readAppearance } from './profile/ProfileContext';
 import { syncStatusBar } from './pwa/launch-screen';
 import { queryClient } from './query-client';
+import { showAccent, useAccent } from './theme/appearance';
 import { buildTheme, cssVariablesResolver } from './theme/theme';
 import './theme/tokens.css';
-
-const theme = buildTheme();
 
 /** The phone's status bar follows the theme the app is showing */
 function StatusBar() {
@@ -32,7 +31,14 @@ function StatusBar() {
 
 export function Root() {
   // What this device saved, so the app paints in the right colours before the profile loads
-  const [initialAppearance] = useState(readAppearance);
+  const [initialAppearance] = useState(() => {
+    const saved = readAppearance();
+    showAccent(saved.accent);
+    return saved;
+  });
+  // Mantine's own accent (a switch turned on, a focus ring) follows the one chosen
+  const accent = useAccent();
+  const theme = useMemo(() => buildTheme(accent), [accent]);
 
   return (
     <MantineProvider

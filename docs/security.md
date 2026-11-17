@@ -102,6 +102,11 @@ hack-proof, and the limits below are real.
   changes: those stay on the device, under its email, unread and unsent until it signs
   in here again. Signing out asks first when changes are waiting, then drops the leaving
   account's own.
+- The place a fresh start opens on (Look and start's "Open the app on": Home, Activity or
+  Plan) is kept in `localStorage` with the account's email (`mahnee:startScreen`), used only
+  while that account is the one last signed in here, and cleared on signing out or when
+  another account signs in. It holds no figures or names. The theme and accent are kept
+  per device in `sf-appearance`, as before.
 - Hiding Home's Getting started is kept in `localStorage` as a flag alone
   (`getting-started-hidden:<email>`, no figures or names), under the account's email; it
   isn't cleared on signing out, since it holds nothing about the person's money.

@@ -42,25 +42,28 @@ describe('the app', () => {
     expect(await screen.findByText('Ryan')).toBeTruthy();
   });
 
-  test('the theme switch saves the choice with the account', async () => {
+  // The theme is chosen in Settings › Look and start (it was a switch on Home's header)
+  test('the theme chosen is saved with the account', async () => {
     const server = fakeServer();
     server.me.settings.theme = 'dark';
-    renderApp(server);
+    renderApp(server, '/?settings=look');
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('button', { name: 'Switch to light mode' }));
+    await user.click(await screen.findByRole('radio', { name: 'Light' }));
     await waitFor(() => expect(server.me.settings.theme).toBe('light'));
-    expect(await screen.findByRole('button', { name: 'Switch to dark mode' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'Light' }).getAttribute('aria-checked')).toBe('true');
   });
 
   test('a theme that could not be saved goes back, and says so', async () => {
     const server = fakeServer();
     server.me.settings.theme = 'dark';
     server.failNext.profile = 500;
-    renderApp(server);
+    renderApp(server, '/?settings=look');
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('button', { name: 'Switch to light mode' }));
+    await user.click(await screen.findByRole('radio', { name: 'Light' }));
     expect(await screen.findByText('Something went wrong. Try again in a moment.')).toBeTruthy();
-    expect(await screen.findByRole('button', { name: 'Switch to light mode' })).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Dark' }).getAttribute('aria-checked')).toBe('true'),
+    );
     expect(server.me.settings.theme).toBe('dark');
   });
 });

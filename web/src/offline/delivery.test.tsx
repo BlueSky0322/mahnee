@@ -368,11 +368,14 @@ describe('someone else signing in on this device', () => {
     expect(server.accounts.map((a) => a.name)).toEqual(['Wallet']);
     expect(await get(outboxKey(RYAN))).toMatchObject({ email: RYAN });
 
-    // Ryan is back: his change goes, as him
+    // Ryan is back: his change goes, as him, and stays on the device until the server answers
     server.me = { ...server.me, email: RYAN, displayName: 'Ryan' };
+    const answer = holdNext(server, 'POST', '/api/changes');
     await reloadApp(server, '/?accounts');
     expect(await row("Ryan's savings")).toBeTruthy();
     await waitFor(() => expect(server.accounts.map((a) => a.name)).toContain("Ryan's savings"));
-    expect(await keptForRyan()).toEqual([]);
+    expect(await keptForRyan()).toHaveLength(1);
+    answer.release();
+    await waitFor(async () => expect(await keptForRyan()).toEqual([]));
   });
 });

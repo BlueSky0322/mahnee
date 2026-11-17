@@ -1,5 +1,6 @@
 import type { Category, ImportRecord, Settings, StartScreen, ThemeSetting } from '@shared/api';
 import { DEFAULT_CURRENCY } from '@shared/ledger';
+import { clockText } from '../../utils/date-input';
 
 // What the Settings index says under each section (R-Settings), worked out from the
 // person's settings, categories and imports, and how a recent import reads (R-Set-Data,
@@ -50,11 +51,7 @@ export const lookSummary = (settings: Settings) =>
   `${THEME_NAMES[settings.theme]} · opens on ${START_NAMES[settings.startScreen]}`;
 
 /** A time on the person's clock (21:00) as the app shows it: "9:00 PM" */
-export function clockText(time: string) {
-  const [hours, minutes] = time.split(':').map(Number);
-  const twelve = hours % 12 === 0 ? 12 : hours % 12;
-  return `${twelve}:${String(minutes).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
-}
+export { clockText };
 
 /** "Carry over on · daily at 9:00 PM", or "… · no daily reminder" */
 export const budgetsSummary = (settings: Settings) =>

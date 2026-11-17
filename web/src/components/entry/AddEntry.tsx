@@ -25,7 +25,8 @@ import { lastUsed, recentCategoryIds, rememberUsed } from '../../ledger/last-use
 import { useAccounts, useCategories } from '../../ledger/useLedger';
 import { useProfile } from '../../profile/ProfileContext';
 import { categoryColour } from '../../utils/category-colour';
-import { dayHeading, isPastDay, toDateInput } from '../../utils/date-input';
+import { api } from '../../api';
+import { clockText, dayHeading, isPastDay, toDateInput, toTimeInput } from '../../utils/date-input';
 import { newId } from '../../utils/id';
 import { currencySymbol } from '../../utils/money';
 import { balanceText } from '../accounts/account-text';
@@ -33,7 +34,13 @@ import Key from '../ui/Key';
 import { useReturnFocus } from '../ui/return-focus';
 import type { AddDraft } from './add-draft';
 import { dropDraft, keepDraft, readDraft } from './add-draft';
-import { LIMIT_TEXT, listedCategories, recentCategories, saveLabel } from './add-text';
+import {
+  LIMIT_TEXT,
+  listedCategories,
+  recentCategories,
+  saveLabel,
+  suggestedPayees,
+} from './add-text';
 import type { NewCategory } from './CategoryPicker';
 import CategoryPicker from './CategoryPicker';
 import classes from './AddEntry.module.css';
@@ -191,6 +198,11 @@ function AddForm({
   const [made, setMade] = useState<NewCategory | null>(draft?.newCategory ?? null);
   const [payee, setPayee] = useState(draft?.payee ?? '');
   const [date, setDate] = useState<string | null>(draft?.date ?? null);
+  // Ask for a time: the time Add was opened, until another is typed; what the day says is
+  // what's saved
+  const askForTime = settings?.askForTime === true;
+  const [time, setTime] = useState(() => toTimeInput(new Date()));
+  const [timeTyped, setTimeTyped] = useState(time);
   const [repeat, setRepeat] = useState<Schedule | ''>(draft?.repeat ?? '');
   const [picking, setPicking] = useState<Picking>(
     draft == null && settings?.startWith === 'category' ? 'category' : null,
@@ -217,6 +229,10 @@ function AddForm({
     destinations.find((a) => a.id === remembered.toAccountId) ??
     destinations[0];
   const currency = account?.currency ?? DEFAULT_CURRENCY;
+  const suggestions = useSuggestions(
+    settings?.suggestAsYouType === true ? account?.id ?? null : null,
+  );
+  const suggestionsId = useId();
 
   // Categories: a new one being made, else the one picked, else the one used last, else the first
   const transfer = kind === 'transfer';
@@ -295,6 +311,7 @@ function AddForm({
       payee: readOptionalText(payee, MAX_PAYEE) ?? null,
       note: null,
       date: day,
+      ...(askForTime && { time }),
     };
     const changes: LedgerChange[] = [];
     if (!transfer && newCategory != null && categoryKind != null) {
@@ -534,6 +551,7 @@ function AddForm({
             aria-hidden
           />
           {dayOk ? dayHeading(day) : 'Day'}
+          {askForTime && dayOk && `, ${clockText(time)}`}
         </button>
         <button
           type="button"
@@ -561,6 +579,23 @@ function AddForm({
             onChange={(e) => {
               const value = e.currentTarget.value;
               setDate(value === today ? null : value);
+            }}
+          />
+        </label>
+      )}
+      {showDate && askForTime && (
+        <label className={classes.dateRow}>
+          <span>Time</span>
+          <input
+            type="time"
+            className={classes.input}
+            aria-label="Time"
+            value={timeTyped}
+            onChange={(e) => {
+              // Cleared part way while typing: the time stays as it was until it's whole
+              const typed = e.currentTarget.value;
+              setTimeTyped(typed);
+              if (/^\d{2}:\d{2}$/.test(typed)) setTime(typed);
             }}
           />
         </label>
@@ -634,12 +669,23 @@ function AddForm({
         value={payee}
         maxLength={MAX_PAYEE}
         autoComplete="off"
+        list={suggestions == null ? undefined : suggestionsId}
         onChange={(e) => setPayee(e.currentTarget.value)}
         onKeyDown={(e) => {
           // Enter in the note saves, as in any form, but only what can be saved
           if (e.key === 'Enter' && !savable) e.preventDefault();
         }}
       />
+      {suggestions != null && (
+        <datalist id={suggestionsId}>
+          {suggestions.map((name) => (
+            <option
+              key={name}
+              value={name}
+            />
+          ))}
+        </datalist>
+      )}
     </label>
   );
 
@@ -859,4 +905,25 @@ function KeypadKeys({ onPress }: { onPress: (key: KeypadKey) => void }) {
       ))}
     </div>
   );
+}
+
+/**
+ * The payees used before, to suggest as the payee is typed (Suggest as you type): read for
+ * the account Add is on, whose own come first; null while suggestions are off. Offline or
+ * failing, there are none.
+ */
+function useSuggestions(accountId: string | null): string[] | null {
+  const [payees, setPayees] = useState<string[]>([]);
+  useEffect(() => {
+    if (accountId == null) return;
+    let current = true;
+    api
+      .getPayeeCategories(accountId)
+      .then((answer) => current && setPayees(suggestedPayees(answer.payees)))
+      .catch(() => current && setPayees([]));
+    return () => {
+      current = false;
+    };
+  }, [accountId]);
+  return accountId == null ? null : payees;
 }

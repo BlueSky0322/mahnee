@@ -26,6 +26,7 @@ import { dayFor, isSchedule, nextAfter } from '@shared/recurring';
 import { navigate } from '../../hooks/useRoute';
 import { change } from '../../ledger/ledger';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
+import { useProfile } from '../../profile/ProfileContext';
 import { isPastDay, toDateInput } from '../../utils/date-input';
 import { newId } from '../../utils/id';
 import { currencySymbol, formatMoney } from '../../utils/money';
@@ -99,6 +100,9 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
       : {},
   );
   const [date, setDate] = useState(editing.date);
+  const [time, setTime] = useState(editing.time ?? '');
+  // The time of day, when Ask for a time is on or it has one
+  const showsTime = useProfile().profile?.settings.askForTime === true || editing.time != null;
   const [payee, setPayee] = useState(editing.payee ?? '');
   const [note, setNote] = useState(editing.note ?? '');
   const [more, setMore] = useState(editing.payee != null || editing.note != null);
@@ -148,6 +152,7 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
       payee: readOptionalText(payee, MAX_PAYEE) ?? null,
       note: readOptionalText(note, MAX_NOTE) ?? null,
       date,
+      ...(showsTime && { time: time === '' ? null : time }),
     };
 
     // Repeating from this one, on its day: first due on the next one after the person's
@@ -320,6 +325,14 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
         onChange={(e) => setDate(e.currentTarget.value)}
         error={dateError}
       />
+      {showsTime && (
+        <TextInput
+          type="time"
+          label="Time"
+          value={time}
+          onChange={(e) => setTime(e.currentTarget.value)}
+        />
+      )}
       <Button
         variant="subtle"
         color="gray"

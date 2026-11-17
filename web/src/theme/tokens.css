@@ -55,6 +55,50 @@
   color-scheme: dark;
 }
 
+/* The accent chosen in Look and start (cobalt above, until another is): its colour and
+   tint on each theme, the same shades as ACCENT_RAMPS in shared/accents.ts (6 and 1 light,
+   4 and 8 dark; settings/LookPage.test.tsx checks them against the swatches) */
+:root[data-accent='green'] {
+  --accent: #1b7a52;
+  --accent-tint: #eaf3ef;
+}
+:root[data-accent='green'][data-mantine-color-scheme='dark'] {
+  --accent: #6cc59a;
+  --accent-tint: #253530;
+}
+:root[data-accent='plum'] {
+  --accent: #8a3c8f;
+  --accent-tint: #f4edf5;
+}
+:root[data-accent='plum'][data-mantine-color-scheme='dark'] {
+  --accent: #d494d8;
+  --accent-tint: #362d3a;
+}
+:root[data-accent='rust'] {
+  --accent: #b04a1c;
+  --accent-tint: #f8efeb;
+}
+:root[data-accent='rust'][data-mantine-color-scheme='dark'] {
+  --accent: #f0956a;
+  --accent-tint: #3b2d28;
+}
+:root[data-accent='graphite'] {
+  --accent: #3f4248;
+  --accent-tint: #eeeeef;
+}
+:root[data-accent='graphite'][data-mantine-color-scheme='dark'] {
+  --accent: #c4c6cd;
+  --accent-tint: #343538;
+}
+
+/* Spending in ink, or in red when "Expenses in red" is chosen; income is always green */
+:root {
+  --expense: var(--ink);
+}
+:root[data-expenses='red'] {
+  --expense: var(--neg);
+}
+
 :root {
   /* A card's edge, drawn as a ring so it takes no room */
   --shadow-card: 0 0 0 1px var(--line);

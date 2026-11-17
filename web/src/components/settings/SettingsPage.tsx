@@ -26,7 +26,10 @@ import { useYou } from '../common/you';
 import Key from '../ui/Key';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import CategoriesPage from '../categories/CategoriesPage';
+import AddingPage from './AddingPage';
+import BudgetsPage from './BudgetsPage';
 import DataPage from './DataPage';
+import LookPage from './LookPage';
 import MyAccount from './MyAccount';
 import SectionPage from './SectionPage';
 import { SECTION_NAMES } from './settings-search';
@@ -84,6 +87,9 @@ function SectionContent({ section }: { section: SettingsSection }) {
   if (section === 'account') return <MyAccount />;
   if (section === 'categories') return <CategoriesPage />;
   if (section === 'data') return <DataPage />;
+  if (section === 'adding') return <AddingPage />;
+  if (section === 'look') return <LookPage />;
+  if (section === 'budgets') return <BudgetsPage />;
   return <SectionPage section={section} />;
 }
 

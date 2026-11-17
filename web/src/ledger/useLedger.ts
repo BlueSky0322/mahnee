@@ -41,6 +41,7 @@ import {
   subscribeUnsaved,
   unsavedState,
 } from './ledger';
+import { ApiError } from '../api';
 import { queryClient } from '../query-client';
 
 // The ledger for the screens that show it (see ledger.ts, which changes it)
@@ -141,6 +142,22 @@ export interface Transactions {
   loadingMore: boolean;
 }
 
+/**
+ * Loads the next page. One loaded before the server changed how it names where a page
+ * carries on from (entries gained a time) names it the old way, which the server refuses
+ * (400): the list is then read again from the top, the rows staying on screen meanwhile,
+ * and carries on from there
+ */
+async function loadNext(
+  fetchNextPage: () => Promise<{ isError: boolean; error: unknown }>,
+  refetch: () => Promise<{ isError: boolean }>,
+) {
+  const next = await fetchNextPage();
+  if (!next.isError || !(next.error instanceof ApiError) || next.error.status !== 400) return;
+  const again = await refetch();
+  if (!again.isError) await fetchNextPage();
+}
+
 /** An account's transactions, newest first, a page at a time */
 export function useAccountTransactions(accountId: string): Transactions {
   const key = accountTransactionsKey(accountId);
@@ -166,7 +183,7 @@ export function useAccountTransactions(accountId: string): Transactions {
     failed: isError && data == null,
     retry: () => void refetch(),
     hasMore: hasNextPage,
-    loadMore: () => void fetchNextPage(),
+    loadMore: () => void loadNext(fetchNextPage, refetch),
     loadingMore: isFetchingNextPage,
   };
 }
@@ -225,7 +242,7 @@ export function useSearch(query: SearchQuery, { enabled = true } = {}): Found {
     failed: isError && data == null,
     retry: () => void refetch(),
     hasMore: hasNextPage,
-    loadMore: () => void fetchNextPage(),
+    loadMore: () => void loadNext(fetchNextPage, refetch),
     loadingMore: isFetchingNextPage,
     loadAll,
   };

@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, test } from 'vitest';
 import {
-  LAST_PAGE_KEY,
+  START_SCREEN_KEY,
   assumeLastUser,
   clearCache,
   dropSignInMark,
@@ -37,13 +37,14 @@ describe('the device cache', () => {
     expect(await readCache('me-v2')).toEqual({ displayName: 'Ann' });
   });
 
-  test('the page open stays for the first sign-in, but not for a different account', async () => {
-    localStorage.setItem(LAST_PAGE_KEY, '?page=accounts');
+  test('the page to open on stays for the first sign-in, but not for a different account', async () => {
+    const kept = JSON.stringify({ email: 'ann@example.com', start: 'plan' });
+    localStorage.setItem(START_SCREEN_KEY, kept);
     await setCacheUser('ann@example.com');
-    expect(localStorage.getItem(LAST_PAGE_KEY)).toBe('?page=accounts');
+    expect(localStorage.getItem(START_SCREEN_KEY)).toBe(kept);
 
     await setCacheUser('ben@example.com');
-    expect(localStorage.getItem(LAST_PAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(START_SCREEN_KEY)).toBeNull();
   });
 
   test('offline, the last person here is assumed', async () => {

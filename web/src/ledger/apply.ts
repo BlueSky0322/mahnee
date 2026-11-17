@@ -141,19 +141,26 @@ function moveBalances(accounts: Account[], t: Transaction | null | undefined, by
   });
 }
 
-/** Newest first: by day, then when it was saved, then by id, as the server lists them */
+/**
+ * Newest first: by day, then the time of day (the latest first, none after any), then when
+ * it was saved, then by id, as the server lists them
+ */
 export const newestFirst = (a: Transaction, b: Transaction) =>
   a.date !== b.date
     ? a.date < b.date
       ? 1
       : -1
-    : a.createdAt !== b.createdAt
-      ? b.createdAt - a.createdAt
-      : a.id < b.id
+    : (a.time ?? '') !== (b.time ?? '')
+      ? (a.time ?? '') < (b.time ?? '')
         ? 1
-        : a.id > b.id
-          ? -1
-          : 0;
+        : -1
+      : a.createdAt !== b.createdAt
+        ? b.createdAt - a.createdAt
+        : a.id < b.id
+          ? 1
+          : a.id > b.id
+            ? -1
+            : 0;
 
 /**
  * Pages of a list of transactions (one account's, or a month's: those `belongs` keeps)

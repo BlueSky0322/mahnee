@@ -8,9 +8,9 @@ import { SectionHeader } from './SettingsPage';
 import { useSettingInView } from './setting-in-view';
 import classes from './Settings.module.css';
 
-// A section of Settings whose controls come later (Money, Adding entries, Look and start,
-// Budgets and reminders): each of its settings with what it's for and what it's set to,
-// so a search opens it with that setting in view
+// A section of Settings whose controls come later (Money, until month start lands): each of
+// its settings with what it's for and what it's set to, so a search opens it with that
+// setting in view
 export default function SectionPage({ section }: { section: SettingsSection }) {
   const { profile } = useProfile();
   const { accounts } = useAccounts();

@@ -10,7 +10,7 @@ import { notifications } from '@mantine/notifications';
 import { onlineManager } from '@tanstack/react-query';
 import { createElement } from 'react';
 import { afterEach, beforeEach, expect, onTestFinished, vi } from 'vitest';
-import { isTimeZone, readSettingChanges } from '@shared/settings';
+import { isTimeOfDay, isTimeZone, readSettingChanges } from '@shared/settings';
 import type {
   Settings,
   Account,
@@ -219,6 +219,12 @@ export interface FakeServer {
   pathsDown: Set<string>;
   /** Answers being held back until a test releases them (see holdNext) */
   held: { method: string; path: string; release: Promise<void> }[];
+  /**
+   * The next page of transactions or of a search names where it carries on from as the
+   * server did before entries had times (day, time saved, id), as a page kept from before
+   * the change does; the server then refuses it, as the real one does
+   */
+  oldCursorNext?: boolean;
 }
 
 /**
@@ -653,11 +659,30 @@ function payeeCategories(
   };
 }
 
-/** Newest first, as the real server lists them: by day, time saved, then id */
+/**
+ * Newest first, as the real server lists them: by day, then time of day (none after any),
+ * time saved, then id
+ */
 const newestFirst = (a: Transaction, b: Transaction) =>
-  b.date.localeCompare(a.date) || b.createdAt - a.createdAt || b.id.localeCompare(a.id);
+  b.date.localeCompare(a.date) ||
+  (b.time ?? '').localeCompare(a.time ?? '') ||
+  b.createdAt - a.createdAt ||
+  b.id.localeCompare(a.id);
 
-const cursorOf = (t: Transaction) => `${t.date}_${t.createdAt}_${t.id}`;
+const cursorOf = (t: Transaction) => `${t.date}_${t.time ?? ''}_${t.createdAt}_${t.id}`;
+
+/** Where a page carries on from, as the server writes it, or as it did before (oldCursorNext) */
+function nextCursor(server: FakeServer, t: Transaction) {
+  if (!server.oldCursorNext) return cursorOf(t);
+  server.oldCursorNext = false;
+  return `${t.date}_${t.createdAt}_${t.id}`;
+}
+
+/** A place to carry on from, as the real one writes it (day, time of day or none, saved, id) */
+const CURSOR = /^\d{4}-\d{2}-\d{2}_((?:[01]\d|2[0-3]):[0-5]\d|)_\d{1,15}_[0-9a-f]{16}$/;
+
+/** A transaction as the server answers with it: no time is null */
+const answered = (t: Transaction): Transaction => ({ ...t, time: t.time ?? null });
 
 /**
  * GET /api/transactions as the real one (worker/ledger/read.ts) answers: an account's
@@ -678,7 +703,7 @@ function listTransactions(
   }
   if (month != null && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return [400, 'Give a month'];
   const before = params.get('before');
-  if (before != null && !/^\d{4}-\d{2}-\d{2}_\d+_[0-9a-f]{16}$/.test(before)) {
+  if (before != null && !CURSOR.test(before)) {
     return [400, 'Unknown place to carry on from'];
   }
   const all = server.transactions
@@ -687,8 +712,9 @@ function listTransactions(
   const after = before == null ? all : all.filter((t) => isOlderThan(t, before));
   const transactions = after.slice(0, limit);
   return {
-    transactions: transactions.map((t) => ({ ...t })),
-    nextBefore: after.length > limit ? cursorOf(transactions[transactions.length - 1]) : null,
+    transactions: transactions.map(answered),
+    nextBefore:
+      after.length > limit ? nextCursor(server, transactions[transactions.length - 1]) : null,
   };
 }
 
@@ -708,7 +734,7 @@ function searchTransactions(
   const limit = Number(params.get('limit') ?? 50);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) return [400, 'Ask for 1-200'];
   const before = params.get('before');
-  if (before != null && !/^\d{4}-\d{2}-\d{2}_\d+_[0-9a-f]{16}$/.test(before)) {
+  if (before != null && !CURSOR.test(before)) {
     return [400, 'Unknown place to carry on from'];
   }
   if (query.account != null && !server.accounts.some((a) => a.id === query.account)) {
@@ -738,8 +764,8 @@ function searchTransactions(
         !matchesSearch(t, query, categories),
     ).length;
   return {
-    transactions: transactions.map((t) => ({ ...t })),
-    nextBefore: last != null ? cursorOf(last) : null,
+    transactions: transactions.map(answered),
+    nextBefore: last != null ? nextCursor(server, last) : null,
     rest: sum(beyond),
     restOfLastDay:
       last == null ? null : { date: last.date, ...sum(beyond.filter((t) => t.date === last.date)) },
@@ -749,8 +775,13 @@ function searchTransactions(
 
 /** Whether `t` comes after the transaction a cursor names, newest first */
 function isOlderThan(t: Transaction, cursor: string) {
-  const [date, createdAt, id] = cursor.split('_');
-  const named = { date, createdAt: Number(createdAt), id } as Transaction;
+  const [date, time, createdAt, id] = cursor.split('_');
+  const named = {
+    date,
+    time: time === '' ? null : time,
+    createdAt: Number(createdAt),
+    id,
+  } as Transaction;
   return newestFirst(named, t) < 0;
 }
 
@@ -1096,6 +1127,9 @@ function saveTransactionChange(
     createdAt: before?.createdAt ?? Date.now(),
   } as Transaction;
   if (!isRowId(next.id)) return [400, 'Invalid transaction id'];
+  if ('time' in given && given.time !== null && !isTimeOfDay(given.time)) {
+    return [400, 'Invalid time'];
+  }
   if (!isTransactionKind(next.kind)) return [400, 'Unknown kind of transaction'];
   const usable = (id: string) => {
     const account = accounts.find((a) => a.id === id);

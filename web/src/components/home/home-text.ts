@@ -147,3 +147,10 @@ export function budgetText(line: BudgetLine, at: PeriodDay, { short }: { short: 
     label: `${line.name}: ${percentOf(line.spentCents, line.availableCents)}% of budget spent, ${percentOf(at.day, at.days)}% of the month gone`,
   };
 }
+
+/**
+ * What Coming up lists when Home shows Essentials (owner decision D13): the next scheduled
+ * item, and every one whose amount is to check, in their order
+ */
+export const essentialRows = <T extends { toCheck: boolean }>(rows: readonly T[]): T[] =>
+  rows.filter((row, i) => i === 0 || row.toCheck);

@@ -50,15 +50,22 @@ offered; Home no longer has a card). Search (`components/settings/settings-searc
 static index; no server) finds a setting by its name, its line, or words not on it
 ("the month end" finds Main currency), name matches first, quoting what was found with the
 match marked; a result, or Enter for the first, opens `?settings=<section>&setting=<key>`
-with that setting in view and the keyboard on it. Money, Adding entries, Look and start
-and Budgets and reminders list their settings read-only for now (name, line, value);
-their controls come with month start (piece 12), the adding and look settings (13) and
-reminders (16). The theme switch on Home saves the account's choice of light or dark.
-The profile also holds a display name, an accent colour, where exchange rates come from,
-and the redesign's settings (week and month start, start screen, Home density, what Add
-asks first, the account Add starts on, suggestions, a time on entries, expense colour,
-carry-over for new budgets, reminders) with the person's time zone. The accent is kept but
-not drawn: every accent shows as the design's cobalt until the accent setting is offered.
+with that setting in view and the keyboard on it. Money lists its settings read-only for
+now (name, line, value) until month start (piece 12). Adding entries
+(`?settings=adding`): Start with (Amount or Category, what Add opens on), Account to use
+("Last used", or one of the accounts in use, picked from a list; one archived since reads
+as Last used), Suggest as you type (Add's payee field offers the payees used before, from
+`GET /api/payee-categories`, each once, the latest writing first, at most 200; notes aren't
+listed, Add has no note field) and Ask for a time (see Transactions). Look and start
+(`?settings=look`): Theme (Light, Dark, "Match phone", "Match device" on a computer),
+Accent (Cobalt, Green, Plum, Rust, Graphite), Expenses and income (spending in ink or red
+wherever entries are listed; income always green), Home shows (Essentials or Everything,
+see Home at a glance) and Open the app on (Home, Activity or Plan, see Pages). Budgets and
+reminders (`?settings=budgets`): "Carry over, for new budgets" (a switch; a budget set
+where there was none starts with it, see Budgets), then the reminder rows read-only until
+reminders are sent (piece 16). Each control saves at once through `rememberSettings`, put
+back with a message if it can't be saved. The profile also holds a display name and where
+exchange rates come from, with the person's time zone.
 The reminder line on the index shows the stored setting; reminders are sent only once
 piece 16 lands.
 
@@ -80,8 +87,14 @@ preference and explains a failure itself.
   [settings-text.ts](../web/src/components/settings/settings-text.ts) (summaries and
   values), [common/use-install-action.tsx](../web/src/components/common/use-install-action.tsx),
   [components/common/you.ts](../web/src/components/common/you.ts) (the name and initial),
-  [components/common/YouLink.tsx](../web/src/components/common/YouLink.tsx) and
-  [components/common/ThemeToggle.tsx](../web/src/components/common/ThemeToggle.tsx).
+  [components/common/YouLink.tsx](../web/src/components/common/YouLink.tsx),
+  [AddingPage.tsx](../web/src/components/settings/AddingPage.tsx),
+  [LookPage.tsx](../web/src/components/settings/LookPage.tsx),
+  [BudgetsPage.tsx](../web/src/components/settings/BudgetsPage.tsx) and
+  [setting-parts.tsx](../web/src/components/settings/setting-parts.tsx) (a setting's row,
+  a segmented choice, a switch); [theme/appearance.ts](../web/src/theme/appearance.ts)
+  marks the accent and the colour of spending on the page (`data-accent`,
+  `data-expenses`) and gives Mantine the accent.
 - API: [worker/accounts/auth.ts](../worker/accounts/auth.ts) checks the Access token (or
   the local dev user), [worker/routes/me.ts](../worker/routes/me.ts) serves `/api/me`,
   and [worker/accounts/profiles.ts](../worker/accounts/profiles.ts) stores the profile
@@ -89,8 +102,9 @@ preference and explains a failure itself.
 - Shared: `Settings`, `DEFAULT_SETTINGS` and the profile shapes in
   [shared/api.ts](../shared/api.ts); what each setting takes in
   [shared/settings.ts](../shared/settings.ts), read by the Worker and the test stand-in;
-  the cobalt the app is drawn in (`COBALT_RAMP`) in
-  [shared/accents.ts](../shared/accents.ts).
+  each accent's shades (`ACCENT_RAMPS`) in [shared/accents.ts](../shared/accents.ts), and the
+  same shades as `--accent` and `--accent-tint` per accent in
+  [theme/tokens.css](../web/src/theme/tokens.css).
 
 **Invariants.**
 
@@ -130,14 +144,26 @@ preference and explains a failure itself.
 - A stale save answer never overwrites a newer change (`ProfileContext.tsx`).
 - Theme and accent are also kept in `localStorage` (`sf-appearance`), so the first
   screen paints in the right colours before the profile loads.
-- Every stored accent is drawn cobalt ([theme/theme.ts](../web/src/theme/theme.ts));
-  [theme/paper-ledger.test.tsx](../web/src/theme/paper-ledger.test.tsx) checks all five.
-  Migration 0007 mapped the old accents to the redesign's: green stayed green, every
-  other became cobalt. The change that offers the accent setting draws a stored green
-  green, and amends that test's green case as the owner's decision, not as a weakened
-  test.
+- Each stored accent is drawn in its own colour ([theme/theme.ts](../web/src/theme/theme.ts),
+  tokens.css); [theme/paper-ledger.test.tsx](../web/src/theme/paper-ledger.test.tsx) checks
+  all five. The light shades are the design's swatches; the boards give a dark shade for
+  cobalt only, so the others' dark shades and every tint are worked out in
+  `shared/accents.ts`, each tint keeping the accent's words on it at 4.5:1 or more
+  (settings/LookPage.test.tsx). Migration 0007 mapped the old accents to the redesign's:
+  green stayed green, every other became cobalt. One kept on a device from before is drawn
+  as cobalt.
+- A setting's row keeps its key (`data-setting`) whatever its control, so a search result
+  opens with it in view.
 
-**Tests.** [settings/Settings.test.tsx](../web/src/components/settings/Settings.test.tsx)
+**Tests.** [settings/AddingPage.test.tsx](../web/src/components/settings/AddingPage.test.tsx)
+(each control as drawn and its effect on Add, Last used and an archived choice, the chosen
+account over the last used, suggestions once each, off reading nothing, a failed save),
+[settings/LookPage.test.tsx](../web/src/components/settings/LookPage.test.tsx) (theme,
+each accent and its tint on both themes, expenses in red on Activity and an account page,
+Home shows and Open the app on saved, no theme switch on Home),
+[settings/BudgetsPage.test.tsx](../web/src/components/settings/BudgetsPage.test.tsx)
+(carry over for new budgets, on the category's sheet and Plan's field),
+[settings/Settings.test.tsx](../web/src/components/settings/Settings.test.tsx)
 (the index and its summaries, each section and back, My account with Change name and a
 refusal, saved and waiting offline, install where offered and never on Home, a computer's
 layout, Close and moving between sections, search, clear, nothing found, Ctrl K and
@@ -419,6 +445,17 @@ has, or past `MAX_CATEGORIES`, is not offered. A new category is saved with the 
 in the same change. What's typed is kept as a draft on the device when Add is closed any
 way but Save (Close, Back, Esc, Cancel), and opens again as left; an Add with nothing typed
 keeps none. With "start with the category" (D9, `startWith`), Add opens on the category list.
+With Suggest as you type on, the payee field lists the payees used before (Settings ›
+Adding entries). With Ask for a time on (owner decision D20, `askForTime`), the day reads
+"Today, 8:12 PM": the time Add opened, changeable under it ("Time"), saved as it's shown.
+An entry's time (`time`, "08:12" on the person's clock, or none) shows after its line
+("Food · Wallet · 8:12 PM", the register's day "Nov 10, 8:12 PM", the open entry's day),
+can be changed where the entry is edited (the Time field shows when the setting is on or
+the entry has one), and orders entries within a day: the latest time first, those with
+none after, then as saved. Off, entries have no time, as before; ones with a time keep it.
+A page loaded before entries had times names where it carries on from the old way, which
+the server refuses (400): Load more then reads the list again from the top, the rows kept
+on screen, and carries on (`loadNext` in ledger/useLedger.ts; ledger/load-more.test.tsx).
 An RM 8 coffee with the defaults is: Add, 8, Save. An account's page lists its transactions
 newest first, grouped by day, 50 at a time with Load more; tapping one opens it in its own
 sheet (EntrySheet, for changing only) to change it, payee and note apart, or Delete it
@@ -761,7 +798,7 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
 - The month's name between arrows ("Previous month"; "Next month" off on this month), the
   freshness label under it and the round initial on phones and tablets; on a computer
   "November 2026" and a search box, "Search everything" (/ puts the cursor there, Enter
-  opens `?activity&q=<words>`). The initial and the theme switch come once the accounts are
+  opens `?activity&q=<words>`). The initial comes once the accounts are
   known (it may be the first run, which has its own) or couldn't be loaded ("Couldn't load
   your accounts.", Try again), so Settings and Sign out are always a tap away.
 - "Expected at month end": the month-end sum (Repeating bills and month end) with its line,
@@ -808,8 +845,12 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   do you keep your money?", Bank, E-wallet, Card and Cash, each opening Add account with
   that kind chosen, and how many categories it comes with, worked out from the defaults.
 
-Until Look and start lands (piece 13), Home also keeps the theme switch. Installing the
-app is offered on Settings › My account only.
+Home shows (Look and start, owner decision D13): "Everything" is all of the above;
+"Essentials" is the month-end figure (or what an earlier month left), what's due now (Log
+it / Skip), Tidy up, Getting started on a first day, and Coming up with the next scheduled
+item and any whose amount is to check (`essentialRows` in home-text.ts); the two cards,
+the calendar and the budgets are left out, on every size. The theme is chosen in Settings ›
+Look and start; installing the app is offered on Settings › My account only.
 
 **Owner.** No state of its own: it reads the ledger (`useWholeLedger`, `useAccounts`), this
 month's and last month's totals (`useMonthSummary`) and the person's settings
@@ -866,7 +907,9 @@ coming up).
 **What it is.** An optional monthly amount on a top-level spending category, its
 subcategories counting toward it. Set, changed or taken away (amount emptied) from the
 category's own sheet, opened from its row on the Categories page ("Monthly budget", and a
-"Carry over" switch, off to start); the row then says "RM 300.00 a month". The amount
+"Carry over" switch, which starts as "Carry over, for new budgets" in Settings says, on
+unless turned off), or Plan's own field on a computer (a new budget there carries over as
+that setting says too); the row then says "RM 300.00 a month". The amount
 applies from this month on, the same every month until changed; earlier months keep what
 they had. Home lists each budgeted category with what's left and how it goes against the
 month (see Home at a glance). Plan lists each budgeted category, in the categories' order,
@@ -1200,14 +1243,16 @@ set up, then every transaction, oldest first, one line each. A file of some date
 holds, after the header, a line saying so ("Only these dates", its Note "Entries from
 2026-01-01 to 2026-12-31 only. It can't restore balances on its own."), then only those
 days' transactions: no opening balances and no repeating items, and an import reads it
-as transactions only. Columns: Date, Kind (Opening
+as transactions only. Columns: Date, Time (an entry's time of day, empty for none and on
+opening and repeating lines; owner decision D20), Kind (Opening
 balance, Spent, Received, Transfer, Repeating spent, Repeating received, Repeating
 transfer), Account, To account, Amount, Currency, Category, Parent category, Payee, Note, Id
 (the account's id on an opening line, the item's on a repeating one). A repeating line is
 dated its next due date, its amount unsigned like a transaction's, and its Note says how
 often it falls ("Monthly, day 15", or "Weekly, day 3" with Monday as 1); stopped ones are
 left out. Every balance can be worked out again from the file, and importing it sets the
-repeating items up again. Archived accounts
+repeating items up again. Import reads columns by the file's header, so a file made before
+times (no Time column) reads as it did, and a time it can't read says "Can't read the time". Archived accounts
 (and accounts with no transactions) and categories are in it like any other, with the
 names they have now. On phones and tablets the share sheet opens where the device has one for
 files (Save to Files on an iPhone), else it downloads. Offline the button says "Connect
@@ -1597,7 +1642,7 @@ income"); `&day=` one day (Home's calendar: `?activity&day=2026-11-10`); `&from=
 and to, and those over all months. A part that makes no sense (a day that isn't one, a
 kind not known, an account or category the person doesn't have) is dropped, and the
 address is put right in place; each filter is written back in that order, only when not
-at its default. `select` is never reopened on a fresh start.
+at its default.
 
 A page named first wins over the parameters after it: `?activity&account=<id>` is
 Activity, and `account` is its filter. Older addresses are replaced in place, keeping the
@@ -1608,8 +1653,14 @@ may use either name for anything else (Activity's filters included).
 **Owner.**
 
 - [hooks/useRoute.ts](../web/src/hooks/useRoute.ts): pages come from the query string
-  through `navigate()` (`{ replace: true }` for the places), and the last page reopens on a
-  fresh start (on this month: a month in the address is never reopened, `TRANSIENT`). A
+  through `navigate()` (`{ replace: true }` for the places). A fresh start at the app's own
+  address (no address, no earlier start in this tab) opens on the place chosen in Look and
+  start (`openStartScreen`, owner decision D15): Home, Activity or Plan. The choice is kept
+  on the device for that account alone (`START_SCREEN_KEY`, { email, start }, gone on Sign
+  out or when someone else signs in), so it is used only while that account is the one last
+  signed in here; once the profile says who's signed in, `rememberStartScreen` keeps theirs,
+  and a start that opened on another's choice (or none kept yet), still where it opened,
+  goes to theirs. A reload or a link keeps its own address. A
   page opened from another goes back up with `goUp`: Back when it came from there, else
   straight there in its own place. `closeSettings` goes back to the page Settings was
   opened over, or Home. Each page the app gains adds its view to `Route`, and `placeOf`

@@ -12,7 +12,8 @@ import {
 } from '@shared/ledger';
 import { change } from '../../ledger/ledger';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
-import { isPastDay, toDateInput } from '../../utils/date-input';
+import { useProfile } from '../../profile/ProfileContext';
+import { clockText, isPastDay, toDateInput } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
 import { showUndo } from '../common/undo-toast';
 import { amountText, readAmount, transactionSummary } from '../entry/entry-text';
@@ -29,7 +30,8 @@ const WAYS = [
 // One entry, to change or delete: beside the register on a computer, in a sheet on phones
 // and tablets. Its day and amount as they're saved, which way it went, then what can be
 // changed: the amount, the category (or, for a transfer, the account it went to), the
-// account, the day, the payee and the note. Save (or Enter) sends only what changed, through
+// account, the day (and its time, when Ask for a time is on or it has one), the payee and
+// the note. Save (or Enter) sends only what changed, through
 // the ledger; Delete takes it out, with Undo.
 export default function EntryEditor({
   transaction: editing,
@@ -54,6 +56,9 @@ export default function EntryEditor({
     editing.categoryId == null ? {} : { [editing.kind]: editing.categoryId },
   );
   const [date, setDate] = useState(editing.date);
+  const [time, setTime] = useState(editing.time ?? '');
+  const asksForTime = useProfile().profile?.settings.askForTime === true;
+  const showsTime = asksForTime || editing.time != null;
   const [payee, setPayee] = useState(editing.payee ?? '');
   const [note, setNote] = useState(editing.note ?? '');
   const [errors, setErrors] = useState<
@@ -97,6 +102,7 @@ export default function EntryEditor({
       payee: readOptionalText(payee, MAX_PAYEE) ?? null,
       note: readOptionalText(note, MAX_NOTE) ?? null,
       date,
+      ...(showsTime && { time: time === '' ? null : time }),
     };
     // Only what changed is sent; a new kind always comes with its category and where it goes
     const update: Extract<LedgerChange, { op: 'updateTransaction' }> = {
@@ -131,7 +137,10 @@ export default function EntryEditor({
     >
       <div className={classes.editorHead}>
         {title != null && <h2 className={classes.editorTitle}>{title}</h2>}
-        <span className={classes.muted}>{fullDay(editing.date, today)}</span>
+        <span className={classes.muted}>
+          {fullDay(editing.date, today)}
+          {editing.time != null && `, ${clockText(editing.time)}`}
+        </span>
       </div>
       <p
         className={`${classes.headline} sf-tabular`}
@@ -188,6 +197,14 @@ export default function EntryEditor({
         onChange={(e) => setDate(e.currentTarget.value)}
         error={errors.date}
       />
+      {showsTime && (
+        <TextInput
+          type="time"
+          label="Time"
+          value={time}
+          onChange={(e) => setTime(e.currentTarget.value)}
+        />
+      )}
       <TextInput
         label="Payee"
         value={payee}

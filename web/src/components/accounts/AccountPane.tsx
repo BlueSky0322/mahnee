@@ -332,6 +332,7 @@ function Table({
                 <td
                   className={`${classes.right} ${classes.rowAmount} sf-tabular`}
                   data-incoming={(incoming && t.kind === 'income') || undefined}
+                  data-kind={t.kind}
                 >
                   {amount}
                 </td>

@@ -8,7 +8,7 @@
 // which bounds the file. Nothing in it is
 // kept or logged here: it goes straight to the person who asked.
 
-import type { ExportSummary, Recurring } from '../../shared/api';
+import type { ExportRange, ExportSummary, Recurring } from '../../shared/api';
 import type { ExportAccount, ExportNames } from '../../shared/export';
 import {
   CSV_BOM,
@@ -17,8 +17,12 @@ import {
   exportCells,
   exportFileName,
   openingCells,
+  rangeCells,
   repeatingLines,
 } from '../../shared/export';
+import { FIRST_DAY } from '../../shared/ledger';
+import { isCalendarDay } from '../../shared/recurring';
+import { fail } from '../http';
 import type { TransactionKind } from '../../shared/ledger';
 import { MAX_RECURRING } from '../../shared/recurring';
 
@@ -38,17 +42,57 @@ interface ExportRow {
   createdAt: number;
 }
 
-/** GET /api/export/summary: how many transactions the file holds, over which days */
-export async function readExportSummary(db: D1Database, email: string): Promise<ExportSummary> {
+const RANGE = 'Give from and to as days, from on or before to';
+
+/**
+ * The days asked for (?from=2026-01-01&to=2026-12-31, both included), null for everything,
+ * or a refusal: both or neither, each a calendar day from 2000, from on or before to
+ */
+export function readExportRange(params: URLSearchParams): ExportRange | null | Response {
+  const from = params.get('from');
+  const to = params.get('to');
+  if (from == null && to == null) return null;
+  if (!isCalendarDay(from) || !isCalendarDay(to) || from < FIRST_DAY || from > to) {
+    return fail(RANGE, 400);
+  }
+  return { from, to };
+}
+
+/**
+ * GET /api/export/summary: how many transactions the file holds, over which days, and the
+ * accounts and categories in it: everything has every one (archived too); a file of some
+ * dates, those its transactions use
+ */
+export async function readExportSummary(
+  db: D1Database,
+  email: string,
+  range: ExportRange | null = null,
+): Promise<ExportSummary> {
+  if (range == null) {
+    const row = await db
+      .prepare(
+        `SELECT (SELECT COUNT(*) FROM transactions WHERE email = ?1) AS transactions,
+                (SELECT MIN(date) FROM transactions WHERE email = ?1) AS firstDate,
+                (SELECT MAX(date) FROM transactions WHERE email = ?1) AS lastDate,
+                (SELECT COUNT(*) FROM accounts WHERE email = ?1) AS accounts,
+                (SELECT COUNT(*) FROM categories WHERE email = ?1) AS categories`,
+      )
+      .bind(email)
+      .first<ExportSummary>();
+    return row!;
+  }
   const row = await db
     .prepare(
-      `SELECT (SELECT COUNT(*) FROM transactions WHERE email = ?1) AS transactions,
-              (SELECT MIN(date) FROM transactions WHERE email = ?1) AS firstDate,
-              (SELECT MAX(date) FROM transactions WHERE email = ?1) AS lastDate,
-              (SELECT COUNT(*) FROM accounts WHERE email = ?1) AS accounts,
-              (SELECT COUNT(*) FROM categories WHERE email = ?1) AS categories`,
+      `WITH t AS (SELECT * FROM transactions WHERE email = ?1 AND date BETWEEN ?2 AND ?3)
+       SELECT (SELECT COUNT(*) FROM t) AS transactions,
+              (SELECT MIN(date) FROM t) AS firstDate,
+              (SELECT MAX(date) FROM t) AS lastDate,
+              (SELECT COUNT(*) FROM (SELECT account_id FROM t
+                                     UNION SELECT to_account_id FROM t
+                                     WHERE to_account_id IS NOT NULL)) AS accounts,
+              (SELECT COUNT(DISTINCT category_id) FROM t) AS categories`,
     )
-    .bind(email)
+    .bind(email, range.from, range.to)
     .first<ExportSummary>();
   return row!;
 }
@@ -102,12 +146,14 @@ async function readNames(
  * order, then each repeating item still running, in the order set up, then every
  * transaction of theirs, oldest first (by day, then when it was saved,
  * then id), one line each. `today` (2026-11-05, in UTC)
- * names the file.
+ * names the file. With `range`, a line saying it holds those days only, then only their
+ * transactions: no opening balances or repeating items, as it can't restore balances.
  */
 export async function exportTransactions(
   db: D1Database,
   email: string,
   today: string,
+  range: ExportRange | null = null,
 ): Promise<Response> {
   // Read before answering, so a failure here is an error rather than a cut-off file
   const names = await readNames(db, email);
@@ -117,9 +163,12 @@ export async function exportTransactions(
 
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      const openings = names.inOrder.map((a) => csvLine(openingCells(a))).join('');
-      const repeating = repeatingLines(names.running, names);
-      controller.enqueue(encoder.encode(CSV_BOM + csvLine(EXPORT_COLUMNS) + openings + repeating));
+      const start =
+        range == null
+          ? names.inOrder.map((a) => csvLine(openingCells(a))).join('') +
+            repeatingLines(names.running, names)
+          : csvLine(rangeCells(range));
+      controller.enqueue(encoder.encode(CSV_BOM + csvLine(EXPORT_COLUMNS) + start));
     },
     // Asked for each time the person's download has taken what came before. A failure
     // part way stops the download with an error, so it can't pass for the whole file.
@@ -130,11 +179,17 @@ export async function exportTransactions(
                   amount_cents AS amountCents, category_id AS categoryId, payee, note, date,
                   created_at AS createdAt
            FROM transactions
-           WHERE email = ? ${after == null ? '' : 'AND (date, created_at, id) > (?, ?, ?)'}
+           WHERE email = ? ${range == null ? '' : 'AND date BETWEEN ? AND ?'}
+             ${after == null ? '' : 'AND (date, created_at, id) > (?, ?, ?)'}
            ORDER BY date, created_at, id
            LIMIT ?`,
         )
-        .bind(email, ...(after ?? []), EXPORT_PAGE_SIZE)
+        .bind(
+          email,
+          ...(range == null ? [] : [range.from, range.to]),
+          ...(after ?? []),
+          EXPORT_PAGE_SIZE,
+        )
         .all<ExportRow>();
       if (results.length > 0) {
         controller.enqueue(
@@ -150,7 +205,7 @@ export async function exportTransactions(
   return new Response(body, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${exportFileName(today)}"`,
+      'Content-Disposition': `attachment; filename="${exportFileName(today, range)}"`,
       // The person's whole financial history: never kept by a browser or anything between
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',

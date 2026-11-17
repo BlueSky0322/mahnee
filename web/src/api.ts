@@ -3,6 +3,7 @@ import type {
   ApiErrorBody,
   ChangesBody,
   ErrorCode,
+  ExportRange,
   ExportSummary,
   PayeeCategories,
   Ledger,
@@ -12,6 +13,7 @@ import type {
   Profile as ApiProfile,
   ProfilePatch,
   RateQuote,
+  RecentImports,
   SearchPage,
   TransactionPage,
 } from '@shared/api';
@@ -105,8 +107,14 @@ async function request<T>(...args: Parameters<typeof send>): Promise<T> {
   return data as T;
 }
 
+/** An export's days as the address asks for them, nothing for everything */
+const rangeQuery = (range: ExportRange | null) =>
+  range == null ? '' : `?${new URLSearchParams({ from: range.from, to: range.to }).toString()}`;
+
 export const api = {
   getMe: () => request<Profile>('GET', '/api/me'),
+  /** The person's imports not undone, newest first */
+  getImports: () => request<RecentImports>('GET', '/api/imports'),
   updateMe: (patch: ProfilePatch) => request<Profile>('PATCH', '/api/me', patch),
   /**
    * The person's accounts and categories, and which of the `pending` change ids (at most
@@ -144,14 +152,15 @@ export const api = {
     query.set('limit', String(limit));
     return request<SearchPage>('GET', `/api/search?${query.toString()}`);
   },
-  /** How many transactions the export file holds, over which days */
-  getExportSummary: () => request<ExportSummary>('GET', '/api/export/summary'),
+  /** How many transactions the export file holds, over which days; `range` for some dates */
+  getExportSummary: (range: ExportRange | null = null) =>
+    request<ExportSummary>('GET', `/api/export/summary${rangeQuery(range)}`),
   /**
-   * The export file: every transaction, as CSV. A download cut off part way fails here
-   * rather than giving part of the file.
+   * The export file: every transaction, or those of `range`, as CSV. A download cut off
+   * part way fails here rather than giving part of the file.
    */
-  getExport: async () => {
-    const res = await send('GET', '/api/export');
+  getExport: async (range: ExportRange | null = null) => {
+    const res = await send('GET', `/api/export${rangeQuery(range)}`);
     // Answered by something other than the API (a proxy, say): not the file
     if (!res.headers.get('Content-Type')?.startsWith('text/csv')) {
       throw new ApiError(502, "GET /api/export didn't answer with the file");

@@ -38,6 +38,8 @@ export interface PlannedRow {
   recurring?: NewRecurring & { nextDue: string };
   /** From an export: the names the file gives ("Food › Coffee"), for showing */
   names?: { account: string; toAccount: string | null; category: string | null };
+  /** An export's Repeating line, set up or not: no transaction line of the file */
+  repeats?: true;
 }
 
 /** An account the file names that the person doesn't have yet */
@@ -174,6 +176,11 @@ export function planExport(
   categories: readonly Category[],
   recurring: readonly Recurring[],
   today: string,
+  /**
+   * A file of some dates (readExportRange): its transactions only, on accounts the person
+   * has. It adds no account, changes no opening balance and sets nothing up to repeat.
+   */
+  ranged = false,
 ): Plan {
   const newAccounts: NewAccount[] = [];
   const openings: OpeningChange[] = [];
@@ -193,7 +200,7 @@ export function planExport(
   };
   // Opening balances first, so accounts are added in the file's order
   for (const r of rows) {
-    if (r.problem !== undefined || r.kind !== 'opening') continue;
+    if (ranged || r.problem !== undefined || r.kind !== 'opening') continue;
     const had = byName.get(r.account);
     if (had == null) accountFor(r.account, r.cents);
     else if ('balanceCents' in had && had.openingCents !== r.cents) {
@@ -249,17 +256,39 @@ export function planExport(
     }
     if (r.kind === 'opening') continue;
     if (r.repeat != null) {
+      if (ranged) {
+        planned.push({
+          ...skipped(r.row, 'A file of some dates sets nothing up to repeat'),
+          repeats: true,
+        });
+        continue;
+      }
       repeatingAt.push([planned.length, { ...r, kind: r.kind, repeat: r.repeat }]);
       planned.push(skipped(r.row, ''));
+      continue;
+    }
+    const category =
+      r.category == null || r.parentCategory == null
+        ? r.category
+        : `${r.parentCategory} › ${r.category}`;
+    // A file of some dates adds no account: a line on one not here can't be imported
+    const missing = !ranged
+      ? null
+      : !byName.has(r.account)
+        ? r.account
+        : r.toAccount != null && !byName.has(r.toAccount)
+          ? r.toAccount
+          : null;
+    if (missing != null) {
+      planned.push({
+        ...skipped(r.row, `${missing} isn't an account here`),
+        names: { account: r.account, toAccount: r.toAccount, category },
+      });
       continue;
     }
     const from = accountFor(r.account);
     const to = r.toAccount == null ? null : accountFor(r.toAccount);
     const archived = [from, to].find((a) => a != null && 'archived' in a && a.archived);
-    const category =
-      r.category == null || r.parentCategory == null
-        ? r.category
-        : `${r.parentCategory} › ${r.category}`;
     const names = { account: r.account, toAccount: r.toAccount, category };
     if (archived != null) {
       planned.push({ ...skipped(r.row, `${archived.name} is archived`), names });
@@ -371,6 +400,9 @@ export function planExport(
       recurring: item,
     };
   }
+
+  // Repeating lines, set up or not, are no transaction lines of the file
+  for (const [at] of repeatingAt) planned[at] = { ...planned[at], repeats: true };
 
   const tooMany =
     accounts.length + newAccounts.length > MAX_ACCOUNTS

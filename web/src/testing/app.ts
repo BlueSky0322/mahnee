@@ -16,6 +16,8 @@ import type {
   Account,
   Category,
   ChangesBody,
+  ExportRange,
+  ImportRecord,
   LedgerChange,
   MonthSummary,
   MonthTrend,
@@ -28,7 +30,9 @@ import {
   DEFAULT_SETTINGS,
   EXPECTED_ACCOUNT_HEADER,
   MAX_CHANGES,
+  MAX_FILE_NAME,
   MAX_PAYEE_CATEGORIES,
+  MAX_RECENT_IMPORTS,
   PENDING_CHANGES_HEADER,
   isRowId,
   readPendingIds,
@@ -48,6 +52,7 @@ import {
 } from '@shared/categories';
 import {
   DEFAULT_CURRENCY,
+  FIRST_DAY,
   MAX_ACCOUNTS,
   MAX_ACCOUNT_NAME,
   MAX_BULK_TRANSACTIONS,
@@ -76,8 +81,10 @@ import {
   exportCells,
   exportFileName,
   openingCells,
+  rangeCells,
   repeatingLines,
 } from '@shared/export';
+import { MAX_IMPORT_ROWS } from '@shared/csv-import';
 import type { BudgetRow } from '@shared/budgets';
 import {
   BUDGET_RANGE,
@@ -184,6 +191,13 @@ export interface FakeServer {
    * null), one row per category and month it was set in
    */
   budgets: BudgetRow[];
+  /**
+   * The person's imports as the server keeps them, undone ones too (undoneAt), in the order
+   * recorded
+   */
+  imports: (ImportRecord & { undoneAt: number | null })[];
+  /** The import each transaction came in with, by transaction id (transactions.import_id) */
+  importIds: Map<string, string>;
   /** Saved change ids and the change each was, as the real server keeps receipts */
   receipts: Map<string, string>;
   /**
@@ -373,17 +387,39 @@ function answerNow(server: FakeServer) {
         ? json({ ...trendOf(server, month), ...alreadySaved() })
         : json({ error: 'Give a month from 2000, like 2026-11' }, 400);
     }
-    if (path === '/api/export/summary' && method === 'GET') {
-      const days = server.transactions.map((t) => t.date).sort();
+    if ((path === '/api/export/summary' || path === '/api/export') && method === 'GET') {
+      const range = exportRange(url.searchParams);
+      if (range === 'refused') {
+        return json({ error: 'Give from and to as days, from on or before to' }, 400);
+      }
+      if (path === '/api/export') return exportFile(server, range);
+      const inRange = server.transactions.filter(
+        (t) => range == null || (t.date >= range.from && t.date <= range.to),
+      );
+      const days = inRange.map((t) => t.date).sort();
       return json({
         transactions: days.length,
         firstDate: days[0] ?? null,
         lastDate: days.at(-1) ?? null,
-        accounts: server.accounts.length,
-        categories: server.categories.length,
+        // A file of some dates holds the accounts and categories its entries use
+        accounts:
+          range == null
+            ? server.accounts.length
+            : new Set(inRange.flatMap((t) => [t.accountId, t.toAccountId ?? t.accountId])).size,
+        categories:
+          range == null
+            ? server.categories.length
+            : new Set(inRange.flatMap((t) => (t.categoryId == null ? [] : [t.categoryId]))).size,
       });
     }
-    if (path === '/api/export' && method === 'GET') return exportFile(server);
+    if (path === '/api/imports' && method === 'GET') {
+      const imports = server.imports
+        .filter((i) => i.undoneAt == null)
+        .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : -1))
+        .slice(0, MAX_RECENT_IMPORTS)
+        .map(({ undoneAt: _undone, ...i }) => i);
+      return json({ imports });
+    }
     if (path === '/api/payee-categories' && method === 'GET') {
       const failure = failing('payeeCategories');
       if (failure) return failure;
@@ -539,7 +575,7 @@ function trendOf(server: FakeServer, month: string): MonthTrend {
  * still running in the order set up, then every transaction, oldest first (by day, time
  * saved, then id), with names as they are
  */
-function exportFile(server: FakeServer) {
+function exportFile(server: FakeServer, range: ExportRange | null = null) {
   const names = {
     accounts: new Map(server.accounts.map((a) => [a.id, a])),
     categories: new Map(server.categories.map((c) => [c.id, c])),
@@ -548,21 +584,34 @@ function exportFile(server: FakeServer) {
     .sort((a, b) => a.position - b.position)
     .map((a) => csvLine(openingCells({ ...a, createdAt: a.createdAt ?? 0 })));
   const lines = [...server.transactions]
+    .filter((t) => range == null || (t.date >= range.from && t.date <= range.to))
     .sort((a, b) => -newestFirst(a, b))
     .map((t) => csvLine(exportCells(t, names)));
-  const repeating = repeatingLines(server.recurring, names);
+  // A file of some dates says so, and has no opening balances or repeating items
+  const start =
+    range == null
+      ? openings.join('') + repeatingLines(server.recurring, names)
+      : csvLine(rangeCells(range));
   return Promise.resolve(
-    new Response(
-      CSV_BOM + csvLine(EXPORT_COLUMNS) + openings.join('') + repeating + lines.join(''),
-      {
-        headers: {
-          'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': `attachment; filename="${exportFileName(rateDay(Date.now()))}"`,
-          'Cache-Control': 'no-store',
-        },
+    new Response(CSV_BOM + csvLine(EXPORT_COLUMNS) + start + lines.join(''), {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${exportFileName(rateDay(Date.now()), range)}"`,
+        'Cache-Control': 'no-store',
       },
-    ),
+    }),
   );
+}
+
+/** The days an export asks for, as the real one reads them: null for everything */
+function exportRange(params: URLSearchParams): ExportRange | null | 'refused' {
+  const from = params.get('from');
+  const to = params.get('to');
+  if (from == null && to == null) return null;
+  if (!isCalendarDay(from) || !isCalendarDay(to) || from < FIRST_DAY || from > to) {
+    return 'refused';
+  }
+  return { from, to };
 }
 
 /**
@@ -734,6 +783,8 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
   const transactions = server.transactions.map((t) => ({ ...t }));
   const recurring = server.recurring.map((r) => ({ ...r }));
   let budgets = server.budgets.map((b) => ({ ...b }));
+  const imports = server.imports.map((i) => ({ ...i }));
+  const importIds = new Map(server.importIds);
   const nameError = `Give the account a name of up to ${MAX_ACCOUNT_NAME} characters`;
   const openingError = `An opening balance can be up to ${MAX_TRANSACTION.toLocaleString('en')} either way`;
   for (const [i, change] of changes.entries()) {
@@ -747,13 +798,68 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
       if (refusal != null) return refusal;
       continue;
     }
+    if (change.op === 'addImport') {
+      const { id, fileName, accountId, addedCount, skippedCount } = change.import;
+      if (!isRowId(id)) return [400, 'Invalid import id'];
+      if (imports.some((i) => i.id === id)) return [409, 'That import is already recorded'];
+      const name = typeof fileName === 'string' ? fileName.trim() : '';
+      if (name.length < 1 || name.length > MAX_FILE_NAME) {
+        return [400, `Give the file a name of up to ${MAX_FILE_NAME} characters`];
+      }
+      if (accountId != null && !accounts.some((a) => a.id === accountId)) {
+        return [404, 'Account not found'];
+      }
+      const counts = [addedCount, skippedCount];
+      if (!counts.every((n) => Number.isInteger(n) && n >= 0 && n <= MAX_IMPORT_ROWS)) {
+        return [400, `A count is a whole number from 0 to ${MAX_IMPORT_ROWS.toLocaleString('en')}`];
+      }
+      imports.push({
+        id,
+        fileName: name,
+        accountId,
+        addedCount,
+        skippedCount,
+        createdAt: Date.now(),
+        undoneAt: null,
+      });
+      continue;
+    }
+    if (change.op === 'undoImport') {
+      const record = imports.find((i) => i.id === change.id);
+      if (record == null) return [404, 'Import not found'];
+      // Undone already: nothing more goes
+      if (record.undoneAt != null) continue;
+      record.undoneAt = Date.now();
+      for (let at = transactions.length - 1; at >= 0; at--) {
+        if (importIds.get(transactions[at].id) === change.id) {
+          importIds.delete(transactions[at].id);
+          transactions.splice(at, 1);
+        }
+      }
+      continue;
+    }
     if (
       change.op === 'addTransaction' ||
       change.op === 'updateTransaction' ||
       change.op === 'removeTransaction'
     ) {
-      const refusal = saveTransactionChange(accounts, categories, transactions, change);
+      // An entry names one of the person's imports, recorded before it and not undone
+      const importId = change.op === 'addTransaction' ? change.importId : undefined;
+      if (importId !== undefined) {
+        const record = imports.find((i) => i.id === importId);
+        if (record == null) return [404, 'Import not found'];
+        if (record.undoneAt != null) return [409, 'That import was undone'];
+      }
+      const plain =
+        change.op === 'addTransaction'
+          ? { op: change.op, transaction: change.transaction }
+          : change;
+      const refusal = saveTransactionChange(accounts, categories, transactions, plain);
       if (refusal != null) return refusal;
+      if (importId !== undefined && change.op === 'addTransaction') {
+        importIds.set(change.transaction.id, importId);
+      }
+      if (change.op === 'removeTransaction') importIds.delete(change.id);
       continue;
     }
     if (change.op === 'recategoriseTransactions' || change.op === 'removeTransactions') {
@@ -843,6 +949,8 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
     server.transactions = transactions;
     server.recurring = recurring;
     server.budgets = budgets;
+    server.imports = imports;
+    server.importIds = importIds;
     settingsAfterChanges(server);
   }
   ids.forEach((id, i) => server.receipts.set(id, prints[i]));
@@ -1236,6 +1344,8 @@ export function fakeServer(): FakeServer {
     categories: [],
     recurring: [],
     budgets: [],
+    imports: [],
+    importIds: new Map(),
     receipts: new Map(),
     failNext: {},
     loseNext: {},
@@ -1334,7 +1444,8 @@ export async function openSettings() {
     await goToPlace('Home');
   }
   await user.click(await screen.findByRole('link', { name }));
-  await screen.findByRole('heading', { name: 'Settings', level: 1 });
+  // A phone's index, or a computer's Settings open on My account: both search settings
+  await screen.findByRole('searchbox', { name: 'Search settings' });
 }
 
 /** Renders the app at `path`, talking to `server` */

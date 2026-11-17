@@ -1,8 +1,9 @@
 import { Button, NativeSelect, SegmentedControl } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { CaretLeft, FileArrowUp } from '@phosphor-icons/react';
-import { useRef, useState } from 'react';
-import type { Account, Category } from '@shared/api';
+import { useEffect, useRef, useState } from 'react';
+import type { Account, Category, LedgerChange } from '@shared/api';
+import { MAX_FILE_NAME } from '@shared/api';
 import type { CategoryKind } from '@shared/categories';
 import type { ColumnMapping } from '@shared/csv-import';
 import {
@@ -10,12 +11,14 @@ import {
   isMahneeExport,
   parseCsv,
   readBankRows,
+  readExportRange,
   readExportRows,
 } from '@shared/csv-import';
 import type { AccountKind } from '@shared/ledger';
 import { ACCOUNT_KINDS, MAX_NOTE, MAX_PAYEE } from '@shared/ledger';
 import { api } from '../../api';
 import { goUp, navigate } from '../../hooks/useRoute';
+import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { change, loadedLedger, transactionsSince } from '../../ledger/ledger';
 import { isOfflineFailure } from '../../offline/network';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
@@ -26,6 +29,8 @@ import { showError } from '../../utils/notify';
 import { KIND_LABELS } from '../accounts/account-text';
 import { categoryName } from '../common/category-name';
 import { scheduleText } from '../home/recurring-text';
+import { newId } from '../../utils/id';
+import { takeHandedFile } from './handed-file';
 import type { Plan, PlannedRow } from './import-plan';
 import {
   accountsToCheck,
@@ -33,6 +38,7 @@ import {
   earliestDay,
   importChanges,
   markSaved,
+  otherCategory,
   planBankFile,
   planExport,
 } from './import-plan';
@@ -65,7 +71,18 @@ const NOTHING_PICKED: Picked = {
 interface LoadedFile {
   table: string[][];
   isExport: boolean;
+  /** The file's name, as Recent imports lists it */
+  name: string;
+  /** A Mahnee export of some dates: the days it holds; null for everything or a bank's file */
+  range: { from: string; to: string } | null;
 }
+
+/** "Oct 1", as the import says a day */
+const shortDay = (day: string) =>
+  new Date(`${day}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+/** Which of the lines the desktop's tabs show */
+type Lines = 'all' | 'saved' | 'other';
 
 /** What the person has said about the preview: which rows, categories and kinds */
 interface Choices {
@@ -106,6 +123,8 @@ export default function ImportPage() {
   /** Categories used before couldn't be looked up (the server failed) */
   const [filedUnknown, setFiledUnknown] = useState(false);
   const [shown, setShown] = useState(ROWS_AT_A_TIME);
+  const [lines, setLines] = useState<Lines>('all');
+  const isDesktop = useIsDesktop() === true;
   // Only the latest preview asked for is shown
   const asked = useRef(0);
 
@@ -132,6 +151,7 @@ export default function ImportPage() {
 
   function startOver() {
     asked.current++;
+    setLines('all');
     setPlan(null);
     setChoices(null);
     setPreparing(false);
@@ -144,11 +164,12 @@ export default function ImportPage() {
     if (file != null && !file.isExport) pickRemembered(id, file.table[0]);
   }
 
-  async function chooseFile(picked: File | undefined) {
+  async function chooseFile(picked: File | null | undefined) {
     startOver();
     setFile(null);
     setFileProblem(null);
     if (picked == null) return;
+    const name = picked.name.trim().slice(0, MAX_FILE_NAME) || 'file.csv';
     let table: string[][];
     try {
       table = parseCsv(new TextDecoder().decode(await picked.arrayBuffer()));
@@ -169,10 +190,19 @@ export default function ImportPage() {
       return;
     }
     const isExport = isMahneeExport(table[0]);
-    setFile({ table, isExport });
-    if (isExport) void preview({ table, isExport });
+    const loaded = { table, isExport, name, range: isExport ? readExportRange(table) : null };
+    setFile(loaded);
+    if (isExport) void preview(loaded);
     else pickRemembered(accountId, table[0]);
   }
+
+  // A file chosen on Import and export comes with the page
+  useEffect(() => {
+    const handed = takeHandedFile();
+    if (handed != null) void chooseFile(handed);
+    // Once, as the page opens
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const mapping: ColumnMapping | null =
     picked.date === '' ||
@@ -203,6 +233,7 @@ export default function ImportPage() {
           ledger.categories,
           ledger.recurring ?? [],
           toDateInput(new Date()),
+          loaded.range != null,
         );
       } else {
         if (account == null || categories == null || mapping == null) return;
@@ -260,12 +291,38 @@ export default function ImportPage() {
     (tickedRows > 0 || choices.openingsTicked.size > 0);
 
   function importNow() {
-    if (plan == null || choices == null || !canImport) return;
-    change(...importChanges(plan, choices));
+    if (plan == null || choices == null || !canImport || file == null) return;
+    change(...recorded(importChanges(plan, choices)));
     if (tickedRows > 0) notifications.show({ message: `Imported ${toImport}` });
     if (plan.source === 'bank' && account != null) {
       navigate(`?account=${account.id}`, { replace: true });
     } else goUp('?settings=data');
+  }
+
+  /**
+   * The changes with the import recorded first and each transaction naming it, so every
+   * device lists it under Recent imports and Undo can take exactly these out. Nothing is
+   * recorded when no transaction is added.
+   */
+  function recorded(changes: LedgerChange[]): LedgerChange[] {
+    if (plan == null || file == null) return changes;
+    const added = changes.filter((c) => c.op === 'addTransaction').length;
+    if (added === 0) return changes;
+    const lines = plan.rows.filter((r) => r.repeats == null).length;
+    const id = newId();
+    return [
+      {
+        op: 'addImport',
+        import: {
+          id,
+          fileName: file.name,
+          accountId: plan.source === 'bank' ? account?.id ?? null : null,
+          addedCount: added,
+          skippedCount: Math.max(0, lines - added),
+        },
+      },
+      ...changes.map((c): LedgerChange => (c.op === 'addTransaction' ? { ...c, importId: id } : c)),
+    ];
   }
 
   const update = (fn: (c: Choices) => void) =>
@@ -297,20 +354,66 @@ export default function ImportPage() {
     />
   );
 
+  const step = file == null ? 1 : plan == null ? 2 : 3;
+  const title =
+    file == null
+      ? 'Import'
+      : isDesktop
+        ? `Import ${file.name}`
+        : file.isExport || account == null
+          ? file.name
+          : `${file.name} into ${account.name}`;
+  const STEPS = isDesktop ? ['File and account', 'Columns', 'Check'] : ['File', 'Columns', 'Check'];
+
   return (
     <div className={classes.page}>
       <header className={classes.header}>
-        <Button
-          variant="subtle"
-          color="gray"
-          size="compact-md"
-          className={classes.back}
-          leftSection={<CaretLeft size={16} />}
-          onClick={() => goUp('?settings=data')}
+        <div className={classes.headerRow}>
+          <Button
+            variant="subtle"
+            color="gray"
+            size="compact-md"
+            className={classes.back}
+            leftSection={<CaretLeft size={16} />}
+            onClick={() => goUp('?settings=data')}
+          >
+            Import and export
+          </Button>
+          {isDesktop && file != null && (
+            <Button
+              variant="default"
+              size="compact-md"
+              aria-label="Cancel import, nothing is saved"
+              onClick={() => goUp('?settings=data')}
+            >
+              Cancel
+            </Button>
+          )}
+        </div>
+        <ol
+          className={classes.steps}
+          aria-label="Steps"
         >
-          Import and export
-        </Button>
-        <h1 className={classes.title}>Import</h1>
+          {STEPS.map((name, i) => (
+            <li
+              key={name}
+              aria-current={i + 1 === step ? 'step' : undefined}
+              data-done={i + 1 < step || undefined}
+            >
+              {isDesktop && i + 1 < step ? `✓ ${name}` : `${i + 1} ${name}`}
+            </li>
+          ))}
+        </ol>
+        <h1 className={classes.title}>{title}</h1>
+        {plan != null && file != null && (
+          <p className={classes.muted}>
+            {linesText(
+              plan,
+              isDesktop ? (file.isExport ? null : account?.name ?? null) : null,
+              isDesktop,
+            )}
+          </p>
+        )}
       </header>
 
       <section className={classes.card}>
@@ -352,10 +455,15 @@ export default function ImportPage() {
         )}
       </section>
 
-      {file != null && file.isExport && (
+      {file != null && file.isExport && file.range == null && (
         <p className={classes.muted}>
           This is a Mahnee export: it names its own accounts and categories, so the account above
           isn't used.
+        </p>
+      )}
+      {file?.range != null && (
+        <p className={classes.muted}>
+          {`This file holds ${shortDay(file.range.from)} to ${shortDay(file.range.to)} only, so it adds entries to accounts you have: no accounts, opening balances or repeating items.`}
         </p>
       )}
 
@@ -417,16 +525,43 @@ export default function ImportPage() {
       )}
 
       {plan != null && choices != null && categories != null && (
-        <Preview
+        <Counts
           plan={plan}
-          table={file?.table ?? []}
           choices={choices}
-          update={update}
-          accounts={accounts ?? []}
           categories={categories}
-          shown={shown}
-          showMore={() => setShown((n) => n + ROWS_AT_A_TIME)}
+          desktop={isDesktop}
         />
+      )}
+
+      {plan != null && choices != null && categories != null && (
+        <section
+          className={classes.section}
+          aria-label="Lines in the file"
+        >
+          {isDesktop && (
+            <LineTabs
+              plan={plan}
+              choices={choices}
+              categories={categories}
+              lines={lines}
+              onLines={(l) => {
+                setLines(l);
+                setShown(ROWS_AT_A_TIME);
+              }}
+            />
+          )}
+          <Preview
+            plan={plan}
+            table={file?.table ?? []}
+            choices={choices}
+            update={update}
+            accounts={accounts ?? []}
+            categories={categories}
+            shown={shown}
+            showMore={() => setShown((n) => n + ROWS_AT_A_TIME)}
+            only={isDesktop ? lineFilter(lines, choices, categories) : null}
+          />
+        </section>
       )}
 
       {plan != null && choices != null && (
@@ -439,7 +574,7 @@ export default function ImportPage() {
             disabled={!canImport}
             onClick={importNow}
           >
-            Import {toImport}
+            Add {toImport}
           </Button>
         </div>
       )}
@@ -457,6 +592,8 @@ interface PreviewProps {
   categories: Category[];
   shown: number;
   showMore: () => void;
+  /** Only the rows a tab picks; null for every row */
+  only: ((r: PlannedRow) => boolean) | null;
 }
 
 /** Every row, ticked or not, with what's said about it; new accounts and openings first */
@@ -469,7 +606,9 @@ function Preview({
   categories,
   shown,
   showMore,
+  only,
 }: PreviewProps) {
+  const rows = only == null ? plan.rows : plan.rows.filter(only);
   const saved = plan.rows.filter((r) => r.looksSaved).length;
   const unreadable = plan.rows.filter((r) => r.problem != null).length;
   const currency = accounts[0]?.currency ?? 'MYR';
@@ -540,7 +679,7 @@ function Preview({
           {unreadable > 0 && `, ${unreadable.toLocaleString('en')} can't be imported`}
         </h2>
         <ul className={classes.list}>
-          {plan.rows.slice(0, shown).map((r) => (
+          {rows.slice(0, shown).map((r) => (
             <PreviewRow
               key={r.row}
               planned={r}
@@ -555,16 +694,149 @@ function Preview({
             />
           ))}
         </ul>
-        {plan.rows.length > shown && (
+        {rows.length > shown && (
           <Button
             variant="default"
             onClick={showMore}
           >
-            Show more ({(plan.rows.length - shown).toLocaleString('en')} left)
+            Show more ({(rows.length - shown).toLocaleString('en')} left)
           </Button>
         )}
       </section>
     </>
+  );
+}
+
+/**
+ * "42 lines from Oct 1 to Oct 31"; a computer's "Into Maybank Savings · 42 lines, Oct 1 to
+ * Oct 31"
+ */
+function linesText(plan: Plan, into: string | null, desktop: boolean) {
+  const n = plan.rows.filter((r) => r.repeats == null).length;
+  const lines = `${n.toLocaleString('en')} ${n === 1 ? 'line' : 'lines'}`;
+  const days = plan.rows.flatMap((r) => (r.transaction == null ? [] : [r.transaction.date])).sort();
+  const span =
+    days.length === 0 ? '' : `${shortDay(days[0])} to ${shortDay(days[days.length - 1])}`;
+  if (!desktop) return span === '' ? lines : `${lines} from ${span}`;
+  const said = span === '' ? lines : `${lines}, ${span}`;
+  return into == null ? said : `Into ${into} · ${said}`;
+}
+
+/** The ids of Other and Other income, where a row goes when nothing better is known */
+const otherIds = (categories: Category[]) =>
+  new Set(
+    [otherCategory(categories, 'expense')?.id, otherCategory(categories, 'income')?.id].filter(
+      (id): id is string => id != null,
+    ),
+  );
+
+/** A transaction row's category as it will be saved: as picked, else as planned */
+const categoryOfRow = (r: PlannedRow, choices: Choices) =>
+  choices.categoryOf.get(r.row) ?? r.transaction?.categoryId ?? null;
+
+/** Which rows a tab shows */
+function lineFilter(lines: Lines, choices: Choices, categories: Category[]) {
+  if (lines === 'all') return null;
+  if (lines === 'saved') return (r: PlannedRow) => r.looksSaved;
+  const other = otherIds(categories);
+  return (r: PlannedRow) =>
+    r.transaction != null &&
+    choices.ticked.has(r.row) &&
+    other.has(categoryOfRow(r, choices) ?? '');
+}
+
+/** How many of each, as the check step says them */
+function countsOf(plan: Plan, choices: Choices, categories: Category[]) {
+  const other = otherIds(categories);
+  const ticked = plan.rows.filter((r) => r.transaction != null && choices.ticked.has(r.row));
+  const toOther = ticked.filter((r) => other.has(categoryOfRow(r, choices) ?? '')).length;
+  return {
+    toAdd: ticked.length,
+    saved: plan.rows.filter((r) => r.looksSaved).length,
+    toOther,
+    lastTime: plan.source === 'bank' ? ticked.length - toOther : 0,
+  };
+}
+
+/** The check step's counts: what's added, what looks saved, where they go */
+function Counts({
+  plan,
+  choices,
+  categories,
+  desktop,
+}: {
+  plan: Plan;
+  choices: Choices;
+  categories: Category[];
+  desktop: boolean;
+}) {
+  const c = countsOf(plan, choices, categories);
+  const n = (v: number) => v.toLocaleString('en');
+  const items: [string, string][] = desktop
+    ? [
+        ['Ticked, to add', n(c.toAdd)],
+        ['Look already saved, unticked', n(c.saved)],
+        ['Category from last time', n(c.lastTime)],
+        ['Going to Other', n(c.toOther)],
+      ]
+    : [
+        [n(c.toAdd), 'to add'],
+        [n(c.saved), 'already saved, left out'],
+        [n(c.toOther), 'going to Other'],
+      ];
+  return (
+    <ul
+      className={classes.counts}
+      aria-label="Counts"
+    >
+      {items.map(([first, second]) => (
+        <li key={desktop ? first : second}>
+          <span className={desktop ? classes.countLabel : classes.countNumber}>{first}</span>
+          <span className={desktop ? classes.countNumber : classes.countLabel}>{second}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** A computer's tabs over the lines: all of them, those already saved, those going to Other */
+function LineTabs({
+  plan,
+  choices,
+  categories,
+  lines,
+  onLines,
+}: {
+  plan: Plan;
+  choices: Choices;
+  categories: Category[];
+  lines: Lines;
+  onLines: (lines: Lines) => void;
+}) {
+  const c = countsOf(plan, choices, categories);
+  const tabs: [Lines, string][] = [
+    ['all', `All ${plan.rows.filter((r) => r.repeats == null).length.toLocaleString('en')}`],
+    ['saved', `Already saved ${c.saved.toLocaleString('en')}`],
+    ['other', `Going to Other ${c.toOther.toLocaleString('en')}`],
+  ];
+  return (
+    <div
+      role="tablist"
+      className={classes.tabs}
+    >
+      {tabs.map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={lines === value}
+          className={classes.tab}
+          onClick={() => onLines(value)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 

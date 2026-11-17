@@ -3,15 +3,13 @@ import { CloudSlash, SignIn } from '@phosphor-icons/react';
 import { useEffect } from 'react';
 import AccountsPage from './components/accounts/AccountsPage';
 import ActivityPage from './components/activity/ActivityPage';
-import CategoriesPage from './components/categories/CategoriesPage';
 import ImportPage from './components/import/ImportPage';
 import HomePage from './components/home/HomePage';
 import PlanPage from './components/plan/PlanPage';
-import DataPage from './components/settings/DataPage';
-import SettingsPage from './components/settings/SettingsPage';
+import Settings from './components/settings/SettingsPage';
 import StateCard from './components/ui/StateCard';
 import AppLayout from './components/shell/AppLayout';
-import { type SettingsSection as SettingsSectionName, useRoute } from './hooks/useRoute';
+import { useRoute } from './hooks/useRoute';
 import { sendWhenBack } from './ledger/ledger';
 import { signIn, useProfile } from './profile/ProfileContext';
 
@@ -53,17 +51,10 @@ function App() {
       {(route.view === 'accounts' || route.view === 'account') && (
         <AccountsPage id={route.view === 'account' ? route.id : null} />
       )}
-      {route.view === 'settings' && <SettingsSection section={route.section} />}
+      {route.view === 'settings' && <Settings section={route.section} />}
       {route.view === 'import' && <ImportPage />}
     </AppLayout>
   );
-}
-
-/** A section of Settings; one with no page of its own yet shows Settings itself */
-function SettingsSection({ section }: { section: SettingsSectionName | null }) {
-  if (section === 'categories') return <CategoriesPage />;
-  if (section === 'data') return <DataPage />;
-  return <SettingsPage />;
 }
 
 export default App;

@@ -28,6 +28,27 @@ export function rememberedMapping(email: string | null, accountId: string): Colu
   }
 }
 
+/** Every mapping kept for `email`, by account */
+export function rememberedMappings(
+  email: string | null,
+): { accountId: string; mapping: ColumnMapping }[] {
+  if (email == null) return [];
+  const prefix = `${PREFIX}${email}:`;
+  const keys = quietly(() => Object.keys(localStorage)) ?? [];
+  return keys.flatMap((key) => {
+    if (!key.startsWith(prefix)) return [];
+    const accountId = key.slice(prefix.length);
+    const mapping = rememberedMapping(email, accountId);
+    return mapping == null ? [] : [{ accountId, mapping }];
+  });
+}
+
+/** Forgets the mapping kept for `accountId`, so its next file is mapped afresh */
+export function forgetMapping(email: string | null, accountId: string) {
+  if (email == null) return;
+  quietly(() => localStorage.removeItem(keyFor(email, accountId)));
+}
+
 export function rememberMapping(email: string | null, accountId: string, mapping: ColumnMapping) {
   if (email == null) return;
   quietly(() => localStorage.setItem(keyFor(email, accountId), JSON.stringify(mapping)));

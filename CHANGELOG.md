@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-16
 
+- Added: Settings with search, My account, a new Categories page, and Import and export with export ranges and Undo for recent imports [#?]
 - Changed: Home is at a glance: the month end with its sum, spent and received, Tidy up, Coming up, a day-by-day calendar, budgets against the month, and a first run [#35]
 - Added: Accounts shows all together, what's owed and each archived account's day, with a register and Add here on each account [#34]
 - Changed: Add is a keypad that works sums out, with recent categories, a payee field, Today, Repeat and drafts [#30]

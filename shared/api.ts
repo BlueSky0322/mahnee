@@ -360,6 +360,40 @@ export interface ExportSummary {
   categories: number;
 }
 
+/** Days an export holds, both included (2026-01-01 to 2026-12-31) */
+export interface ExportRange {
+  from: string;
+  to: string;
+}
+
+/**
+ * A file imported, as Recent imports lists it on every device. Undo deletes exactly the
+ * entries that came in with it (undoImport).
+ */
+export interface ImportRecord {
+  id: string;
+  /** The file's name, as it was picked */
+  fileName: string;
+  /** The account a bank's file went into; null for a Mahnee export, which names its own */
+  accountId: string | null;
+  /** Transactions it added, and lines of the file left out; each at most MAX_IMPORT_ROWS */
+  addedCount: number;
+  skippedCount: number;
+  /** When it was imported (ms, by the server's clock) */
+  createdAt: number;
+}
+
+/** GET /api/imports: the person's imports not undone, newest first, at most MAX_RECENT_IMPORTS */
+export interface RecentImports {
+  imports: ImportRecord[];
+}
+
+/** The most imports Recent imports lists */
+export const MAX_RECENT_IMPORTS = 10;
+
+/** The longest file name an import keeps */
+export const MAX_FILE_NAME = 255;
+
 /** The category a payee was last filed under, for spending or for income */
 export interface PayeeCategory {
   /** As it was last written */
@@ -461,7 +495,8 @@ export type LedgerChange =
    */
   | { op: 'updateCategory'; id: string; name?: string; parentId?: string | null; position?: number }
   | { op: 'archiveCategory'; id: string; archived: boolean }
-  | { op: 'addTransaction'; transaction: NewTransaction }
+  /** importId: the import it came in with (recorded first, with addImport) */
+  | { op: 'addTransaction'; transaction: NewTransaction; importId?: string }
   /**
    * Changes what it names. A new kind comes with what that kind needs: spending or
    * income a category of its kind and toAccountId null, a transfer categoryId null and
@@ -522,7 +557,14 @@ export type LedgerChange =
    */
   | { op: 'logRecurring'; id: string; due: string; transaction: NewTransaction }
   /** Moves the occurrence due on `due` (its next due date, else refused) on, recording nothing */
-  | { op: 'skipRecurring'; id: string; due: string };
+  | { op: 'skipRecurring'; id: string; due: string }
+  /** Records a file imported, before the transactions that name it (createdAt is the server's) */
+  | { op: 'addImport'; import: Omit<ImportRecord, 'createdAt'> }
+  /**
+   * Deletes, for good, every transaction that came in with the import, wherever it is now,
+   * and marks the import undone; one undone already is left as it is
+   */
+  | { op: 'undoImport'; id: string };
 
 /** POST /api/changes: saved in order, all or nothing */
 export interface ChangesBody {

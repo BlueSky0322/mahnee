@@ -208,21 +208,26 @@ describe('pages without the places', () => {
             size === 'phone' ? 'You and settings' : 'Settings: you, categories, import and export',
         }),
       );
-      await covered('Settings');
-      await user.click(screen.getByRole('link', { name: 'Categories' }));
+      // A computer's Settings opens on My account, its sections down the left
+      await covered(size === 'phone' ? 'Settings' : 'My account');
+      await user.click(screen.getByRole('link', { name: /^Categories( |$)/ }));
       await covered('Categories');
-      await user.click(screen.getByRole('button', { name: 'Settings' }));
-      await user.click(await screen.findByRole('link', { name: 'Import and export' }));
+      if (size === 'phone') await user.click(screen.getByRole('button', { name: 'Settings' }));
+      await user.click(await screen.findByRole('link', { name: /^Import and export( |$)/ }));
       await covered('Import and export');
-      await user.click(screen.getByRole('link', { name: 'Import' }));
-      await covered('Import');
+      // A file chosen there opens the import
+      await user.upload(
+        screen.getByLabelText(size === 'phone' ? 'Choose a file' : 'Import a file'),
+        new File(['Date,Amount\r\n05/10/2026,-8.00\r\n'], 'bank.csv', { type: 'text/csv' }),
+      );
+      await covered(size === 'phone' ? 'bank.csv into Wallet' : 'Import bank.csv');
     },
   );
 
   test.each(
     (['phone', 'desktop'] as const).flatMap((size) =>
       [
-        ['/?settings', 'Settings'],
+        ['/?settings', size === 'phone' ? 'Settings' : 'My account'],
         ['/?settings=categories', 'Categories'],
         ['/?settings=data', 'Import and export'],
         ['/?import', 'Import'],

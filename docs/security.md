@@ -130,7 +130,11 @@ hack-proof, and the limits below are real.
 - An imported file is read in the browser and never sent anywhere whole: only the
   changes the person ticks go to the server, as any other change. The column mapping
   remembered per account keeps column names only, in `localStorage` under the account's
-  email, let go on signing out.
+  email, let go on signing out. Each import is recorded on the server by its file's name,
+  the account it went into and two counts, for Recent imports on every device; never the
+  file. Undo deletes its entries for good, scoped by the person's email and the import's id.
+- A file of some dates holds only those days' transactions and says so; the "Last
+  downloaded" day is kept on the device per email, nothing more.
 - Errors are logged by name and message only, never with what a person typed.
 
 ## Secrets and where they live

@@ -192,3 +192,83 @@
   white-space: normal;
   text-align: center;
 }
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  align-self: stretch;
+}
+
+/* The steps: 1 File, 2 Columns, 3 Check, the one now in ink */
+.steps {
+  display: flex;
+  gap: 14px;
+  margin: 4px 0;
+  padding: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  list-style: none;
+}
+
+.steps li[aria-current='step'] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.steps li[data-done] {
+  color: var(--pos);
+}
+
+/* How many of each */
+.counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.counts li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.countNumber {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.countLabel {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.tab {
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--sunk);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tab[aria-selected='true'] {
+  background: var(--ink);
+  color: var(--surface);
+}

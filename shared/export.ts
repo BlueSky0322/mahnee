@@ -7,7 +7,7 @@
 // Names are written as they are now: an account renamed since shows its new name on
 // every line. Archived accounts and categories are written like any other.
 
-import type { Recurring, Transaction } from './api';
+import type { ExportRange, Recurring, Transaction } from './api';
 import type { TransactionKind } from './ledger';
 import type { Schedule } from './recurring';
 import { MAX_RECURRING } from './recurring';
@@ -56,8 +56,38 @@ export const scheduleText = (schedule: Schedule, day: number) =>
  */
 export const CSV_BOM = '\uFEFF';
 
-/** The file's name for the day it was made (2026-11-05): mahnee-2026-11-05.csv */
-export const exportFileName = (day: string) => `mahnee-${day}.csv`;
+/**
+ * The file's name: everything is named for the day it was made (mahnee-2026-11-05.csv), a
+ * file of some dates for its days (mahnee-2026-01-01-to-2026-12-31.csv)
+ */
+export const exportFileName = (day: string, range?: ExportRange | null) =>
+  range == null ? `mahnee-${day}.csv` : `mahnee-${range.from}-to-${range.to}.csv`;
+
+/**
+ * The kind written on the line that says a file holds some dates only. Such a file has no
+ * opening balances or repeating items, so it can't restore balances on its own, and an
+ * import reads it as transactions only.
+ */
+export const RANGE_KIND = 'Only these dates';
+
+/** That line's note, its days written as 2026-10-01 so they read back exactly */
+export const rangeNote = ({ from, to }: ExportRange) =>
+  `Entries from ${from} to ${to} only. It can't restore balances on its own.`;
+
+/** The line after the header of a file of some dates, in EXPORT_COLUMNS' order */
+export const rangeCells = (range: ExportRange): Cell[] => [
+  range.from,
+  RANGE_KIND,
+  '',
+  '',
+  '',
+  '',
+  '',
+  '',
+  '',
+  rangeNote(range),
+  '',
+];
 
 /**
  * Whole cents written as an amount, 123450 as "1234.50", worked on the digits alone so

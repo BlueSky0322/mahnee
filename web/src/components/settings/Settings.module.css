@@ -168,3 +168,410 @@
 .signOut {
   align-self: stretch;
 }
+
+/* A section's heading, with what acts on it at the right */
+.titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.header {
+  justify-content: space-between;
+}
+
+.caret {
+  margin-left: auto;
+}
+
+/* The search box, on the index and in a computer's list of sections */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink-3);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+}
+
+.search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.clear {
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.foundCount {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.result mark {
+  border-radius: 3px;
+  padding: 0 1px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: inherit;
+}
+
+/* A setting a search opened the section for */
+.found {
+  background: var(--accent-tint);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.value {
+  flex: none;
+  color: var(--ink-2);
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.muted {
+  margin: 0;
+  padding: 12px 16px;
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+.problem {
+  margin: 0;
+  color: var(--neg);
+  font-size: 13px;
+}
+
+/* My account */
+.profileCentred {
+  align-items: center;
+  gap: 10px;
+  padding: 18px 16px;
+  text-align: center;
+}
+
+.initialLarge {
+  width: 56px;
+  height: 56px;
+  font-size: 22px;
+}
+
+.profile h2 {
+  margin: 0;
+}
+
+/* A card with a heading over what it holds */
+.cardHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 16px 4px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+section > .cardTitle {
+  padding: 16px 16px 4px;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 16px 16px;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list .row {
+  cursor: default;
+}
+
+.fileButton {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.fileButton:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Kept for the keyboard and screen readers, out of sight */
+.fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  opacity: 0;
+}
+
+.dropZone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 84px;
+  border: 1.5px dashed var(--line-2);
+  border-radius: 12px;
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+.dropOver {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+/* Which entries: a segmented choice */
+.segmented {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--sunk);
+}
+
+.segment {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  border-radius: 9px;
+  color: var(--ink-2);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.segment[data-on] {
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.segment:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.days {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.dayField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.dayField input {
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.holds {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.facts li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.factValue {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.dialogForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dialogText {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* A computer's Settings: the sections down the left, the open one beside them */
+.desktop {
+  display: flex;
+  min-height: 100vh;
+}
+
+.side {
+  flex: none;
+  width: 260px;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.nav {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 20px 12px;
+}
+
+.nav .search {
+  margin-bottom: 10px;
+  background: var(--ground);
+}
+
+.navLink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: var(--ink-2);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.navLink:hover {
+  background: var(--sunk);
+}
+
+.navLink[aria-current='page'] {
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.navGap,
+.navRule {
+  width: 100%;
+  margin: 8px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.navSignOut {
+  min-height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--neg);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav p {
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 32px 96px 64px;
+}
+
+.pane > .close {
+  position: absolute;
+  top: 32px;
+  right: 32px;
+}
+
+.paneBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(820px, 100%);
+  margin: 0 auto;
+}
+
+.paneBody .page {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.paneBody .title {
+  font-size: 22px;
+}

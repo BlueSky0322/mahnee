@@ -1,131 +1,228 @@
 import { Button } from '@mantine/core';
-import { ArrowsDownUp, CaretLeft, CaretRight, Tag, X } from '@phosphor-icons/react';
+import {
+  ArrowsDownUp,
+  Bell,
+  CaretLeft,
+  CaretRight,
+  CircleHalf,
+  Money,
+  PlusCircle,
+  Tag,
+  User,
+  X,
+} from '@phosphor-icons/react';
 import type { ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { SettingsSection } from '../../hooks/useRoute';
+import { closeSettings, goUp, navigate } from '../../hooks/useRoute';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
-import { closeSettings, navigate } from '../../hooks/useRoute';
 import { useShortcuts } from '../../hooks/useShortcuts';
+import { useCategories, useImports } from '../../ledger/useLedger';
+import { useProfile } from '../../profile/ProfileContext';
 import { thisMonth } from '../../utils/date-input';
 import { SettingsFooter } from '../common/Freshness';
 import { useConfirmSignOut } from '../common/useConfirmSignOut';
 import { useYou } from '../common/you';
 import Key from '../ui/Key';
 import Skeleton, { Loading } from '../ui/Skeleton';
+import CategoriesPage from '../categories/CategoriesPage';
+import DataPage from './DataPage';
+import MyAccount from './MyAccount';
+import SectionPage from './SectionPage';
+import { SECTION_NAMES } from './settings-search';
+import { SearchResults, SettingsSearch } from './SettingsSearch';
+import {
+  addingSummary,
+  budgetsSummary,
+  categoriesSummary,
+  importsSummary,
+  lookSummary,
+  moneySummary,
+} from './settings-text';
 import classes from './Settings.module.css';
 
-// Settings (?settings): who's signed in, then their data (Categories, and Import and
-// export), then Sign out, and at its foot how fresh the figures are ("Mahnee · Up to
-// date"). Each section opens today's page for it. It covers the places:
-// on phones and tablets it goes back Home; on a computer Close (or Esc) goes back to the
-// page it was opened over.
-export default function SettingsPage() {
+// Settings (?settings, and ?settings=<section>). On phones and tablets, the index lists
+// who's signed in, each section with what it's set to, then Sign out; each section is a
+// page of its own going back up to it, and the index goes back Home. On a computer,
+// Settings covers the page: the sections down the left, the open one beside them (My
+// account first), and Close (or Esc) goes back to the page it was opened over. Search finds
+// a setting by name or by what it's for, and opens its section with that setting in view.
+
+/** Each section's icon, in the order the sections are listed */
+const ICONS: Record<SettingsSection, ReactNode> = {
+  account: <User size={18} />,
+  money: <Money size={18} />,
+  adding: <PlusCircle size={18} />,
+  look: <CircleHalf size={18} />,
+  budgets: <Bell size={18} />,
+  categories: <Tag size={18} />,
+  data: <ArrowsDownUp size={18} />,
+};
+
+const APP_SECTIONS = ['money', 'adding', 'look', 'budgets'] as const;
+
+export default function Settings({ section }: { section: SettingsSection | null }) {
   const isDesktop = useIsDesktop();
+  // A computer's Esc closes Settings from any section; a phone's sections go up to Settings
+  useShortcuts({
+    Escape: isDesktop || section == null ? closeSettings : () => goUp('?settings'),
+  });
+  if (isDesktop) return <DesktopSettings section={section ?? 'account'} />;
+  return section == null ? (
+    <SettingsIndex />
+  ) : (
+    <SectionContent
+      // Opened afresh for each address, so a setting asked for comes into view
+      key={window.location.search}
+      section={section}
+    />
+  );
+}
+
+/** A section's own page, or its pane on a computer */
+function SectionContent({ section }: { section: SettingsSection }) {
+  if (section === 'account') return <MyAccount />;
+  if (section === 'categories') return <CategoriesPage />;
+  if (section === 'data') return <DataPage />;
+  return <SectionPage section={section} />;
+}
+
+/** A phone's index: search, who's signed in, the sections with their summaries, Sign out */
+function SettingsIndex() {
   const you = useYou();
+  const { profile } = useProfile();
+  const { categories } = useCategories();
+  const { imports } = useImports();
   const { askToSignOut, dialog } = useConfirmSignOut();
-  useShortcuts({ Escape: closeSettings });
+  const [words, setWords] = useState('');
+  const settings = profile?.settings;
+  const summaries: Record<(typeof APP_SECTIONS)[number], string> | null =
+    settings == null
+      ? null
+      : {
+          money: moneySummary(settings),
+          adding: addingSummary(settings),
+          look: lookSummary(settings),
+          budgets: budgetsSummary(settings),
+        };
 
   return (
     <div className={classes.page}>
       <header className={classes.header}>
-        {isDesktop ? (
-          <button
-            type="button"
-            className={classes.close}
-            aria-label="Close settings"
-            onClick={closeSettings}
-          >
-            <span className={classes.closeIcon}>
-              <X size={18} />
-            </span>
-            <Key>Esc</Key>
-          </button>
-        ) : (
-          <BackButton onClick={closeSettings}>Home</BackButton>
-        )}
+        <BackButton onClick={closeSettings}>Home</BackButton>
       </header>
       <h1 className={classes.title}>Settings</h1>
-
-      <section
-        className={`${classes.card} ${classes.profile}`}
-        aria-label="You"
-      >
-        {you == null ? (
-          <Loading
-            label="Loading your profile"
-            className={classes.loading}
-          >
-            <Skeleton
-              circle
-              width={48}
-              height={48}
-            />
-            <Skeleton
-              width={160}
-              height={18}
-            />
-          </Loading>
-        ) : (
-          <>
-            <span
-              className={classes.initial}
-              aria-hidden
+      <SettingsSearch
+        words={words}
+        onChange={setWords}
+      />
+      {words.trim() !== '' ? (
+        <SearchResults
+          words={words}
+          onOpen={() => setWords('')}
+          desktop={false}
+        />
+      ) : (
+        <>
+          {you == null ? (
+            <Loading
+              label="Loading your profile"
+              className={`${classes.card} ${classes.profile}`}
             >
-              {you.initial}
-            </span>
-            <span className={classes.rowText}>
-              <span className={classes.name}>{you.name}</span>
-              <span className={classes.detail}>{you.email}</span>
-            </span>
-          </>
-        )}
-      </section>
+              <Skeleton
+                circle
+                width={48}
+                height={48}
+              />
+              <Skeleton
+                width={160}
+                height={18}
+              />
+            </Loading>
+          ) : (
+            <a
+              href="?settings=account"
+              className={`${classes.card} ${classes.profile}`}
+              onClick={(e) => {
+                e.preventDefault();
+                navigate('?settings=account');
+              }}
+            >
+              <span
+                className={classes.initial}
+                aria-hidden
+              >
+                {you.initial}
+              </span>
+              <div className={classes.rowText}>
+                <div className={classes.name}>{you.name}</div>
+                <div className={classes.detail}>{you.email}</div>
+              </div>
+              <CaretRight
+                size={16}
+                className={classes.caret}
+                aria-hidden
+              />
+            </a>
+          )}
 
-      <p
-        className={classes.eyebrow}
-        aria-hidden
-      >
-        Your data
-      </p>
-      <section
-        className={classes.card}
-        aria-label="Your data"
-      >
-        <SectionLink
-          address="?settings=categories"
-          icon={<Tag size={18} />}
-        >
-          Categories
-        </SectionLink>
-        <SectionLink
-          address="?settings=data"
-          icon={<ArrowsDownUp size={18} />}
-        >
-          Import and export
-        </SectionLink>
-      </section>
+          <p
+            className={classes.eyebrow}
+            aria-hidden
+          >
+            App
+          </p>
+          <section
+            className={classes.card}
+            aria-label="App"
+          >
+            {APP_SECTIONS.map((s) => (
+              <SectionLink
+                key={s}
+                section={s}
+                summary={summaries?.[s] ?? null}
+              />
+            ))}
+          </section>
 
-      <Button
-        variant="default"
-        className={`sf-danger-outline ${classes.signOut}`}
-        onClick={askToSignOut}
-      >
-        Sign out
-      </Button>
-      <SettingsFooter month={thisMonth()} />
+          <p
+            className={classes.eyebrow}
+            aria-hidden
+          >
+            Your data
+          </p>
+          <section
+            className={classes.card}
+            aria-label="Your data"
+          >
+            <SectionLink
+              section="categories"
+              summary={categories == null ? null : categoriesSummary(categories)}
+            />
+            <SectionLink
+              section="data"
+              summary={imports == null ? null : importsSummary(imports)}
+            />
+          </section>
+
+          <Button
+            variant="default"
+            className={`sf-danger-outline ${classes.signOut}`}
+            onClick={askToSignOut}
+          >
+            Sign out
+          </Button>
+          <SettingsFooter month={thisMonth()} />
+        </>
+      )}
       {dialog}
     </div>
   );
 }
 
-/** A section's row: its icon and name, opening its page */
-export function SectionLink({
-  address,
-  icon,
-  children,
-}: {
-  address: string;
-  icon: ReactNode;
-  children: ReactNode;
-}) {
+/** A section's row on the index: its icon, name and what it's set to, opening its page */
+function SectionLink({ section, summary }: { section: SettingsSection; summary: string | null }) {
+  const address = `?settings=${section}`;
   return (
     <a
       href={address}
@@ -139,15 +236,157 @@ export function SectionLink({
         className={classes.icon}
         aria-hidden
       >
-        {icon}
+        {ICONS[section]}
       </span>
-      <span className={classes.label}>{children}</span>
+      <div className={classes.rowText}>
+        <div className={classes.label}>{SECTION_NAMES[section]}</div>
+        {summary != null && <div className={classes.detail}>{summary}</div>}
+      </div>
       <CaretRight
         size={16}
         className={classes.caret}
         aria-hidden
       />
     </a>
+  );
+}
+
+/**
+ * A computer's Settings: the sections down the left with search, Sign out and how fresh
+ * the figures are; the open section beside them, or what search finds while it's typed
+ */
+function DesktopSettings({ section }: { section: SettingsSection }) {
+  const [words, setWords] = useState('');
+  const search = useRef<HTMLInputElement>(null);
+  const { askToSignOut, dialog } = useConfirmSignOut();
+
+  // Ctrl K (Cmd K on a Mac) finds the search, wherever the keyboard is
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        search.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  return (
+    <div className={classes.desktop}>
+      <aside className={classes.side}>
+        <nav
+          className={classes.nav}
+          aria-label="Settings"
+        >
+          <SettingsSearch
+            ref={search}
+            words={words}
+            onChange={setWords}
+            desktop
+          />
+          {(['account', ...APP_SECTIONS, 'categories', 'data'] as const).map((s, i) => (
+            <NavLink
+              key={s}
+              section={s}
+              current={s === section}
+              gapBefore={i === 1 || i === 5}
+            />
+          ))}
+          <hr className={classes.navRule} />
+          <button
+            type="button"
+            className={classes.navSignOut}
+            onClick={askToSignOut}
+          >
+            Sign out
+          </button>
+          <SettingsFooter month={thisMonth()} />
+        </nav>
+      </aside>
+      <div className={classes.pane}>
+        <button
+          type="button"
+          className={classes.close}
+          aria-label="Close settings"
+          onClick={closeSettings}
+        >
+          <span className={classes.closeIcon}>
+            <X size={18} />
+          </span>
+          <Key>Esc</Key>
+        </button>
+        {words.trim() !== '' ? (
+          <div className={classes.paneBody}>
+            <SearchResults
+              words={words}
+              onOpen={() => setWords('')}
+              desktop
+            />
+          </div>
+        ) : (
+          <div className={classes.paneBody}>
+            <SectionContent
+              key={window.location.search}
+              section={section}
+            />
+          </div>
+        )}
+      </div>
+      {dialog}
+    </div>
+  );
+}
+
+/** A section in a computer's list of them; moving between them isn't kept in history */
+function NavLink({
+  section,
+  current,
+  gapBefore,
+}: {
+  section: SettingsSection;
+  current: boolean;
+  gapBefore: boolean;
+}) {
+  const address = section === 'account' ? '?settings' : `?settings=${section}`;
+  return (
+    <>
+      {gapBefore && <hr className={classes.navGap} />}
+      <a
+        href={address}
+        className={classes.navLink}
+        aria-current={current ? 'page' : undefined}
+        onClick={(e) => {
+          e.preventDefault();
+          navigate(address, { replace: true });
+        }}
+      >
+        <span aria-hidden>{ICONS[section]}</span>
+        {SECTION_NAMES[section]}
+      </a>
+    </>
+  );
+}
+
+/**
+ * A section's heading: on phones and tablets with Settings to go back to, on a computer
+ * alone (Settings' Close is beside it). `actions` sit at the right.
+ */
+export function SectionHeader({ title, actions }: { title: string; actions?: ReactNode }) {
+  const isDesktop = useIsDesktop();
+  return (
+    <>
+      {!isDesktop && (
+        <header className={classes.header}>
+          <BackButton onClick={() => goUp('?settings')}>Settings</BackButton>
+          {actions != null && <span className={classes.headerActions}>{actions}</span>}
+        </header>
+      )}
+      <div className={classes.titleRow}>
+        <h1 className={classes.title}>{title}</h1>
+        {isDesktop && actions != null && <span className={classes.headerActions}>{actions}</span>}
+      </div>
+    </>
   );
 }
 

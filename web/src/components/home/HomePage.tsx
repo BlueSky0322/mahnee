@@ -15,7 +15,6 @@ import { useProfile } from '../../profile/ProfileContext';
 import { addMonths, monthHeading, thisMonth, toDateInput } from '../../utils/date-input';
 import { balanceText } from '../accounts/account-text';
 import Freshness from '../common/Freshness';
-import { InstallCard } from '../common/InstallApp';
 import ThemeToggle from '../common/ThemeToggle';
 import YouLink from '../common/YouLink';
 import Skeleton, { Loading } from '../ui/Skeleton';
@@ -266,7 +265,6 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
             : days && <div className={`${classes.card} ${classes.daysCard}`}>{days}</div>}
         </div>
         {!bothEmpty && budgets}
-        <InstallCard />
       </>
     );
   }
@@ -295,7 +293,6 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
           )}
         </>
       )}
-      <InstallCard />
     </>
   );
 }

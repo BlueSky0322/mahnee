@@ -4,7 +4,15 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Recurring, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
-import { CSV_BOM, EXPORT_COLUMNS, csvLine, exportCells, openingCells } from '@shared/export';
+import {
+  CSV_BOM,
+  EXPORT_COLUMNS,
+  csvLine,
+  exportCells,
+  openingCells,
+  rangeCells,
+  repeatingLines,
+} from '@shared/export';
 import type { FakeServer } from '../../testing/app';
 import {
   closeApp,
@@ -13,12 +21,14 @@ import {
   holdNext,
   openSettings,
   renderApp,
+  settle,
   setupAppTests,
 } from '../../testing/app';
 
-// Importing a CSV file from Home: a bank's file mapped by column, or Mahnee's own export;
-// rows that look already saved; categories from what a payee was filed under before; and
-// the limit of 5,000 rows, saved through the outbox and counted once.
+// Importing a CSV file from Settings › Import and export: a bank's file mapped by column,
+// or Mahnee's own export; rows that look already saved; categories from what a payee was
+// filed under before; and the limit of 5,000 rows, saved through the outbox and counted
+// once.
 
 setupAppTests();
 
@@ -70,7 +80,7 @@ async function openImportAndExport() {
   const user = userEvent.setup();
   if (screen.queryByRole('heading', { name: 'Import and export', level: 1 }) == null) {
     await openSettings();
-    await user.click(screen.getByRole('link', { name: 'Import and export' }));
+    await user.click(screen.getByRole('link', { name: /^Import and export( |$)/ }));
   }
   await screen.findByRole('heading', { name: 'Import and export', level: 1 });
   return user;
@@ -79,8 +89,14 @@ async function openImportAndExport() {
 /** Out of Settings, from Import and export (where an import goes back to), on to Accounts */
 async function settingsToAccounts() {
   const user = userEvent.setup();
-  await user.click(await screen.findByRole('button', { name: 'Settings' }));
-  await user.click(await screen.findByRole('button', { name: /^(Home|Close settings)$/ }));
+  // A computer's Settings closes at once; a phone goes up to Settings, then Home
+  await screen.findByRole('heading', { name: 'Import and export', level: 1 });
+  const close = screen.queryByRole('button', { name: 'Close settings' });
+  if (close != null) await user.click(close);
+  else {
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    await user.click(await screen.findByRole('button', { name: 'Home' }));
+  }
   await goToPlace('Accounts');
 }
 
@@ -88,22 +104,26 @@ async function settingsToAccounts() {
 const maybankShows = (balance: string) =>
   screen.findByRole('link', { name: `Maybank, Bank, ${balance}` });
 
-/** The Import page, from Settings › Import and export */
+/** Settings › Import and export, where a file is chosen to import */
 async function openImport() {
-  const user = await openImportAndExport();
-  await user.click(screen.getByRole('link', { name: 'Import' }));
-  await screen.findByRole('heading', { name: 'Import' });
-  return user;
+  return openImportAndExport();
 }
 
-/** Picks the account (when given) and the file */
+/**
+ * Chooses the file (on Import and export, which opens the import with it, or on the
+ * import itself for another), then the account when given
+ */
 async function pickFile(user: User, file: File, account?: string) {
+  const choose = screen.queryByLabelText(/^(Choose a file|Import a file)$/);
+  if (choose != null) {
+    await user.upload(choose, file);
+    await screen.findByLabelText('CSV file');
+  } else await user.upload(screen.getByLabelText('CSV file'), file);
   if (account != null) {
     // Once the accounts are there to pick from
     await screen.findByRole('option', { name: account });
     await user.selectOptions(screen.getByLabelText('Account'), account);
   }
-  await user.upload(screen.getByLabelText('CSV file'), file);
 }
 
 /** Says which column holds what, by the file's own column names */
@@ -160,10 +180,9 @@ function catchDownloads() {
 async function exportFromSettings(files: Blob[]) {
   const user = await openImportAndExport();
   const count = files.length;
-  await user.click(await screen.findByRole('button', { name: 'Export' }));
-  const dialog = within(await screen.findByRole('dialog', { name: 'Export' }));
-  await dialog.findByText(/transactions? from/);
-  await user.click(dialog.getByRole('button', { name: 'Download' }));
+  const exporting = within(await screen.findByRole('region', { name: 'Export' }));
+  await exporting.findByText(/^(\d+ entr(y|ies) · |Entries)/);
+  await user.click(exporting.getByRole('button', { name: 'Download CSV' }));
   await waitFor(() => expect(files).toHaveLength(count + 1));
   return files[count];
 }
@@ -196,7 +215,7 @@ describe("a bank's file", () => {
       expect(await screen.findByText(/Can't read the date/)).toBeTruthy();
       expect(row('No such day').getByRole('checkbox')).toHaveProperty('disabled', true);
       expect(row('Kopi Corner').getByRole('checkbox')).toHaveProperty('checked', true);
-      await user.click(screen.getByRole('button', { name: 'Import 3 transactions' }));
+      await user.click(screen.getByRole('button', { name: 'Add 3 transactions' }));
 
       // The account's page opens with them on it, its balance moved at once
       expect(await screen.findByRole('heading', { name: 'Maybank' })).toBeTruthy();
@@ -253,7 +272,7 @@ describe("a bank's file", () => {
       'Payee': 'Details',
     });
     await user.click(screen.getByRole('button', { name: 'Preview' }));
-    await user.click(await screen.findByRole('button', { name: 'Import 2 transactions' }));
+    await user.click(await screen.findByRole('button', { name: 'Add 2 transactions' }));
 
     await waitFor(() => expect(server.transactions).toHaveLength(2));
     expect(server.transactions.find((t) => t.payee === 'Tesco')).toMatchObject({
@@ -297,7 +316,7 @@ describe('a payee or note too long to keep', () => {
     expect(row('Longxxx').getByText(/Payee shortened to 80 characters/)).toBeTruthy();
     expect(row('Longxxx').getByText(/Note shortened to 500 characters/)).toBeTruthy();
     expect(row('Short').queryByText(/shortened/)).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }));
+    await user.click(screen.getByRole('button', { name: 'Add 2 transactions' }));
 
     await waitFor(() => expect(server.transactions).toHaveLength(2));
     const long = server.transactions.find((t) => t.payee?.startsWith('Long'));
@@ -331,9 +350,9 @@ describe('rows that look already saved', () => {
       expect(row('Grab').getByRole('checkbox')).toHaveProperty('checked', true);
       // Ticked, it would be imported anyway; left as it is, only Grab is
       await user.click(row('Kopi Corner').getByRole('checkbox'));
-      expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Add 2 transactions' })).toBeTruthy();
       await user.click(row('Kopi Corner').getByRole('checkbox'));
-      await user.click(screen.getByRole('button', { name: 'Import 1 transaction' }));
+      await user.click(screen.getByRole('button', { name: 'Add 1 transaction' }));
       await waitFor(() => expect(server.transactions).toHaveLength(3));
 
       // The same file again: everything in it is saved already, so nothing is added
@@ -341,7 +360,7 @@ describe('rows that look already saved', () => {
       await pickFile(user, file, 'Maybank');
       await user.click(await screen.findByRole('button', { name: 'Preview' }));
       await waitFor(() => expect(screen.getAllByText('Looks already saved')).toHaveLength(2));
-      expect(screen.getByRole('button', { name: 'Import 0 transactions' })).toHaveProperty(
+      expect(screen.getByRole('button', { name: 'Add 0 transactions' })).toHaveProperty(
         'disabled',
         true,
       );
@@ -358,7 +377,7 @@ describe('rows that look already saved', () => {
     await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
     await user.click(screen.getByRole('button', { name: 'Preview' }));
     await user.click(row('Looks already saved').getByRole('checkbox'));
-    await user.click(screen.getByRole('button', { name: 'Import 1 transaction' }));
+    await user.click(screen.getByRole('button', { name: 'Add 1 transaction' }));
     await waitFor(() => expect(server.transactions).toHaveLength(2));
     expect(server.transactions.filter((t) => t.payee === 'Kopi Corner')).toHaveLength(2);
   });
@@ -436,7 +455,7 @@ describe('categories', () => {
       expect(shownCategory('New Shop')).toBe('Other');
       expect(shownCategory('Refund')).toBe('Other income');
       await user.selectOptions(row('New Shop').getByLabelText('Category'), 'Shopping');
-      await user.click(screen.getByRole('button', { name: 'Import 4 transactions' }));
+      await user.click(screen.getByRole('button', { name: 'Add 4 transactions' }));
 
       await waitFor(() => expect(server.transactions).toHaveLength(6));
       const filedAs = (payee: string) =>
@@ -470,7 +489,7 @@ describe('the limit', () => {
     expect(await screen.findByText(/5,001 rows/)).toBeTruthy();
     expect(screen.getByText(/up to 5,000/)).toBeTruthy();
     expect(screen.queryByLabelText('Date')).toBeNull();
-    expect(screen.queryByRole('button', { name: /^Import \d/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Add \d/ })).toBeNull();
   });
 
   test('imports 5,000 rows on a phone, through the outbox, each counted once', async () => {
@@ -480,7 +499,7 @@ describe('the limit', () => {
     await pickFile(user, rows(5_000), 'Maybank');
     await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
     await user.click(screen.getByRole('button', { name: 'Preview' }));
-    const importAll = await screen.findByRole('button', { name: 'Import 5,000 transactions' });
+    const importAll = await screen.findByRole('button', { name: 'Add 5,000 transactions' });
     // One batch is saved but its answer never arrives: sent again, it counts once
     server.loseNext.changes = true;
     await user.click(importAll);
@@ -491,17 +510,15 @@ describe('the limit', () => {
     expect(new Set(server.transactions.map((t) => t.payee)).size).toBe(5_000);
     // Nothing is left waiting on the device: the export says so, counted by the server
     await openImportAndExport();
-    await user.click(await screen.findByRole('button', { name: 'Export' }));
-    const dialog = within(await screen.findByRole('dialog', { name: 'Export' }));
+    const exporting = within(await screen.findByRole('region', { name: 'Export' }));
     expect(
-      await dialog.findByText(/^5,000 transactions from /, undefined, { timeout: 10_000 }),
+      await exporting.findByText(/^5,000 entries · /, undefined, { timeout: 10_000 }),
     ).toBeTruthy();
-    await waitFor(() => expect(dialog.queryByText(/still being saved/)).toBeNull(), {
+    await waitFor(() => expect(exporting.queryByText(/still being saved/)).toBeNull(), {
       timeout: 10_000,
     });
     expect(server.transactions).toHaveLength(5_000);
     // And Accounts still says so
-    await user.keyboard('{Escape}');
     await settingsToAccounts();
     expect(await maybankShows('−4,000.00')).toBeTruthy();
   }, 90_000);
@@ -514,12 +531,12 @@ describe('the limit', () => {
       'Date,Description,Amount\n05/10/2026,Kopi Corner,-8.00\n06/10/2026,Grab,-20.00\n',
     );
     // Offline once the accounts have arrived: with nothing kept yet, offline has none
-    await screen.findByRole('option', { name: 'Maybank' });
+    await settle();
     const backOnline = goOffline(server);
     await pickFile(user, file, 'Maybank');
     await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
     await user.click(screen.getByRole('button', { name: 'Preview' }));
-    await user.click(await screen.findByRole('button', { name: 'Import 2 transactions' }));
+    await user.click(await screen.findByRole('button', { name: 'Add 2 transactions' }));
     expect(await screen.findByText('RM 972.00')).toBeTruthy();
 
     // Imported again before it's saved: still known, so nothing is added twice
@@ -527,7 +544,7 @@ describe('the limit', () => {
     await pickFile(user, file, 'Maybank');
     await user.click(await screen.findByRole('button', { name: 'Preview' }));
     await waitFor(() => expect(screen.getAllByText('Looks already saved')).toHaveLength(2));
-    expect(screen.getByRole('button', { name: 'Import 0 transactions' })).toHaveProperty(
+    expect(screen.getByRole('button', { name: 'Add 0 transactions' })).toHaveProperty(
       'disabled',
       true,
     );
@@ -636,7 +653,7 @@ describe("Mahnee's own export", () => {
       ]) {
         await user.selectOptions(screen.getByLabelText(`Kind of ${name}`), kind);
       }
-      await user.click(screen.getByRole('button', { name: 'Import 6 transactions' }));
+      await user.click(screen.getByRole('button', { name: 'Add 6 transactions' }));
 
       await waitFor(() => expect(after.transactions).toHaveLength(6));
       expect(after.accounts.map((a) => [a.name, a.kind, a.openingCents])).toEqual(
@@ -650,7 +667,7 @@ describe("Mahnee's own export", () => {
       // Imported again, it adds nothing
       await openImport();
       await pickFile(user, new File([original], 'mahnee-2026-11-06.csv', { type: 'text/csv' }));
-      expect(await screen.findByRole('button', { name: 'Import 0 transactions' })).toHaveProperty(
+      expect(await screen.findByRole('button', { name: 'Add 0 transactions' })).toHaveProperty(
         'disabled',
         true,
       );
@@ -721,7 +738,7 @@ describe("Mahnee's own export", () => {
       expect(openingLines()[0].textContent).toMatch(/RM 1,000\.00/);
       expect(openingLines()[0].textContent).toMatch(/RM 1,500\.00/);
       expect(line.getByRole('checkbox')).toHaveProperty('checked', false);
-      await user.click(screen.getByRole('button', { name: 'Import 1 transaction' }));
+      await user.click(screen.getByRole('button', { name: 'Add 1 transaction' }));
       await waitFor(() => expect(server.transactions).toHaveLength(1));
       expect(server.accounts.find((a) => a.id === MAYBANK)?.openingCents).toBe(100_000);
       // The import goes back to Import and export; Accounts shows the balance
@@ -733,7 +750,7 @@ describe("Mahnee's own export", () => {
       await pickFile(user, exportOf(150_000));
       await waitFor(() => expect(openingLines()).toHaveLength(1));
       await user.click(within(openingLines()[0]).getByRole('checkbox'));
-      await user.click(screen.getByRole('button', { name: 'Import 0 transactions' }));
+      await user.click(screen.getByRole('button', { name: 'Add 0 transactions' }));
       await waitFor(() =>
         expect(server.accounts.find((a) => a.id === MAYBANK)?.openingCents).toBe(150_000),
       );
@@ -761,12 +778,12 @@ describe("Mahnee's own export", () => {
       const user = await openImport();
       await pickFile(user, exportOf(150_000));
       expect(await screen.findByText(/Mahnee export/)).toBeTruthy();
-      expect(screen.queryByRole('button', { name: /^Import \d/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Add \d/ })).toBeNull();
 
       answers.forEach((a) => a.release());
       await waitFor(() => expect(openingLines()).toHaveLength(1));
       expect(openingLines()[0].textContent).toMatch(/Maybank/);
-      await user.click(await screen.findByRole('button', { name: 'Import 1 transaction' }));
+      await user.click(await screen.findByRole('button', { name: 'Add 1 transaction' }));
       await waitFor(() => expect(server.transactions).toHaveLength(1));
       expect(server.transactions[0].payee).toBe('Kopi');
     },
@@ -856,7 +873,7 @@ describe("repeating bills in Mahnee's export", () => {
       await screen.findByLabelText('Kind of Wallet');
       await user.selectOptions(screen.getByLabelText('Kind of Wallet'), 'cash');
       await user.click(
-        await screen.findByRole('button', { name: 'Import 2 transactions and 2 repeating items' }),
+        await screen.findByRole('button', { name: 'Add 2 transactions and 2 repeating items' }),
       );
       expect(await screen.findByText('Imported 2 transactions and 2 repeating items')).toBeTruthy();
 
@@ -897,9 +914,9 @@ describe("repeating bills in Mahnee's export", () => {
       await pickFile(user, new File([original], 'mahnee-2026-11-06.csv', { type: 'text/csv' }));
       // Both transactions and both repeating ones
       await waitFor(() => expect(screen.getAllByText('Looks already saved')).toHaveLength(4));
-      expect(screen.getByRole('button', { name: /^Import \d/ })).toHaveProperty('disabled', true);
+      expect(screen.getByRole('button', { name: /^Add \d/ })).toHaveProperty('disabled', true);
       expect(
-        screen.getByRole('button', { name: 'Import 0 transactions and 0 repeating items' }),
+        screen.getByRole('button', { name: 'Add 0 transactions and 0 repeating items' }),
       ).toBeTruthy();
       expect(after.recurring).toHaveLength(2);
 
@@ -911,7 +928,7 @@ describe("repeating bills in Mahnee's export", () => {
         }),
       );
       await waitFor(() => expect(screen.getAllByText('Looks already saved')).toHaveLength(3));
-      await user.click(screen.getByRole('button', { name: /^Import \d/ }));
+      await user.click(screen.getByRole('button', { name: /^Add \d/ }));
       await waitFor(() => expect(after.recurring).toHaveLength(3));
       expect(after.transactions).toHaveLength(2);
       expect(after.recurring[2]).toMatchObject({
@@ -937,7 +954,7 @@ describe("repeating bills in Mahnee's export", () => {
         `2026-12-01,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${'4'.repeat(16)}\r\n`;
       await pickFile(user, csv(file, 'mahnee-2026-11-06.csv'));
       await screen.findByText(/Mahnee export/);
-      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
+      await user.click(await screen.findByRole('button', { name: /^Add \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(2));
       expect(server.recurring[1]).toMatchObject({
         accountId: MAYBANK,
@@ -1038,7 +1055,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       const user = await openImport();
       await pickFile(user, new File([original], 'mahnee-2026-11-06.csv', { type: 'text/csv' }));
       await screen.findByLabelText('Kind of Wallet');
-      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
+      await user.click(await screen.findByRole('button', { name: /^Add \d/ }));
       await waitFor(() => expect(after.recurring).toHaveLength(4));
       expect(after.recurring.map((r) => [r.payee, r.schedule, r.day, r.nextDue])).toEqual([
         ['Insurance', 'monthly', 1, '2027-01-01'],
@@ -1069,7 +1086,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
         fileOf(line({ date: '2026-11-06', payee: 'Laundry', schedule: '"Weekly, day 5"' })),
         size,
       );
-      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
+      await user.click(await screen.findByRole('button', { name: /^Add \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(1));
       expect(server.recurring[0]).toMatchObject({ nextDue: '2026-11-13', startDate: '2026-11-07' });
     },
@@ -1144,7 +1161,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       ] as const) {
         expect(screen.getByLabelText<HTMLInputElement>(`Import row ${n}`).checked).toBe(!saved);
       }
-      await user.click(screen.getByRole('button', { name: /^Import \d/ }));
+      await user.click(screen.getByRole('button', { name: /^Add \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(9));
       expect(
         server.recurring.slice(4).map((r) => [r.accountId, r.kind, r.schedule, r.day, r.payee]),
@@ -1169,7 +1186,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
     const server = withAccounts();
     server.recurring = saved.map((more) => repeating(more));
     const user = await importing(server, fileOf(line(), line()), 'desktop');
-    await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
+    await user.click(await screen.findByRole('button', { name: /^Add \d/ }));
     await waitFor(() => expect(server.recurring).toHaveLength(saved.length + added));
     await pause(50);
     expect(server.recurring).toHaveLength(saved.length + added);
@@ -1229,7 +1246,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
         size,
       );
       expect(await screen.findByText('CIMB is not an account here or in this file')).toBeTruthy();
-      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
+      await user.click(await screen.findByRole('button', { name: /^Add \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(4));
       const named = (name: string, parentId: string | null) =>
         server.categories.find((c) => c.name === name && c.parentId === parentId)?.id;
@@ -1264,7 +1281,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       expect(
         await screen.findByText('You can have up to 200 repeating items, stopped ones included'),
       ).toBeTruthy();
-      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
+      await user.click(await screen.findByRole('button', { name: /^Add \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(200));
       expect(server.recurring[199].payee).toBe('Water');
       await pause(50);
@@ -1285,7 +1302,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       );
       expect(await screen.findByText("Can't read the schedule")).toBeTruthy();
       expect(screen.getByLabelText<HTMLInputElement>('Import row 2').disabled).toBe(true);
-      await user.click(await screen.findByRole('button', { name: /^Import \d/ }));
+      await user.click(await screen.findByRole('button', { name: /^Add \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(1));
       expect(server.recurring[0].payee).toBe('Water');
     },
@@ -1314,5 +1331,302 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
     expect(refused.status).toBe(400);
     expect(await refused.json()).toEqual({ error: 'Give a day from 2000 up to today' });
     expect((await send(utcDay(1))).status).toBe(200);
+  });
+});
+
+// The check step as R-Import and R-Desk-Import draw it, and each import recorded on the
+// server (D16) so Import and export lists it with Undo on every device
+describe('recording an import, and how it reads', () => {
+  const FILE = [
+    'Date,Description,Amount',
+    '05/10/2026,Kopi Corner,-8.00',
+    '1 Oct 2026,Salary,"RM 5,000.00"',
+    '2026-10-03,Grab,(20.00)',
+    '31/02/2026,No such day,-1.00',
+  ].join('\r\n');
+
+  /** Maybank with Grab saved already, so one row looks already saved */
+  function withGrab() {
+    const server = withAccounts();
+    saved(server, { payee: 'Grab', amountCents: 2_000, date: '2026-10-03' });
+    return server;
+  }
+
+  /** What an element reads as: its text pieces in order, one space between each */
+  const text = (el: Element) => {
+    const parts: string[] = [];
+    const walk = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) parts.push(node.textContent ?? '');
+      else node.childNodes.forEach(walk);
+    };
+    walk(el);
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  };
+
+  /** The steps, each as it reads, the current one marked */
+  const steps = () =>
+    within(screen.getByRole('list', { name: 'Steps' }))
+      .getAllByRole('listitem')
+      .map((li) => `${text(li)}${li.getAttribute('aria-current') === 'step' ? ' (now)' : ''}`);
+
+  test('on a phone, names the file and account, the steps, and how many of each', async () => {
+    const server = withGrab();
+    renderApp(server, '/', { size: 'phone' });
+    const user = await openImport();
+    await pickFile(user, csv(FILE, 'maybank-oct.csv'), 'Maybank');
+    expect(
+      await screen.findByRole('heading', { name: 'maybank-oct.csv into Maybank', level: 1 }),
+    ).toBeTruthy();
+    expect(steps()).toEqual(['1 File', '2 Columns (now)', '3 Check']);
+    await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+
+    expect(await screen.findByText('4 lines from Oct 1 to Oct 5')).toBeTruthy();
+    expect(steps()).toEqual(['1 File', '2 Columns', '3 Check (now)']);
+    const counts = within(screen.getByRole('list', { name: 'Counts' }));
+    expect(counts.getAllByRole('listitem').map(text)).toEqual([
+      '2 to add',
+      '1 already saved, left out',
+      '2 going to Other',
+    ]);
+    expect(screen.getByRole('button', { name: 'Add 2 transactions' })).toBeTruthy();
+  });
+
+  test('on a computer, says it all in its header, and Cancel saves nothing', async () => {
+    const server = withGrab();
+    renderApp(server, '/');
+    const user = await openImport();
+    await pickFile(user, csv(FILE, 'maybank-oct.csv'), 'Maybank');
+    expect(
+      await screen.findByRole('heading', { name: 'Import maybank-oct.csv', level: 1 }),
+    ).toBeTruthy();
+    await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(await screen.findByText('Into Maybank · 4 lines, Oct 1 to Oct 5')).toBeTruthy();
+    expect(steps()).toEqual(['✓ File and account', '✓ Columns', '3 Check (now)']);
+    const counts = within(screen.getByRole('list', { name: 'Counts' }));
+    expect(counts.getAllByRole('listitem').map(text)).toEqual([
+      'Ticked, to add 2',
+      'Look already saved, unticked 1',
+      'Category from last time 0',
+      'Going to Other 2',
+    ]);
+
+    // The lines, by what's said of them
+    const lines = within(screen.getByRole('region', { name: 'Lines in the file' }));
+    await user.click(lines.getByRole('tab', { name: 'Already saved 1' }));
+    expect(screen.getAllByText(/Grab|Kopi Corner|Salary/).map((e) => e.textContent)).toEqual([
+      'Grab',
+    ]);
+    await user.click(lines.getByRole('tab', { name: 'Going to Other 2' }));
+    expect(screen.queryByText('Grab')).toBeNull();
+    expect(screen.getByText('Kopi Corner')).toBeTruthy();
+    await user.click(lines.getByRole('tab', { name: 'All 4' }));
+    expect(screen.getByText('Grab')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Cancel import, nothing is saved' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Import and export', level: 1 }),
+    ).toBeTruthy();
+    await settle();
+    expect(server.transactions).toHaveLength(1);
+    expect(server.imports).toEqual([]);
+  });
+
+  test.each(SIZES)(
+    'records the import, its entries naming it, and lists it under Recent imports (%s)',
+    async (size) => {
+      const server = withGrab();
+      renderApp(server, '/', { size });
+      const user = await openImport();
+      await pickFile(user, csv(FILE, 'maybank-oct.csv'), 'Maybank');
+      await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
+      await user.click(screen.getByRole('button', { name: 'Preview' }));
+      await user.click(await screen.findByRole('button', { name: 'Add 2 transactions' }));
+
+      await waitFor(() => expect(server.transactions).toHaveLength(3));
+      expect(server.imports).toEqual([
+        {
+          id: expect.stringMatching(/^[0-9a-f]{16}$/),
+          fileName: 'maybank-oct.csv',
+          accountId: MAYBANK,
+          addedCount: 2,
+          skippedCount: 2,
+          createdAt: expect.any(Number),
+          undoneAt: null,
+        },
+      ]);
+      const added = server.transactions.filter((t) => t.payee !== 'Grab').map((t) => t.id);
+      expect(added.map((id) => server.importIds.get(id))).toEqual([
+        server.imports[0].id,
+        server.imports[0].id,
+      ]);
+      expect(server.importIds.has(server.transactions[0].id)).toBe(false);
+
+      await openImportAndExport();
+      const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const recent = within(await screen.findByRole('region', { name: 'Recent imports' }));
+      expect(
+        await recent.findByText(
+          size === 'phone' ? `${today} · into Maybank · 2 added` : `${today} · into Maybank`,
+        ),
+      ).toBeTruthy();
+    },
+  );
+
+  test('offline, the import and its entries are kept and saved in order once back', async () => {
+    const server = withAccounts();
+    renderApp(server, '/', { size: 'phone' });
+    const user = await openImport();
+    await screen.findByLabelText(/^(Choose a file|Import a file)$/);
+    const backOnline = goOffline(server);
+    await pickFile(user, csv(FILE, 'maybank-oct.csv'), 'Maybank');
+    await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+    await user.click(await screen.findByRole('button', { name: 'Add 3 transactions' }));
+    await screen.findByRole('heading', { name: 'Maybank' });
+    expect(server.imports).toEqual([]);
+
+    backOnline();
+    await waitFor(() => expect(server.transactions).toHaveLength(3));
+    expect(server.imports).toHaveLength(1);
+    expect(server.transactions.map((t) => server.importIds.get(t.id))).toEqual(
+      Array(3).fill(server.imports[0].id),
+    );
+  });
+
+  test('records nothing when no entry is added', async () => {
+    const server = withAccounts();
+    renderApp(server, '/');
+    const user = await openImport();
+    await pickFile(user, csv(FILE, 'maybank-oct.csv'), 'Maybank');
+    await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+    await screen.findByRole('button', { name: 'Add 3 transactions' });
+    for (const name of ['Kopi Corner', 'Salary', 'Grab'])
+      await user.click(row(name).getByRole('checkbox'));
+    expect(screen.getByRole('button', { name: 'Add 0 transactions' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    expect(server.imports).toEqual([]);
+  });
+
+  test("a file of some dates adds its entries only: no accounts, and says why a line can't go", async () => {
+    const server = withAccounts();
+    renderApp(server, '/');
+    const names = {
+      accounts: new Map([
+        [MAYBANK, { name: 'Maybank', currency: 'MYR' }],
+        ['f'.repeat(16), { name: 'Savings', currency: 'MYR' }],
+      ]),
+      categories: new Map([[categoryId('Food'), { name: 'Food', parentId: null }]]),
+    };
+    const line = (id: string, accountId: string, payee: string) =>
+      csvLine(
+        exportCells(
+          {
+            id,
+            kind: 'expense',
+            accountId,
+            toAccountId: null,
+            amountCents: 800,
+            categoryId: categoryId('Food'),
+            payee,
+            note: null,
+            date: '2026-10-05',
+          },
+          names,
+        ),
+      );
+    const file = csv(
+      CSV_BOM +
+        csvLine(EXPORT_COLUMNS) +
+        csvLine(rangeCells({ from: '2026-10-01', to: '2026-10-31' })) +
+        line('1'.repeat(16), MAYBANK, 'Kopi') +
+        line('2'.repeat(16), 'f'.repeat(16), 'Mamak'),
+      'mahnee-2026-10-01-to-2026-10-31.csv',
+    );
+    const user = await openImport();
+    await pickFile(user, file);
+    expect(
+      await screen.findByText(
+        'This file holds Oct 1 to Oct 31 only, so it adds entries to accounts you have: no accounts, opening balances or repeating items.',
+      ),
+    ).toBeTruthy();
+    expect(await screen.findByText("Savings isn't an account here")).toBeTruthy();
+    expect(row('Mamak').getByRole('checkbox')).toHaveProperty('disabled', true);
+    expect(screen.queryByLabelText('Kind of Savings')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Add 1 transaction' }));
+    await waitFor(() => expect(server.transactions).toHaveLength(1));
+    expect(server.transactions[0]).toMatchObject({ accountId: MAYBANK, payee: 'Kopi' });
+    expect(server.accounts).toHaveLength(2);
+    expect(server.imports).toEqual([
+      expect.objectContaining({
+        fileName: 'mahnee-2026-10-01-to-2026-10-31.csv',
+        accountId: null,
+        addedCount: 1,
+        skippedCount: 1,
+      }),
+    ]);
+  });
+
+  test('a file of some dates sets no opening balance and no repeating item, even if it holds them', async () => {
+    const server = withAccounts();
+    renderApp(server, '/');
+    const names = {
+      accounts: new Map([[MAYBANK, { name: 'Maybank', currency: 'MYR' }]]),
+      categories: new Map([[categoryId('Food'), { name: 'Food', parentId: null }]]),
+    };
+    const kopi = {
+      id: '1'.repeat(16),
+      kind: 'expense' as const,
+      accountId: MAYBANK,
+      toAccountId: null,
+      amountCents: 800,
+      categoryId: categoryId('Food'),
+      payee: 'Kopi',
+      note: null,
+      date: '2026-10-05',
+    };
+    const file = csv(
+      CSV_BOM +
+        csvLine(EXPORT_COLUMNS) +
+        csvLine(rangeCells({ from: '2026-10-01', to: '2026-10-31' })) +
+        csvLine(
+          openingCells({
+            id: MAYBANK,
+            name: 'Maybank',
+            currency: 'MYR',
+            openingCents: 150_000,
+            createdAt: 0,
+          }),
+        ) +
+        repeatingLines(
+          [
+            {
+              ...kopi,
+              id: '2'.repeat(16),
+              payee: 'Gym',
+              schedule: 'monthly',
+              day: 5,
+              nextDue: '2026-12-05',
+              archived: false,
+            },
+          ],
+          names,
+        ) +
+        csvLine(exportCells(kopi, names)),
+      'mahnee-2026-10-01-to-2026-10-31.csv',
+    );
+    const user = await openImport();
+    await pickFile(user, file);
+    await screen.findByText(/^This file holds Oct 1 to Oct 31 only/);
+    expect(screen.queryByText(/Opening balance of Maybank/)).toBeNull();
+    await user.click(await screen.findByRole('button', { name: 'Add 1 transaction' }));
+    await waitFor(() => expect(server.transactions).toHaveLength(1));
+    await settle();
+    expect(server.accounts.find((a) => a.id === MAYBANK)?.openingCents).toBe(100_000);
+    expect(server.recurring).toEqual([]);
   });
 });

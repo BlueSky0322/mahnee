@@ -16,6 +16,7 @@ import {
   setupAppTests,
 } from '../../testing/app';
 import { outboxKey } from '../../offline/outbox';
+import { thisMonth } from '../../utils/date-input';
 
 setupAppTests();
 
@@ -45,16 +46,29 @@ function seed(server: FakeServer, ...more: (Partial<Category> & Pick<Category, '
 
 const dialog = () => screen.findByRole('dialog');
 
-/** A kind's list, by its heading */
-const section = (title: 'Spending' | 'Income') => screen.findByRole('region', { name: title });
+type Kind = 'Expenses' | 'Income';
 
-/** The categories a kind's list shows, as read out, in order */
-async function shown(title: 'Spending' | 'Income') {
+/** A kind's list, by its heading */
+const section = (title: Kind) => screen.findByRole('region', { name: title });
+
+/**
+ * The categories a kind's list shows, in order: each top-level one by its name, and each
+ * subcategory chip under it as "Coffee, in Food"
+ */
+async function shown(title: Kind) {
   const found = within(await section(title));
   return found
     .getAllByRole('button')
-    .map((b) => b.getAttribute('aria-label') ?? '')
-    .filter((name) => !/^(Move|Add) /.test(name));
+    .filter(
+      (b) =>
+        !/^(Move|Add|Reorder|Done|Archived)\b/.test(b.textContent ?? '') &&
+        !/^(Move|Add) /.test(b.getAttribute('aria-label') ?? ''),
+    )
+    .map((b) => {
+      const name = b.getAttribute('aria-label') ?? b.textContent ?? '';
+      const under = b.closest('[role="list"]')?.getAttribute('aria-label');
+      return under?.startsWith('Under ') ? `${name}, in ${under.slice('Under '.length)}` : name;
+    });
 }
 
 /** The server's categories under `parentId`, by name, in order */
@@ -67,6 +81,17 @@ const savedUnder = (server: FakeServer, parentId: string | null, kind = 'expense
 const openCategories = (server: FakeServer, size: (typeof SIZES)[number] = 'desktop') =>
   renderApp(server, '/?categories', { size });
 
+/** A subcategory chip, as it's listed under its category */
+const chip = async (name: string, parent: string) =>
+  within(await screen.findByRole('list', { name: `Under ${parent}` })).findByRole('button', {
+    name,
+  });
+
+/** Reorder mode, where the arrows are */
+async function reorder() {
+  await userEvent.setup().click(await screen.findByRole('button', { name: 'Reorder' }));
+}
+
 describe('the categories page', () => {
   test.each(SIZES)('opens from Settings with the defaults, and goes back (%s)', async (size) => {
     const server = fakeServer();
@@ -74,11 +99,11 @@ describe('the categories page', () => {
     const user = userEvent.setup();
 
     await openSettings();
-    await user.click(screen.getByRole('link', { name: 'Categories' }));
+    await user.click(screen.getByRole('link', { name: /^Categories( |$)/ }));
     expect(await screen.findByRole('heading', { name: 'Categories', level: 1 })).toBeTruthy();
     // Nothing saved yet: the defaults show, and nothing is sent just for looking
     await waitFor(async () =>
-      expect(await shown('Spending')).toEqual([
+      expect(await shown('Expenses')).toEqual([
         'Food',
         'Transport',
         'Groceries',
@@ -90,12 +115,21 @@ describe('the categories page', () => {
       ]),
     );
     expect(await shown('Income')).toEqual(['Salary', 'Other income']);
+    expect(screen.getByRole('textbox', { name: 'New expense category' })).toHaveProperty(
+      'placeholder',
+      'New expense category',
+    );
+    expect(screen.getByRole('textbox', { name: 'New income category' })).toBeTruthy();
+    // No arrows until Reorder
+    expect(screen.queryByRole('button', { name: /^Move / })).toBeNull();
     expect(server.categories).toEqual([]);
 
-    await user.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(await screen.findByRole('link', { name: 'Categories' })).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: 'Categories' })).toBeNull();
-    expect(window.location.search).toBe('?settings');
+    if (size === 'phone') {
+      await user.click(screen.getByRole('button', { name: 'Settings' }));
+      expect(await screen.findByRole('link', { name: /^Categories / })).toBeTruthy();
+      expect(screen.queryByRole('heading', { name: 'Categories' })).toBeNull();
+      expect(window.location.search).toBe('?settings');
+    }
   });
 
   test('shows placeholders until the ledger arrives', async () => {
@@ -103,29 +137,97 @@ describe('the categories page', () => {
     const held = holdNext(server, 'GET', '/api/accounts');
     openCategories(server);
     expect(await screen.findByText('Loading your categories')).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'Spending' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Expenses' })).toBeNull();
     held.release();
-    expect(await section('Spending')).toBeTruthy();
+    expect(await section('Expenses')).toBeTruthy();
     expect(screen.queryByText('Loading your categories')).toBeNull();
   });
 
-  test.each(SIZES)('adds a subcategory, saving the defaults with it (%s)', async (size) => {
-    const server = fakeServer();
-    openCategories(server, size);
+  test.each(SIZES)(
+    "shows a budget beside its category, in whole ringgit where it's whole (%s)",
+    async (size) => {
+      const server = fakeServer();
+      seed(server);
+      const month = thisMonth();
+      server.budgets.push(
+        { categoryId: id('Food'), fromMonth: month, amountCents: 80_000, carryOver: false },
+        { categoryId: id('Transport'), fromMonth: month, amountCents: 12_050, carryOver: false },
+      );
+      openCategories(server, size);
+      const food = (await screen.findByRole('button', { name: 'Food' })).closest('li')!;
+      await waitFor(() => expect(within(food).getByText('RM 800 a month')).toBeTruthy());
+      const transport = screen.getByRole('button', { name: 'Transport' }).closest('li')!;
+      expect(within(transport).getByText('RM 120.50 a month')).toBeTruthy();
+    },
+  );
+
+  test.each(SIZES)(
+    'adds a subcategory in place, saving the defaults with it (%s)',
+    async (size) => {
+      const server = fakeServer();
+      openCategories(server, size);
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByRole('button', { name: 'Add a subcategory under Food' }));
+      const field = screen.getByRole('textbox', { name: 'New under Food' });
+      expect(document.activeElement).toBe(field);
+      expect(screen.getByText(/^counts toward Food's budget$/i)).toBeTruthy();
+      await user.type(field, ' Bubble tea ');
+      await user.click(screen.getByRole('button', { name: 'Add Bubble tea under Food' }));
+
+      expect(await chip('Bubble tea', 'Food')).toBeTruthy();
+      await waitFor(async () =>
+        expect((await shown('Expenses')).slice(0, 3)).toEqual([
+          'Food',
+          'Bubble tea, in Food',
+          'Transport',
+        ]),
+      );
+      await waitFor(() => expect(savedUnder(server, id('Food'))).toEqual(['Bubble tea']));
+      expect(server.categories).toHaveLength(DEFAULT_CATEGORIES.length + 1);
+
+      // With one already, the + sits after the chips; Enter adds too
+      await user.click(screen.getByRole('button', { name: 'Add a subcategory under Food' }));
+      await user.type(screen.getByRole('textbox', { name: 'New under Food' }), 'Coffee{Enter}');
+      expect(await chip('Coffee', 'Food')).toBeTruthy();
+      await waitFor(() => expect(savedUnder(server, id('Food'))).toEqual(['Bubble tea', 'Coffee']));
+    },
+  );
+
+  test('an income subcategory counts toward no budget', async () => {
+    openCategories(fakeServer(), 'phone');
     const user = userEvent.setup();
-
-    await user.click(await screen.findByRole('button', { name: 'Add spending category' }));
-    const form = within(await dialog());
-    await user.type(form.getByLabelText('Name'), ' Coffee ');
-    await user.selectOptions(form.getByLabelText('Under'), 'Food');
-    await user.click(form.getByRole('button', { name: 'Add category' }));
-
-    await waitFor(async () =>
-      expect((await shown('Spending')).slice(0, 2)).toEqual(['Food', 'Coffee, in Food']),
-    );
-    await waitFor(() => expect(savedUnder(server, id('Food'))).toEqual(['Coffee']));
-    expect(server.categories).toHaveLength(DEFAULT_CATEGORIES.length + 1);
+    await user.click(await screen.findByRole('button', { name: 'Add a subcategory under Salary' }));
+    expect(screen.getByRole('textbox', { name: 'New under Salary' })).toBeTruthy();
+    expect(screen.queryByText(/counts toward/i)).toBeNull();
   });
+
+  test.each(SIZES)(
+    'adds a top-level category of each kind from its own field (%s)',
+    async (size) => {
+      const server = fakeServer();
+      seed(server);
+      openCategories(server, size);
+      const user = userEvent.setup();
+
+      const expense = await screen.findByRole('textbox', { name: 'New expense category' });
+      // Nothing typed adds nothing
+      await user.type(expense, '   {Enter}');
+      await user.type(expense, 'Pets{Enter}');
+      await waitFor(async () => expect((await shown('Expenses')).at(-1)).toBe('Pets'));
+      expect(expense).toHaveProperty('value', '');
+      await user.type(
+        screen.getByRole('textbox', { name: 'New income category' }),
+        'Freelance{Enter}',
+      );
+      await waitFor(async () =>
+        expect(await shown('Income')).toEqual(['Salary', 'Other income', 'Freelance']),
+      );
+      await waitFor(() => expect(savedUnder(server, null).at(-1)).toBe('Pets'));
+      expect(savedUnder(server, null, 'income')).toEqual(['Salary', 'Other income', 'Freelance']);
+      expect(server.categories).toHaveLength(DEFAULT_CATEGORIES.length + 2);
+    },
+  );
 
   test.each(SIZES)('renames a category (%s)', async (size) => {
     const server = fakeServer();
@@ -151,28 +253,30 @@ describe('the categories page', () => {
     openCategories(server, size);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Coffee, in Food' }));
+    await user.click(await chip('Coffee', 'Food'));
     let form = within(await dialog());
     await user.selectOptions(form.getByLabelText('Under'), 'Fun');
     await user.click(form.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByRole('button', { name: 'Coffee, in Fun' })).toBeTruthy();
+    expect(await chip('Coffee', 'Fun')).toBeTruthy();
     await waitFor(() => expect(savedUnder(server, id('Fun'))).toEqual(['Coffee']));
     expect(savedUnder(server, id('Food'))).toEqual([]);
 
-    await user.click(screen.getByRole('button', { name: 'Coffee, in Fun' }));
+    await user.click(await chip('Coffee', 'Fun'));
     form = within(await dialog());
     await user.selectOptions(form.getByLabelText('Under'), 'Top level');
     await user.click(form.getByRole('button', { name: 'Save' }));
-    await waitFor(async () => expect((await shown('Spending')).at(-1)).toBe('Coffee'));
+    await waitFor(async () => expect((await shown('Expenses')).at(-1)).toBe('Coffee'));
     await waitFor(() => expect(savedUnder(server, null).at(-1)).toBe('Coffee'));
   });
 
-  test.each(SIZES)('puts one higher or lower with the arrows (%s)', async (size) => {
+  test.each(SIZES)('puts one higher or lower with the arrows, in Reorder (%s)', async (size) => {
     const server = fakeServer();
     seed(server, { id: COFFEE, name: 'Coffee', parentId: id('Food') });
     server.categories.find((c) => c.name === 'Transport')!.archived = true;
     openCategories(server, size);
     const user = userEvent.setup();
+    await reorder();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeTruthy();
 
     // The first can't go higher, nor the last lower
     expect(await screen.findByRole('button', { name: 'Move Food up' })).toHaveProperty(
@@ -190,7 +294,7 @@ describe('the categories page', () => {
     await user.click(screen.getByRole('button', { name: 'Move Food down' }));
     // Food takes Coffee with it
     await waitFor(async () =>
-      expect((await shown('Spending')).slice(0, 4)).toEqual([
+      expect((await shown('Expenses')).slice(0, 4)).toEqual([
         'Groceries',
         'Food',
         'Coffee, in Food',
@@ -199,7 +303,7 @@ describe('the categories page', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Move Bills up' }));
     await waitFor(async () =>
-      expect((await shown('Spending')).slice(0, 4)).toEqual([
+      expect((await shown('Expenses')).slice(0, 4)).toEqual([
         'Groceries',
         'Bills',
         'Food',
@@ -214,6 +318,9 @@ describe('the categories page', () => {
         'Food',
       ]),
     );
+    // Done puts the arrows away
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('button', { name: /^Move / })).toBeNull();
   });
 
   test('a category with subcategories stays at the top level, and a full one says so', async () => {
@@ -236,7 +343,7 @@ describe('the categories page', () => {
     await user.click(form.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    await user.click(await screen.findByRole('button', { name: 'Coffee, in Food' }));
+    await user.click(await chip('Coffee', 'Food'));
     form = within(await dialog());
     const full = form.getByRole('option', { name: 'Bills (full)' });
     expect(full).toHaveProperty('disabled', true);
@@ -251,22 +358,21 @@ describe('the categories page', () => {
     openCategories(server, size);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Coffee, in Food' }));
+    await user.click(await chip('Coffee', 'Food'));
     await user.click(within(await dialog()).getByRole('button', { name: 'Archive' }));
-    await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Coffee, in Food' })).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Under Food' })).toBeNull());
     await waitFor(() =>
       expect(server.categories.find((c) => c.id === COFFEE)?.archived).toBe(true),
     );
 
     expect(await screen.findByText('Archived Coffee')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(await screen.findByRole('button', { name: 'Coffee, in Food' })).toBeTruthy();
+    expect(await chip('Coffee', 'Food')).toBeTruthy();
     await waitFor(() =>
       expect(server.categories.find((c) => c.id === COFFEE)?.archived).toBe(false),
     );
-    expect(screen.queryByRole('button', { name: /^Archived \(/ })).toBeNull();
+    // None archived: nothing to list
+    expect(screen.queryByRole('button', { name: 'Archived' })).toBeNull();
   });
 
   test('lists archived ones apart, to bring back', async () => {
@@ -276,17 +382,22 @@ describe('the categories page', () => {
     openCategories(server);
     const user = userEvent.setup();
 
-    expect(await shown('Spending')).not.toContain('Fun');
-    await user.click(screen.getByRole('button', { name: 'Archived (2)' }));
-    expect(screen.getByRole('button', { name: 'Coffee, in Food' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Fun, Spending' }));
+    expect(await shown('Expenses')).not.toContain('Fun');
+    const archived = screen.getByRole('button', { name: 'Archived' });
+    expect(archived.getAttribute('aria-expanded')).toBe('false');
+    await user.click(archived);
+    expect(archived.getAttribute('aria-expanded')).toBe('true');
+    const list = within(screen.getByRole('region', { name: 'Archived categories' }));
+    expect(list.getByRole('button', { name: 'Coffee, in Food' })).toBeTruthy();
+    await user.click(list.getByRole('button', { name: 'Fun, Expenses' }));
     await user.click(within(await dialog()).getByRole('button', { name: 'Bring back' }));
 
-    await waitFor(async () => expect(await shown('Spending')).toContain('Fun'));
+    await waitFor(async () => expect(await shown('Expenses')).toContain('Fun'));
     await waitFor(() =>
       expect(server.categories.find((c) => c.name === 'Fun')?.archived).toBe(false),
     );
-    expect(screen.getByRole('button', { name: 'Archived (1)' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Archived' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Fun, Expenses' })).toBeNull();
   });
 
   test.each(SIZES)(
@@ -299,17 +410,17 @@ describe('the categories page', () => {
       openCategories(server, size);
       const user = userEvent.setup();
 
-      await user.click(await screen.findByRole('button', { name: 'Coffee, in Food' }));
+      await user.click(await chip('Coffee', 'Food'));
       const form = within(await dialog());
       await user.selectOptions(form.getByLabelText('Under'), 'Fun');
       await user.click(form.getByRole('button', { name: 'Save' }));
       // Shown straight away, before the server answers
-      expect(await screen.findByRole('button', { name: 'Coffee, in Fun' })).toBeTruthy();
+      expect(await chip('Coffee', 'Fun')).toBeTruthy();
 
       held.release();
       expect(await screen.findByText('Fun is archived')).toBeTruthy();
-      expect(await screen.findByRole('button', { name: 'Coffee, in Food' })).toBeTruthy();
-      expect(screen.queryByRole('button', { name: 'Coffee, in Fun' })).toBeNull();
+      expect(await chip('Coffee', 'Food')).toBeTruthy();
+      expect(screen.queryByRole('list', { name: 'Under Fun' })).toBeNull();
       expect(savedUnder(server, id('Food'))).toEqual(['Coffee']);
     },
   );
@@ -330,22 +441,19 @@ describe('categories offline', () => {
       const server = fakeServer();
       openCategories(server, size);
       const user = userEvent.setup();
-      await section('Spending');
+      await section('Expenses');
 
       goOffline(server);
-      await user.click(screen.getByRole('button', { name: 'Add spending category' }));
-      const form = within(await dialog());
-      await user.type(form.getByLabelText('Name'), 'Coffee');
-      await user.selectOptions(form.getByLabelText('Under'), 'Food');
-      await user.click(form.getByRole('button', { name: 'Add category' }));
-      expect(await screen.findByRole('button', { name: 'Coffee, in Food' })).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: 'Add a subcategory under Food' }));
+      await user.type(screen.getByRole('textbox', { name: 'New under Food' }), 'Coffee{Enter}');
+      expect(await chip('Coffee', 'Food')).toBeTruthy();
       expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
       // The foot of the page says it waits, and the device keeps it
       expect(await screen.findByText('Mahnee · Offline · 1 change waiting to save')).toBeTruthy();
       await waitFor(async () => expect(await keptForRyan()).toHaveLength(1));
 
       await reloadApp(server, '/?categories', { size });
-      expect(await screen.findByRole('button', { name: 'Coffee, in Food' })).toBeTruthy();
+      expect(await chip('Coffee', 'Food')).toBeTruthy();
       expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
       expect(await screen.findByText('Mahnee · Offline · 1 change waiting to save')).toBeTruthy();
       expect(await keptForRyan()).toHaveLength(1);
@@ -361,7 +469,7 @@ describe('categories offline', () => {
         .mocked(fetch)
         .mock.calls.filter(([path, init]) => path === '/api/changes' && init?.method === 'POST');
       expect(sent).toHaveLength(1);
-      expect(await screen.findByRole('button', { name: 'Coffee, in Food' })).toBeTruthy();
+      expect(await chip('Coffee', 'Food')).toBeTruthy();
       await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
     },
     15_000,

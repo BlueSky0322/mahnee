@@ -8,7 +8,7 @@ import { formatAmount } from '../../utils/money';
 
 /** Each kind's list, as its heading names it */
 export const KIND_LABELS: Record<CategoryKind, string> = {
-  expense: 'Spending',
+  expense: 'Expenses',
   income: 'Income',
 };
 

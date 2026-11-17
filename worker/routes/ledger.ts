@@ -1,14 +1,16 @@
 // A person's ledger: reading their accounts, categories and transactions (searching them
 // too), a month's totals and the 12 months up to it, what each payee was last filed
-// under, taking all of it out as a file, and saving the app's changes to them
+// under, taking all of it out as a file (or some dates of it), the files imported, and
+// saving the app's changes to them
 
 import { Hono } from 'hono';
-import type { ChangesBody, ExportSummary, Ledger } from '../../shared/api';
+import type { ChangesBody, ExportSummary, Ledger, RecentImports } from '../../shared/api';
 import { MAX_CHANGES, PENDING_CHANGES_HEADER, readPendingIds } from '../../shared/api';
 import type { AppEnv } from '../app';
 import { fail, json, readJson } from '../http';
 import { applyChanges } from '../ledger/changes';
-import { exportTransactions, readExportSummary } from '../ledger/export';
+import { exportTransactions, readExportRange, readExportSummary } from '../ledger/export';
+import { readImports } from '../ledger/imports';
 import { readPayeeCategories } from '../ledger/payees';
 import { listTransactions, readLedger, searchTransactions } from '../ledger/read';
 import { readSummary } from '../ledger/summary';
@@ -50,13 +52,19 @@ ledger.get('/summary/trend', (c) => {
   return readTrend(c.env.DB, c.var.email, new URL(c.req.url).searchParams, pending);
 });
 
-ledger.get('/export', (c) =>
-  exportTransactions(c.env.DB, c.var.email, new Date().toISOString().slice(0, 10)),
-);
+ledger.get('/export', (c) => {
+  const range = readExportRange(new URL(c.req.url).searchParams);
+  if (range instanceof Response) return range;
+  return exportTransactions(c.env.DB, c.var.email, new Date().toISOString().slice(0, 10), range);
+});
 
-ledger.get('/export/summary', async (c) =>
-  json<ExportSummary>(await readExportSummary(c.env.DB, c.var.email)),
-);
+ledger.get('/export/summary', async (c) => {
+  const range = readExportRange(new URL(c.req.url).searchParams);
+  if (range instanceof Response) return range;
+  return json<ExportSummary>(await readExportSummary(c.env.DB, c.var.email, range));
+});
+
+ledger.get('/imports', async (c) => json<RecentImports>(await readImports(c.env.DB, c.var.email)));
 
 ledger.get('/payee-categories', (c) =>
   readPayeeCategories(c.env.DB, c.var.email, new URL(c.req.url).searchParams),

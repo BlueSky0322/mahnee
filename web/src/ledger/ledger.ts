@@ -1,5 +1,6 @@
 import type { InfiniteData } from '@tanstack/react-query';
 import type {
+  ImportRecord,
   Ledger,
   LedgerChange,
   MonthSummary,
@@ -7,7 +8,7 @@ import type {
   Transaction,
   TransactionPage,
 } from '@shared/api';
-import { MAX_CHANGES } from '@shared/api';
+import { MAX_CHANGES, MAX_RECENT_IMPORTS } from '@shared/api';
 import { categoriesOrDefaults } from '@shared/categories';
 import { isOnAccount } from '@shared/ledger';
 import type { SearchQuery } from '@shared/search';
@@ -118,6 +119,11 @@ export const TREND_KEY = ['trend'] as const;
 export const trendKey = (month: string) => ['trend', month] as const;
 /** The same, kept on the device for opening offline */
 const trendCacheKey = (month: string) => `trend-v2:${month}`;
+
+/** The person's recent imports (GET /api/imports) */
+export const IMPORTS_KEY = ['imports'] as const;
+/** The same, kept on the device for opening offline */
+const IMPORTS_CACHE_KEY = 'imports-v1';
 
 /** The first page of an account's transactions, kept on the device for opening offline */
 const pageCacheKey = (accountId: string) => `transactions-v1:${accountId}`;
@@ -278,6 +284,13 @@ const queue = createSaveQueue({
         pages: applyToPages(data.pages, changes, belongsTo(key), savedTransaction),
       });
     }
+    // Recorded or undone, so part of the list as the server has it
+    if (changes.some(isImportChange)) {
+      queryClient.setQueryData<ImportRecord[]>(
+        IMPORTS_KEY,
+        (old) => old && applyToImports(old, changes),
+      );
+    }
     savedLog = [...savedLog, { n: savedCount, changes }].slice(-SAVED_LOG_LENGTH);
     // Last, so the totals and lists above took each one as it was before
     rememberSaved(changes);
@@ -298,6 +311,7 @@ const queue = createSaveQueue({
   },
   idle: () => {
     void reloadLedger();
+    void queryClient.invalidateQueries({ queryKey: IMPORTS_KEY });
     void queryClient.invalidateQueries({ queryKey: TRANSACTIONS_KEY });
     void queryClient.invalidateQueries({ queryKey: SUMMARY_KEY });
     void queryClient.invalidateQueries({ queryKey: TREND_KEY });
@@ -697,4 +711,44 @@ export function change(...changes: LedgerChange[]) {
     (old) => old && apply(old, changes, shownTransaction),
   );
   queue.add(changes);
+}
+
+const isImportChange = (change: LedgerChange) =>
+  change.op === 'addImport' || change.op === 'undoImport';
+
+/**
+ * Recent imports with `changes` made to them: one recorded goes first (dated now until the
+ * server's copy comes), one undone goes. Its entries go from balances and lists only once
+ * the server has deleted them: this device can't know every entry an import added.
+ */
+export function applyToImports(imports: ImportRecord[], changes: LedgerChange[]): ImportRecord[] {
+  let next = imports;
+  for (const change of changes) {
+    if (change.op === 'addImport' && !next.some((i) => i.id === change.import.id)) {
+      next = [{ ...change.import, createdAt: Date.now() }, ...next];
+    } else if (change.op === 'undoImport') {
+      next = next.filter((i) => i.id !== change.id);
+    }
+  }
+  return next.slice(0, MAX_RECENT_IMPORTS);
+}
+
+/**
+ * The person's recent imports from the server, kept on the device; offline, the copy kept
+ * there. What was recorded or undone while this was on its way goes on top.
+ */
+export async function fetchImports(): Promise<ImportRecord[]> {
+  const savedBefore = savedCount;
+  let imports: ImportRecord[];
+  try {
+    ({ imports } = await api.getImports());
+    void writeCache(IMPORTS_CACHE_KEY, imports);
+  } catch (err) {
+    if (!isOfflineFailure(err)) throw err;
+    const kept = await readCache<ImportRecord[]>(IMPORTS_CACHE_KEY);
+    if (kept == null) throw err;
+    imports = kept;
+  }
+  const missed = savedLog.filter((s) => s.n > savedBefore).flatMap((s) => s.changes);
+  return applyToImports(imports, missed);
 }

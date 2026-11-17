@@ -2887,6 +2887,395 @@ describe('transactions', () => {
     expect(await balances(me)).toEqual({ [wallet]: 4_200, [bank]: -5_000 });
   });
 
+  // Each import is recorded, so every device lists it under Recent imports, and Undo
+  // deletes exactly that import's entries (D16): a change like any other, through the
+  // outbox, counted once by its id.
+  describe('recent imports and Undo', () => {
+    const recordImport = (id: string, accountId: string | null, more: object = {}) => ({
+      op: 'addImport',
+      import: {
+        id,
+        fileName: 'maybank-oct.csv',
+        accountId,
+        addedCount: 2,
+        skippedCount: 1,
+        ...more,
+      },
+    });
+    /** A transaction that came in with import `importId` */
+    const imported = (
+      id: string,
+      importId: string,
+      accountId: string,
+      amountCents: number,
+      more: Record<string, unknown> = {},
+    ) => ({ ...add(id, accountId, amountCents, more), importId });
+    const recent = (who: string) => api.call(who, 'GET', '/api/imports');
+    const importIdOf = async (who: string, id: string) =>
+      (
+        (await api.sql(
+          'SELECT import_id AS importId FROM transactions WHERE email = ? AND id = ?',
+          who,
+          id,
+        )) as { importId: string | null }[]
+      )[0]?.importId;
+
+    it('records an import before its entries, which name it, and lists it newest first', async () => {
+      const { me, wallet } = await withWallet();
+      const [first, second, a, b, c] = [rowId(), rowId(), rowId(), rowId(), rowId()];
+      const before = Date.now();
+      expect(
+        await send(me, [
+          recordImport(first, wallet),
+          imported(a, first, wallet, 800),
+          imported(b, first, wallet, 1_200),
+        ]),
+      ).toEqual({ status: 200, data: { ok: true } });
+      // A Mahnee export names its own accounts: it went into none
+      await send(me, [
+        recordImport(second, null, { fileName: '  mahnee-2026-11-05.csv ', addedCount: 1 }),
+        imported(c, second, wallet, 500),
+      ]);
+      expect(await importIdOf(me, a)).toBe(first);
+      expect(await importIdOf(me, c)).toBe(second);
+      // An entry added by hand names no import
+      const byHand = rowId();
+      await send(me, [add(byHand, wallet, 100)]);
+      expect(await importIdOf(me, byHand)).toBeNull();
+
+      const res = await recent(me);
+      expect(res.status).toBe(200);
+      const { imports } = res.data as { imports: Record<string, unknown>[] };
+      expect(imports.map((i) => i.id)).toEqual([second, first]);
+      expect(imports[1]).toEqual({
+        id: first,
+        fileName: 'maybank-oct.csv',
+        accountId: wallet,
+        addedCount: 2,
+        skippedCount: 1,
+        createdAt: expect.any(Number),
+      });
+      // Named as it was trimmed, dated by the server's clock
+      expect(imports[0]).toMatchObject({ fileName: 'mahnee-2026-11-05.csv', accountId: null });
+      expect(imports[0].createdAt as number).toBeGreaterThanOrEqual(before);
+      expect(imports[0].createdAt as number).toBeLessThanOrEqual(Date.now());
+      // Someone else sees none of it
+      expect((await recent(person('other'))).data).toEqual({ imports: [] });
+    });
+
+    it(`lists at most ${10} imports`, async () => {
+      const { me, wallet } = await withWallet();
+      const ids = Array.from({ length: 12 }, () => rowId());
+      for (const id of ids) await send(me, [recordImport(id, wallet)]);
+      const { imports } = (await recent(me)).data as { imports: { id: string }[] };
+      expect(imports.map((i) => i.id)).toEqual(ids.slice(2).reverse());
+    });
+
+    it.each<[string, (wallet: string) => object, number, string]>([
+      ['an id that is not a row id', () => recordImport('nope', null), 400, 'Invalid import id'],
+      [
+        'a file name of nothing',
+        (w) => recordImport(rowId(), w, { fileName: '   ' }),
+        400,
+        'Give the file a name of up to 255 characters',
+      ],
+      [
+        'a file name too long',
+        (w) => recordImport(rowId(), w, { fileName: 'x'.repeat(256) }),
+        400,
+        'Give the file a name of up to 255 characters',
+      ],
+      [
+        'a count past the most a file holds',
+        (w) => recordImport(rowId(), w, { addedCount: 5_001 }),
+        400,
+        'A count is a whole number from 0 to 5,000',
+      ],
+      [
+        'a count that is not whole',
+        (w) => recordImport(rowId(), w, { skippedCount: 1.5 }),
+        400,
+        'A count is a whole number from 0 to 5,000',
+      ],
+      [
+        'an account that does not exist',
+        () => recordImport(rowId(), 'f'.repeat(16)),
+        404,
+        'Account not found',
+      ],
+      ['a field it does not have', (w) => recordImport(rowId(), w, { rows: 3 }), 400, ''],
+    ])('refuses to record %s', async (_what, change, status, error) => {
+      const { me, wallet } = await withWallet();
+      const res = await send(me, [change(wallet)]);
+      expect(res.status).toBe(status);
+      if (error !== '') expect(res.data).toEqual({ error });
+      expect((await recent(me)).data).toEqual({ imports: [] });
+    });
+
+    it('refuses an import recorded twice, and one on another person’s account', async () => {
+      const { me, wallet } = await withWallet();
+      const id = rowId();
+      await send(me, [recordImport(id, wallet)]);
+      expect(await send(me, [recordImport(id, wallet)])).toEqual({
+        status: 409,
+        data: { error: 'That import is already recorded' },
+      });
+      const other = person('other');
+      expect(await send(other, [recordImport(rowId(), wallet)])).toEqual({
+        status: 404,
+        data: { error: 'Account not found' },
+      });
+    });
+
+    it('refuses an entry naming an import that is not the person’s own, and saves none of the batch', async () => {
+      const { me, wallet } = await withWallet();
+      const other = person('other');
+      const theirs = rowId();
+      const theirWallet = rowId();
+      await send(other, [addAccount(theirWallet), recordImport(theirs, theirWallet)]);
+      const kept = rowId();
+      for (const importId of [theirs, 'a'.repeat(16)]) {
+        const res = await send(me, [
+          add(kept, wallet, 100),
+          imported(rowId(), importId, wallet, 800),
+        ]);
+        expect(res).toEqual({ status: 404, data: { error: 'Import not found' } });
+      }
+      expect(await listed(me, wallet)).toEqual([]);
+      // Not a row id at all
+      expect((await send(me, [imported(rowId(), 'nope', wallet, 800)])).status).toBe(404);
+    });
+
+    it('Undo deletes exactly that import’s entries, wherever they are now, and keeps the rest', async () => {
+      const { me, wallet } = await withWallet();
+      const bank = rowId();
+      const [mine, later] = [rowId(), rowId()];
+      const [a, b, c, byHand] = [rowId(), rowId(), rowId(), rowId()];
+      await send(me, [
+        addAccount(bank, 'bank', 0, 'Bank'),
+        recordImport(mine, wallet),
+        imported(a, mine, wallet, 800),
+        imported(b, mine, wallet, 1_200),
+        recordImport(later, bank),
+        imported(c, later, bank, 5_000, { kind: 'income', categoryId: salary }),
+        add(byHand, wallet, 300),
+      ]);
+      // Changed since it was imported: moved to the bank, its amount edited
+      await send(me, [{ op: 'updateTransaction', id: b, accountId: bank, amountCents: 1_500 }]);
+      expect(await balances(me)).toEqual({
+        [wallet]: 10_000 - 800 - 300,
+        [bank]: 5_000 - 1_500,
+      });
+
+      expect(await send(me, [{ op: 'undoImport', id: mine }])).toEqual({
+        status: 200,
+        data: { ok: true },
+      });
+      expect((await listed(me, wallet)).map((t) => t.id)).toEqual([byHand]);
+      expect((await listed(me, bank)).map((t) => t.id)).toEqual([c]);
+      expect(await balances(me)).toEqual({ [wallet]: 10_000 - 300, [bank]: 5_000 });
+      // No longer among the recent ones; the other stays
+      const { imports } = (await recent(me)).data as { imports: { id: string }[] };
+      expect(imports.map((i) => i.id)).toEqual([later]);
+      const [row] = (await api.sql(
+        'SELECT undone_at AS undoneAt FROM imports WHERE email = ? AND id = ?',
+        me,
+        mine,
+      )) as { undoneAt: number | null }[];
+      expect(row.undoneAt).toEqual(expect.any(Number));
+    });
+
+    it('counts an Undo once, sent again after its answer was lost, and once more from another device changes nothing', async () => {
+      const { me, wallet } = await withWallet();
+      const [mine, a] = [rowId(), rowId()];
+      await send(me, [recordImport(mine, wallet), imported(a, mine, wallet, 800)]);
+      const changeId = rowId();
+      const undo = { op: 'undoImport', id: mine };
+      expect((await send(me, [undo], [changeId])).status).toBe(200);
+      // Added again by hand with the same id after the Undo: the answer lost, Undo is sent
+      // again and counts once, so the entry added since stays
+      await send(me, [add(a, wallet, 800)]);
+      expect(await send(me, [undo], [changeId])).toEqual({ status: 200, data: { ok: true } });
+      expect((await listed(me, wallet)).map((t) => t.id)).toEqual([a]);
+      // Another device's Undo, made before it heard: nothing more goes
+      expect(await send(me, [undo])).toEqual({ status: 200, data: { ok: true } });
+      expect((await listed(me, wallet)).map((t) => t.id)).toEqual([a]);
+    });
+
+    it('counts an import once, sent again with the same change id after its answer was lost', async () => {
+      const { me, wallet } = await withWallet();
+      const [mine, a] = [rowId(), rowId()];
+      const changeIds = [rowId(), rowId()];
+      const batch = [recordImport(mine, wallet), imported(a, mine, wallet, 800)];
+      expect((await send(me, batch, changeIds)).status).toBe(200);
+      expect(await send(me, batch, changeIds)).toEqual({ status: 200, data: { ok: true } });
+      expect(((await recent(me)).data as { imports: unknown[] }).imports).toHaveLength(1);
+      expect((await listed(me, wallet)).map((t) => t.id)).toEqual([a]);
+    });
+
+    it('keeps two people’s imports apart, even with the same id', async () => {
+      const first = await withWallet();
+      const second = await withWallet();
+      const shared = rowId();
+      const [a, b] = [rowId(), rowId()];
+      await send(first.me, [
+        recordImport(shared, first.wallet),
+        imported(a, shared, first.wallet, 800),
+      ]);
+      expect(
+        await send(second.me, [
+          recordImport(shared, second.wallet),
+          imported(b, shared, second.wallet, 500),
+        ]),
+      ).toEqual({ status: 200, data: { ok: true } });
+      expect(await send(second.me, [{ op: 'undoImport', id: shared }])).toEqual({
+        status: 200,
+        data: { ok: true },
+      });
+      expect(await listed(second.me, second.wallet)).toEqual([]);
+      // The first person's import and entry are as they were
+      expect((await listed(first.me, first.wallet)).map((t) => t.id)).toEqual([a]);
+      expect(
+        ((await recent(first.me)).data as { imports: { id: string }[] }).imports.map((i) => i.id),
+      ).toEqual([shared]);
+    });
+
+    it('refuses an entry for an import already undone', async () => {
+      const { me, wallet } = await withWallet();
+      const mine = rowId();
+      await send(me, [recordImport(mine, wallet), { op: 'undoImport', id: mine }]);
+      expect(await send(me, [imported(rowId(), mine, wallet, 800)])).toEqual({
+        status: 409,
+        data: { error: 'That import was undone' },
+      });
+    });
+
+    it('refuses to undo an import that is not the person’s own, and changes nothing', async () => {
+      const { me, wallet } = await withWallet();
+      const mine = rowId();
+      const a = rowId();
+      await send(me, [recordImport(mine, wallet), imported(a, mine, wallet, 800)]);
+      const other = person('other');
+      expect(await send(other, [{ op: 'undoImport', id: mine }])).toEqual({
+        status: 404,
+        data: { error: 'Import not found' },
+      });
+      expect(await send(me, [{ op: 'undoImport', id: 'f'.repeat(16) }])).toEqual({
+        status: 404,
+        data: { error: 'Import not found' },
+      });
+      expect((await listed(me, wallet)).map((t) => t.id)).toEqual([a]);
+      expect(((await recent(me)).data as { imports: unknown[] }).imports).toHaveLength(1);
+    });
+  });
+
+  // A range of dates, with a note saying the file holds only those and can't restore
+  // balances on its own (D11); everything stays the default
+  describe('the export file for some dates', () => {
+    async function download(who: string, query: string) {
+      const res = await api.raw(who, 'GET', `/api/export?${query}`);
+      const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(await res.arrayBuffer());
+      return { status: res.status, headers: res.headers, text };
+    }
+    const summary = async (who: string, query: string) =>
+      api.call(who, 'GET', `/api/export/summary?${query}`);
+
+    async function withYear() {
+      const { me, wallet } = await withWallet();
+      const bank = rowId();
+      const ids = [rowId(), rowId(), rowId(), rowId()];
+      await send(me, [
+        addAccount(bank, 'bank', 50_000, 'Bank'),
+        // Wallet's other three of the year; a transfer touches the bank
+        add(ids[0], wallet, 800, { date: '2024-12-31' }),
+        add(ids[1], wallet, 1_200, { date: '2025-01-01', payee: 'Kopi' }),
+        move(ids[2], wallet, bank, 3_000, { date: '2025-06-30' }),
+        add(ids[3], wallet, 500, { date: '2025-07-01', categoryId: transport }),
+      ]);
+      await send(me, [
+        {
+          op: 'addRecurring',
+          recurring: {
+            id: rowId(),
+            kind: 'expense',
+            accountId: wallet,
+            toAccountId: null,
+            amountCents: 9_900,
+            categoryId: food,
+            payee: 'Gym',
+            schedule: 'monthly',
+            day: 5,
+            startDate: '2025-10-05',
+          },
+        },
+      ]);
+      return { me, wallet, bank, ids };
+    }
+
+    it('holds only those days, says so, and has no opening balances or repeating items', async () => {
+      const { me, ids } = await withYear();
+      const file = await download(me, 'from=2025-01-01&to=2025-06-30');
+      expect(file.status).toBe(200);
+      expect(file.headers.get('Content-Disposition')).toBe(
+        'attachment; filename="mahnee-2025-01-01-to-2025-06-30.csv"',
+      );
+      expect(file.headers.get('Cache-Control')).toBe('no-store');
+      expect(file.text).toBe(
+        '﻿' +
+          'Date,Kind,Account,To account,Amount,Currency,Category,Parent category,Payee,Note,Id\r\n' +
+          '2025-01-01,Only these dates,,,,,,,,' +
+          "Entries from 2025-01-01 to 2025-06-30 only. It can't restore balances on its own.,\r\n" +
+          `2025-01-01,Spent,Wallet,,12.00,MYR,Food,,Kopi,,${ids[1]}\r\n` +
+          `2025-06-30,Transfer,Wallet,Bank,30.00,MYR,,,,,${ids[2]}\r\n`,
+      );
+    });
+
+    it('counts only those days, and the accounts and categories its entries use', async () => {
+      const { me } = await withYear();
+      expect((await summary(me, 'from=2025-01-01&to=2025-06-30')).data).toEqual({
+        transactions: 2,
+        firstDate: '2025-01-01',
+        lastDate: '2025-06-30',
+        accounts: 2,
+        categories: 1,
+      });
+      expect((await summary(me, 'from=2026-01-01&to=2026-12-31')).data).toEqual({
+        transactions: 0,
+        firstDate: null,
+        lastDate: null,
+        accounts: 0,
+        categories: 0,
+      });
+      // Everything, as before: every account and category, whether used or not
+      expect((await summary(me, '')).data).toMatchObject({ transactions: 4, accounts: 2 });
+    });
+
+    it.each([
+      'from=2025-01-01',
+      'to=2025-06-30',
+      'from=2025-07-01&to=2025-06-30',
+      'from=2025-02-30&to=2025-03-01',
+      'from=yesterday&to=2025-03-01',
+      'from=1999-12-31&to=2025-03-01',
+    ])('refuses %s, for the file and its count', async (query) => {
+      const { me } = await withYear();
+      const error = { error: 'Give from and to as days, from on or before to' };
+      const file = await api.call(me, 'GET', `/api/export?${query}`);
+      expect(file).toEqual({ status: 400, data: error });
+      expect(await summary(me, query)).toEqual({ status: 400, data: error });
+    });
+
+    it('leaves another person’s entries out', async () => {
+      await withYear();
+      const other = person('other');
+      const file = await download(other, 'from=2025-01-01&to=2025-12-31');
+      expect(file.text.split('\r\n').slice(1, -1)).toEqual([
+        '2025-01-01,Only these dates,,,,,,,,' +
+          "Entries from 2025-01-01 to 2025-12-31 only. It can't restore balances on its own.,",
+      ]);
+    });
+  });
+
   describe('searching transactions', () => {
     const search = (who: string, query = '') => api.call(who, 'GET', `/api/search?${query}`);
     /** The ids found, newest first, or the refusal */

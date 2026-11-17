@@ -31,15 +31,36 @@ App paths are under `web/src/`, Worker paths under `worker/`.
 ## Sign-in, profile and settings
 
 **What it is.** Cloudflare Access signs people in before the app loads. Settings
-(`?settings`) says who is signed in (the name, or the email's first part, and the email)
-and offers Sign out; its round initial is on Home's header on phones and tablets, and in
-the sidebar on computers. The theme switch on Home saves the account's choice of light or
-dark. The profile also holds a display name, an accent colour, where exchange rates come
-from, and the redesign's settings (week and month start, start screen, Home density, what
-Add asks first, the account Add starts on, suggestions, a time on entries, expense colour,
-carry-over for new budgets, reminders) with the person's time zone. Nothing on screen
-changes those yet; the settings pages come with the redesign. The accent is kept but not
-drawn: every accent shows as the design's cobalt until the accent setting is offered.
+(`?settings`) is reached from the round initial on Home's header (phones and tablets) or
+the sidebar (computers). On phones and tablets its index has a search ("Search
+settings"), who's signed in (opening My account), the App sections (Money, Adding
+entries, Look and start, Budgets and reminders) each with a line saying what it's set to
+("MYR · month from the 1st", "Amount first · suggestions on", "Match phone · opens on
+Home", "Carry over on · daily at 9:00 PM"), then Your data (Categories, "8 expense, 2
+income"; Import and export, "Last import Nov 2"), Sign out and "Mahnee · Up to date";
+each section is its own page at `?settings=<section>`, going back up to the index. On a
+computer Settings covers the page: the sections down the left (search with Ctrl K, My
+account, the App sections, Categories, Import and export, Sign out, the freshness line)
+and the open one beside them, My account first; moving between them replaces history,
+and Close or Esc goes back to the page it was opened over. My account
+(`?settings=account`) has the name and email with Change name (a dialog; empty goes back
+to the email's first part), "This phone" or "This computer" saying "Saved" with the
+freshness label, and Install the app where the browser can install it (the only place it's
+offered; Home no longer has a card). Search (`components/settings/settings-search.ts`, a
+static index; no server) finds a setting by its name, its line, or words not on it
+("the month end" finds Main currency), name matches first, quoting what was found with the
+match marked; a result, or Enter for the first, opens `?settings=<section>&setting=<key>`
+with that setting in view and the keyboard on it. Money, Adding entries, Look and start
+and Budgets and reminders list their settings read-only for now (name, line, value);
+their controls come with month start (piece 12), the adding and look settings (13) and
+reminders (16). The theme switch on Home saves the account's choice of light or dark.
+The profile also holds a display name, an accent colour, where exchange rates come from,
+and the redesign's settings (week and month start, start screen, Home density, what Add
+asks first, the account Add starts on, suggestions, a time on entries, expense colour,
+carry-over for new budgets, reminders) with the person's time zone. The accent is kept but
+not drawn: every accent shows as the design's cobalt until the accent setting is offered.
+The reminder line on the index shows the stored setting; reminders are sent only once
+piece 16 lands.
 
 **Owner.** [profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx) loads
 the profile, keeps a device copy, and owns every change through
@@ -49,7 +70,15 @@ preference and explains a failure itself.
 
 **Parts.**
 
-- UI: [components/settings/SettingsPage.tsx](../web/src/components/settings/SettingsPage.tsx),
+- UI: [components/settings/SettingsPage.tsx](../web/src/components/settings/SettingsPage.tsx)
+  (the index, a computer's layout, `SectionHeader`),
+  [MyAccount.tsx](../web/src/components/settings/MyAccount.tsx),
+  [SectionPage.tsx](../web/src/components/settings/SectionPage.tsx) (the read-only
+  sections), [SettingsSearch.tsx](../web/src/components/settings/SettingsSearch.tsx) with
+  [settings-search.ts](../web/src/components/settings/settings-search.ts) (the index) and
+  [setting-in-view.ts](../web/src/components/settings/setting-in-view.ts),
+  [settings-text.ts](../web/src/components/settings/settings-text.ts) (summaries and
+  values), [common/use-install-action.tsx](../web/src/components/common/use-install-action.tsx),
   [components/common/you.ts](../web/src/components/common/you.ts) (the name and initial),
   [components/common/YouLink.tsx](../web/src/components/common/YouLink.tsx) and
   [components/common/ThemeToggle.tsx](../web/src/components/common/ThemeToggle.tsx).
@@ -108,7 +137,13 @@ preference and explains a failure itself.
   green, and amends that test's green case as the owner's decision, not as a weakened
   test.
 
-**Tests.** [worker/accounts/auth.test.ts](../worker/accounts/auth.test.ts) (tokens,
+**Tests.** [settings/Settings.test.tsx](../web/src/components/settings/Settings.test.tsx)
+(the index and its summaries, each section and back, My account with Change name and a
+refusal, saved and waiting offline, install where offered and never on Home, a computer's
+layout, Close and moving between sections, search, clear, nothing found, Ctrl K and
+Enter), [settings-search.test.ts](../web/src/components/settings/settings-search.test.ts),
+[settings-text.test.ts](../web/src/components/settings/settings-text.test.ts),
+[worker/accounts/auth.test.ts](../worker/accounts/auth.test.ts) (tokens,
 keys, configuration, 401 versus 500), [App.test.tsx](../web/src/App.test.tsx) (who's
 signed in, signed out, unreachable, saving the theme and undoing a failed save),
 [profile/time-zone.test.tsx](../web/src/profile/time-zone.test.tsx) (the time zone sent
@@ -274,14 +309,20 @@ account, receipts, all or nothing, the archived day) and
 ## Categories
 
 **What it is.** What spending and income are sorted into, on their own page in Settings
-(`?settings=categories`; the old `?categories` still opens it): a Spending list and an Income list, each top-level category with its
-subcategories under it. Add one (at the top level or under another), rename it, put it
-higher or lower with its arrows, move it under another or back to the top level, or
-archive it (with Undo; archived ones are listed apart and can be brought back). Moves
-that aren't allowed can't be picked, and say why. A top-level spending category's sheet
-also sets its monthly budget (see Budgets). Everyone starts with the defaults:
-Food, Transport, Groceries, Bills, Shopping, Health, Fun and Other for spending, Salary
-and Other income for income. Transactions will name a category once they land.
+(`?settings=categories`; the old `?categories` still opens it; R-Categories): Expenses and
+Income, each top-level category with its colour, its budget this month ("RM 800 a month",
+cents only when it has some) and its subcategories as chips in a list named "Under Food".
+"+" (named "Add a subcategory under Food") opens a field in place, "New under Food",
+whose button ("Add Bubble tea under Food") or Enter adds it, with "Counts toward Food's
+budget" under a spending one; the field at the foot of each kind ("New expense category",
+"New income category") adds a top-level one on Enter. Tapping a name or chip opens its
+sheet to rename it, move it under another or back to the top level, archive it (with
+Undo) or set its budget (see Budgets). Reorder shows arrows to put one higher or lower
+among the ones beside it, and Done puts them away. Archived (only when some are; at the
+top on a computer) lists the archived ones apart, to bring back. Moves that aren't allowed
+can't be picked, and say why. Everyone starts with the defaults: Food, Transport,
+Groceries, Bills, Shopping, Health, Fun and Other for spending, Salary and Other income for
+income.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), the same as accounts: every
 change goes through `change()`, so it shows at once, is kept in the outbox, works offline
@@ -293,9 +334,9 @@ arranges them as listed. Screens read through `useCategories()` in
 **Parts.**
 
 - UI: [components/categories/CategoriesPage.tsx](../web/src/components/categories/CategoriesPage.tsx)
-  (the two lists, arrows, placeholders and archived ones) and
-  [CategoryForm.tsx](../web/src/components/categories/CategoryForm.tsx) (adding, renaming,
-  moving and archiving, in a `ResponsiveDialog`); the row on
+  (the two lists, chips, adding in place, Reorder's arrows, placeholders and archived
+  ones) and [CategoryForm.tsx](../web/src/components/categories/CategoryForm.tsx)
+  (renaming, moving, archiving and the budget, in a `ResponsiveDialog`); the row on
   [components/settings/SettingsPage.tsx](../web/src/components/settings/SettingsPage.tsx).
 - API: `addCategory`, `updateCategory` (name, parent, place) and `archiveCategory` in
   [worker/ledger/changes.ts](../worker/ledger/changes.ts); categories are read with the
@@ -338,7 +379,8 @@ listed category beside it, whatever archived ones lie between.
 **Tests.** [apply.test.ts](../web/src/ledger/apply.test.ts) (adding, moving, placing,
 archiving, applied twice), [category-tree.test.ts](../web/src/ledger/category-tree.test.ts),
 [Categories.test.tsx](../web/src/components/categories/Categories.test.tsx) (opening from
-Home with the defaults, adding a subcategory, renaming, moving, the arrows, moves that
+Settings with the defaults, budgets in whole ringgit, adding a subcategory in place and a
+top-level one from its field, renaming, moving, Reorder's arrows, moves that
 can't be picked and why, archiving and Undo, bringing back, a refusal put back, offline
 through a reload, at desktop and phone sizes), and the categories cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (the defaults with the first
@@ -766,7 +808,8 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   do you keep your money?", Bank, E-wallet, Card and Cash, each opening Add account with
   that kind chosen, and how many categories it comes with, worked out from the defaults.
 
-Until their own pages land, Home also keeps the theme switch and the install card.
+Until Look and start lands (piece 13), Home also keeps the theme switch. Installing the
+app is offered on Settings › My account only.
 
 **Owner.** No state of its own: it reads the ledger (`useWholeLedger`, `useAccounts`), this
 month's and last month's totals (`useMonthSummary`) and the person's settings
@@ -1139,20 +1182,32 @@ given or not and each refusal of one, each schedule, logging and skipping once, 
 ## Export
 
 **What it is.** Taking everything out, so leaving the app never means leaving part of
-the history behind. Export, on Home under Categories, opens a dialog that says what the
-file holds before it's downloaded ("1,284 transactions from 3 Jan 2026 to 5 Nov 2026, 6
-accounts, 23 categories", counted by the server), and Download saves it as
-`mahnee-2026-11-05.csv`: first each account's opening balance (Kind "Opening balance",
+the history behind. Export is the second half of Settings › Import and export
+(`?settings=data`; R-Set-Data, R-Desk-Data). "Which entries": Everything (the default),
+This year (the calendar year, whatever the month start) or Pick dates (From and To, both
+included; the wrong way round says "Pick a From day on or before the To day" and can't be
+downloaded). It says what the file holds before it's downloaded, counted by the server:
+on phones "1,284 entries · 6 accounts · since Jan 3, 2026", on a computer Entries, From
+"<first> to <last>", Accounts and Categories ("23, archived ones too" for everything; a
+file of some dates counts the accounts and categories its entries use); "Nothing to export
+yet" with nothing logged. Download CSV saves it as `mahnee-2026-11-05.csv` (some dates:
+`mahnee-2026-01-01-to-2026-12-31.csv`), and a computer then says "Last downloaded Nov 16"
+(this device, per person; someone else signed in on the open page doesn't see it). Everything holds: first each account's opening balance (Kind
+"Opening balance",
 dated the day the account was added, in UTC, signed, so what's owed on a card is
 negative), in the person's order, then each bill or income still repeating, in the order
-set up, then every transaction, oldest first, one line each. Columns: Date, Kind (Opening
+set up, then every transaction, oldest first, one line each. A file of some dates (D11)
+holds, after the header, a line saying so ("Only these dates", its Note "Entries from
+2026-01-01 to 2026-12-31 only. It can't restore balances on its own."), then only those
+days' transactions: no opening balances and no repeating items, and an import reads it
+as transactions only. Columns: Date, Kind (Opening
 balance, Spent, Received, Transfer, Repeating spent, Repeating received, Repeating
 transfer), Account, To account, Amount, Currency, Category, Parent category, Payee, Note, Id
 (the account's id on an opening line, the item's on a repeating one). A repeating line is
 dated its next due date, its amount unsigned like a transaction's, and its Note says how
 often it falls ("Monthly, day 15", or "Weekly, day 3" with Monday as 1); stopped ones are
 left out. Every balance can be worked out again from the file, and importing it sets the
-repeating items up again. The dialog's counts are of transactions, accounts and categories. Archived accounts
+repeating items up again. Archived accounts
 (and accounts with no transactions) and categories are in it like any other, with the
 names they have now. On phones and tablets the share sheet opens where the device has one for
 files (Save to Files on an iPhone), else it downloads. Offline the button says "Connect
@@ -1160,21 +1215,24 @@ to download"; changes still waiting on the device are counted ("3 changes still 
 saved won't be in the file yet") and the count is taken again as they're saved.
 
 **Owner.** No feature state: nothing else shows the counts or the file, so
-[components/home/ExportDialog.tsx](../web/src/components/home/ExportDialog.tsx) asks
-for them itself (`api.getExportSummary`, `api.getExport`), counting afresh each time it
-opens and as waiting changes are saved (`useUnsaved`).
+[components/settings/DataPage.tsx](../web/src/components/settings/DataPage.tsx) asks
+for them itself (`api.getExportSummary(range)`, `api.getExport(range)`), counting afresh
+for each choice and as waiting changes are saved (`useUnsaved`).
 
 **Parts.**
 
-- UI: [ExportDialog.tsx](../web/src/components/home/ExportDialog.tsx), opened from Settings ›
-  Import and export ([components/settings/DataPage.tsx](../web/src/components/settings/DataPage.tsx));
+- UI: the Export card of [components/settings/DataPage.tsx](../web/src/components/settings/DataPage.tsx);
   [utils/deliver-file.ts](../web/src/utils/deliver-file.ts) saves the file (or shares it);
   `dayText` in [utils/date-input.ts](../web/src/utils/date-input.ts).
 - API: `GET /api/export` (`exportTransactions`) and `GET /api/export/summary`
-  (`readExportSummary`) in [worker/ledger/export.ts](../worker/ledger/export.ts).
+  (`readExportSummary`) in [worker/ledger/export.ts](../worker/ledger/export.ts), each
+  with `?from=&to=` for some dates (both or neither, calendar days from 2000, from on or
+  before to; else 400 "Give from and to as days, from on or before to"; `readExportRange`).
 - Shared: `ExportSummary` in [shared/api.ts](../shared/api.ts); the columns, kinds,
-  amounts, quoting and file name in [shared/export.ts](../shared/export.ts), which the
-  Worker and the test stand-in both write lines with.
+  amounts, quoting, file name and the line of a file of some dates (`rangeCells`,
+  `RANGE_KIND`) in [shared/export.ts](../shared/export.ts), which the Worker and the test
+  stand-in both write lines with; `readExportRange` in
+  [shared/csv-import.ts](../shared/csv-import.ts) reads that line back.
 
 **Flow.** The Worker reads the person's accounts and category names, answers at once
 with the header line, the opening balances and the repeating items still running (read
@@ -1209,14 +1267,28 @@ items still running, in the order set up, at most 200; the header alone
 for someone with nothing; paging past 2,000 rows on one day and time; the counts and
 days), [shared/export.test.ts](../shared/export.test.ts) (a negative amount stays a
 number while text starting with "-" is guarded; the UTC day; repeating lines, stopped ones
-left out, read back as written), and [Export.test.tsx](../web/src/components/home/Export.test.tsx) (counts and
-days, downloading with today's name and the server's bytes, nothing logged yet, offline
-and changes still being saved, a failed download saving nothing; desktop and phone).
+left out, read back as written), the ranged cases there (only those days, the note line, no opening or repeating lines,
+the counts, each refusal, someone else's left out), and
+[settings/DataPage.test.tsx](../web/src/components/settings/DataPage.test.tsx) (counts and
+days, downloading with today's name and the server's bytes, Last downloaded and not for the next person, this year and
+picked dates with the note line and the name, the wrong way round, nothing logged yet,
+offline and changes still being saved, a failed download saving nothing; desktop and
+phone).
 
 ## Import
 
-**What it is.** Bringing in a CSV file, on its own page (`?import`, from the Import row
-on Home under Export). Pick the account and the file; for a bank's file, say which column
+**What it is.** Bringing in a CSV file. It starts on Settings › Import and export
+(`?settings=data`): "Choose a file" (phones) or "Import a file" and a drop zone, "Or drop
+a CSV here" (computers), which opens the import page (`?import`) with that file
+([components/import/handed-file.ts](../web/src/components/import/handed-file.ts), taken once, and let go on signing out so it never opens for the next person); the page keeps its own picker for another file.
+Its head shows the steps ("1 File", "2 Columns", "3 Check"; a computer's "✓ File and
+account", "✓ Columns", "3 Check"), the file and account ("maybank-oct.csv into Maybank
+Savings"; a computer's "Import maybank-oct.csv") and, once checked, "42 lines from Oct 1
+to Oct 31" (a computer's "Into Maybank Savings · 42 lines, Oct 1 to Oct 31"), with counts
+("38 to add", "4 already saved, left out", "6 going to Other"; a computer's "Ticked, to
+add", "Look already saved, unticked", "Category from last time", "Going to Other"), tabs
+over the lines on a computer ("All 42", "Already saved 4", "Going to Other 6") and "Cancel
+import, nothing is saved" back to Import and export. Pick the account and the file; for a bank's file, say which column
 is the date, the amount (one column, below zero or in brackets for money out) or money in
 and money out, the payee and the note. The mapping is remembered per account on this
 device. Preview shows every row before anything is saved: money out as spending, money in
@@ -1237,8 +1309,11 @@ passed, the next one after the person's own today; set up that day. One with the
 account, kind, amount, schedule, day and payee (trimmed, ignoring case) as one still running
 looks already saved and is left unticked, each running one answering for one line; stopped
 ones never count, and the category and where a transfer goes aren't compared. Past 200
-items, stopped ones included, a line says so. The Import button then says how many of each
-("Import 2 transactions and 2 repeating items"). Export then import into a fresh account, then
+items, stopped ones included, a line says so. The button then says how many of each
+("Add 2 transactions and 2 repeating items"). A Mahnee export of some dates (its "Only
+these dates" line) is read as transactions only: it adds no account (a line on one not
+here says "<name> isn't an account here" and can't be ticked), changes no opening balance
+and sets nothing up to repeat, and the page says so. Export then import into a fresh account, then
 export again, gives the same file but for ids and the days accounts were added. A file of
 more than `MAX_IMPORT_ROWS` (5,000) rows is refused before the preview; the preview shows
 100 rows at a time. After a bank file the account's page opens; after an export, Home.
@@ -1260,8 +1335,12 @@ column names per email and account (`localStorage`, let go on signing out).
 **Parts.**
 
 - UI: [components/import/ImportPage.tsx](../web/src/components/import/ImportPage.tsx)
-  (`?import`, going back up to Settings › Import and export), and its row on
+  (`?import`, going back up to Settings › Import and export), and Import, Recent imports
+  and Banks it remembers on
   [components/settings/DataPage.tsx](../web/src/components/settings/DataPage.tsx).
+- API: `addImport`, `addTransaction`'s `importId` and `undoImport` in
+  [worker/ledger/changes.ts](../worker/ledger/changes.ts); `GET /api/imports`
+  (`readImports` in [worker/ledger/imports.ts](../worker/ledger/imports.ts)).
 - API: `GET /api/payee-categories?account=` (`readPayeeCategories` in
   [worker/ledger/payees.ts](../worker/ledger/payees.ts)): one query, the latest category
   per kind and `lower(payee)`, that account's first, newest first, at most
@@ -1281,21 +1360,45 @@ column names per email and account (`localStorage`, let go on signing out).
 - A row is a duplicate of at most one saved or waiting transaction, so two alike in a file
   are both new against one saved, and importing the same file twice adds nothing.
 - Amounts are read by their digits into whole cents, at most `MAX_TRANSACTION`.
-- The database has a place for each import (`imports`, and `transactions.import_id`;
-  docs/erd.md) for recent imports and Undo on every device, which nothing writes yet. An
-  import is recorded before its transactions name it (a trigger refuses an import that
-  isn't the person's own), and letting one go keeps its transactions.
+- Each import that adds at least one transaction is recorded (D16): `addImport` (its id,
+  the file's name, the account a bank's file went into or none for an export, how many
+  transactions it added and how many of the file's transaction lines it left out) goes
+  first in the same ordered changes, then each `addTransaction` with `importId`, so the
+  0007 trigger always finds it; the server dates it. Recent imports
+  (`GET /api/imports`, at most `MAX_RECENT_IMPORTS`, newest first, none undone) are owned
+  by [ledger/ledger.ts](../web/src/ledger/ledger.ts) (`useImports()`, `applyToImports`,
+  `fetchImports`): what's recorded or undone here shows at once on top of the server's
+  list, a device copy opens offline, and it's fetched again once nothing waits.
+- Undo asks first ('Undo maybank-oct.csv?', "Its 38 entries are deleted, on every device.
+  Accounts and categories it added stay.", "Undo import" / "Keep it"), then sends
+  `undoImport` through the outbox like any change: the server deletes every transaction
+  that names that import, wherever it is now (moved or edited since), and marks it undone,
+  all in the batch; one undone already changes nothing more, and the receipt counts a
+  resent one once. The row goes at once; the entries leave balances and lists when the
+  server has done it (at once online, offline once back), since a device can't know every
+  entry an import added. Accounts, categories, opening balances and repeating items an
+  import added stay. An entry naming an import not the person's own, or none, is refused
+  404 "Import not found", one undone 409 "That import was undone".
+- Banks it remembers lists this device's column layouts for the signed-in person by
+  account, each with Forget (`rememberedMappings`, `forgetMapping`).
 
 **Tests.** [shared/csv-import.test.ts](../shared/csv-import.test.ts) (cells, days,
 amounts, bank rows and what's wrong with them, export lines read back as written,
 repeating lines and what's wrong with them, the duplicate rule, the limit), [Import.test.tsx](../web/src/components/import/Import.test.tsx)
-(mapping and remembering it, money in and out, already saved and ticked anyway, the
+(the steps, heading and counts, a computer's tabs and Cancel, recording an import and its
+entries, offline in order, nothing recorded without an entry, a file of some dates as
+transactions only, mapping and remembering it, money in and out, already saved and ticked anyway, the
 same file twice, categories from payees, shortened text, 5,001 refused, 5,000 on a phone
 with a lost answer counted once, offline, the export round trip, opening balances, an
 export picked before the accounts load; repeating items: the round trip, a next due kept
 or moved on by the person's own day, what counts as already there, two alike, what each
-names, the limit of 200, a line it can't read; desktop and phone), and the payee categories cases in
-[worker/test/api.test.ts](../worker/test/api.test.ts).
+names, the limit of 200, a line it can't read; desktop and phone),
+[settings/DataPage.test.tsx](../web/src/components/settings/DataPage.test.tsx) (recent
+imports, Undo asked, kept and confirmed, offline and resent once, an import undone before
+it was sent, the stand-in's refusals, Banks it remembers and Forget, choosing and dropping
+a file), and the payee categories and recent imports cases in
+[worker/test/api.test.ts](../worker/test/api.test.ts) (recording, listing, every refusal,
+the same id for two people, Undo exactly and once).
 
 ## Exchange rates
 
@@ -1379,8 +1482,9 @@ keep changes, those two with how many are waiting.
 - [offline/storage.ts](../web/src/offline/storage.ts): once the app is installed, asks
   the browser (once per device) not to clear what's kept when space runs low.
 - [pwa/install.ts](../web/src/pwa/install.ts): the browser's install prompt, kept for
-  the home page's Get the app card
-  ([components/common/InstallApp.tsx](../web/src/components/common/InstallApp.tsx)).
+  Install the app on Settings › My account
+  ([components/common/use-install-action.tsx](../web/src/components/common/use-install-action.tsx),
+  the steps by hand in [components/common/InstallApp.tsx](../web/src/components/common/InstallApp.tsx)).
 
 **Parts.** [web/public/sw.js](../web/public/sw.js) keeps the page, the built files, the
 manifest and icons, and web fonts. It never keeps anything from `/api`. On background
@@ -1470,17 +1574,17 @@ is rebuilt. Home is at a glance (see Home at a glance).
 
 **Addresses.** Later pieces link to these; each is a query string read by `readRoute`.
 
-| Page                      | Address                                                                                                                    | Now                                                                |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Home                      | none, or `?month=2026-10` for an earlier month                                                                             | live                                                               |
-| Activity                  | `?activity`, with `&q=`, `&account=`, `&category=`, `&kind=`, `&from=`, `&to=`, `&day=2026-11-10`, `&dates=all`, `&select` | live; see below                                                    |
-| Plan                      | `?plan`, with `&month=2026-10`                                                                                             | live                                                               |
-| Scheduled                 | `?plan=scheduled`                                                                                                          | Plan's other half: the month-end total until rebuilt               |
-| A category over 12 months | `?plan&category=<id>` (after `&month=` for an earlier month); `expenses` or `income` for all of them                       | live; a page on phones and tablets, beside the table on a computer |
-| Accounts                  | `?accounts`                                                                                                                | live                                                               |
-| One account               | `?account=<id>`                                                                                                            | live; on a computer, Accounts with it beside the list              |
-| Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`                           | the index, `categories` and `data` live; the others open the index |
-| Importing a file          | `?import`                                                                                                                  | live, opened from `?settings=data`                                 |
+| Page                      | Address                                                                                                                    | Now                                                                                                                                                                     |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home                      | none, or `?month=2026-10` for an earlier month                                                                             | live                                                                                                                                                                    |
+| Activity                  | `?activity`, with `&q=`, `&account=`, `&category=`, `&kind=`, `&from=`, `&to=`, `&day=2026-11-10`, `&dates=all`, `&select` | live; see below                                                                                                                                                         |
+| Plan                      | `?plan`, with `&month=2026-10`                                                                                             | live                                                                                                                                                                    |
+| Scheduled                 | `?plan=scheduled`                                                                                                          | Plan's other half: the month-end total until rebuilt                                                                                                                    |
+| A category over 12 months | `?plan&category=<id>` (after `&month=` for an earlier month); `expenses` or `income` for all of them                       | live; a page on phones and tablets, beside the table on a computer                                                                                                      |
+| Accounts                  | `?accounts`                                                                                                                | live                                                                                                                                                                    |
+| One account               | `?account=<id>`                                                                                                            | live; on a computer, Accounts with it beside the list                                                                                                                   |
+| Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`                           | live; `money`, `adding`, `look`, `budgets` list their settings read-only until their pieces; `&setting=<key>` opens one in view; a computer's `?settings` is My account |
+| Importing a file          | `?import`                                                                                                                  | live, opened from `?settings=data`                                                                                                                                      |
 
 Activity's filters (components/activity/address.ts): plain `?activity` is this month on
 every account. `&q=` is the words; `&account=` an account (transfers into it too);
@@ -1512,7 +1616,8 @@ may use either name for anything else (Activity's filters included).
   says which place it belongs to.
 - [hooks/useShortcuts.ts](../web/src/hooks/useShortcuts.ts): keys on a keyboard. N opens a
   new entry and / puts the cursor in the page's search, or opens Activity's (on pages with
-  the places); Esc closes Settings, and goes up from its sections; on a computer, Activity
+  the places); Esc closes Settings (on a computer from any section; on phones and tablets
+  it goes up from a section to the index); Ctrl K finds Settings' search on a computer; on a computer, Activity
   adds J, K, X and C. None fires while typing in a field (but Esc), with Ctrl, Cmd or Alt
   held, or while a dialog is open; Esc does nothing on Import, so a file being looked over
   is kept. Typing is a text-like field (text, search, number, a day or time, email, phone,

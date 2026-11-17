@@ -20,7 +20,9 @@ describe('screen tests, one after another', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Home' }));
     // The server answers the save only once this test has finished
     const save = holdNext(server, 'PATCH', '/api/me');
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Switch to light mode' }));
+    await userEvent
+      .setup()
+      .click(await screen.findByRole('button', { name: 'Switch to light mode' }));
     setTimeout(() => save.release(), 0);
   });
 

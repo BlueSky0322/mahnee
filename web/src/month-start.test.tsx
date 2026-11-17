@@ -387,12 +387,15 @@ describe('a pay changed in Plan › Scheduled while the month starts on payday',
     );
 
     const user = userEvent.setup();
+    // The pay opens from Scheduled's Income, titled by its category (D8: Scheduled rebuilt)
     go('/?plan=scheduled');
-    await user.click(await screen.findByRole('button', { name: /^Expected at month end/ }));
-    let list = within(await screen.findByRole('dialog', { name: 'Expected at month end' }));
-    await user.click(list.getByRole('button', { name: /^Acme/ }));
-    let sheet = within(await screen.findByRole('dialog', { name: 'Repeating' }));
-    await user.selectOptions(sheet.getByLabelText('On day'), '25');
+    const income = await screen.findByRole('region', { name: 'Income' });
+    await user.click(within(income).getByRole('button', { name: /^Salary/ }));
+    let sheet = within(await screen.findByRole('dialog', { name: 'Salary' }));
+    await user.selectOptions(
+      sheet.getByRole('combobox', { name: 'Repeats' }),
+      'Monthly on the 25th',
+    );
     await user.click(sheet.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(server.recurring[0].day).toBe(25));
 
@@ -404,11 +407,13 @@ describe('a pay changed in Plan › Scheduled while the month starts on payday',
     );
 
     go('/?plan=scheduled');
-    await user.click(await screen.findByRole('button', { name: /^Expected at month end/ }));
-    list = within(await screen.findByRole('dialog', { name: 'Expected at month end' }));
-    await user.click(list.getByRole('button', { name: /^Acme/ }));
-    sheet = within(await screen.findByRole('dialog', { name: 'Repeating' }));
-    await user.click(sheet.getByRole('button', { name: 'Stop repeating' }));
+    await user.click(
+      within(await screen.findByRole('region', { name: 'Income' })).getByRole('button', {
+        name: /^Salary/,
+      }),
+    );
+    sheet = within(await screen.findByRole('dialog', { name: 'Salary' }));
+    await user.click(sheet.getByRole('button', { name: 'Stop scheduling Salary' }));
     await waitFor(() => expect(server.me.settings.monthStartMode).toBe('date'));
 
     // Back on the 1st: November, day 26 of 30

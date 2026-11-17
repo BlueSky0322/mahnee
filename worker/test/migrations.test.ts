@@ -453,3 +453,189 @@ describe('0008, the day an account was archived', () => {
     expect(set('a000000000000002', 0, null)).toBe(true);
   });
 });
+
+// 0009 is Scheduled (owner decisions D8 and D19): each item says whether its amount
+// changes (added for the person to check) and whether it asks first (Log it or Skip on
+// Home); each transaction can say which scheduled occurrence it came from and whether its
+// amount is still to check. Items already overdue on the day it runs (its own date, UTC)
+// keep asking, one last time; every other item is added on its day from then on.
+describe('0009, Scheduled', () => {
+  const SCHEDULED_MIGRATION = '0009_scheduled.sql';
+  const OWNER = 'teal@example.com';
+  const ITEM = 'e000000000000001';
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+  /** Today's rows, 0007 and 0008, and repeating items due before, on and after the day it runs */
+  const migrated = () => {
+    // Today's rows go in at the schema they were written for, then 0007 and 0008 run
+    const db = database(before0007);
+    seedToday(db);
+    for (const file of files.filter((f) => f >= '0007' && f < '0009')) {
+      db.exec(readFileSync(join(DIR, file), 'utf8'));
+    }
+    const now = Date.now();
+    const [yesterday, today, tomorrow] = [-1, 0, 1].map((d) => utcDay(now + d * DAY_MS));
+    const item = (id: string, nextDue: string, archived: number) =>
+      db
+        .prepare(
+          `INSERT INTO recurring (email, id, kind, account_id, amount_cents, category_id, payee,
+                                  schedule, day, start_date, next_due, position, archived,
+                                  created_at, updated_at)
+           VALUES (?, ?, 'expense', 'a000000000000001', 5490, 'c000000000000001', 'Netflix',
+                   'weekly', 1, '2026-01-05', ?, ?, ?, ?, ?)`,
+        )
+        .run(OWNER, id, nextDue, Number(id.slice(-1)), archived, T, T);
+    item('e000000000000001', '2026-01-05', 0);
+    item('e000000000000002', yesterday, 0);
+    item('e000000000000003', today, 0);
+    item('e000000000000004', tomorrow, 0);
+    item('e000000000000005', '2026-01-05', 1);
+    // Running, on an account since archived: it asks first once the account is back
+    db.prepare(
+      `INSERT INTO accounts (email, id, name, kind, currency, opening_cents, position, archived, created_at, updated_at)
+       VALUES (?, 'a000000000000003', 'Old', 'bank', 'MYR', 0, 2, 1, ?, ?)`,
+    ).run(OWNER, T, T);
+    db.prepare(
+      `INSERT INTO recurring (email, id, kind, account_id, amount_cents, category_id, payee,
+                              schedule, day, start_date, next_due, position, created_at, updated_at)
+       VALUES (?, 'e000000000000006', 'expense', 'a000000000000003', 100, 'c000000000000001',
+               'Old loan', 'monthly', 5, '2026-01-05', '2026-01-05', 6, ?, ?)`,
+    ).run(OWNER, T, T);
+    db.exec(readFileSync(join(DIR, SCHEDULED_MIGRATION), 'utf8'));
+    return { db, ranOn: today, after: utcDay(Date.now()) };
+  };
+
+  /** Migrated on one day from start to end (tried again once if it ran across midnight UTC) */
+  const migratedOnOneDay = () => {
+    const first = migrated();
+    return first.ranOn === first.after ? first : migrated();
+  };
+
+  it('is the next migration after the archived day', () => {
+    expect(files).toContain(SCHEDULED_MIGRATION);
+    expect(files.indexOf(SCHEDULED_MIGRATION)).toBe(
+      files.indexOf('0008_account_archived_at.sql') + 1,
+    );
+  });
+
+  it('asks first about every running item due on or before the day it runs, and no other', () => {
+    const { db } = migratedOnOneDay();
+    expect(all(db, 'SELECT id, amount_varies, ask_first FROM recurring ORDER BY id')).toEqual([
+      { id: 'e000000000000001', amount_varies: 0, ask_first: 1 },
+      { id: 'e000000000000002', amount_varies: 0, ask_first: 1 },
+      { id: 'e000000000000003', amount_varies: 0, ask_first: 1 },
+      // Due tomorrow in UTC, though maybe today in a zone ahead of UTC: not overdue, so the
+      // job adds it on its day
+      { id: 'e000000000000004', amount_varies: 0, ask_first: 0 },
+      { id: 'e000000000000005', amount_varies: 0, ask_first: 0 },
+      { id: 'e000000000000006', amount_varies: 0, ask_first: 1 },
+    ]);
+  });
+
+  it('keeps every transaction as it was, none from Scheduled and none to check', () => {
+    const { db } = migratedOnOneDay();
+    expect(
+      all(
+        db,
+        'SELECT id, amount_cents, recurring_id, recurring_due, to_check FROM transactions ORDER BY id',
+      ),
+    ).toEqual([
+      {
+        id: 'b000000000000001',
+        amount_cents: 1234,
+        recurring_id: null,
+        recurring_due: null,
+        to_check: 0,
+      },
+      {
+        id: 'b000000000000002',
+        amount_cents: 2468,
+        recurring_id: null,
+        recurring_due: null,
+        to_check: 0,
+      },
+      {
+        id: 'b000000000000003',
+        amount_cents: 3702,
+        recurring_id: null,
+        recurring_due: null,
+        to_check: 0,
+      },
+    ]);
+    expect(all(db, 'PRAGMA foreign_key_check')).toEqual([]);
+  });
+
+  it('takes only 0 or 1 for whether an amount changes and whether to ask first', () => {
+    const { db } = migratedOnOneDay();
+    const set = (column: string, value: unknown) =>
+      takes(db, `UPDATE recurring SET ${column} = ? WHERE id = ?`, value as number, ITEM);
+    for (const column of ['amount_varies', 'ask_first']) {
+      expect(set(column, 1)).toBe(true);
+      expect(set(column, 0)).toBe(true);
+      expect(set(column, 2)).toBe(false);
+      // Whole numbers only: not a fraction, nor words
+      expect(set(column, 1.5)).toBe(false);
+      expect(set(column, 'yes')).toBe(false);
+      expect(set(column, null)).toBe(false);
+    }
+  });
+
+  it('links a transaction only to its own person’s item, with the day it was due', () => {
+    const { db } = migratedOnOneDay();
+    const mark = (id: string, recurringId: unknown, due: unknown, toCheck: unknown) =>
+      takes(
+        db,
+        'UPDATE transactions SET recurring_id = ?, recurring_due = ?, to_check = ? WHERE id = ?',
+        recurringId as string,
+        due as string,
+        toCheck as number,
+        id,
+      );
+    expect(mark('b000000000000001', ITEM, '2026-01-05', 1)).toBe(true);
+    expect(mark('b000000000000001', ITEM, '2026-01-05', 0)).toBe(true);
+    // An item the person doesn't have, or someone else's
+    expect(mark('b000000000000002', 'e00000000000000f', '2026-01-05', 0)).toBe(false);
+    db.prepare(
+      `INSERT INTO accounts (email, id, name, kind, currency, opening_cents, position, created_at, updated_at)
+       VALUES ('blue@example.com', 'a000000000000009', 'Theirs', 'cash', 'MYR', 0, 0, ?, ?)`,
+    ).run(T, T);
+    db.prepare(
+      `INSERT INTO categories (email, id, name, kind, position, created_at, updated_at)
+       VALUES ('blue@example.com', 'c000000000000009', 'Bills', 'expense', 0, ?, ?)`,
+    ).run(T, T);
+    db.prepare(
+      `INSERT INTO recurring (email, id, kind, account_id, amount_cents, category_id, payee,
+                              schedule, day, start_date, next_due, position, created_at, updated_at)
+       VALUES ('blue@example.com', 'e000000000000009', 'expense', 'a000000000000009', 100,
+               'c000000000000009', 'Theirs', 'monthly', 1, '2026-01-01', '2026-12-01', 0, ?, ?)`,
+    ).run(T, T);
+    expect(mark('b000000000000002', 'e000000000000009', '2026-01-05', 0)).toBe(false);
+    // A due day goes with an item, and neither without the other
+    expect(mark('b000000000000002', ITEM, null, 0)).toBe(false);
+    expect(mark('b000000000000002', null, '2026-01-05', 0)).toBe(false);
+    expect(mark('b000000000000002', ITEM, 'Jan 5', 0)).toBe(false);
+    // Only an entry from Scheduled is to check, and only 0 or 1
+    expect(mark('b000000000000002', null, null, 1)).toBe(false);
+    expect(mark('b000000000000002', ITEM, '2026-01-05', 2)).toBe(false);
+    // A new transaction is held to the same rules as a changed one
+    const add = (id: string, recurringId: string | null, due: string | null, toCheck: number) =>
+      takes(
+        db,
+        `INSERT INTO transactions (email, id, kind, account_id, amount_cents, category_id, date,
+                                   recurring_id, recurring_due, to_check, created_at, updated_at)
+         VALUES (?, ?, 'expense', 'a000000000000001', 5490, 'c000000000000001', '2026-01-05',
+                 ?, ?, ?, ?, ?)`,
+        OWNER,
+        id,
+        recurringId,
+        due,
+        toCheck,
+        T,
+        T,
+      );
+    expect(add('b000000000000010', ITEM, '2026-01-05', 1)).toBe(true);
+    expect(add('b000000000000011', 'e000000000000009', '2026-01-05', 0)).toBe(false);
+    expect(add('b000000000000012', null, null, 0)).toBe(true);
+  });
+});

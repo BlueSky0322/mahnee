@@ -6,6 +6,7 @@ import type {
   MonthSummary,
   MonthTotals,
   MonthTrend,
+  ScheduledInMonth,
   Transaction,
 } from '@shared/api';
 import type { Lookup } from './apply';
@@ -27,6 +28,11 @@ import { changedTransaction, idOf, isTransactionChange, oneByOne, tracker } from
 // are fetched again (which one is left isn't known here), so it reads "1 entry" meanwhile.
 // Tidy up counts in the categories the server listed; one moved under Other since counts
 // once the totals are fetched again.
+//
+// Entries from Scheduled count by item, in the order of each item's first in the month: one
+// added counts (and, still to check, is listed to check); one taken out no longer does, and
+// an item with none left goes. Which day is first after its first is taken out isn't known
+// here, so it reads as it was until the totals are fetched again.
 //
 // The 12 months up to a month (spending over time) are counted the same way, each month
 // on its own, so a change counts in whichever of the 12 it falls in; they have no days or
@@ -116,6 +122,55 @@ function countDays(summary: MonthSummary, t: Transaction | null | undefined, by:
   return next;
 }
 
+/** `summary` with `t` added to its entries from Scheduled (`by` 1) or taken out (-1) */
+function countScheduled(summary: MonthSummary, t: Transaction | null | undefined, by: 1 | -1) {
+  const mark = t?.scheduled;
+  if (t == null || mark == null || !within(t, summary)) return summary;
+  const list = summary.fromScheduled ?? [];
+  const was = list.find((s) => s.recurringId === mark.recurringId);
+  let next: ScheduledInMonth[];
+  if (by === 1) {
+    const item: ScheduledInMonth = was ?? {
+      recurringId: mark.recurringId,
+      entries: 0,
+      firstDate: t.date,
+      toCheck: [],
+    };
+    const counted: ScheduledInMonth = {
+      ...item,
+      entries: item.entries + 1,
+      firstDate: t.date < item.firstDate ? t.date : item.firstDate,
+      toCheck: mark.toCheck
+        ? [...item.toCheck, { id: t.id, date: t.date, amountCents: t.amountCents }].sort((a, b) =>
+            a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+          )
+        : item.toCheck,
+    };
+    next = was == null ? [...list, counted] : list.map((s) => (s === was ? counted : s));
+  } else {
+    if (was == null) return summary;
+    const counted = {
+      ...was,
+      entries: was.entries - 1,
+      toCheck: was.toCheck.filter((c) => c.id !== t.id),
+    };
+    next =
+      counted.entries > 0
+        ? list.map((s) => (s === was ? counted : s))
+        : list.filter((s) => s !== was);
+  }
+  // By the day of each item's first; a tie keeps the order the server gave
+  const ordered = next
+    .map((s, i) => ({ s, i }))
+    .sort(
+      (a, b) =>
+        (a.s.firstDate < b.s.firstDate ? -1 : a.s.firstDate > b.s.firstDate ? 1 : 0) || a.i - b.i,
+    )
+    .map(({ s }) => s);
+  const { fromScheduled: _was, ...rest } = summary;
+  return ordered.length === 0 ? rest : { ...rest, fromScheduled: ordered };
+}
+
 /**
  * `totals` with `changes` made to them, in order, `more` counting what else they hold;
  * the one passed in is left as it was, and given back when nothing changed
@@ -158,7 +213,13 @@ export function applyToSummary(
   changes: LedgerChange[],
   lookup: Lookup,
 ): MonthSummary {
-  return applyTo(summary, changes, lookup, countDays, setBudget);
+  return applyTo(
+    summary,
+    changes,
+    lookup,
+    (s, t, by) => countScheduled(countDays(s, t, by), t, by),
+    setBudget,
+  );
 }
 
 /** `summary` with a budget set from a month (shared/budgets.ts), if it applies to this one */

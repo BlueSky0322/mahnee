@@ -21,15 +21,27 @@ export interface ComingUpRow {
   toCheck: boolean;
 }
 
-// What needs you next: the scheduled items coming up, each with its amount and day, and
-// what was added this month on its own (from Scheduled), with Scheduled a tap away
+/** An entry Scheduled added whose amount is still to check */
+export interface ComingUpCheck {
+  id: string;
+  name: string;
+  amountCents: number;
+  /** The day it was added on */
+  date: string;
+}
+
+// What needs you next: each entry Scheduled added whose amount is still to check (tapping
+// one opens its day in Activity, where it's confirmed), the scheduled items coming up, each
+// with its amount and day, and what Scheduled added this month, with Scheduled a tap away
 export default function ComingUp({
   rows,
   added,
+  checks = [],
 }: {
   rows: readonly ComingUpRow[];
   /** What Scheduled added this month on its own, by name */
   added: readonly string[];
+  checks?: readonly ComingUpCheck[];
 }) {
   const titleId = useId();
   return (
@@ -52,6 +64,27 @@ export default function ComingUp({
         </PageLink>
       </div>
       <ul className={classes.needs}>
+        {checks.map((check) => (
+          <li
+            key={`check-${check.id}`}
+            className={classes.need}
+          >
+            <PageLink
+              href={`?activity&day=${check.date}`}
+              className={classes.needLink}
+            >
+              <span className={classes.needTitle}>
+                {`${check.name} · `}
+                <span className={classes.num}>
+                  {formatMoney(check.amountCents, DEFAULT_CURRENCY)}
+                </span>
+              </span>
+              <span
+                className={classes.needLine}
+              >{`${shortDate(check.date)} · amount to check`}</span>
+            </PageLink>
+          </li>
+        ))}
         {rows.map((row) => (
           <li
             key={row.id}

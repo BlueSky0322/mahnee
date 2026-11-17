@@ -4196,6 +4196,9 @@ describe('recurring', () => {
         startDate: '2025-10-01',
         nextDue: '2025-11-01',
         archived: false,
+        // Saved with its day passed (2025, by the server's clock), it asks first (D19)
+        amountVaries: false,
+        askFirst: true,
       },
     ]);
     // Nothing moved: no transaction, the balance as it was
@@ -4277,7 +4280,13 @@ describe('recurring', () => {
     expect(await send(me, [log], [changeId])).toEqual({ status: 200, data: { ok: true } });
     expect(await balance(me, bank)).toBe(300_000 - 120_000);
     expect(await listed(me, bank)).toEqual([
-      { ...logged(t, bank, '2025-11-01'), time: null, createdAt: expect.any(Number) },
+      {
+        ...logged(t, bank, '2025-11-01'),
+        time: null,
+        createdAt: expect.any(Number),
+        // From Scheduled, this occurrence's (D8), nothing to check
+        scheduled: { recurringId: rent, due: '2025-11-01', toCheck: false },
+      },
     ]);
     expect(await nextDue(me, rent)).toBe('2025-12-01');
 

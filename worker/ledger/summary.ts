@@ -28,8 +28,13 @@
 // has no budgets. So the chain runs from the first budget (2000 at the earliest) to this
 // month at most, about 330 months in 2027, and the spending read is at most one row per
 // such month and category.
+//
+// And the entries from Scheduled in the month (owner decision D8), for "Added this month"
+// and the amounts to check: one row per item (at most MAX_RECURRING) with how many and the
+// day of its first, and each entry still to check (an item falls at most five times a
+// month, so at most five per item).
 
-import type { CategoryTotal, DayTotal, MonthSummary } from '../../shared/api';
+import type { CategoryTotal, DayTotal, MonthSummary, ScheduledInMonth } from '../../shared/api';
 import type { BudgetRow } from '../../shared/budgets';
 import { isBudgetMonth, monthBudgets } from '../../shared/budgets';
 import { OTHER_EXPENSE_ID, tidyUpFrom } from '../../shared/categories';
@@ -56,6 +61,19 @@ interface TotalRow {
   entries: number;
   /** Only for a category with one transaction, when it names one */
   payee: string | null;
+}
+
+/** Entries from Scheduled as read: by item, or (to check) one at a time */
+interface ScheduledRow {
+  recurringId: string;
+  entries: number;
+  firstDate: string;
+}
+interface ToCheckRow {
+  recurringId: string;
+  id: string;
+  date: string;
+  amountCents: number;
 }
 
 /** Tidy up as read: a category under Other (no count), or the count (no category) */
@@ -87,7 +105,14 @@ export async function readSummary(
   // the same moment
   const from = tidyUpFrom(month, start);
   const answers = await db.batch<
-    TotalRow | DayTotal | TidyRow | KeptBudget | SpentRow | { id: string }
+    | TotalRow
+    | DayTotal
+    | TidyRow
+    | ScheduledRow
+    | ToCheckRow
+    | KeptBudget
+    | SpentRow
+    | { id: string }
   >([
     db
       .prepare(
@@ -121,11 +146,39 @@ export async function readSummary(
                  (SELECT id FROM categories WHERE email = ?1 AND parent_id = ?2))`,
       )
       .bind(email, OTHER_EXPENSE_ID, from, lastDay),
+    // By the day of each item's first, then the order the items were set up
+    db
+      .prepare(
+        `SELECT t.recurring_id AS recurringId, COUNT(*) AS entries, MIN(t.date) AS firstDate
+         FROM transactions t
+         LEFT JOIN recurring r ON r.email = t.email AND r.id = t.recurring_id
+         WHERE t.email = ? AND t.date BETWEEN ? AND ? AND t.recurring_id IS NOT NULL
+         GROUP BY t.recurring_id
+         ORDER BY firstDate, MIN(r.position), t.recurring_id`,
+      )
+      .bind(email, firstDay, lastDay),
+    db
+      .prepare(
+        `SELECT recurring_id AS recurringId, id, date, amount_cents AS amountCents
+         FROM transactions
+         WHERE email = ? AND date BETWEEN ? AND ? AND to_check = 1
+         ORDER BY date, created_at, id`,
+      )
+      .bind(email, firstDay, lastDay),
     ...(withBudgets ? budgetStatements(db, email, month, start) : []),
     ...(pending.length > 0 ? [savedIdsStatement(db, email, pending)] : []),
   ]);
-  const [totals, byDay, tidy] = answers;
-  const [budgetRows, budgetSpending] = withBudgets ? [answers[3], answers[4]] : [];
+  const [totals, byDay, tidy, scheduledRows, toCheckRows] = answers;
+  const [budgetRows, budgetSpending] = withBudgets ? [answers[5], answers[6]] : [];
+  const toCheck = toCheckRows.results as ToCheckRow[];
+  const fromScheduled = (scheduledRows.results as ScheduledRow[]).map(
+    (r): ScheduledInMonth => ({
+      ...r,
+      toCheck: toCheck
+        .filter((c) => c.recurringId === r.recurringId)
+        .map(({ id, date, amountCents }) => ({ id, date, amountCents })),
+    }),
+  );
   const saved = pending.length > 0 ? answers[answers.length - 1] : undefined;
   const results = totals.results as TotalRow[];
   const spentBefore = new Map(
@@ -180,6 +233,7 @@ export async function readSummary(
     },
     // Only when there are any
     ...(budgets.length > 0 && { budgets }),
+    ...(fromScheduled.length > 0 && { fromScheduled }),
     // Only for a read that named any
     ...(saved != null && { alreadySaved: (saved.results as { id: string }[]).map((r) => r.id) }),
   });

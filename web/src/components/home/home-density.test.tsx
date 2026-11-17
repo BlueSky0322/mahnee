@@ -145,9 +145,9 @@ describe.each(SIZES)('Home shows (%s)', (size) => {
   test('Essentials keeps what is due now, to log or skip', async () => {
     onTheTenth();
     const server = aMonth('essentials');
-    // Rent was due today
+    // Rent was due today, and asks first (D19)
     server.recurring.push(
-      repeating('Rent', { amountCents: 5_000, day: 10, nextDue: '2026-11-10' }),
+      repeating('Rent', { amountCents: 5_000, day: 10, nextDue: '2026-11-10', askFirst: true }),
     );
     renderApp(server, '/', { size });
     const due = await screen.findByText('Due: Rent RM 50.00 from Maybank');

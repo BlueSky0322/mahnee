@@ -6,6 +6,7 @@ import type { AppEnv, Env } from './app';
 import { fail, isCrossSiteWrite, notFound } from './http';
 import { EXPECTED_ACCOUNT_HEADER } from '../shared/api';
 import { getUserEmail } from './accounts/auth';
+import { postScheduled } from './ledger/post-scheduled';
 import ledger from './routes/ledger';
 import me from './routes/me';
 import rates from './routes/rates';
@@ -69,5 +70,16 @@ export default {
     const path = new URL(req.url).pathname;
     if (!path.startsWith('/api/')) return env.ASSETS.fetch(req);
     return api.fetch(req, env, ctx);
+  },
+  // The cron trigger (every 15 minutes, wrangler.jsonc): scheduled entries are added on their
+  // day where each person is (ledger/post-scheduled.ts). Only an error's name and message
+  // are logged.
+  async scheduled(controller, env): Promise<void> {
+    try {
+      await postScheduled(env.DB, controller.scheduledTime);
+    } catch (err) {
+      console.error(err instanceof Error ? `${err.name}: ${err.message}` : 'Unknown error');
+      throw err;
+    }
   },
 } satisfies ExportedHandler<Env>;

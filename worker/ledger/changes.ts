@@ -4,8 +4,12 @@
 // is the signed-in person's own: an id of someone else's is answered exactly like one
 // that doesn't exist. A person's first change of any kind saves the default categories
 // with it. Repeating items are checked the same way, and logging one saves its
-// transaction and moves it on to its next due date together. An import is recorded before
-// the transactions that name it, and undoing one deletes exactly those, in one batch.
+// transaction (marked as from Scheduled) and moves it on to its next due date together. The
+// nightly job (post-scheduled.ts) adds each item on its day through the same path. An item
+// saved, moved back or brought back (or its account or category brought back) with its next
+// due date on or before the person's own today asks first (Log it or Skip on Home; owner
+// decision D19), and stops asking once logged or skipped past today. An import is recorded before the transactions that name
+// it, and undoing one deletes exactly those, in one batch.
 
 import {
   type Category,
@@ -42,6 +46,7 @@ import {
   nextAfter,
   scheduleDayRange,
 } from '../../shared/recurring';
+import { dayIn } from '../../shared/scheduled';
 import {
   DEFAULT_CURRENCY,
   FIRST_DAY,
@@ -103,6 +108,8 @@ const OFF_SCHEDULE = 'Next due has to fall on its schedule';
 const LOGGED_ON_DUE = 'A repeating item is logged on the day it was due';
 const IMPORT_NOT_FOUND = 'Import not found';
 const FILE_NAME_LENGTH = `Give the file a name of up to ${MAX_FILE_NAME} characters`;
+const SAY_VARIES = 'Say whether the amount changes';
+const ONLY_CHECKED = 'An amount is checked, never unchecked';
 const IMPORT_COUNT = `A count is a whole number from 0 to ${MAX_IMPORT_ROWS.toLocaleString('en')}`;
 
 /** What a check needs to know of a saved transaction */
@@ -123,6 +130,7 @@ interface RecurringState {
   day: number;
   nextDue: string;
   archived: boolean;
+  amountVaries: boolean;
 }
 
 /**
@@ -141,6 +149,13 @@ interface Model {
   imports: Map<string, { undone: boolean }>;
   /** The day the person's month starts on (read only when the batch sets a budget) */
   monthStart: number;
+  /**
+   * The person's own today, in their stored time zone (UTC's without one): what decides
+   * whether a repeating item asks first
+   */
+  today: string;
+  /** Saved by the nightly job: what it adds is marked to check when the amount changes */
+  posting: boolean;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -398,6 +413,18 @@ function changeStatements(
              WHERE email = ?3 AND id = ?4`,
           )
           .bind(change.archived ? 1 : 0, now, email, change.id),
+        // Brought back after its items' days passed: nothing is guessed, they ask first
+        ...(change.archived
+          ? []
+          : [
+              db
+                .prepare(
+                  `UPDATE recurring SET ask_first = 1, updated_at = ?
+                   WHERE email = ? AND archived = 0 AND next_due <= ?
+                     AND (account_id = ? OR to_account_id = ?)`,
+                )
+                .bind(now, email, model.today, change.id, change.id),
+            ]),
         // Add no longer starts on an archived account, but on the last one used
         ...(change.archived
           ? [
@@ -520,66 +547,27 @@ function changeStatements(
         db
           .prepare('UPDATE categories SET archived = ?, updated_at = ? WHERE email = ? AND id = ?')
           .bind(change.archived ? 1 : 0, now, email, category.id),
+        // Brought back after its items' days passed: nothing is guessed, they ask first
+        ...(change.archived
+          ? []
+          : [
+              db
+                .prepare(
+                  `UPDATE recurring SET ask_first = 1, updated_at = ?
+                   WHERE email = ? AND archived = 0 AND next_due <= ? AND category_id = ?`,
+                )
+                .bind(now, email, model.today, category.id),
+            ]),
       ];
     }
     case 'addTransaction': {
       onlyFields(change, ['op', 'transaction', 'importId']);
-      const t = change.transaction;
       const importId = 'importId' in change ? readImport(model, change.importId) : null;
+      const t = change.transaction;
       if (!isObject(t)) throw new Refused(400, 'Invalid transaction');
-      onlyFields(t, [
-        'id',
-        'kind',
-        'accountId',
-        'toAccountId',
-        'amountCents',
-        'categoryId',
-        'payee',
-        'note',
-        'date',
-        'time',
-      ]);
-      if (!isRowId(t.id)) throw new Refused(400, 'Invalid transaction id');
-      if (model.transactions.has(t.id)) throw new Refused(409, 'That transaction already exists');
-      const kind = readTransactionKind(t.kind);
-      const accountId = readTransactionAccount(model, t.accountId);
-      const toAccountId = readDestination(model, kind, accountId, t.toAccountId, true);
-      const amount = readAmount(t.amountCents);
-      const categoryId = readTransactionCategory(model, t.categoryId, kind);
-      const payee = readText(t.payee, MAX_PAYEE, 'payee');
-      const note = readText(t.note, MAX_NOTE, 'note');
-      const date = readDay(t.date, now);
-      const time = 'time' in t ? readTime(t.time) : null;
-      const saved = { kind, accountId, toAccountId, categoryId };
-      for (const side of sidesOf(saved)) countOn(model, side, 1);
-      model.transactions.set(t.id, saved);
-      // ?1 the person, ?2 the account it's from, ?3 the one it goes to
-      const sides = toAccountId == null ? ['?2'] : ['?2', '?3'];
-      return [
-        db
-          .prepare(
-            `INSERT INTO transactions (email, id, kind, account_id, to_account_id, amount_cents,
-                                       category_id, payee, note, date, created_at, updated_at,
-                                       import_id, time)
-             SELECT ?1, ?4, ?5, ${withRoom('?2', sides)}, ?3, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12,
-                    ?13`,
-          )
-          .bind(
-            email,
-            accountId,
-            toAccountId,
-            t.id,
-            kind,
-            amount,
-            categoryId,
-            payee,
-            note,
-            date,
-            now,
-            importId,
-            time,
-          ),
-      ];
+      // Brought back from Scheduled (Undo of a delete): still from its own item
+      const mark = 'scheduled' in t ? readMark(model, t.scheduled) : null;
+      return addTransaction(db, email, model, t, now, importId, mark);
     }
     case 'updateTransaction': {
       onlyFields(change, [
@@ -594,9 +582,11 @@ function changeStatements(
         'note',
         'date',
         'time',
+        'toCheck',
       ]);
       const saved = isRowId(change.id) ? model.transactions.get(change.id) : undefined;
       if (saved == null) throw new Refused(404, TRANSACTION_NOT_FOUND);
+      if ('toCheck' in change && change.toCheck !== false) throw new Refused(400, ONLY_CHECKED);
       const fields = Object.keys(change).filter((k) => k !== 'op' && k !== 'id');
       if (fields.length === 0) throw new Refused(400, 'Nothing to change');
       // ?1 is the person
@@ -649,6 +639,8 @@ function changeStatements(
       if ('note' in change) set('note', readText(change.note, MAX_NOTE, 'note'));
       if ('date' in change) set('date', readDay(change.date, now));
       if ('time' in change) set('time', readTime(change.time));
+      // Confirmed, or given what the bill came to: nothing left to check
+      if ('toCheck' in change || 'amountCents' in change) set('to_check', 0);
       set('updated_at', now);
       return [
         db
@@ -801,6 +793,7 @@ function changeStatements(
         'day',
         'startDate',
         'nextDue',
+        'amountVaries',
       ]);
       if (!isRowId(r.id)) throw new Refused(400, 'Invalid repeating item id');
       if (model.recurring.has(r.id)) throw new Refused(409, 'That repeating item already exists');
@@ -814,6 +807,7 @@ function changeStatements(
       const day = readScheduleDay(schedule, r.day);
       // Set up from a transaction, so any day a transaction can be on
       const startDate = readDay(r.startDate, now);
+      const amountVaries = 'amountVaries' in r ? readVaries(r.amountVaries) : false;
       if (model.recurring.size >= MAX_RECURRING) throw new Refused(409, TOO_MANY_RECURRING);
       // Its first due date as the app worked it out (the first after the person's today, or
       // an imported one's), checked as a moved one is: on its schedule and within a year, but
@@ -832,6 +826,7 @@ function changeStatements(
         day,
         nextDue,
         archived: false,
+        amountVaries,
       });
       // In the order set up. The count is checked again as it's saved: past the limit the
       // position is NULL, which NOT NULL refuses, undoing the whole batch.
@@ -840,10 +835,11 @@ function changeStatements(
           .prepare(
             `INSERT INTO recurring (email, id, kind, account_id, to_account_id, amount_cents,
                                     category_id, payee, schedule, day, start_date, next_due,
-                                    position, archived, created_at, updated_at)
+                                    position, archived, created_at, updated_at, amount_varies,
+                                    ask_first)
              SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
                     CASE WHEN COUNT(*) < ${MAX_RECURRING} THEN COALESCE(MAX(position) + 1, 0) END,
-                    0, ?13, ?13
+                    0, ?13, ?13, ?14, ?15
              FROM recurring WHERE email = ?1`,
           )
           .bind(
@@ -860,6 +856,9 @@ function changeStatements(
             startDate,
             nextDue,
             now,
+            amountVaries ? 1 : 0,
+            // Its day passed by the time it's saved (sent late from an offline device, say)
+            nextDue <= model.today ? 1 : 0,
           ),
       ];
     }
@@ -875,6 +874,7 @@ function changeStatements(
         'schedule',
         'day',
         'nextDue',
+        'amountVaries',
       ]);
       const saved = readRecurring(model, change.id);
       const fields = Object.keys(change).filter((k) => k !== 'op' && k !== 'id');
@@ -906,6 +906,10 @@ function changeStatements(
         saved.categoryId = categoryId;
       }
       if ('payee' in change) set('payee', readText(change.payee, MAX_PAYEE, 'payee'));
+      if ('amountVaries' in change) {
+        saved.amountVaries = readVaries(change.amountVaries);
+        set('amount_varies', saved.amountVaries ? 1 : 0);
+      }
       const schedule = 'schedule' in change ? readSchedule(change.schedule) : saved.schedule;
       const day =
         'schedule' in change || 'day' in change
@@ -919,6 +923,8 @@ function changeStatements(
         set('schedule', schedule);
         set('day', day);
         set('next_due', nextDue);
+        // Moved back to a day passed (Undo of Log it or Skip): it asks again
+        set('ask_first', nextDue <= model.today ? 1 : 0);
         Object.assign(saved, { schedule, day, nextDue });
       }
       set('updated_at', now);
@@ -941,8 +947,14 @@ function changeStatements(
       saved.archived = change.archived;
       return [
         db
-          .prepare('UPDATE recurring SET archived = ?, updated_at = ? WHERE email = ? AND id = ?')
-          .bind(change.archived ? 1 : 0, now, email, change.id),
+          .prepare(
+            `UPDATE recurring
+             SET archived = ?1,
+                 ask_first = CASE WHEN ?1 = 0 AND next_due <= ?2 THEN 1 ELSE ask_first END,
+                 updated_at = ?3
+             WHERE email = ?4 AND id = ?5`,
+          )
+          .bind(change.archived ? 1 : 0, model.today, now, email, change.id),
         ...(change.archived ? [monthOffPay(db, email, change.id as string, now)] : []),
       ];
     }
@@ -964,22 +976,29 @@ function changeStatements(
         const t = change.transaction;
         if (!isObject(t)) throw new Refused(400, 'Invalid transaction');
         if (t.date !== due) throw new Refused(400, LOGGED_ON_DUE);
-        // Checked and saved as any transaction added
-        statements.push(
-          ...changeStatements(db, email, model, { op: 'addTransaction', transaction: t }, now),
-        );
+        // Checked and saved as any transaction added, marked as this occurrence's: to check
+        // when the job adds one whose amount changes; Log it is the person's own doing
+        const { scheduled: _given, ...rest } = t;
+        const mark = {
+          recurringId: change.id as string,
+          due,
+          toCheck: model.posting && saved.amountVaries,
+        };
+        statements.push(...addTransaction(db, email, model, rest, now, null, mark));
       }
       saved.nextDue = nextAfter(saved.schedule, saved.day, due);
       // Moved on only from the occurrence it was at when read: had another batch moved it
       // since, next_due is NULL, which NOT NULL refuses, undoing the whole batch (the
       // transaction too), so an occurrence is never logged twice
+      // Logged or skipped past the person's today, it stops asking first
       statements.push(
         db
           .prepare(
-            `UPDATE recurring SET next_due = CASE WHEN next_due = ?1 THEN ?2 END, updated_at = ?3
+            `UPDATE recurring SET next_due = CASE WHEN next_due = ?1 THEN ?2 END, updated_at = ?3,
+                                  ask_first = CASE WHEN ?2 > ?6 THEN 0 ELSE ask_first END
              WHERE email = ?4 AND id = ?5`,
           )
-          .bind(due, saved.nextDue, now, email, change.id),
+          .bind(due, saved.nextDue, now, email, change.id, model.today),
       );
       return statements;
     }
@@ -999,6 +1018,100 @@ const monthOffPay = (db: D1Database, email: string, payId: string, now: number) 
        WHERE email = ? AND month_start_mode = 'payday' AND month_start_pay_id = ?`,
     )
     .bind(now, email, payId);
+
+/** Where an entry from Scheduled came from */
+interface Mark {
+  recurringId: string;
+  due: string;
+  toCheck: boolean;
+}
+
+/** An added transaction's statement, after checking it against the model, which it updates */
+function addTransaction(
+  db: D1Database,
+  email: string,
+  model: Model,
+  t: Record<string, unknown>,
+  now: number,
+  importId: string | null,
+  mark: Mark | null,
+): D1PreparedStatement[] {
+  onlyFields(t, [
+    'id',
+    'kind',
+    'accountId',
+    'toAccountId',
+    'amountCents',
+    'categoryId',
+    'payee',
+    'note',
+    'date',
+    'time',
+    'scheduled',
+  ]);
+  if (!isRowId(t.id)) throw new Refused(400, 'Invalid transaction id');
+  if (model.transactions.has(t.id)) throw new Refused(409, 'That transaction already exists');
+  const kind = readTransactionKind(t.kind);
+  const accountId = readTransactionAccount(model, t.accountId);
+  const toAccountId = readDestination(model, kind, accountId, t.toAccountId, true);
+  const amount = readAmount(t.amountCents);
+  const categoryId = readTransactionCategory(model, t.categoryId, kind);
+  const payee = readText(t.payee, MAX_PAYEE, 'payee');
+  const note = readText(t.note, MAX_NOTE, 'note');
+  const date = readDay(t.date, now);
+  const time = 'time' in t ? readTime(t.time) : null;
+  const saved = { kind, accountId, toAccountId, categoryId };
+  for (const side of sidesOf(saved)) countOn(model, side, 1);
+  model.transactions.set(t.id, saved);
+  // ?1 the person, ?2 the account it's from, ?3 the one it goes to
+  const sides = toAccountId == null ? ['?2'] : ['?2', '?3'];
+  return [
+    db
+      .prepare(
+        `INSERT INTO transactions (email, id, kind, account_id, to_account_id, amount_cents,
+                                   category_id, payee, note, date, created_at, updated_at,
+                                   import_id, time, recurring_id, recurring_due, to_check)
+         SELECT ?1, ?4, ?5, ${withRoom('?2', sides)}, ?3, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12,
+                ?13, ?14, ?15, ?16`,
+      )
+      .bind(
+        email,
+        accountId,
+        toAccountId,
+        t.id,
+        kind,
+        amount,
+        categoryId,
+        payee,
+        note,
+        date,
+        now,
+        importId,
+        time,
+        mark?.recurringId ?? null,
+        mark?.due ?? null,
+        mark?.toCheck ? 1 : 0,
+      ),
+  ];
+}
+
+/** An entry's mark from Scheduled, as given: one of the person's own items (any state) */
+function readMark(model: Model, value: unknown): Mark {
+  if (!isObject(value)) throw new Refused(400, 'Invalid scheduled entry');
+  onlyFields(value, ['recurringId', 'due', 'toCheck']);
+  readRecurring(model, value.recurringId);
+  if (!isCalendarDay(value.due) || value.due < FIRST_DAY) {
+    throw new Refused(400, 'Invalid scheduled entry');
+  }
+  if (typeof value.toCheck !== 'boolean') throw new Refused(400, 'Invalid scheduled entry');
+  return { recurringId: value.recurringId as string, due: value.due, toCheck: value.toCheck };
+}
+
+/** Whether something is yes or no, else refused */
+function readVaries(value: unknown): boolean {
+  if (typeof value !== 'boolean') throw new Refused(400, SAY_VARIES);
+  return value;
+}
 
 /** One of the person's repeating items, by id */
 function readRecurring(model: Model, id: unknown): RecurringState {
@@ -1079,11 +1192,35 @@ function defaultCategoriesStatement(db: D1Database, email: string, now: number) 
     .bind(email, JSON.stringify(DEFAULT_CATEGORIES), now);
 }
 
+const utcDay = (at: number) => new Date(at).toISOString().slice(0, 10);
+
+/** The person's own today, in their stored time zone, else UTC's */
+async function readToday(db: D1Database, email: string, now: number): Promise<string> {
+  const row = await db
+    .prepare('SELECT time_zone AS zone FROM user_settings WHERE email = ?')
+    .bind(email)
+    .first<{ zone: string | null }>();
+  return (row?.zone != null ? dayIn(row.zone, now) : null) ?? utcDay(now);
+}
+
 /** Whether D1 refused a write for breaking a constraint */
 const isConstraintError = (err: unknown) => String(err).includes('CONSTRAINT');
 
 /** POST /api/changes: saves a batch all or nothing, answering Ok or why it was refused */
-export async function applyChanges(db: D1Database, email: string, body: Unchecked<ChangesBody>) {
+export async function applyChanges(
+  db: D1Database,
+  email: string,
+  body: Unchecked<ChangesBody>,
+  {
+    now = Date.now(),
+    posting = false,
+  }: {
+    /** When it's saved as of: the nightly job's scheduled time */
+    now?: number;
+    /** Saved by the nightly job */
+    posting?: boolean;
+  } = {},
+) {
   const { changes, ids } = body;
   if (!Array.isArray(changes) || changes.length === 0 || changes.length > MAX_CHANGES) {
     return fail(`Send 1-${MAX_CHANGES} changes`, 400);
@@ -1114,6 +1251,7 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
   const addingTo = new Set<string>();
   let repeating = false;
   let budgeting = false;
+  let askingToday = false;
   const importIds = new Set<string>();
   for (const i of fresh) {
     const change: unknown = changes[i];
@@ -1121,6 +1259,16 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
     const op = String(change.op);
     if (op.endsWith('Recurring')) repeating = true;
     if (op === 'setBudget') budgeting = true;
+    // An account or category brought back may make its items ask first
+    if (op === 'archiveAccount' || op === 'archiveCategory') askingToday = true;
+    // An entry brought back from Scheduled names its item
+    if (
+      op === 'addTransaction' &&
+      isObject(change.transaction) &&
+      'scheduled' in change.transaction
+    ) {
+      repeating = true;
+    }
     // The imports it records, adds to or undoes
     const record = op === 'addImport' && isObject(change.import) ? change.import.id : undefined;
     for (const id of [record, change.importId, op === 'undoImport' ? change.id : undefined]) {
@@ -1176,11 +1324,18 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
       : db
           .prepare(
             `SELECT id, kind, account_id AS accountId, to_account_id AS toAccountId,
-                    category_id AS categoryId, schedule, day, next_due AS nextDue, archived
+                    category_id AS categoryId, schedule, day, next_due AS nextDue, archived,
+                    amount_varies AS amountVaries
              FROM recurring WHERE email = ?`,
           )
           .bind(email)
-          .all<Omit<RecurringState, 'archived'> & { id: string; archived: 0 | 1 }>(),
+          .all<
+            Omit<RecurringState, 'archived' | 'amountVaries'> & {
+              id: string;
+              archived: 0 | 1;
+              amountVaries: 0 | 1;
+            }
+          >(),
     importIds.size === 0
       ? { results: [] }
       : db
@@ -1199,13 +1354,17 @@ export async function applyChanges(db: D1Database, email: string, body: Unchecke
     transactions: new Map(transactions.results.map(({ id, ...t }) => [id, t])),
     counts: new Map(counts.results.map((r) => [r.id, r.count])),
     recurring: new Map(
-      recurring.results.map(({ id, archived, ...r }) => [id, { ...r, archived: archived === 1 }]),
+      recurring.results.map(({ id, archived, amountVaries, ...r }) => [
+        id,
+        { ...r, archived: archived === 1, amountVaries: amountVaries === 1 },
+      ]),
     ),
     imports: new Map(imports.results.map((r) => [r.id, { undone: r.undoneAt != null }])),
     // A budget is set from the person's month (shared/period.ts)
     monthStart: budgeting ? await readMonthStart(db, email) : 1,
+    today: repeating || askingToday ? await readToday(db, email, now) : utcDay(now),
+    posting,
   };
-  const now = Date.now();
   // None saved yet: the defaults are saved first, so the changes after can name them
   const statements: D1PreparedStatement[] =
     savedCategories.length === 0 ? [defaultCategoriesStatement(db, email, now)] : [];

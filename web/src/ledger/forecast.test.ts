@@ -288,19 +288,22 @@ describe('expected at month end', () => {
 
 describe('due now', () => {
   it('is every listed item next due today or before, oldest first, on a listed account', () => {
+    // Each asks first (D19): the others are added on their day by the server
+    const asking = { askFirst: true };
     const due = dueNow(
       ledgerWith([
-        item('Phone', { day: 6, nextDue: TODAY }),
-        item('Rent', { nextDue: '2026-11-01' }),
-        item('Netflix', { day: 20, nextDue: '2026-11-20' }),
-        item('Stopped', { nextDue: '2026-11-01', archived: true }),
-        item('On old', { accountId: OLD, nextDue: '2026-11-01' }),
+        item('Phone', { day: 6, nextDue: TODAY, ...asking }),
+        item('Rent', { nextDue: '2026-11-01', ...asking }),
+        item('Netflix', { day: 20, nextDue: '2026-11-20', ...asking }),
+        item('Stopped', { nextDue: '2026-11-01', archived: true, ...asking }),
+        item('On old', { accountId: OLD, nextDue: '2026-11-01', ...asking }),
         item('Card payment', {
           kind: 'transfer',
           toAccountId: CARD,
           categoryId: null,
           day: 2,
           nextDue: '2026-11-02',
+          ...asking,
         }),
       ]),
       TODAY,
@@ -402,7 +405,8 @@ describe('repeating items changed before the server has them', () => {
   });
 
   it('Undo of a log takes the transaction back and makes it due again', () => {
-    const logged = apply(ledgerWith([rent]), [log('a'.repeat(16))]);
+    // Log it is for an item that asks first (D19)
+    const logged = apply(ledgerWith([{ ...rent, askFirst: true }]), [log('a'.repeat(16))]);
     const undone = apply(
       logged,
       [
@@ -508,5 +512,38 @@ describe('coming up', () => {
 
   it('is nothing when nothing repeats', () => {
     expect(comingUp(ledgerWith([]), TODAY, 3)).toEqual([]);
+  });
+});
+
+// Scheduled entries are added on their day by the server (owner decision D8); only items that
+// ask first (D19: overdue when the change shipped, or saved with their day passed) are asked
+// about on Home. An item that doesn't ask first, overdue only until the server's next run,
+// is still due in the month-end total but never asked about.
+describe('due now, once Scheduled adds entries on their day', () => {
+  it('asks only about items that ask first', () => {
+    const ledger = ledgerWith([
+      item('Insurance', { nextDue: '2026-11-01', askFirst: true }),
+      item('Phone', { day: 5, nextDue: '2026-11-05', askFirst: false }),
+      item('Gym', { day: 6, nextDue: TODAY }),
+    ]);
+    expect(dueNow(ledger, TODAY).map((d) => [d.recurring.payee, d.due])).toEqual([
+      ['Insurance', '2026-11-01'],
+    ]);
+    // Phone and Gym are still to come out of this month's money
+    expect(monthEndForecast(ledger, TODAY).billsCents).toBe(3_000);
+  });
+
+  it('keeps asking after Log it while still overdue, until its next is after today', () => {
+    const asking = ledgerWith([
+      item('Insurance', { schedule: 'weekly', day: 5, nextDue: '2026-10-30', askFirst: true }),
+    ]);
+    const once = apply(asking, [
+      { op: 'skipRecurring', id: asking.recurring![0].id, due: '2026-10-30' },
+    ] as LedgerChange[]);
+    expect(dueNow(once, TODAY).map((d) => d.due)).toEqual([TODAY]);
+    const twice = apply(once, [
+      { op: 'skipRecurring', id: asking.recurring![0].id, due: TODAY },
+    ] as LedgerChange[]);
+    expect(dueNow(twice, TODAY)).toEqual([]);
   });
 });

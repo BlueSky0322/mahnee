@@ -23,6 +23,7 @@ import type {
   MonthTrend,
   Profile,
   Recurring,
+  ScheduledInMonth,
   SearchPage,
   Transaction,
 } from '@shared/api';
@@ -104,6 +105,7 @@ import {
   scheduleDayRange,
 } from '@shared/recurring';
 import { matchesSearch, readSearch } from '@shared/search';
+import { dayIn } from '@shared/scheduled';
 import { trendMonths } from '@shared/trend';
 import { isPeriodMonth, monthStartDayOf, periodMonthOf, periodOf } from '@shared/period';
 import { Root } from '../Root';
@@ -550,6 +552,27 @@ function summarize(server: FakeServer, month: string): MonthSummary {
       .reduce((all, t) => all + t.amountCents, 0);
   // A month still to come has none, as the real one says
   const budgets = isBudgetMonth(month, Date.now(), start) ? monthBudgets(month, rows, spentIn) : [];
+  // Entries from Scheduled by item, by the day of each item's first, then the order set up
+  const position = (id: string) => server.recurring.findIndex((r) => r.id === id);
+  const scheduledIn = server.transactions
+    .filter((t) => t.scheduled != null && inMonth(t))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.createdAt - b.createdAt));
+  const fromScheduled: ScheduledInMonth[] = [];
+  for (const t of scheduledIn) {
+    const { recurringId, toCheck } = t.scheduled!;
+    let item = fromScheduled.find((s) => s.recurringId === recurringId);
+    if (item == null) {
+      item = { recurringId, entries: 0, firstDate: t.date, toCheck: [] };
+      fromScheduled.push(item);
+    }
+    item.entries++;
+    if (toCheck) item.toCheck.push({ id: t.id, date: t.date, amountCents: t.amountCents });
+  }
+  fromScheduled.sort(
+    (a, b) =>
+      (a.firstDate < b.firstDate ? -1 : a.firstDate > b.firstDate ? 1 : 0) ||
+      position(a.recurringId) - position(b.recurringId),
+  );
   return {
     month,
     firstDay,
@@ -562,6 +585,7 @@ function summarize(server: FakeServer, month: string): MonthSummary {
     spentByDay,
     tidyUp,
     ...(budgets.length > 0 && { budgets }),
+    ...(fromScheduled.length > 0 && { fromScheduled }),
   };
 }
 
@@ -826,6 +850,10 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
   let budgets = server.budgets.map((b) => ({ ...b }));
   const imports = server.imports.map((i) => ({ ...i }));
   const importIds = new Map(server.importIds);
+  // The person's own today, as the real one reads it for whether an item asks first
+  const today =
+    dayIn(server.me.settings.timeZone ?? 'UTC', Date.now()) ??
+    new Date().toISOString().slice(0, 10);
   const nameError = `Give the account a name of up to ${MAX_ACCOUNT_NAME} characters`;
   const openingError = `An opening balance can be up to ${MAX_TRANSACTION.toLocaleString('en')} either way`;
   for (const [i, change] of changes.entries()) {
@@ -895,7 +923,7 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
         change.op === 'addTransaction'
           ? { op: change.op, transaction: change.transaction }
           : change;
-      const refusal = saveTransactionChange(accounts, categories, transactions, plain);
+      const refusal = saveTransactionChange(accounts, categories, transactions, plain, recurring);
       if (refusal != null) return refusal;
       if (importId !== undefined && change.op === 'addTransaction') {
         importIds.set(change.transaction.id, importId);
@@ -929,7 +957,14 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
       change.op === 'logRecurring' ||
       change.op === 'skipRecurring'
     ) {
-      const refusal = saveRecurringChange(accounts, categories, transactions, recurring, change);
+      const refusal = saveRecurringChange(
+        accounts,
+        categories,
+        transactions,
+        recurring,
+        change,
+        today,
+      );
       if (refusal != null) return refusal;
       continue;
     }
@@ -971,6 +1006,13 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
           : Date.now()
         : null;
       account.archived = change.archived;
+      // Brought back after its items' days passed: they ask first, as the real one does
+      if (!change.archived) {
+        for (const r of recurring) {
+          const on = r.accountId === account.id || r.toAccountId === account.id;
+          if (on && !r.archived && r.nextDue <= today) r.askFirst = true;
+        }
+      }
       continue;
     }
     if (change.name == null && change.openingCents == null) return [400, 'Nothing to change'];
@@ -1114,6 +1156,7 @@ function saveTransactionChange(
     LedgerChange,
     { op: 'addTransaction' | 'updateTransaction' | 'removeTransaction' }
   >,
+  recurring: Recurring[] = [],
 ): [number, string] | null {
   const at = transactions.findIndex(
     (t) => t.id === (change.op === 'addTransaction' ? change.transaction.id : change.id),
@@ -1125,9 +1168,17 @@ function saveTransactionChange(
   }
   if (change.op === 'addTransaction' && at >= 0) return [409, 'That transaction already exists'];
   if (change.op === 'updateTransaction' && at < 0) return [404, 'Transaction not found'];
-  const { op: _op, ...given } =
-    change.op === 'addTransaction' ? { op: '', ...change.transaction } : change;
-  if (Object.keys(given).length === 1) return [400, 'Nothing to change'];
+  const {
+    op: _op,
+    toCheck,
+    ...given
+  } = change.op === 'addTransaction'
+    ? { op: '', toCheck: undefined, ...change.transaction }
+    : change;
+  if (Object.keys(given).length === 1 && toCheck === undefined) return [400, 'Nothing to change'];
+  if (toCheck !== undefined && toCheck !== false) {
+    return [400, 'An amount is checked, never unchecked'];
+  }
   const before = at >= 0 ? transactions[at] : null;
   const next = {
     // Spending and income go nowhere else, whether or not it's said
@@ -1136,6 +1187,16 @@ function saveTransactionChange(
     ...given,
     createdAt: before?.createdAt ?? Date.now(),
   } as Transaction;
+  // Confirmed, or given what the bill came to: nothing left to check
+  if (before?.scheduled != null && (toCheck === false || 'amountCents' in given)) {
+    next.scheduled = { ...before.scheduled, toCheck: false };
+  }
+  // Brought back from Scheduled: only for one of the person's own items
+  if (before == null && next.scheduled != null) {
+    if (!recurring.some((r) => r.id === next.scheduled!.recurringId)) {
+      return [404, 'Repeating item not found'];
+    }
+  }
   if (!isRowId(next.id)) return [400, 'Invalid transaction id'];
   if ('time' in given && given.time !== null && !isTimeOfDay(given.time)) {
     return [400, 'Invalid time'];
@@ -1282,22 +1343,27 @@ function saveRecurringChange(
         | 'skipRecurring';
     }
   >,
+  today: string,
 ): [number, string] | null {
+  const varies = (v: unknown) => v === undefined || typeof v === 'boolean';
   const amountError = `An amount is more than 0 and up to ${MAX_TRANSACTION.toLocaleString('en')}`;
   /** What it would record, checked as a transaction would be */
   const checkAsTransaction = (
     r: Omit<Recurring, 'startDate' | 'nextDue' | 'archived' | 'schedule' | 'day'>,
-  ) =>
-    saveTransactionChange(accounts, categories, [], {
+  ) => {
+    const { amountVaries: _varies, askFirst: _ask, ...fields } = r;
+    return saveTransactionChange(accounts, categories, [], {
       op: 'addTransaction',
-      transaction: { ...r, note: null, date: rateDay(Date.now()) },
+      transaction: { ...fields, note: null, date: rateDay(Date.now()) },
     });
+  };
   if (change.op === 'addRecurring') {
     const r = change.recurring;
     if (!isRowId(r.id)) return [400, 'Invalid repeating item id'];
     if (recurring.some((found) => found.id === r.id)) {
       return [409, 'That repeating item already exists'];
     }
+    if (!varies(r.amountVaries)) return [400, 'Say whether the amount changes'];
     const refusal = checkAsTransaction(r);
     if (refusal != null) return refusal;
     if (!isSchedule(r.schedule)) return [400, 'Repeat monthly or weekly'];
@@ -1313,11 +1379,15 @@ function saveRecurringChange(
     }
     if (given && r.nextDue! > latestDue()) return [400, 'Next due has to be within a year'];
     const payee = readOptionalText(r.payee, MAX_PAYEE) ?? null;
+    const nextDue = given ? r.nextDue! : nextAfter(r.schedule, r.day, r.startDate);
     recurring.push({
       ...r,
       payee,
-      nextDue: given ? r.nextDue! : nextAfter(r.schedule, r.day, r.startDate),
+      nextDue,
       archived: false,
+      amountVaries: r.amountVaries ?? false,
+      // Its day passed by the time it's saved: it asks first (D19)
+      askFirst: nextDue <= today,
     });
     return null;
   }
@@ -1326,12 +1396,15 @@ function saveRecurringChange(
   if (change.op === 'archiveRecurring') {
     if (typeof change.archived !== 'boolean') return [400, 'Say whether it is archived'];
     saved.archived = change.archived;
+    // Brought back with its day passed: it asks first
+    if (!change.archived && saved.nextDue <= today) saved.askFirst = true;
     return null;
   }
   if (change.op === 'updateRecurring') {
     const { op: _op, id: _id, ...fields } = change;
     if ('kind' in fields) return [400, "A kind can't be changed"];
     if (Object.keys(fields).length === 0) return [400, 'Nothing to change'];
+    if (!varies(fields.amountVaries)) return [400, 'Say whether the amount changes'];
     const next = { ...saved, ...fields };
     if (!fitsTransactionCents(next.amountCents)) return [400, amountError];
     const refusal = checkAsTransaction(next);
@@ -1346,6 +1419,8 @@ function saveRecurringChange(
     }
     if (next.nextDue > latestDue()) return [400, 'Next due has to be within a year'];
     Object.assign(saved, next, { payee: readOptionalText(next.payee, MAX_PAYEE) ?? null });
+    // Moved back to a day passed (Undo of Log it or Skip): it asks again
+    if ('nextDue' in fields) saved.askFirst = next.nextDue <= today;
     return null;
   }
   if (saved.archived) return [409, 'That no longer repeats'];
@@ -1356,13 +1431,25 @@ function saveRecurringChange(
     if (change.transaction.date !== change.due) {
       return [400, 'A repeating item is logged on the day it was due'];
     }
-    const refusal = saveTransactionChange(accounts, categories, transactions, {
-      op: 'addTransaction',
-      transaction: change.transaction,
-    });
+    // From Scheduled, this occurrence's; Log it is the person's own doing, nothing to check
+    const refusal = saveTransactionChange(
+      accounts,
+      categories,
+      transactions,
+      {
+        op: 'addTransaction',
+        transaction: {
+          ...change.transaction,
+          scheduled: { recurringId: saved.id, due: change.due, toCheck: false },
+        },
+      },
+      recurring,
+    );
     if (refusal != null) return refusal;
   }
   saved.nextDue = nextAfter(saved.schedule, saved.day, saved.nextDue);
+  // Logged or skipped past today, it stops asking first
+  if (saved.nextDue > today) saved.askFirst = false;
   return null;
 }
 

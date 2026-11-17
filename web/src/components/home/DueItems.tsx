@@ -10,9 +10,10 @@ import { showUndo } from '../common/undo-toast';
 import classes from './Recurring.module.css';
 import { dueText, recurringName, shortDay } from './recurring-text';
 
-// What's due now at the top of Home: each repeating bill or income whose next due date is
-// today or before, with Log it (records it on the day it was due, and moves it on) and Skip
-// (moves it on, recording nothing). Nothing is recorded until one of them is tapped.
+// What's due now at the top of Home: each scheduled item that asks first (owner decision
+// D19: overdue when it was saved, moved back or brought back) whose next due date is today
+// or before, with Log it (records it on the day it was due, and moves it on) and Skip (moves
+// it on, recording nothing). Every other item is added on its day by the server.
 export default function DueItems() {
   const { data: ledger } = useWholeLedger();
   if (ledger == null) return null;
@@ -66,6 +67,8 @@ function DueRow({
         payee: r.payee,
         note: null,
         date: due,
+        // From Scheduled, as the server marks it
+        scheduled: { recurringId: r.id, due, toCheck: false },
       },
     });
     showUndo(`Logged ${name}`, () =>

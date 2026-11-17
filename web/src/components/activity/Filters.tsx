@@ -38,7 +38,8 @@ const isMonth = (days: Days, month: string, start: number) => {
 };
 
 // Activity's four chips (R-Activity): the account, the category, the days and the kind,
-// each naming what it's set to and drawn pressed when it isn't at its default. A chip opens
+// each naming what it's set to and drawn pressed when it isn't at its default; and, when
+// only what Scheduled added is shown, "From Scheduled", which takes that off. A chip opens
 // its list (a sheet on phones, a dialog elsewhere); picking one sets it, in the address.
 // While a phone is selecting, only the chips that are set show (R-Activity-Select).
 export default function FilterChips({
@@ -105,6 +106,15 @@ export default function FilterChips({
             )}
           </Chip>
         ))}
+      {filters.scheduled && (
+        // Only what Scheduled added; tapping it takes it off
+        <Chip
+          on
+          onClick={() => onChange({ scheduled: false })}
+        >
+          From Scheduled
+        </Chip>
+      )}
       <ResponsiveDialog
         opened={open != null}
         onClose={() => setOpen(null)}

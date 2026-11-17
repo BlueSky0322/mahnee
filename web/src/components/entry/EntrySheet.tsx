@@ -191,6 +191,8 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
         Object.assign(update, { [key]: fields[key] });
       }
     }
+    // An amount Scheduled added for the person to check is confirmed by saving it
+    if (editing.scheduled?.toCheck === true && !('amountCents' in update)) update.toCheck = false;
     const changes = Object.keys(update).length > 2 ? [update, ...repeating] : repeating;
     if (changes.length > 0) change(...changes);
     onDone();

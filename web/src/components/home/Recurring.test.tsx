@@ -17,14 +17,14 @@ import {
 } from '../../testing/app';
 import { outboxKey } from '../../offline/outbox';
 
-// Bills and income that repeat. Each due one (next due today or before) is on Home, "Due:
-// Rent RM 1,200.00 from Maybank", with Log it and Skip; nothing is recorded until it's
-// confirmed. One total, "Expected at month end", is today's balances of every listed account
-// (a card's owed amount counting against them), less the bills still due this month, plus
-// the income still due (after today, to the month's last day). Home shows it with the
-// balances ("RM 2,500.00 today"); Plan's Scheduled half shows it as a button that lists what
-// makes it up and every repeating item, and says in words when it would be below zero. Set
-// up from a transaction's sheet.
+// Bills and income that repeat. Each due one that asks first (D19: these were set up before
+// Scheduled added entries on their day) is on Home, "Due: Rent RM 1,200.00 from Maybank",
+// with Log it and Skip; nothing is recorded for it until it's confirmed. One total, "Expected
+// at month end", is today's balances of every listed account (a card's owed amount counting
+// against them), less the bills still due this month, plus the income still due (after
+// today, to the month's last day). Home shows it with the balances ("RM 2,500.00 today");
+// each item is changed or stopped on Plan › Scheduled (Scheduled.test.tsx has the rest of
+// it). Set up from a transaction's sheet.
 
 // Where the person is: Malaysia, eight hours ahead of UTC, so a day starts there before it
 // does in UTC. Set for this file only (each test file runs in its own process).
@@ -85,6 +85,8 @@ const repeating = (payee: string | null, more: Partial<Recurring> = {}): Recurri
   startDate: '2026-10-01',
   nextDue: '2026-11-01',
   archived: false,
+  // Set up before Scheduled added entries on their day: overdue ones ask first (D19)
+  askFirst: true,
   ...more,
 });
 
@@ -168,9 +170,6 @@ const expected = () => {
   return figure == null ? null : total(figure);
 };
 
-/** A November day as the person's language writes it: "9 Nov", or "Nov 9" */
-const day = (n: number) => new RegExp(`\\b${n} Nov\\b|\\bNov ${n}\\b`);
-
 /** The name of the total's button for `money` */
 const total = (money: string) => `Expected at month end: ${money}`;
 
@@ -185,6 +184,23 @@ const dueRow = async (text: string) => {
   await screen.findByText(text);
   return within(screen.getByRole('group', { name: text }));
 };
+
+/** Opens an item on Plan › Scheduled, by its group and name, and answers its sheet */
+async function openOnScheduled(
+  user: ReturnType<typeof userEvent.setup>,
+  group: 'Expenses' | 'Income',
+  name: string,
+) {
+  await goToPlace('Plan');
+  await user.click(
+    within(await screen.findByRole('navigation', { name: 'Plan' })).getByRole('link', {
+      name: 'Scheduled',
+    }),
+  );
+  const region = await screen.findByRole('region', { name: group });
+  await user.click(within(region).getByRole('button', { name: new RegExp(`^${name}`) }));
+  return within(await screen.findByRole('dialog', { name }));
+}
 
 /** What's still waiting on this device for Ryan, as kept there */
 const keptForRyan = async () =>
@@ -262,51 +278,23 @@ describe('repeating bills and income on Home', () => {
   );
 
   test.each(SIZES)(
-    'shows one total expected at month end, and lists what makes it up when tapped (%s)',
+    'shows one total expected at month end, and what makes it up, on Home (%s)',
     async (size) => {
       onTheSixth();
       const server = withAccounts(everything());
-      renderApp(server, '/?plan=scheduled', { size });
-      const user = userEvent.setup();
-
-      await screen.findByText(/Expected at month end/);
+      // Home's hero since Scheduled was rebuilt (D8; the list behind Scheduled's old total
+      // went with it, each occurrence still due is in forecast.test's month-end cases)
+      renderApp(server, '/', { size });
       // RM 3,000 less RM 500 owed on Visa (Old is archived), less Rent RM 1,200 and Phone RM 80
       // (due now, still to pay), Netflix RM 55 and Gym 4 x RM 10, plus Salary RM 5,000. The card
       // payment is a transfer.
       await waitFor(() => expect(expected()).toBe(total('RM 6,125.00')));
-      expect(screen.getAllByRole('button', { name: /^Expected at month end/ })).toHaveLength(1);
       expect(screen.queryByText(/below zero/)).toBeNull();
-
-      await user.click(screen.getByRole('button', { name: /^Expected at month end/ }));
-      const dialog = within(await screen.findByRole('dialog', { name: 'Expected at month end' }));
-      const rows = within(dialog.getByRole('list', { name: 'Still due this month' }))
-        .getAllByRole('listitem')
-        .map((li) => li.textContent ?? '');
-      expect(rows.map((r) => /Rent|Phone|Gym|Netflix|Salary/.exec(r)?.[0])).toEqual([
-        'Rent',
-        'Phone',
-        'Gym',
-        'Gym',
-        'Netflix',
-        'Gym',
-        'Salary',
-        'Gym',
-      ]);
-      expect(rows[0]).toMatch(day(1));
-      expect(rows[0]).toMatch(/RM 1,200\.00/);
-      expect(rows[1]).toMatch(day(6));
-      expect(rows[1]).toMatch(/RM 80\.00/);
-      expect(rows[2]).toMatch(day(9));
-      expect(rows[2]).toMatch(/RM 10\.00/);
-      expect(rows[4]).toMatch(day(20));
-      expect(rows[4]).toMatch(/RM 55\.00/);
-      expect(rows[6]).toMatch(/RM 5,000\.00/);
-      expect(dialog.getByText(/RM 2,500\.00/)).toBeTruthy();
-      for (const left of [/Card payment/, /Old gym/, /Insurance/]) {
-        expect(
-          within(dialog.getByRole('list', { name: 'Still due this month' })).queryByText(left),
-        ).toBeNull();
-      }
+      // What makes it up: RM 2,500.00 today, bills 1,200 + 80 + 55 + 4 x 10, pay 5,000
+      const line = homeMonthEnd()?.textContent ?? '';
+      expect(line).toContain('RM 2,500.00 today');
+      expect(line).toContain('RM 1,375.00 bills');
+      expect(line).toContain('RM 5,000.00 pay');
     },
   );
 
@@ -316,10 +304,11 @@ describe('repeating bills and income on Home', () => {
       [repeating('Rent', { amountCents: 120_000, day: 20, nextDue: '2026-11-20' })],
       60_000,
     );
-    renderApp(server, '/?plan=scheduled', { size });
+    // Home's hero says it with a minus (Scheduled's old "below zero" words went with it, D8)
+    renderApp(server, '/', { size });
     // RM 600 less RM 500 owed, less RM 1,200
     await waitFor(() => expect(expected()).toBe(total('−RM 1,100.00')));
-    expect(screen.getByText(/RM 1,100\.00 below zero/)).toBeTruthy();
+    expect(homeMonthEnd()?.textContent).toContain('−RM 1,100.00');
   });
 
   test.each(SIZES)('is not shown while nothing repeats (%s)', async (size) => {
@@ -564,22 +553,20 @@ describe('repeating bills and income on Home', () => {
   });
 
   test.each(SIZES)(
-    'changes or stops one from the list behind the total, with Undo (%s)',
+    'changes or stops one on Scheduled, with Undo, and the total follows (%s)',
     async (size) => {
       onTheSixth();
       const server = withAccounts([NETFLIX(), SALARY_IN()]);
-      renderApp(server, '/?plan=scheduled', { size });
+      renderApp(server, '/', { size });
       const user = userEvent.setup();
       // RM 2,500 less RM 55 plus RM 5,000
       await waitFor(() => expect(expected()).toBe(total('RM 7,445.00')));
-      await user.click(screen.getByRole('button', { name: /^Expected at month end/ }));
-      let dialog = within(await screen.findByRole('dialog', { name: 'Expected at month end' }));
-      await user.click(dialog.getByRole('button', { name: /^Netflix/ }));
-      let sheet = within(await screen.findByRole('dialog', { name: 'Repeating' }));
-      await user.click(sheet.getByRole('button', { name: 'Stop repeating' }));
+      let sheet = await openOnScheduled(user, 'Expenses', 'Netflix');
+      await user.click(sheet.getByRole('button', { name: 'Stop scheduling Netflix' }));
       await waitFor(() =>
         expect(server.recurring.find((r) => r.payee === 'Netflix')?.archived).toBe(true),
       );
+      await goToPlace('Home');
       await waitFor(() => expect(expected()).toBe(total('RM 7,500.00')));
       await user.click(await screen.findByRole('button', { name: 'Undo' }));
       await waitFor(() =>
@@ -587,19 +574,16 @@ describe('repeating bills and income on Home', () => {
       );
       await waitFor(() => expect(expected()).toBe(total('RM 7,445.00')));
 
-      if (screen.queryByRole('dialog', { name: 'Expected at month end' }) == null) {
-        await user.click(screen.getByRole('button', { name: /^Expected at month end/ }));
-      }
-      dialog = within(await screen.findByRole('dialog', { name: 'Expected at month end' }));
-      await user.click(dialog.getByRole('button', { name: /^Salary/ }));
-      sheet = within(await screen.findByRole('dialog', { name: 'Repeating' }));
-      const amount = sheet.getByLabelText('Amount');
+      // Income is titled by its category on Scheduled
+      sheet = await openOnScheduled(user, 'Income', 'Salary');
+      const amount = sheet.getByRole('textbox', { name: 'Amount' });
       await user.clear(amount);
       await user.type(amount, '5500');
       await user.click(sheet.getByRole('button', { name: 'Save' }));
       await waitFor(() =>
         expect(server.recurring.find((r) => r.payee === 'Salary')?.amountCents).toBe(550_000),
       );
+      await goToPlace('Home');
       await waitFor(() => expect(expected()).toBe(total('RM 7,945.00')));
     },
   );
@@ -613,7 +597,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       [repeating('Rent', { amountCents: 50_000, day: 20, nextDue: '2026-11-20' })],
       100_000,
     );
-    renderApp(server, '/?plan=scheduled', { size });
+    renderApp(server, '/', { size });
     await waitFor(() => expect(expected()).toBe(total('RM 0.00')));
     expect(screen.queryByText(/below zero/)).toBeNull();
   });
@@ -655,23 +639,23 @@ describe('repeating items: edges, refusals and the order of answers', () => {
   );
 
   test.each(SIZES)(
-    'stopping the only repeating item takes the total away, and Undo brings it back (%s)',
+    'stopping the only scheduled item leaves nothing scheduled, and Undo brings it back (%s)',
     async (size) => {
       onTheSixth();
       const server = withAccounts([NETFLIX()]);
-      renderApp(server, '/?plan=scheduled', { size });
+      renderApp(server, '/', { size });
       const user = userEvent.setup();
       await waitFor(() => expect(expected()).toBe(total('RM 2,445.00')));
-      await user.click(screen.getByRole('button', { name: /^Expected at month end/ }));
-      const dialog = within(await screen.findByRole('dialog', { name: 'Expected at month end' }));
-      await user.click(dialog.getByRole('button', { name: /^Netflix/ }));
-      const sheet = within(await screen.findByRole('dialog', { name: 'Repeating' }));
-      await user.click(sheet.getByRole('button', { name: 'Stop repeating' }));
-      await waitFor(() => expect(expected()).toBeNull());
+      const sheet = await openOnScheduled(user, 'Expenses', 'Netflix');
+      await user.click(sheet.getByRole('button', { name: 'Stop scheduling Netflix' }));
+      // Scheduled says nothing is (its old total went away; D8 rebuilt it)
+      expect(await screen.findByRole('heading', { name: 'Nothing scheduled' })).toBeTruthy();
       await waitFor(() => expect(server.recurring[0].archived).toBe(true));
       await user.click(await screen.findByRole('button', { name: 'Undo' }));
-      await waitFor(() => expect(expected()).toBe(total('RM 2,445.00')));
+      expect(await screen.findByRole('region', { name: 'Expenses' })).toBeTruthy();
       await waitFor(() => expect(server.recurring[0].archived).toBe(false));
+      await goToPlace('Home');
+      await waitFor(() => expect(expected()).toBe(total('RM 2,445.00')));
     },
   );
 

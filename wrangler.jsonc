@@ -21,6 +21,10 @@
     // The API, which must never get the app's page
     "run_worker_first": ["/api/*"],
   },
+  // The nightly job that adds scheduled entries on their day (worker/ledger/post-scheduled.ts)
+  // runs every 15 minutes, so each person's midnight is reached within a quarter of an hour
+  // wherever they are; reminders share it. A deploy sets it up.
+  "triggers": { "crons": ["*/15 * * * *"] },
   // Logs and traces in the dashboard, for a tenth of requests
   "observability": { "enabled": true, "head_sampling_rate": 0.1 },
   // Caps how many changes each account can make a minute (reads are not counted). It

@@ -172,11 +172,51 @@ describe('the profile picture', () => {
       return { name, signIn: { 'X-Dev-Picture': `${api.google.base}${name}=s96-c` } };
     };
 
+    /**
+     * The profile once the Google picture is copied: the copy is made after the answer, so
+     * it shows from the next start (asked again until then, a few seconds at most)
+     */
+    const copied = async (who: string, signIn: Record<string, string>) => {
+      for (let i = 0; i < 50; i++) {
+        const res = await me(who, signIn);
+        if (res.data.googlePicture) return res;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      throw new Error('The Google picture was never copied');
+    };
+
+    it("doesn't hold up the profile while Google is slow to answer", async () => {
+      const who = person('google');
+      const { name, signIn } = googlePicture(jpeg(800, 6));
+      const held = api.google.hold(`${name}=s256-c`);
+      try {
+        const started = Date.now();
+        const first = await me(who, signIn);
+        expect(Date.now() - started).toBeLessThan(2000);
+        expect(first.data).toMatchObject({ email: who, picture: null, googlePicture: false });
+      } finally {
+        held.release();
+      }
+      expect((await copied(who, signIn)).data.picture).toMatchObject({ source: 'google' });
+    });
+
+    it("isn't asked for again on every start after it couldn't be had", async () => {
+      const who = person('google');
+      const gone = { 'X-Dev-Picture': `${api.google.base}a/gone${++pictures}=s96-c` };
+      await me(who, gone);
+      // Each start: the first asks, the rest wait a while
+      for (let i = 0; i < 3; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        await me(who, gone);
+      }
+      expect(api.google.asked(`a/gone${pictures}=s256-c`)).toBe(1);
+    });
+
     it('shows the Google picture by default, copied once at 256px', async () => {
       const who = person('google');
       const bytes = jpeg(800, 7);
       const { name, signIn } = googlePicture(bytes);
-      const first = await me(who, signIn);
+      const first = await copied(who, signIn);
       expect(first.data).toMatchObject({
         picture: { source: 'google', version: expect.any(Number) },
         googlePicture: true,
@@ -194,7 +234,7 @@ describe('the profile picture', () => {
     it('a chosen picture shows over it; it comes back, or the initial, when that goes', async () => {
       const who = person('google');
       const { signIn } = googlePicture(jpeg(800, 7));
-      await me(who, signIn);
+      await copied(who, signIn);
       await upload(who, webp(256));
       expect((await me(who, signIn)).data).toMatchObject({
         picture: { source: 'upload' },
@@ -213,31 +253,48 @@ describe('the profile picture', () => {
 
     it('copies it again when the sign-in names a new one', async () => {
       const who = person('google');
-      await me(who, googlePicture(jpeg(800, 7)).signIn);
+      await copied(who, googlePicture(jpeg(800, 7)).signIn);
       const before = (await me(who)).data.picture;
       const next = googlePicture(jpeg(900, 8));
-      const after = (await me(who, next.signIn)).data.picture;
+      await me(who, next.signIn);
+      let after = before;
+      for (let i = 0; i < 50 && after.version === before.version; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        after = (await me(who, next.signIn)).data.picture;
+      }
       expect(after.version).toBeGreaterThan(before.version);
       expect(new Uint8Array(await (await getPicture(who)).arrayBuffer())).toEqual(jpeg(900, 8));
     });
 
     it('takes nothing that is not a picture, nor from anywhere but Google', async () => {
+      // Each is looked at once the answer has gone, and still leaves the initial after
+      const settled = async (who: string, signIn: Record<string, string>) => {
+        await me(who, signIn);
+        await new Promise((r) => setTimeout(r, 500));
+        return (await me(who, signIn)).data;
+      };
       const who = person('google');
-      const { signIn } = googlePicture(new TextEncoder().encode('<html>nope</html>'), 'text/html');
-      expect((await me(who, signIn)).data).toMatchObject({ picture: null, googlePicture: false });
+      const page = googlePicture(new TextEncoder().encode('<html>nope</html>'), 'text/html');
+      expect(await settled(who, page.signIn)).toMatchObject({
+        picture: null,
+        googlePicture: false,
+      });
+      expect(api.google.asked(`${page.name}=s256-c`)).toBe(1);
 
       const elsewhere = person('google');
       const name = `a/photo${++pictures}`;
       api.google.set(`${name}=s256-c`, jpeg(), 'image/jpeg');
       const address = `${api.base}/elsewhere/${name}=s96-c`;
-      const answer = await me(elsewhere, { 'X-Dev-Picture': address });
-      expect(answer.status).toBe(200);
-      expect(answer.data).toMatchObject({ picture: null, googlePicture: false });
+      expect(await settled(elsewhere, { 'X-Dev-Picture': address })).toMatchObject({
+        picture: null,
+        googlePicture: false,
+      });
+      expect(api.google.asked(`${name}=s256-c`)).toBe(0);
 
       // And a Google picture that can't be reached leaves the initial
       const missing = person('google');
       const gone = { 'X-Dev-Picture': `${api.google.base}a/missing=s96-c` };
-      expect((await me(missing, gone)).data).toMatchObject({ picture: null });
+      expect(await settled(missing, gone)).toMatchObject({ picture: null });
     });
   });
 });

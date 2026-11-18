@@ -337,11 +337,16 @@ async function keptPicture(request) {
   return (await caches.open(name)).match(new URL(request.url).pathname);
 }
 
-/** Forgets every account's copy of a picture the server no longer shows */
+/**
+ * Forgets the signed-in account's copy of a picture the server no longer shows it (the
+ * 404 names no account: it's for whoever is signed in). Other accounts' copies stay.
+ */
 async function forgetPicture(request) {
-  const names = (await caches.keys()).filter((k) => k.startsWith(IMAGE_CACHE_PREFIX));
-  const path = new URL(request.url).pathname;
-  await Promise.all(names.map(async (name) => (await caches.open(name)).delete(path)));
+  const account = await signedInAccount().catch(() => null);
+  if (account == null) return;
+  const name = `${IMAGE_CACHE_PREFIX}${account}`;
+  if (!(await caches.has(name))) return;
+  await (await caches.open(name)).delete(new URL(request.url).pathname);
 }
 
 /**

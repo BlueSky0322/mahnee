@@ -1,8 +1,6 @@
 -- Profile pictures: one the person chose, and a copy of their Google picture, each small
 -- enough to keep beside the rest of their data (no file storage). See docs/erd.md.
 --
--- Numbered 0011: 0010 is taken by the home currency change, landing separately.
---
 -- What shows in place of the initial: the picture they chose when there is one, else the
 -- Google picture while google_picture is 1 and a copy is kept, else the initial.
 

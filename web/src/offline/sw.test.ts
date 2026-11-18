@@ -127,6 +127,22 @@ describe('the service worker, with the profile picture', () => {
     expect((await fetchThroughWorker(PICTURE, { networkError: true }, caches)).response).toBeNull();
   });
 
+  test("a picture gone for the account signed in leaves another account's copy alone", async () => {
+    const caches = fakeCaches();
+    const SAM = 'sam@example.com';
+    await fetchThroughWorker(PICTURE, pictureFor(RYAN, 'ryan'), caches);
+    await set(SW_USER_KEY, SAM);
+    await fetchThroughWorker(PICTURE, pictureFor(SAM, 'sam'), caches);
+    // Sam goes back to the initial
+    await fetchThroughWorker(PICTURE, { status: 404, body: '{}' }, caches);
+    expect(keptPaths(caches, `${IMAGES}${SAM}`)).toEqual([]);
+    expect(await keptText(caches, `${IMAGES}${RYAN}`, PICTURE_PATH)).toBe('ryan');
+    // Ryan, back on this browser offline, still sees his
+    await set(SW_USER_KEY, RYAN);
+    const offline = await fetchThroughWorker(PICTURE, { networkError: true }, caches);
+    expect(await offline.response?.text()).toBe('ryan');
+  });
+
   test('never keeps a sign-in page sent in its place', async () => {
     const caches = fakeCaches();
     await fetchThroughWorker(PICTURE, pictureFor(RYAN), caches);

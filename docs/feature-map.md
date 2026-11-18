@@ -51,11 +51,13 @@ the pane shows the first one's section with that setting marked (`PreviewedSetti
 (`?settings=account`) has the name and email with Change name (a dialog; empty goes back
 to the email's first part), and the round initial, or the person's picture in its place
 (the same size and shape wherever the initial is drawn: My account, Settings' profile
-card, the sidebar, Home's header); tapping it ("Change picture") opens Profile picture:
+card, the sidebar, Home's header); Change picture beside Change name (or tapping the
+circle) opens Profile picture:
 Choose a photo (the middle square, made 256px WebP or JPEG on the device, under 64 KB),
 Use Google picture (when a copy is kept and not showing) and Use initial (when a picture
 shows). The Google picture shows by default when the sign-in names one (see
-docs/security.md for the Access setting it needs); "This phone" or "This computer" saying "Saved" with the
+docs/security.md for the Access setting it needs), copied after `/api/me` has answered,
+so it shows from the next start; "This phone" or "This computer" saying "Saved" with the
 freshness label, and Install the app where the browser can install it (the only place it's
 offered; Home no longer has a card). Search (`components/settings/settings-search.ts`, a
 static index; no server) finds a setting by its name, its line, or words not on it
@@ -199,14 +201,17 @@ Enter), [settings/ProfilePicture.test.tsx](../web/src/components/settings/Profil
 cropped, made small and saved, too large, unreadable or refused, going back to the Google
 picture or the initial on a phone, a failed save put back),
 [offline/sw.test.ts](../web/src/offline/sw.test.ts) (the picture kept per account, shown
-offline only to it, forgotten on 404 and on signing out),
+offline only to it, forgotten on 404 for that account alone and on signing out),
 [settings-search.test.ts](../web/src/components/settings/settings-search.test.ts),
 [settings-text.test.ts](../web/src/components/settings/settings-text.test.ts),
 [worker/accounts/auth.test.ts](../worker/accounts/auth.test.ts) (tokens,
 keys, configuration, 401 versus 500, the Google picture claim),
 [worker/test/api.test.ts](../worker/test/api.test.ts) (the picture: kept, served privately
 with an ETag, never to another account, refused types and sizes, let go, the Google copy
-made once and again only when it changes, nothing from elsewhere), [App.test.tsx](../web/src/App.test.tsx) (who's
+made once after the answer, never holding it up, not asked again for an hour after
+failing, again only when it changes, nothing from elsewhere),
+[worker/accounts/pictures.test.ts](../worker/accounts/pictures.test.ts) (Google's real
+host only: no lookalike, sign-in, port or redirect; the size cut off as it streams), [App.test.tsx](../web/src/App.test.tsx) (who's
 signed in, signed out, unreachable, saving the theme and undoing a failed save),
 [profile/time-zone.test.tsx](../web/src/profile/time-zone.test.tsx) (the time zone sent
 at start), the profile cases in [worker/test/api.test.ts](../worker/test/api.test.ts), and

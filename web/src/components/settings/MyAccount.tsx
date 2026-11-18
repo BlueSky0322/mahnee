@@ -33,12 +33,11 @@ export default function MyAccount() {
   useSettingInView();
   const device = isDesktop ? 'This computer' : 'This phone';
 
-  // The initial, or the picture in its place, opens Profile picture
+  // The initial, or the picture in its place. Tapping it opens Profile picture too, a
+  // shortcut beside the Change picture button (which keyboards and screen readers use)
   const pictureButton = you && (
-    <button
-      type="button"
+    <span
       className={`${classes.initial} ${classes.initialLarge} ${classes.pictureButton}`}
-      aria-label="Change picture"
       title="Change picture"
       onClick={() => setPicturing(true)}
     >
@@ -46,17 +45,26 @@ export default function MyAccount() {
         initial={you.initial}
         picture={you.picture}
       />
-    </button>
+    </span>
   );
 
   const changeName = (
-    <Button
-      variant="default"
-      size="xs"
-      onClick={() => setNaming(true)}
-    >
-      Change name
-    </Button>
+    <div className={classes.profileActions}>
+      <Button
+        variant="default"
+        size="xs"
+        onClick={() => setNaming(true)}
+      >
+        Change name
+      </Button>
+      <Button
+        variant="default"
+        size="xs"
+        onClick={() => setPicturing(true)}
+      >
+        Change picture
+      </Button>
+    </div>
   );
 
   return (

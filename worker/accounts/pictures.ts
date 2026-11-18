@@ -1,6 +1,6 @@
 // The profile picture shown in place of the initial: one the person chose, else a copy of
 // their Google picture (unless they asked for the initial), else none. Both are small and
-// kept in D1 beside the rest of the account (profile_pictures, migration 0011), served
+// kept in D1 beside the rest of the account (profile_pictures, migration 0010), served
 // only to the account they belong to: the address names no account, so there is no one
 // else's to ask for.
 
@@ -202,10 +202,31 @@ export async function servePicture(db: D1Database, email: string, req: Request) 
 
 /** The address to fetch a sign-in's Google picture at, at 256px; null if it isn't Google's */
 function googleAddress(claim: string, base: string): string | null {
-  if (!claim.startsWith(base) || claim.length > 2048) return null;
+  if (claim.length > 2048 || !URL.canParse(claim)) return null;
+  const url = new URL(claim);
+  const allowed = new URL(base);
+  // Read as the browser would, so no lookalike host, sign-in, port or scheme gets through
+  if (url.origin !== allowed.origin || url.username !== '' || url.password !== '') return null;
+  if (!url.pathname.startsWith(allowed.pathname)) return null;
   // Google names the size at the end (=s96-c); without one it's the full size
-  const sized = claim.replace(/=s\d+(-c)?$/, '');
+  const sized = url.href.replace(/=s\d+(-c)?$/, '');
   return `${sized}${GOOGLE_PICTURE_SIZE}`;
+}
+
+/** How long a Google picture that couldn't be had isn't asked for again */
+const GOOGLE_RETRY_MS = 60 * 60 * 1000;
+/** The most addresses remembered that way; past it, all are forgotten */
+const MAX_GOOGLE_FAILURES = 1000;
+/**
+ * Addresses that couldn't be had, until when they aren't asked for again, so a slow or
+ * failing host isn't asked on every start. Kept by this Worker instance only: another
+ * may ask once more.
+ */
+const googleFailures = new Map<string, number>();
+
+function rememberFailure(claim: string) {
+  if (googleFailures.size >= MAX_GOOGLE_FAILURES) googleFailures.clear();
+  googleFailures.set(claim, Date.now() + GOOGLE_RETRY_MS);
 }
 
 /**
@@ -213,7 +234,7 @@ function googleAddress(claim: string, base: string): string | null {
  * null when the one kept is that one already, or it can't be had. It's copied once, and
  * again only when the sign-in names a different one: the browser never contacts Google,
  * and the copy is served like a chosen picture. One that can't be fetched, or isn't a
- * small picture, is left for the next start.
+ * small picture, isn't asked for again for an hour.
  */
 export async function fetchGooglePicture(
   db: D1Database,
@@ -226,8 +247,20 @@ export async function fetchGooglePicture(
     .bind(email)
     .first<{ url: string }>();
   if (kept?.url === claim) return null;
+  if ((googleFailures.get(claim) ?? 0) > Date.now()) return null;
   const address = googleAddress(claim, base);
   if (address == null) return null;
+  const picture = await download(address);
+  if (picture == null) {
+    rememberFailure(claim);
+    return null;
+  }
+  googleFailures.delete(claim);
+  return keepPictureStatement(db, email, 'google', picture, claim);
+}
+
+/** A picture at `address`, fetched and checked; null when it can't be had */
+async function download(address: string): Promise<Picture | null> {
   let res: Response;
   try {
     // Redirects aren't followed: the picture comes from Google's host or not at all
@@ -245,6 +278,5 @@ export async function fetchGooglePicture(
   const bytes = await readBody(res, MAX_PICTURE_BYTES, GOOGLE_FETCH_MS);
   if (typeof bytes === 'string') return null;
   const picture = checkPicture(bytes);
-  if (picture instanceof Response) return null;
-  return keepPictureStatement(db, email, 'google', picture, claim);
+  return picture instanceof Response ? null : picture;
 }

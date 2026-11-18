@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { MAX_PICTURE_BYTES } from '@shared/api';
@@ -27,6 +27,16 @@ function withWallet(): FakeServer {
   });
   return server;
 }
+
+/** My account's profile card: named by the name on a computer, "Profile" on a phone */
+const profileCard = () => screen.getByRole('region', { name: /^(Ryan|Profile)$/ });
+
+/** What the profile card reads as, its text pieces joined by a space */
+const cardText = () =>
+  [...profileCard().querySelectorAll('*')]
+    .flatMap((el) => [...el.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE))
+    .map((n) => n.textContent)
+    .join(' ');
 
 /** The picture in My account, if one shows */
 const myPicture = () => screen.queryByRole('img', { name: 'Your picture' });
@@ -71,12 +81,29 @@ beforeEach(() => {
 describe('the profile picture', () => {
   test('is the initial until there is a picture, on a computer', async () => {
     renderApp(withWallet(), '/?settings=account');
-    expect(await screen.findByRole('button', { name: 'Change picture' })).toHaveProperty(
-      'textContent',
-      'R',
-    );
+    await screen.findByRole('button', { name: 'Change picture' });
+    expect(cardText()).toBe('R Ryan ryan@example.com Change name Change picture');
     expect(myPicture()).toBeNull();
   });
+
+  test.each(['desktop', 'phone'] as const)(
+    'is changed from a button beside Change name, or by tapping the circle, on a %s',
+    async (size) => {
+      renderApp(withWallet(), '/?settings=account', { size });
+      const user = userEvent.setup();
+      await screen.findByRole('button', { name: 'Change picture' });
+      const button = within(profileCard()).getByRole('button', { name: 'Change picture' });
+      // A button with its words showing, not only a label
+      expect(button.textContent).toBe('Change picture');
+      await user.click(button);
+      expect(await screen.findByRole('dialog', { name: 'Profile picture' })).toBeTruthy();
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+      await user.click(within(profileCard()).getByText('R'));
+      expect(await screen.findByRole('dialog', { name: 'Profile picture' })).toBeTruthy();
+    },
+  );
 
   test('shows the Google picture in place of every initial, at the same size', async () => {
     const server = withWallet();
@@ -100,7 +127,19 @@ describe('the profile picture', () => {
     const mine = await screen.findByRole('img', { name: 'Your picture' });
     mine.dispatchEvent(new Event('error'));
     await waitFor(() => expect(myPicture()).toBeNull());
-    expect(screen.getByRole('button', { name: 'Change picture' }).textContent).toBe('R');
+    expect(cardText()).toMatch(/^R Ryan/);
+  });
+
+  test('a picture that failed to load offline shows again once back online', async () => {
+    const server = withWallet();
+    server.me = { ...server.me, picture: { source: 'upload', version: 9 } };
+    renderApp(server, '/?settings=account');
+    (await screen.findByRole('img', { name: 'Your picture' })).dispatchEvent(new Event('error'));
+    await waitFor(() => expect(myPicture()).toBeNull());
+    act(() => void window.dispatchEvent(new Event('online')));
+    await waitFor(() =>
+      expect(myPicture()?.getAttribute('src')).toBe('/api/me/picture?v=upload-9'),
+    );
   });
 
   test('a chosen photo is cropped to the middle square, made small, saved and shown', async () => {
@@ -183,7 +222,7 @@ describe('the profile picture', () => {
     await userEvent.setup().click(dialog.getByRole('button', { name: 'Use initial' }));
     await waitFor(() => expect(myPicture()).toBeNull());
     expect(server.me).toMatchObject({ picture: null, googlePicture: true });
-    expect(screen.getByRole('button', { name: 'Change picture' }).textContent).toBe('R');
+    expect(cardText()).toMatch(/^R Ryan/);
 
     // With the initial showing, the Google picture is offered again
     dialog = await openPictureDialog();

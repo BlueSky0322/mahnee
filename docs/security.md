@@ -46,9 +46,11 @@ hack-proof, and the limits below are real.
   refuses anything else (`worker/accounts/pictures.ts`).
 - **Google picture.** When the Access token names the person's Google picture (only once
   the owner passes Google's `picture` claim on, see Settings outside the repo), the Worker
-  copies it once into the database, from `https://lh3.googleusercontent.com/` only (no
-  redirects followed, 5 seconds at most, checked as an upload is), and again only when the
-  token names a different one. The browser never contacts Google for it, so Google
+  copies it once into the database, after `/api/me` has answered, from
+  `https://lh3.googleusercontent.com/` only (the address parsed, so no lookalike host,
+  sign-in, port or scheme; no redirects followed; 5 seconds at most; read only up to
+  64 KB; checked as an upload is), and again only when the token names a different one.
+  One that can't be had isn't asked for again for an hour (per Worker instance). The browser never contacts Google for it, so Google
   doesn't learn when or where the app is opened. The address it came from is kept beside
   it, private to the account. Choosing the initial stops it showing; the copy is kept, to
   go back to.
@@ -159,7 +161,8 @@ hack-proof, and the limits below are real.
   (`mahnee-pictures-v1:<email>`), kept only when the server said whose it is
   (`X-Image-Viewer`) and shown from there only offline or while the server fails, and
   only to the account the app last said is signed in. Online, the server is asked every
-  time. A 404 forgets it, and signing out deletes every account's. It reads the app's
+  time. A 404 forgets the signed-in account's copy alone, and signing out deletes every
+  account's. It reads the app's
   IndexedDB only to send the outbox and to know who's signed in.
 - Once an Access session runs out, the app opens with the last account's kept profile
   and offers to sign in. Whoever holds the device can read what was kept until someone

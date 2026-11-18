@@ -159,8 +159,7 @@ erDiagram
   rows at all (unless its sign-in brought a Google picture, copied at once).
   `google_picture` says what shows when there's no chosen picture: the Google picture (1,
   the default) or the initial (0).
-- **`profile_pictures`**: the picture shown in place of the initial (migration 0011;
-  0010 was taken by the home currency change). At most one per source: `upload`, the one
+- **`profile_pictures`**: the picture shown in place of the initial (migration 0010). At most one per source: `upload`, the one
   the person chose, and `google`, a copy of the Google picture their sign-in names, with
   the address it came from (`google_url`), so it's copied again only when that changes.
   The chosen one shows, else the Google one while `google_picture` is 1, else the

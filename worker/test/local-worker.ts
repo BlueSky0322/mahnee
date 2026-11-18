@@ -137,6 +137,8 @@ export interface FakeGoogle {
   set: (path: string, bytes: Uint8Array, contentType: string) => void;
   /** How many times `path` (under base) was asked for */
   asked: (path: string) => number;
+  /** Holds back the answer for `path` until released, as a slow host does */
+  hold: (path: string) => { release: () => void };
 }
 
 export interface FakeRates {
@@ -192,6 +194,7 @@ async function startFakeRates(): Promise<
   const holds = new Map<string, { arrived: () => void; released: Promise<void> }>();
   const googlePictures = new Map<string, { bytes: Uint8Array; contentType: string }>();
   const googleAsked = new Map<string, number>();
+  const googleHeld = new Map<string, Promise<void>>();
   const answer = (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', 'http://x');
     const send = (status: number, body: unknown) => {
@@ -205,10 +208,15 @@ async function startFakeRates(): Promise<
     if (url.pathname.startsWith(GOOGLE_PREFIX)) {
       const path = url.pathname.slice(GOOGLE_PREFIX.length);
       googleAsked.set(path, (googleAsked.get(path) ?? 0) + 1);
-      const picture = googlePictures.get(path);
-      if (picture == null) return send(404, {});
-      res.writeHead(200, { 'Content-Type': picture.contentType });
-      return res.end(picture.bytes);
+      const serve = () => {
+        const picture = googlePictures.get(path);
+        if (picture == null) return send(404, {});
+        res.writeHead(200, { 'Content-Type': picture.contentType });
+        res.end(picture.bytes);
+      };
+      const held = googleHeld.get(path);
+      if (held == null) return serve();
+      return void held.then(serve);
     }
     if (url.pathname === '/v1/rates') {
       const [from, to] = [url.searchParams.get('source'), url.searchParams.get('target')];
@@ -314,6 +322,16 @@ async function startFakeRates(): Promise<
       base: `http://127.0.0.1:${port}${GOOGLE_PREFIX}`,
       set: (path, bytes, contentType) => googlePictures.set(path, { bytes, contentType }),
       asked: (path) => googleAsked.get(path) ?? 0,
+      hold: (path) => {
+        let release = () => {};
+        googleHeld.set(path, new Promise<void>((r) => (release = r)));
+        return {
+          release: () => {
+            googleHeld.delete(path);
+            release();
+          },
+        };
+      },
     },
     close: () => server.close(),
   };

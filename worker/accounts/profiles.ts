@@ -103,20 +103,18 @@ export async function getProfile(db: D1Database, email: string): Promise<Profile
 }
 
 /**
- * GET /api/me: the profile, with the Google picture the sign-in names copied first when
- * it's new (fetchGooglePicture)
+ * Copies the Google picture the sign-in names when it's new (fetchGooglePicture). Run
+ * after GET /api/me has answered, so a slow Google never holds up the app's start; the
+ * picture shows from the next start.
  */
-export async function getMe(
+export async function copyGooglePicture(
   db: D1Database,
   email: string,
-  googlePicture: string | null,
+  googlePicture: string,
   googleBase?: string,
 ) {
-  if (googlePicture != null) {
-    const keep = await fetchGooglePicture(db, email, googlePicture, googleBase);
-    if (keep != null) await db.batch([ensureProfileStatement(db, email), keep]);
-  }
-  return getProfile(db, email);
+  const keep = await fetchGooglePicture(db, email, googlePicture, googleBase);
+  if (keep != null) await db.batch([ensureProfileStatement(db, email), keep]);
 }
 
 /** PUT /api/me/picture: the picture's bytes, checked, kept as the one the person chose */

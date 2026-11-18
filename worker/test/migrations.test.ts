@@ -14,11 +14,6 @@ const files = readdirSync(DIR)
   .sort();
 const before0007 = files.filter((f) => f < '0007');
 const SETTINGS_MIGRATION = '0007_settings.sql';
-/**
- * Numbers another branch has taken and not yet landed: 0010 is the home currency's. Drop
- * one from here once its migration is on main.
- */
-const RESERVED = ['0010'];
 
 function database(migrations: string[]) {
   const db = new DatabaseSync(':memory:');
@@ -84,9 +79,7 @@ function takes(db: DatabaseSync, sql: string, ...params: (string | number | null
 
 describe('the migrations', () => {
   it('number each one once, in order, with 0007 for the settings', () => {
-    // A number taken by a change on another branch counts as used until that change lands
-    const numbers = [...new Set([...files.map((f) => f.slice(0, 4)), ...RESERVED])].sort();
-    expect(files.map((f) => f.slice(0, 4))).toEqual([...new Set(files.map((f) => f.slice(0, 4)))]);
+    const numbers = files.map((f) => f.slice(0, 4));
     expect(numbers).toEqual(numbers.map((_, i) => String(i + 1).padStart(4, '0')));
     expect(files).toContain(SETTINGS_MIGRATION);
   });
@@ -647,8 +640,8 @@ describe('0009, Scheduled', () => {
   });
 });
 
-describe('0011, profile pictures', () => {
-  const PICTURES_MIGRATION = '0011_profile_pictures.sql';
+describe('0010, profile pictures', () => {
+  const PICTURES_MIGRATION = '0010_profile_pictures.sql';
   const ME = 'teal@example.com';
   const migrated = () => {
     const db = database(before0007);
@@ -679,8 +672,8 @@ describe('0011, profile pictures', () => {
     }
   };
 
-  it('is the migration after the reserved 0010', () => {
-    expect(files).toContain(PICTURES_MIGRATION);
+  it('is the next migration after Scheduled', () => {
+    expect(files.indexOf(PICTURES_MIGRATION)).toBe(files.indexOf('0009_scheduled.sql') + 1);
   });
 
   it('keeps every profile, each showing its Google picture until told otherwise', () => {

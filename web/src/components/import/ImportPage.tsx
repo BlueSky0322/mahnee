@@ -45,7 +45,7 @@ import {
 import { rememberMapping, rememberedMapping } from './remembered-mapping';
 import classes from './Import.module.css';
 import BackButton from '../ui/BackButton';
-import { CloseIcon } from '../ui/icons';
+import { CloseIcon, DownIcon } from '../ui/icons';
 import Settings from '../settings/SettingsPage';
 
 // The Import page (?import): pick an account and a CSV file, say which column holds what
@@ -349,6 +349,15 @@ export default function ImportPage() {
         isDesktop
           ? { root: classes.map, label: classes.mapLabel, input: classes.mapInput }
           : undefined
+      }
+      // The board's down chevron beside each column on a computer
+      rightSection={
+        isDesktop ? (
+          <DownIcon
+            size={14}
+            aria-hidden
+          />
+        ) : undefined
       }
       value={picked[key]}
       onChange={(e) => {

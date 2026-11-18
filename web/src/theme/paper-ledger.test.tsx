@@ -10,6 +10,7 @@ import {
   addStyles,
   background,
   fontFamilies,
+  hex,
   mantineCss,
   resolve,
   textColour,
@@ -121,6 +122,17 @@ describe.each(['light', 'dark'] as const)('the %s theme', (theme) => {
     const button = await openIn(theme, accent);
     await waitFor(() => expect(background(button)).toBe(ACCENT_FILLS[accent][theme]));
     expect(textColour(button)).toBe(TOKENS[theme]['--accent-ink']);
+  });
+
+  // R-System's .input: a field's edge is the darker line, not Mantine's grey
+  test('a field is edged with the darker line', async () => {
+    const sheet = await openAddAccount(theme);
+    const field = sheet.getByRole('textbox', { name: /name/i });
+    // The edge a field has until it's focused (then it takes the accent), which Mantine sets
+    // on the box around it; jsdom can't tell a focused field from one that isn't
+    const box = field.closest('.mantine-Input-wrapper');
+    expect(box).not.toBeNull();
+    expect(hex(resolve('var(--input-bd)', box!))).toBe(TOKENS[theme]['--line-2']);
   });
 
   test("a sheet's primary button is filled the same way", async () => {

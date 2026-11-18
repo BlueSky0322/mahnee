@@ -16,7 +16,7 @@ export type AccountKind = (typeof ACCOUNT_KINDS)[number];
 export const isAccountKind = (v: unknown): v is AccountKind =>
   (ACCOUNT_KINDS as readonly unknown[]).includes(v);
 
-/** The currency new accounts are kept in; each account stores its own */
+/** The currency before anyone picks a home currency; an account is in the home currency */
 export const DEFAULT_CURRENCY = 'MYR';
 
 /** The most accounts one person can have, archived ones included */

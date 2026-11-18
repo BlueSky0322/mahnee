@@ -11,6 +11,47 @@ const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 export const isCurrency = (v: unknown): v is string =>
   typeof v === 'string' && CURRENCY_PATTERN.test(v);
 
+/**
+ * The currencies a person's home currency can be: the ones the ECB publishes (through
+ * Frankfurter), so every amount can be converted at its own day's rate without Wise.
+ * migrations/0010_currency.sql holds the same list in its CHECK.
+ */
+export const HOME_CURRENCIES = [
+  'AUD',
+  'BRL',
+  'CAD',
+  'CHF',
+  'CNY',
+  'CZK',
+  'DKK',
+  'EUR',
+  'GBP',
+  'HKD',
+  'HUF',
+  'IDR',
+  'ILS',
+  'INR',
+  'ISK',
+  'JPY',
+  'KRW',
+  'MXN',
+  'MYR',
+  'NOK',
+  'NZD',
+  'PHP',
+  'PLN',
+  'RON',
+  'SEK',
+  'SGD',
+  'THB',
+  'TRY',
+  'USD',
+  'ZAR',
+] as const;
+
+export const isHomeCurrency = (v: unknown): v is string =>
+  (HOME_CURRENCIES as readonly unknown[]).includes(v);
+
 /** Offered first in currency pickers: the currencies people here travel and spend in */
 export const COMMON_CURRENCIES = [
   'MYR',
@@ -42,6 +83,13 @@ export const toCents = (amount: number) => Math.round(amount * 100);
 
 /** `cents` in one currency, at `rate` units of the other per unit, in the other's cents */
 export const convertCents = (cents: number, rate: number) => Math.round(cents * rate);
+
+/**
+ * The same for an amount that may be below zero (an opening balance): the size is
+ * converted and the sign kept, so a balance and its opposite convert to opposites
+ */
+export const convertSignedCents = (cents: number, rate: number) =>
+  cents < 0 ? -convertCents(-cents, rate) : convertCents(cents, rate);
 
 /** The largest amount anyone can type, in currency units, whatever its currency */
 export const MAX_AMOUNT = 1_000_000_000;

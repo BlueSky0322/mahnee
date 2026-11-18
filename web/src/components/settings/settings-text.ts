@@ -1,5 +1,5 @@
 import type { Category, ImportRecord, Settings, StartScreen, ThemeSetting } from '@shared/api';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
+import { currencySign } from '../../utils/currencies';
 import { clockText } from '../../utils/date-input';
 
 // What the Settings index says under each section (R-Settings), worked out from the
@@ -24,7 +24,7 @@ export function moneySummary(settings: Settings) {
       : settings.monthStartDay === LAST_DAY
         ? 'the last day'
         : `the ${ordinal(settings.monthStartDay)}`;
-  return `${DEFAULT_CURRENCY} · month from ${start}`;
+  return `${settings.currency} · month from ${start}`;
 }
 
 /** "Amount first · suggestions on" */
@@ -113,7 +113,7 @@ export function settingValue(
 ): string | null {
   switch (key) {
     case 'currency':
-      return `${DEFAULT_CURRENCY}, RM`;
+      return `${settings.currency}, ${currencySign(settings.currency)}`;
     case 'monthStart':
       return settings.monthStartMode === 'payday'
         ? 'Payday'

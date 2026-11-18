@@ -13,7 +13,7 @@ import { fakeServer, renderApp, settle, setupAppTests } from '../../testing/app'
 // keeps the choice; Back keeps nothing) and a panel beside its row on computers (Cancel,
 // Done): "A date" (1 to 28, or "Last day of the month") or "Payday" (the scheduled pay's
 // day), with a preview of this month's days. The row reads "The 1st", "The 25th", "Last
-// day" or "Payday". Main currency stays as it is until the home currency piece; "Other
+// day" or "Payday". Main currency is in HomeCurrency.test.tsx; "Other
 // currencies" is hidden (D4).
 
 const TZ_BEFORE = process.env.TZ;

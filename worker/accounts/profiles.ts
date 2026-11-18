@@ -11,10 +11,17 @@ import {
   type Settings,
 } from '../../shared/api';
 import { readSettingChanges } from '../../shared/settings';
+import {
+  type ConvertJob,
+  conversionOf,
+  readConversionRow,
+  startStatements,
+} from '../currency/convert';
 import { type Unchecked, json, fail } from '../http';
 
 /** Each setting's column; yes-or-no settings are kept as 1 or 0 */
 const SETTINGS = {
+  currency: 'currency',
   theme: 'theme',
   accent: 'accent',
   ratePreference: 'rate_preference',
@@ -81,6 +88,7 @@ export async function getProfile(db: D1Database, email: string): Promise<Profile
     displayName:
       (profile.results[0] as { displayName: string | null } | undefined)?.displayName ?? null,
     settings: row ? fromRow(row) : { ...DEFAULT_SETTINGS },
+    conversion: conversionOf(await readConversionRow(db, email)),
   };
 }
 
@@ -160,9 +168,19 @@ async function readSettings(
   return changes;
 }
 
-/** PATCH /api/me: { displayName?, settings? } */
-export async function patchProfile(db: D1Database, email: string, body: Unchecked<ProfilePatch>) {
+/**
+ * PATCH /api/me: { displayName?, settings? }. A new home currency is saved at once and
+ * starts converting every amount into it (currency/convert.ts): `convert` queues the first
+ * step once it's saved. Refused while a conversion is still under way.
+ */
+export async function patchProfile(
+  db: D1Database,
+  email: string,
+  body: Unchecked<ProfilePatch>,
+  convert: (job: ConvertJob) => Promise<void>,
+) {
   const statements: D1PreparedStatement[] = [];
+  let converting: ConvertJob | null = null;
 
   if ('displayName' in body) {
     const raw = body.displayName;
@@ -182,10 +200,32 @@ export async function patchProfile(db: D1Database, email: string, body: Unchecke
   if ('settings' in body) {
     const changes = await readSettings(db, email, body.settings);
     if (changes instanceof Response) return changes;
-    statements.push(...settingsStatements(db, email, changes));
+    if (changes.currency != null) {
+      const [saved, conversion] = await Promise.all([
+        db
+          .prepare('SELECT currency FROM user_settings WHERE email = ?')
+          .bind(email)
+          .first<{ currency: string }>(),
+        readConversionRow(db, email),
+      ]);
+      const from = saved?.currency ?? DEFAULT_SETTINGS.currency;
+      if (conversion?.phase === 'converting') {
+        return fail(`Wait until your amounts are in ${conversion.to}`, 409);
+      }
+      if (changes.currency === from) delete changes.currency;
+      else {
+        converting = { email, since: Date.now() };
+        statements.push(
+          ...settingsStatements(db, email, changes),
+          ...startStatements(db, email, from, changes.currency, converting.since),
+        );
+      }
+    }
+    if (converting == null) statements.push(...settingsStatements(db, email, changes));
   }
 
   if (statements.length > 0) await db.batch(statements);
+  if (converting != null) await convert(converting);
   return json<Profile>(await getProfile(db, email));
 }
 

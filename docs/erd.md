@@ -24,6 +24,8 @@ erDiagram
   accounts ||--o{ recurring : "repeats on"
   categories ||--o{ recurring : "sorts"
   recurring |o--o{ transactions : "added"
+  profiles ||--o| conversions : "converting"
+  profiles ||--o{ conversion_staged : "worked out"
   profiles {
     TEXT email PK
     TEXT display_name "null, or 1 to 32 characters"
@@ -32,6 +34,7 @@ erDiagram
   }
   user_settings {
     TEXT email PK "and FK to profiles"
+    TEXT currency "the home currency, one of HOME_CURRENCIES"
     TEXT theme "dark, light or auto"
     TEXT accent "cobalt, green, plum, rust or graphite"
     TEXT rate_preference "wise or ecb"
@@ -58,8 +61,13 @@ erDiagram
     TEXT id PK "16 hex characters, made by the app"
     TEXT name "1 to 40 characters"
     TEXT kind "cash, bank, card or ewallet"
-    TEXT currency "MYR for now"
+    TEXT currency "the home currency"
     INTEGER opening_cents "within 1,000,000,000 either way"
+    TEXT original_currency "null, or the currency it was typed in"
+    INTEGER original_cents "what was typed, with original_currency"
+    REAL rate "into the home currency, with original_currency"
+    TEXT rate_source "wise or frankfurter, with original_currency"
+    INTEGER rate_at "ms: the rate's day or time, with original_currency"
     INTEGER position "first at 0"
     INTEGER archived "0 or 1"
     INTEGER archived_at "ms, or null"
@@ -93,6 +101,11 @@ erDiagram
     TEXT recurring_id "null, or one of the person's scheduled items"
     TEXT recurring_due "the day its occurrence was due; with recurring_id"
     INTEGER to_check "0 or 1: its amount is for the person to check"
+    TEXT original_currency "null, or the currency it was typed in"
+    INTEGER original_cents "what was typed, with original_currency"
+    REAL rate "into the home currency, with original_currency"
+    TEXT rate_source "wise or frankfurter, with original_currency"
+    INTEGER rate_at "ms: the rate's day or time, with original_currency"
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
@@ -112,6 +125,11 @@ erDiagram
     TEXT from_month PK "the month it applies from, as 2026-11"
     INTEGER amount_cents "null for none from this month, or 1 to 1,000,000,000"
     INTEGER carry_over "0 or 1"
+    TEXT original_currency "null, or the currency it was typed in"
+    INTEGER original_cents "what was typed, with original_currency"
+    REAL rate "into the home currency, with original_currency"
+    TEXT rate_source "wise or frankfurter, with original_currency"
+    INTEGER rate_at "ms: the rate's day or time, with original_currency"
     INTEGER updated_at "ms"
   }
   recurring {
@@ -131,8 +149,31 @@ erDiagram
     INTEGER archived "0 or 1: stopped repeating"
     INTEGER amount_varies "0 or 1: it changes, added to check"
     INTEGER ask_first "0 or 1: waits for Log it or Skip"
+    TEXT original_currency "null, or the currency it was typed in"
+    INTEGER original_cents "what was typed, with original_currency"
+    REAL rate "into the home currency, with original_currency"
+    TEXT rate_source "wise or frankfurter, with original_currency"
+    INTEGER rate_at "ms: the rate's day or time, with original_currency"
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
+  }
+  conversions {
+    TEXT email PK "and FK to profiles"
+    TEXT from_currency "the home currency before"
+    TEXT to_currency "the new one"
+    INTEGER since "ms: when it changed"
+    TEXT phase "converting or refused"
+    TEXT after_date "how far through the transactions"
+    TEXT after_id "with after_date"
+    INTEGER touched_at "ms: when it last moved on"
+    TEXT refused "amount, opening, budget or scheduled; when refused"
+  }
+  conversion_staged {
+    TEXT email PK "and FK to profiles"
+    TEXT kind PK "transaction, account, budget or recurring"
+    TEXT key PK "its id, or a budget's category/month"
+    INTEGER cents "in the new currency"
+    TEXT original_currency "and the rest as on its row"
   }
   change_receipts {
     TEXT email PK "and FK to profiles"
@@ -242,6 +283,24 @@ erDiagram
   `import_id` is it and sets `undone_at`, in one batch; once undone, nothing more goes and no
   transaction may name it. Keyed by email and then id, so two people's imports never meet.
   Deleting one keeps its transactions, their `import_id` set back to null.
+- **`conversions`** and **`conversion_staged`**: changing the home currency
+  (`user_settings.currency`, saved at once) writes a `conversions` row, phase `converting`,
+  and the person's amounts are converted in the background (`worker/currency/convert.ts`,
+  from the `mahnee-reconvert` queue): a page of transactions at a time, by day then id
+  (`after_date`, `after_id`), each worked out into `conversion_staged` and checked against
+  its limit, then the opening balances, budgets and scheduled items, and all of them
+  swapped into their rows in one batch, the accounts' `currency` with them, before both go.
+  Meanwhile the person's writes wait (the API answers 503) and the nightly job skips them,
+  so what's worked out stays true. One amount past its limit refuses the whole change: the
+  currency goes back, nothing is swapped, and the row stays as `refused`, naming the limit,
+  until the next change.
+- **What an amount was typed as.** `transactions.amount_cents`, `accounts.opening_cents`,
+  `budgets.amount_cents` and `recurring.amount_cents` each have `original_currency`,
+  `original_cents`, `rate`, `rate_source` and `rate_at` (0010), all null for an amount typed
+  in the home currency. A converted one is converted again from what it was typed as, and
+  one typed in the new currency is plain again, so changing back restores it exactly.
+  Changing the amount outside a conversion (no `converting` row) makes it typed in the home
+  currency: triggers let go of what it was.
 - **`change_receipts`**: one per change the app saved through `POST /api/changes`, by
   the id the app gave it, with the change's fingerprint, saved in the same batch as the
   change. A change sent again counts once; the same id with a different change is

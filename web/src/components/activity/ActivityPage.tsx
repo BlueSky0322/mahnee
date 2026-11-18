@@ -1,10 +1,11 @@
 import { Button, TextInput } from '@mantine/core';
+import { useCurrency } from '../../profile/ProfileContext';
 import { useNetwork } from '@mantine/hooks';
 import { CloudSlash } from '@phosphor-icons/react';
 import { ActivityIcon, DownIcon, SearchIcon } from '../ui/icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Account, Category, LedgerChange, Transaction } from '@shared/api';
-import { DEFAULT_CURRENCY, MAX_BULK_TRANSACTIONS } from '@shared/ledger';
+import { MAX_BULK_TRANSACTIONS } from '@shared/ledger';
 import { MAX_SEARCH_TEXT } from '@shared/search';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { navigate } from '../../hooks/useRoute';
@@ -135,7 +136,7 @@ export default function ActivityPage({ query }: { query: string }) {
   const ready = rows != null && accounts != null && categories != null;
   const totals = ready ? found.totals : null;
   const days = dayRange(filters.days, today, start);
-  const currency = DEFAULT_CURRENCY;
+  const currency = useCurrency();
   const nothingSet =
     filters.account == null &&
     filters.category == null &&
@@ -810,7 +811,7 @@ function Register({
   onChangeCategory: (those: Transaction[]) => void;
   onDelete: () => void;
 }) {
-  const currency = DEFAULT_CURRENCY;
+  const currency = useCurrency();
   const opened = useRef<HTMLTableRowElement | null>(null);
   // Kept in view as J and K move it: a block, so what scrolling answers (a Promise, in
   // Chromium) is never taken for the effect's cleanup

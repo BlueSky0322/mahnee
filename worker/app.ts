@@ -5,7 +5,9 @@
 // its body, and answering with a Response) and loaders (returning data shaped as in
 // shared/api.ts, for the route to send with json<T>()). The feature folders:
 //   - accounts/: who's signed in (auth.ts), and their profile and settings (profiles.ts);
-//   - currency/: exchange rates;
+//   - currency/: exchange rates, and converting every amount when the home currency
+//     changes (convert.ts), a step at a time from the mahnee-reconvert queue
+//     (convert-queue.ts, wired in index.ts and wrangler.jsonc);
 //   - ledger/: the money a person tracks: their cash, bank, card and e-wallet accounts
 //     with balances, their categories, and their transactions a page at a time
 //     (read.ts), a month's spending and income (summary.ts) and the 12 months up to it
@@ -16,6 +18,7 @@
 // Reading requests and answering is in http.ts.
 
 import type { AuthEnv } from './accounts/auth';
+import type { ConvertJob } from './currency/convert';
 import type { RatesEnv } from './currency/exchange-rates';
 
 export interface Env extends AuthEnv, RatesEnv {
@@ -25,6 +28,10 @@ export interface Env extends AuthEnv, RatesEnv {
   API_LIMITER: RateLimit;
   /** "true": writes must say whose they are (EXPECTED_ACCOUNT_HEADER); older apps are told to update */
   REQUIRE_EXPECTED_ACCOUNT?: string;
+  /** Conversions into a new home currency, a step at a time (currency/convert-queue.ts) */
+  CONVERT_QUEUE: Queue<ConvertJob>;
+  /** For tests: seconds between tries of a failed conversion step */
+  CONVERT_RETRY_DELAY_S?: string;
 }
 
 export type AppEnv = {

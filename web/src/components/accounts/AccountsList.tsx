@@ -1,9 +1,9 @@
 import { Button } from '@mantine/core';
+import { useCurrency } from '../../profile/ProfileContext';
 import { AccountsIcon, ForwardIcon, PlusIcon } from '../ui/icons';
 import type { MouseEvent } from 'react';
 import { useState } from 'react';
 import type { Account } from '@shared/api';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
 import { navigate } from '../../hooks/useRoute';
 import { useAccounts } from '../../ledger/useLedger';
 import Skeleton, { Loading } from '../ui/Skeleton';
@@ -29,6 +29,7 @@ const LOADING_ROWS = 3;
 // ones behind "Archived · N". On a phone a row opens the account's own page; on a computer
 // (`selected`) it opens beside the list, in the list's place in history.
 export default function AccountsList({ selected }: { selected?: string | null }) {
+  const homeCurrency = useCurrency();
   const desktop = selected !== undefined;
   const { accounts, failed, retry } = useAccounts();
   const [adding, setAdding] = useState(false);
@@ -41,7 +42,7 @@ export default function AccountsList({ selected }: { selected?: string | null })
   const archived = accounts?.filter((a) => a.archived) ?? [];
   const have = running.filter((a) => a.kind !== 'card');
   const cards = running.filter((a) => a.kind === 'card');
-  const currency = running[0]?.currency ?? DEFAULT_CURRENCY;
+  const currency = running[0]?.currency ?? homeCurrency;
   const totals = accountTotals(running);
   const open = (account: Account) => (e: MouseEvent) => {
     e.preventDefault();

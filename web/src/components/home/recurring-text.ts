@@ -37,11 +37,11 @@ export const currencyOf = (r: Recurring, accounts: Account[]) =>
   accounts.find((a) => a.id === r.accountId)?.currency ?? DEFAULT_CURRENCY;
 
 /** "RM 55.00", with "−" before it when it takes money away, "+" when it brings some */
-export const signedMoneyOf = (cents: number, currency = DEFAULT_CURRENCY) =>
+export const signedMoneyOf = (cents: number, currency: string) =>
   `${cents < 0 ? '−' : cents > 0 ? '+' : ''}${formatMoney(cents, currency)}`;
 
 /** A total that can be below zero: "RM 7,405.00", "−RM 1,100.00" */
-export const totalMoney = (cents: number, currency = DEFAULT_CURRENCY) =>
+export const totalMoney = (cents: number, currency: string) =>
   `${cents < 0 ? '−' : ''}${formatMoney(cents, currency)}`;
 
 /** A day without its year, as the person's language writes it: "9 Nov" */

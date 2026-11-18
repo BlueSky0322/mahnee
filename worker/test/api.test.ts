@@ -28,9 +28,10 @@ afterAll(() => api?.stop(), 30_000);
  * R-Set-Adding, R-Set-Look, R-Set-Budgets): month from the 1st, week from Monday, keypad
  * first, the last account used, suggestions on, no time on entries, cobalt, expenses in
  * ink, everything on Home, Home first, carry-over on, the daily reminder on at 9:00 PM and
- * one day before a scheduled entry; no time zone until the app sends one
+ * one day before a scheduled entry; no time zone until the app sends one; in ringgit
  */
 const DESIGN_DEFAULTS = {
+  currency: 'MYR',
   theme: 'auto',
   accent: 'cobalt',
   ratePreference: 'wise',
@@ -61,6 +62,7 @@ describe('the profile', () => {
       email: me,
       displayName: null,
       settings: DESIGN_DEFAULTS,
+      conversion: null,
     });
   });
 

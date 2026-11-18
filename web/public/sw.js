@@ -73,24 +73,32 @@ const utf8 = new TextEncoder();
 
 /** The next request's changes, as nextBatch in web/src/offline/outbox.ts picks them */
 function nextBatch(queued) {
-  let bytes = utf8.encode('{"changes":[],"ids":[]}').length;
+  let bytes = utf8.encode('{"changes":[],"ids":[],"currencies":[]}').length;
   let count = 0;
   for (const q of queued.slice(0, MAX_CHANGES)) {
     bytes +=
       utf8.encode(JSON.stringify(q.change)).length +
       utf8.encode(JSON.stringify(q.cid)).length +
-      (count > 0 ? 2 : 0);
+      utf8.encode(JSON.stringify(q.currency ?? '')).length +
+      (count > 0 ? 3 : 0);
     if (count > 0 && bytes > MAX_CHANGES_BYTES) break;
     count++;
   }
   return queued.slice(0, count);
 }
 
-/** What's sent for these changes, as changesBody in web/src/offline/outbox.ts makes it */
-const changesBody = (batch) => ({
-  changes: batch.map((q) => q.change),
-  ids: batch.map((q) => q.cid),
-});
+/**
+ * What's sent for these changes, as changesBody in web/src/offline/outbox.ts makes it: the
+ * currency each was typed in only when every one of them says
+ */
+function changesBody(batch) {
+  const currencies = batch.map((q) => q.currency);
+  return {
+    changes: batch.map((q) => q.change),
+    ids: batch.map((q) => q.cid),
+    ...(currencies.every((c) => c != null) && { currencies }),
+  };
+}
 
 const isFont = (url) =>
   url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com';

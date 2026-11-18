@@ -1,10 +1,11 @@
 import { Button } from '@mantine/core';
+import { useMoney } from '../../hooks/useMoney';
 import { BackIcon, ForwardIcon, PlanIcon, PlusIcon } from '../ui/icons';
 import type { CSSProperties, ReactNode } from 'react';
 import { useId, useState } from 'react';
 import type { Category, Ledger, MonthSummary } from '@shared/api';
 import { categoriesOrDefaults } from '@shared/categories';
-import { DEFAULT_CURRENCY, FIRST_DAY } from '@shared/ledger';
+import { FIRST_DAY } from '@shared/ledger';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { isAll, navigate } from '../../hooks/useRoute';
 import type { BudgetLine } from '../../ledger/budgets';
@@ -17,7 +18,6 @@ import ScheduledView from './ScheduledView';
 import { useMonthSummary, useWholeLedger } from '../../ledger/useLedger';
 import { categoryColour } from '../../utils/category-colour';
 import { addMonths, monthHeading, monthLabel } from '../../utils/date-input';
-import { formatAmount, formatMoney } from '../../utils/money';
 import PageLink from '../home/PageLink';
 import { incomeLine } from '../home/home-text';
 import { recurringName } from '../home/recurring-text';
@@ -33,9 +33,6 @@ import { budgetWords, deskSubtitle, phoneSubtitle, shareLabel } from './plan-tex
 
 /** The earliest month a transaction can be in */
 const FIRST_MONTH = FIRST_DAY.slice(0, 7);
-
-const money = (cents: number) => formatMoney(cents, DEFAULT_CURRENCY);
-const amount = (cents: number) => formatAmount(cents, DEFAULT_CURRENCY);
 
 // Plan (?plan): the month's budgets with a marker for how much of it has gone, where the spending
 // went with each category's share, and what came in by category. On a phone each category opens a
@@ -405,6 +402,7 @@ function Budgets({
 
 /** A phone's budgets: each with what's left and a bar against the month; none says so */
 function PhoneBudgets({ data, shown }: { data: Month; shown: PlanMonth }) {
+  const { money, currency } = useMoney();
   const titleId = useId();
   if (data.lines.length === 0) {
     // A month gone by can't be given a budget now
@@ -468,7 +466,7 @@ function PhoneBudgets({ data, shown }: { data: Month; shown: PlanMonth }) {
       </div>
       <ul className={classes.budgetList}>
         {data.lines.map((line) => {
-          const words = budgetWords(line, shown.at, { short: false });
+          const words = budgetWords(line, shown.at, { short: false, currency });
           const tone =
             words.pace === 'over' ? classes.neg : words.pace === 'faster' ? classes.due : '';
           const carryOver = data.summary.budgets?.find((b) => b.categoryId === line.id)?.carryOver;
@@ -510,6 +508,7 @@ function PhoneBudgets({ data, shown }: { data: Month; shown: PlanMonth }) {
 
 /** Where the month's spending went: its total, a share bar and a row for each category */
 function WhereItWent({ data, shown }: { data: Month; shown: PlanMonth }) {
+  const { money, amount, currency } = useMoney();
   const titleId = useId();
   const total = data.summary.spentCents;
   const name = monthHeading(shown.month, { short: true });
@@ -565,7 +564,7 @@ function WhereItWent({ data, shown }: { data: Month; shown: PlanMonth }) {
                 />
                 <span className={classes.rowMain}>
                   <span className={classes.rowTitle}>{row.name}</span>
-                  <span className={classes.rowSub}>{phoneSubtitle(row, total)}</span>
+                  <span className={classes.rowSub}>{phoneSubtitle(row, total, currency)}</span>
                 </span>
                 <span className={`${classes.num} ${classes.rowAmount}`}>{amount(row.cents)}</span>
               </>
@@ -615,6 +614,7 @@ function Income({
   /** Nothing this month at all: drawn a little closer */
   quiet?: boolean;
 }) {
+  const { money, amount, currency } = useMoney();
   const titleId = useId();
   const rows = rollUpEntries(data.summary.incomeByCategory, data.categories);
   const pay = nextPay(data.ledger);
@@ -669,7 +669,7 @@ function Income({
                 />
                 <span className={classes.rowMain}>
                   <span className={classes.rowTitle}>{row.name}</span>
-                  <span className={classes.rowSub}>{phoneSubtitle(row, received)}</span>
+                  <span className={classes.rowSub}>{phoneSubtitle(row, received, currency)}</span>
                 </span>
                 <span className={`${classes.num} ${classes.rowAmount}`}>{amount(row.cents)}</span>
               </>
@@ -753,6 +753,7 @@ function ExpensesTable({
   open: string | null;
   onOpen: (id: string, focusBudget: boolean) => void;
 }) {
+  const { money, amount, currency } = useMoney();
   const titleId = useId();
   return (
     <section
@@ -807,7 +808,8 @@ function ExpensesTable({
             const carriesOver =
               line != null &&
               (data.summary.budgets?.find((b) => b.categoryId === row.id)?.carryOver ?? false);
-            const words = line == null ? null : budgetWords(line, shown.at, { short: true });
+            const words =
+              line == null ? null : budgetWords(line, shown.at, { short: true, currency });
             const tone =
               words?.pace === 'over' ? classes.neg : words?.pace === 'faster' ? classes.due : '';
             return (

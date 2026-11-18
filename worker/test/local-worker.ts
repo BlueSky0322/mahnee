@@ -360,6 +360,9 @@ export async function startLocalWorker(): Promise<LocalWorker> {
           `FRANKFURTER_BASE:${rates.base}`,
           '--var',
           'WISE_TOKEN:test-token',
+          // A conversion step that failed is tried again after a second, not minutes
+          '--var',
+          'CONVERT_RETRY_DELAY_S:1',
           '--log-level',
           'warn',
         ],

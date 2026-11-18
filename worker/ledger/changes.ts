@@ -48,7 +48,6 @@ import {
 } from '../../shared/recurring';
 import { dayIn } from '../../shared/scheduled';
 import {
-  DEFAULT_CURRENCY,
   FIRST_DAY,
   MAX_ACCOUNTS,
   MAX_BULK_TRANSACTIONS,
@@ -74,6 +73,11 @@ import { type Unchecked, fail, ok } from '../http';
 import { listCategories } from './read';
 import { readMonthStart } from './month-start';
 import { changeFingerprint, receiptStatements, savedReceipts } from './receipts';
+import { DEFAULT_SETTINGS } from '../../shared/api';
+import { isCurrency } from '../../shared/rates';
+import type { Rate } from '../currency/exchange-rates';
+import { RatesUnavailable } from '../currency/exchange-rates';
+import { type Typed, typedIn, typedStatements } from '../currency/typed-in';
 
 /** A change that can't be saved, with the status and reason the API answers with */
 class Refused extends Error {
@@ -156,6 +160,8 @@ interface Model {
   today: string;
   /** Saved by the nightly job: what it adds is marked to check when the amount changes */
   posting: boolean;
+  /** The person's home currency: a new account's */
+  currency: string;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -356,16 +362,7 @@ function changeStatements(
                     0, ?8, ?8
              FROM accounts WHERE email = ?1`,
           )
-          .bind(
-            email,
-            account.id,
-            name,
-            account.kind,
-            DEFAULT_CURRENCY,
-            opening,
-            MAX_ACCOUNTS,
-            now,
-          ),
+          .bind(email, account.id, name, account.kind, model.currency, opening, MAX_ACCOUNTS, now),
       ];
     }
     case 'updateAccount': {
@@ -1203,6 +1200,33 @@ async function readToday(db: D1Database, email: string, now: number): Promise<st
   return (row?.zone != null ? dayIn(row.zone, now) : null) ?? utcDay(now);
 }
 
+/**
+ * The person's home currency, and the one their amounts are converting into, if they are
+ * (no settings saved yet: the default, none)
+ */
+async function readHome(db: D1Database, email: string) {
+  const row = await db
+    .prepare(
+      `SELECT (SELECT currency FROM user_settings WHERE email = ?1) AS currency,
+         (SELECT to_currency FROM conversions WHERE email = ?1 AND phase = 'converting')
+           AS converting`,
+    )
+    .bind(email)
+    .first<{ currency: string | null; converting: string | null }>();
+  return {
+    currency: row?.currency ?? DEFAULT_SETTINGS.currency,
+    converting: row?.converting ?? null,
+  };
+}
+
+/** Writes wait while amounts convert: the app keeps them and sends them again */
+const converting = (to: string) =>
+  fail(
+    `Converting your amounts to ${to}. Your changes are kept and saved once it's done.`,
+    503,
+    'converting',
+  );
+
 /** Whether D1 refused a write for breaking a constraint */
 const isConstraintError = (err: unknown) => String(err).includes('CONSTRAINT');
 
@@ -1214,14 +1238,17 @@ export async function applyChanges(
   {
     now = Date.now(),
     posting = false,
+    fetchRate,
   }: {
     /** When it's saved as of: the nightly job's scheduled time */
     now?: number;
     /** Saved by the nightly job */
     posting?: boolean;
+    /** A rate for a day, for changes typed in a home currency the person has since left */
+    fetchRate?: (from: string, to: string, day: string) => Promise<Rate>;
   } = {},
 ) {
-  const { changes, ids } = body;
+  const { changes, ids, currencies } = body;
   if (!Array.isArray(changes) || changes.length === 0 || changes.length > MAX_CHANGES) {
     return fail(`Send 1-${MAX_CHANGES} changes`, 400);
   }
@@ -1234,6 +1261,14 @@ export async function applyChanges(
     return fail('Send one id of its own for each change', 400);
   }
   const changeIds = ids;
+  if (
+    currencies !== undefined &&
+    (!Array.isArray(currencies) ||
+      currencies.length !== changes.length ||
+      !currencies.every(isCurrency))
+  ) {
+    return fail('Send the currency each change was typed in, one each', 400);
+  }
 
   // Changes saved before, their answer lost: counted once, and not applied again
   const prints = await Promise.all(changes.map((c: unknown) => changeFingerprint(c)));
@@ -1245,6 +1280,11 @@ export async function applyChanges(
     else if (before !== prints[i]) return fail('That change was saved differently before', 409);
   }
   if (fresh.length === 0) return ok();
+
+  // While the person's amounts convert into a new home currency, nothing changes: the app
+  // keeps the changes and sends them again (a 503)
+  const home = await readHome(db, email);
+  if (home.converting != null) return converting(home.converting);
 
   // The transactions the batch names, and how many each account it adds to holds
   const named = new Set<string>();
@@ -1364,21 +1404,53 @@ export async function applyChanges(
     monthStart: budgeting ? await readMonthStart(db, email) : 1,
     today: repeating || askingToday ? await readToday(db, email, now) : utcDay(now),
     posting,
+    currency: home.currency,
   };
   // None saved yet: the defaults are saved first, so the changes after can name them
   const statements: D1PreparedStatement[] =
     savedCategories.length === 0 ? [defaultCategoriesStatement(db, email, now)] : [];
   for (const i of fresh) {
+    // Typed in a home currency since left: converted, keeping what was typed
+    let change: unknown = changes[i];
+    let typed: Typed[] = [];
+    const typedCurrency = currencies?.[i];
+    if (typedCurrency != null && typedCurrency !== home.currency && fetchRate != null) {
+      try {
+        ({ change, typed } = await typedIn(change, typedCurrency, home.currency, {
+          fetchRate,
+          today: model.today,
+          dayOf: (id) =>
+            db
+              .prepare('SELECT date FROM transactions WHERE email = ? AND id = ?')
+              .bind(email, id)
+              .first<string>('date'),
+        }));
+      } catch (err) {
+        if (err instanceof RatesUnavailable) return fail(err.message, 503);
+        throw err;
+      }
+    }
     try {
-      statements.push(...changeStatements(db, email, model, changes[i], now));
+      statements.push(...changeStatements(db, email, model, change, now));
     } catch (err) {
       if (err instanceof Refused) return fail(err.message, err.status);
       throw err;
     }
+    statements.push(...typedStatements(db, email, typed));
   }
 
   try {
     await db.batch([
+      // A conversion begun since the currency was read refuses the whole batch: a NULL
+      // where one can't go, only then
+      db
+        .prepare(
+          `INSERT INTO change_receipts (email, change_id, fingerprint, saved_at)
+           SELECT ?1, NULL, '', 0 WHERE EXISTS (
+             SELECT 1 FROM conversions WHERE email = ?1 AND phase = 'converting'
+           ) OR COALESCE((SELECT currency FROM user_settings WHERE email = ?1), ?3) IS NOT ?2`,
+        )
+        .bind(email, home.currency, DEFAULT_SETTINGS.currency),
       ensureProfileStatement(db, email),
       ...statements,
       ...receiptStatements(
@@ -1390,6 +1462,12 @@ export async function applyChanges(
     ]);
   } catch (err) {
     if (!isConstraintError(err)) throw err;
+    // The currency changed meanwhile: kept and sent again, as above
+    const after = await readHome(db, email);
+    if (after.converting != null) return converting(after.converting);
+    if (after.currency !== home.currency) {
+      return fail('The currency changed meanwhile. Try again.', 503);
+    }
     // The same changes sent twice at once: the other request saved them
     const now = await savedReceipts(db, email, changeIds);
     if (fresh.every((i) => now.get(changeIds[i]) === prints[i])) return ok();

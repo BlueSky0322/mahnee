@@ -35,6 +35,7 @@ import {
   MAX_PAYEE_CATEGORIES,
   MAX_RECENT_IMPORTS,
   PENDING_CHANGES_HEADER,
+  isConverting,
   isRowId,
   readPendingIds,
 } from '@shared/api';
@@ -93,7 +94,7 @@ import {
   monthBudgets,
   whyNoBudget,
 } from '@shared/budgets';
-import { rateDay } from '@shared/rates';
+import { convertCents, rateDay } from '@shared/rates';
 import {
   MAX_RECURRING,
   fallsOn,
@@ -338,10 +339,28 @@ function answerNow(server: FakeServer) {
       const patch = body as Partial<Profile>;
       const settings = 'settings' in patch ? readSettingsPatch(server, patch.settings) : {};
       if (Array.isArray(settings)) return json({ error: settings[1] }, settings[0]);
+      // A new home currency starts converting, as the real one's queue does; a test
+      // finishes it (finishConversion). Refused while one is under way.
+      let conversion = server.me.conversion;
+      if (settings.currency != null) {
+        if (isConverting(server.me)) {
+          return json({ error: `Wait until your amounts are in ${conversion!.to}` }, 409);
+        }
+        if (settings.currency === server.me.settings.currency) delete settings.currency;
+        else {
+          conversion = {
+            from: server.me.settings.currency,
+            to: settings.currency,
+            since: Date.now(),
+            refused: null,
+          };
+        }
+      }
       server.me = {
         ...server.me,
         ...('displayName' in patch ? { displayName: patch.displayName ?? null } : {}),
         settings: { ...server.me.settings, ...settings },
+        conversion,
       };
       return json(server.me);
     }
@@ -437,7 +456,19 @@ function answerNow(server: FakeServer) {
     if (path === '/api/changes' && method === 'POST') {
       const failure = failing('changes');
       if (failure) return failure;
-      const refusal = saveChanges(server, body as Partial<ChangesBody>);
+      // Writes wait while amounts convert, as the real one's do
+      if (isConverting(server.me)) {
+        return json(
+          {
+            error: `Converting your amounts to ${server.me.conversion!.to}. Your changes are kept and saved once it's done.`,
+            code: 'converting',
+          },
+          503,
+        );
+      }
+      const typed = typedInHome(server, body as Partial<ChangesBody>);
+      if (typed == null) return json({ error: 'No rate right now' }, 503);
+      const refusal = saveChanges(server, typed);
       if (refusal != null) return json({ error: refusal[1] }, refusal[0]);
       if (server.loseNext.changes) {
         server.loseNext.changes = false;
@@ -1463,6 +1494,89 @@ const deviceTimeZone = () => {
   return isTimeZone(zone) ? zone : null;
 };
 
+/**
+ * Changes typed in a home currency the person has since left, with their amounts converted
+ * into the home currency at their rate, as the real one does (worker/currency/typed-in.ts):
+ * an entry's on its day, anything else today's. Null when a rate can't be had.
+ */
+function typedInHome(server: FakeServer, body: Partial<ChangesBody>): Partial<ChangesBody> | null {
+  const { changes, currencies } = body;
+  if (!Array.isArray(changes) || !Array.isArray(currencies)) return body;
+  const home = server.me.settings.currency;
+  const converted: LedgerChange[] = [];
+  for (const [i, change] of changes.entries()) {
+    const from = currencies[i];
+    if (from == null || from === home) {
+      converted.push(change);
+      continue;
+    }
+    const at = (day?: string) => (day == null ? undefined : Date.parse(`${day}T12:00:00Z`));
+    const convert = (cents: number, day?: string) => {
+      const found = rateOn(server, from, home, at(day));
+      if (found == null) return null;
+      const out = cents < 0 ? -convertCents(-cents, found.rate) : convertCents(cents, found.rate);
+      return cents > 0 ? Math.max(1, out) : out;
+    };
+    let next: LedgerChange | null = change;
+    if (change.op === 'addTransaction' || change.op === 'logRecurring') {
+      const cents = convert(change.transaction.amountCents, change.transaction.date);
+      next =
+        cents == null
+          ? null
+          : { ...change, transaction: { ...change.transaction, amountCents: cents } };
+    } else if (change.op === 'updateTransaction' && change.amountCents != null) {
+      const day = change.date ?? server.transactions.find((t) => t.id === change.id)?.date;
+      const cents = convert(change.amountCents, day);
+      next = cents == null ? null : { ...change, amountCents: cents };
+    } else if (change.op === 'addAccount') {
+      const cents = convert(change.account.openingCents);
+      next =
+        cents == null ? null : { ...change, account: { ...change.account, openingCents: cents } };
+    } else if (
+      (change.op === 'updateAccount' && change.openingCents != null) ||
+      ((change.op === 'setBudget' || change.op === 'updateRecurring') && change.amountCents != null)
+    ) {
+      const field = change.op === 'updateAccount' ? 'openingCents' : 'amountCents';
+      const cents = convert((change as unknown as Record<string, number>)[field]);
+      next = cents == null ? null : { ...change, [field]: cents };
+    } else if (change.op === 'addRecurring') {
+      const cents = convert(change.recurring.amountCents);
+      next =
+        cents == null
+          ? null
+          : { ...change, recurring: { ...change.recurring, amountCents: cents } };
+    }
+    if (next == null) return null;
+    converted.push(next);
+  }
+  return { ...body, changes: converted };
+}
+
+/**
+ * Finishes the conversion under way, as the real one's last step does: every amount at its
+ * rate (an entry's on its day, the rest today's; 1 without one), the accounts in the new
+ * currency, and writes no longer wait
+ */
+export function finishConversion(server: FakeServer) {
+  const conversion = server.me.conversion;
+  if (conversion == null || conversion.refused != null) throw new Error('Nothing converting');
+  const { from, to } = conversion;
+  const rate = (day?: string) =>
+    rateOn(server, from, to, day == null ? undefined : Date.parse(`${day}T12:00:00Z`))?.rate ?? 1;
+  const up = (cents: number, r: number) => Math.max(1, convertCents(cents, r));
+  for (const t of server.transactions) t.amountCents = up(t.amountCents, rate(t.date));
+  for (const a of server.accounts) {
+    const r = rate();
+    a.openingCents =
+      a.openingCents < 0 ? -convertCents(-a.openingCents, r) : convertCents(a.openingCents, r);
+    a.currency = to;
+  }
+  for (const r of server.recurring) r.amountCents = up(r.amountCents, rate());
+  for (const b of server.budgets)
+    if (b.amountCents != null) b.amountCents = up(b.amountCents, rate());
+  server.me = { ...server.me, conversion: null };
+}
+
 /** A fresh server with the signed-in account */
 export function fakeServer(): FakeServer {
   return {
@@ -1472,6 +1586,7 @@ export function fakeServer(): FakeServer {
       email: EMAIL,
       displayName: 'Ryan',
       settings: { ...DEFAULT_SETTINGS, timeZone: deviceTimeZone() },
+      conversion: null,
     },
     rates: new Map(),
     accounts: [],

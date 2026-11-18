@@ -19,8 +19,13 @@ import { formatMoney } from '../../utils/money';
 import { showUndo } from '../common/undo-toast';
 import { amountText, readAmount, transactionSummary } from '../entry/entry-text';
 import Key from '../ui/Key';
-import { fullDay, headlineAmount } from './activity-text';
+import { DownIcon } from '../ui/icons';
+import { fullDay, headlineAmount, headlinePrefix } from './activity-text';
 import classes from './Activity.module.css';
+
+/** Whole cents as typed figures, with both decimals: 28900 is "289.00" */
+const centsText = (cents: number) =>
+  `${Math.trunc(cents / 100)}.${String(Math.abs(cents) % 100).padStart(2, '0')}`;
 
 const WAYS = [
   { value: 'expense', label: 'Expense' },
@@ -29,7 +34,8 @@ const WAYS = [
 ];
 
 // One entry, to change or delete: beside the register on a computer, in a sheet on phones
-// and tablets. Its day and amount as they're saved, which way it went, then what can be
+// and tablets. Beside the register (R-Desk-Activity) its payee, day and amount are typed
+// where they're shown, at the top, and the fields under them are the rest. Its day and amount as they're saved, which way it went, then what can be
 // changed: the amount, the category (or, for a transfer, the account it went to), the
 // account, the day (and its time, when Ask for a time is on or it has one), the payee and
 // the note. Save (or Enter) sends only what changed, through
@@ -60,7 +66,10 @@ export default function EntryEditor({
     const focus = setTimeout(() => amountField.current?.focus(), 0);
     return () => clearTimeout(focus);
   }, [toCheck]);
-  const [amount, setAmount] = useState(amountText(editing.amountCents));
+  // Beside the register it reads as its headline, cents and all ("289.00")
+  const [amount, setAmount] = useState(
+    title != null ? centsText(editing.amountCents) : amountText(editing.amountCents),
+  );
   const [kind, setKind] = useState<TransactionKind>(editing.kind);
   const [accountId, setAccountId] = useState(editing.accountId);
   const [toAccountId, setToAccountId] = useState(editing.toAccountId ?? '');
@@ -92,6 +101,14 @@ export default function EntryEditor({
   ]);
   const categoryId = categoryKind == null ? null : picked[kind] ?? '';
   const currency = account?.currency ?? DEFAULT_CURRENCY;
+  // Beside the register: its payee, day and amount typed where they're shown
+  const inline = title != null;
+  const chevron = (
+    <DownIcon
+      size={16}
+      aria-hidden
+    />
+  );
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -163,19 +180,77 @@ export default function EntryEditor({
       onSubmit={submit}
       noValidate
     >
-      <div className={classes.editorHead}>
-        {title != null && <h2 className={classes.editorTitle}>{title}</h2>}
-        <span className={classes.muted}>
-          {fullDay(editing.date, today)}
-          {editing.time != null && `, ${clockText(editing.time)}`}
-        </span>
-      </div>
-      <p
-        className={`${classes.headline} sf-tabular`}
-        data-kind={editing.kind}
-      >
-        {headlineAmount(editing, currency)}
-      </p>
+      {inline ? (
+        <>
+          <div className={classes.editorHead}>
+            <h2 className="sr-only">{title}</h2>
+            <input
+              className={`${classes.editorTitle} ${classes.inlineField}`}
+              aria-label="Payee"
+              placeholder={title}
+              value={payee}
+              maxLength={MAX_PAYEE}
+              autoComplete="off"
+              onChange={(e) => setPayee(e.currentTarget.value)}
+            />
+            {/* The day as it's written, over the field that changes it */}
+            <label className={`${classes.muted} ${classes.dayField}`}>
+              <span aria-hidden>
+                {isPastDay(date) ? fullDay(date, today) : 'Pick a day'}
+                {editing.time != null && `, ${clockText(editing.time)}`}
+              </span>
+              <input
+                type="date"
+                aria-label="Date"
+                value={date}
+                min="2000-01-01"
+                max={today}
+                onClick={(e) => {
+                  try {
+                    e.currentTarget.showPicker();
+                  } catch {
+                    // Without a picker, the day is typed
+                  }
+                }}
+                onChange={(e) => setDate(e.currentTarget.value)}
+              />
+            </label>
+          </div>
+          {errors.date != null && <p className={classes.fieldError}>{errors.date}</p>}
+          <label
+            className={`${classes.headline} sf-tabular`}
+            data-kind={kind}
+          >
+            <span>{headlinePrefix(kind, currency)}</span>{' '}
+            <input
+              ref={amountField}
+              className={classes.inlineField}
+              aria-label="Amount"
+              inputMode="decimal"
+              autoComplete="off"
+              data-autofocus={toCheck || undefined}
+              value={amount}
+              onChange={(e) => setAmount(e.currentTarget.value)}
+            />
+          </label>
+          {errors.amount != null && <p className={classes.fieldError}>{errors.amount}</p>}
+        </>
+      ) : (
+        <>
+          <div className={classes.editorHead}>
+            <span className={classes.muted}>
+              {fullDay(editing.date, today)}
+              {editing.time != null && `, ${clockText(editing.time)}`}
+            </span>
+          </div>
+          <p
+            className={`${classes.headline} sf-tabular`}
+            data-kind={editing.kind}
+          >
+            {headlineAmount(editing, currency)}
+          </p>
+        </>
+      )}
       <SegmentedControl
         aria-label="Which way"
         fullWidth
@@ -188,16 +263,18 @@ export default function EntryEditor({
           {`Added at ${formatMoney(editing.amountCents, currency)} from Scheduled, for you to check`}
         </p>
       )}
-      <TextInput
-        ref={amountField}
-        label="Amount"
-        inputMode="decimal"
-        autoComplete="off"
-        data-autofocus={toCheck || undefined}
-        value={amount}
-        onChange={(e) => setAmount(e.currentTarget.value)}
-        error={errors.amount}
-      />
+      {!inline && (
+        <TextInput
+          ref={amountField}
+          label="Amount"
+          inputMode="decimal"
+          autoComplete="off"
+          data-autofocus={toCheck || undefined}
+          value={amount}
+          onChange={(e) => setAmount(e.currentTarget.value)}
+          error={errors.amount}
+        />
+      )}
       {transfer ? (
         <NativeSelect
           label="To"
@@ -207,6 +284,7 @@ export default function EntryEditor({
           onChange={(e) => setToAccountId(e.currentTarget.value)}
           data={destinations.map((a) => ({ value: a.id, label: a.name }))}
           error={errors.to}
+          rightSection={chevron}
         />
       ) : (
         <NativeSelect
@@ -215,6 +293,7 @@ export default function EntryEditor({
           onChange={(e) => setPicked((now) => ({ ...now, [kind]: e.currentTarget.value }))}
           data={[{ value: '', label: 'Pick a category', disabled: true }, ...options]}
           error={errors.category}
+          rightSection={chevron}
         />
       )}
       <NativeSelect
@@ -222,16 +301,19 @@ export default function EntryEditor({
         value={account?.id ?? ''}
         onChange={(e) => setAccountId(e.currentTarget.value)}
         data={listed.map((a) => ({ value: a.id, label: a.name }))}
+        rightSection={chevron}
       />
-      <TextInput
-        type="date"
-        label="Date"
-        value={date}
-        min="2000-01-01"
-        max={today}
-        onChange={(e) => setDate(e.currentTarget.value)}
-        error={errors.date}
-      />
+      {!inline && (
+        <TextInput
+          type="date"
+          label="Date"
+          value={date}
+          min="2000-01-01"
+          max={today}
+          onChange={(e) => setDate(e.currentTarget.value)}
+          error={errors.date}
+        />
+      )}
       {showsTime && (
         <TextInput
           type="time"
@@ -240,13 +322,15 @@ export default function EntryEditor({
           onChange={(e) => setTime(e.currentTarget.value)}
         />
       )}
-      <TextInput
-        label="Payee"
-        value={payee}
-        maxLength={MAX_PAYEE}
-        autoComplete="off"
-        onChange={(e) => setPayee(e.currentTarget.value)}
-      />
+      {!inline && (
+        <TextInput
+          label="Payee"
+          value={payee}
+          maxLength={MAX_PAYEE}
+          autoComplete="off"
+          onChange={(e) => setPayee(e.currentTarget.value)}
+        />
+      )}
       <TextInput
         label="Note"
         value={note}
@@ -257,13 +341,15 @@ export default function EntryEditor({
       <div className={classes.editorActions}>
         <Button
           variant="subtle"
-          className="sf-danger"
+          size={inline ? 'xs' : undefined}
+          className={`sf-danger ${classes.deleteButton}`}
           onClick={remove}
         >
           Delete
         </Button>
         <Button
           type="submit"
+          size={inline ? 'xs' : undefined}
           rightSection={<Key>Enter</Key>}
         >
           Save

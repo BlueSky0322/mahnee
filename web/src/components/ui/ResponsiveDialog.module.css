@@ -87,6 +87,7 @@
   margin: 0;
   font-size: 1.125rem;
   font-weight: 600;
+  line-height: normal;
 }
 
 /* Close: a 44px round button in the softer ink, its cross level with the title */

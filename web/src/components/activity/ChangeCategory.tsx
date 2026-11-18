@@ -1,5 +1,5 @@
 import { Button, TextInput } from '@mantine/core';
-import { SearchIcon } from '../ui/icons';
+import { CheckIcon, SearchIcon } from '../ui/icons';
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
 import type { Category, LedgerChange, Transaction } from '@shared/api';
@@ -61,7 +61,11 @@ export default function ChangeCategory({
     <ResponsiveDialog
       opened={chosen != null}
       onClose={onClose}
-      title={`Change the category of ${isMobile ? n : entriesText(n)}`}
+      title={
+        <span className={classes.movingTitle}>
+          Change the category of {isMobile ? n : entriesText(n)}
+        </span>
+      }
       subtitle={
         n > 0 && (
           <WhatMoves
@@ -200,7 +204,10 @@ function Moving({
   );
 
   return (
-    <div className={classes.moving}>
+    <div
+      className={classes.moving}
+      data-wide={wide || undefined}
+    >
       {wide && (
         <>
           <div className={classes.movingList}>
@@ -257,6 +264,14 @@ function Moving({
           >
             {option(node, false)}
             {subs.map((c) => option(c, true))}
+            {top?.id === node.id && (
+              <span className={classes.picked}>
+                <CheckIcon
+                  size={18}
+                  aria-hidden
+                />
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -279,6 +294,7 @@ function Moving({
           {wide && (
             <Button
               variant="light"
+              size="xs"
               onClick={onCancel}
               rightSection={<Key>Esc</Key>}
             >
@@ -286,6 +302,8 @@ function Moving({
             </Button>
           )}
           <Button
+            size={wide ? 'xs' : undefined}
+            fullWidth={!wide}
             disabled={target == null}
             onClick={move}
           >

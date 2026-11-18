@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-18
 
+- Changed: Activity and Add match the design; Activity leaves out transfers until you ask for them [#?]
 - Changed: the app's spacing, icons, category colours and controls now match the design [#43]
 
 ## 2026-11-17

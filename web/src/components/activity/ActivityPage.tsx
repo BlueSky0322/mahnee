@@ -1,7 +1,7 @@
 import { Button, TextInput } from '@mantine/core';
 import { useNetwork } from '@mantine/hooks';
 import { CloudSlash } from '@phosphor-icons/react';
-import { ActivityIcon, SearchIcon } from '../ui/icons';
+import { ActivityIcon, DownIcon, SearchIcon } from '../ui/icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Account, Category, LedgerChange, Transaction } from '@shared/api';
 import { DEFAULT_CURRENCY, MAX_BULK_TRANSACTIONS } from '@shared/ledger';
@@ -37,7 +37,14 @@ import {
   shortDay,
 } from './activity-text';
 import type { Filters } from './address';
-import { NO_FILTERS, dayRange, readFilters, searchOf, writeFilters } from './address';
+import {
+  NO_FILTERS,
+  dayRange,
+  isDefaultKinds,
+  readFilters,
+  searchOf,
+  writeFilters,
+} from './address';
 import classes from './Activity.module.css';
 
 /** How long typing rests before it's searched for */
@@ -132,7 +139,7 @@ export default function ActivityPage({ query }: { query: string }) {
   const nothingSet =
     filters.account == null &&
     filters.category == null &&
-    filters.kinds == null &&
+    isDefaultKinds(filters.kinds) &&
     filters.q === '';
   const empty = rows != null && rows.length === 0;
   const nothingYet =
@@ -281,7 +288,7 @@ export default function ActivityPage({ query }: { query: string }) {
           filters={filters}
           today={today}
           onlySet={selecting}
-          carets={!isDesktop}
+          carets={!isDesktop && !selecting}
           onChange={setFilters}
         />
         {isDesktop && totals != null && (
@@ -304,6 +311,7 @@ export default function ActivityPage({ query }: { query: string }) {
               <Button
                 variant="subtle"
                 size="compact-sm"
+                className={classes.selectAll}
                 onClick={() => void selectAll()}
               >
                 Select all {count}
@@ -350,7 +358,10 @@ export default function ActivityPage({ query }: { query: string }) {
               <Placeholders />
             )
           ) : nothingYet ? (
-            <div className={classes.state}>
+            <div
+              className={classes.state}
+              data-state="none"
+            >
               <span className={classes.stateIcon}>
                 <ActivityIcon size={24} />
               </span>
@@ -377,7 +388,10 @@ export default function ActivityPage({ query }: { query: string }) {
               </div>
             </div>
           ) : empty ? (
-            <div className={classes.state}>
+            <div
+              className={classes.state}
+              data-state="no-match"
+            >
               <span className={classes.stateIcon}>
                 <SearchIcon size={24} />
               </span>
@@ -398,7 +412,7 @@ export default function ActivityPage({ query }: { query: string }) {
                 {!(
                   filters.account == null &&
                   filters.category == null &&
-                  filters.kinds == null
+                  isDefaultKinds(filters.kinds)
                 ) && (
                   <Button
                     variant="default"
@@ -632,6 +646,105 @@ function DayList({
   }
   const selecting = ticked != null;
 
+  const row = (t: Transaction) => {
+    const { title, subtitle } = rowText(t, {
+      accounts,
+      categories,
+      q,
+      selecting,
+      today,
+    });
+    const name = `${title}, ${subtitle}, ${listAmount(t, currency)}`;
+    const body = (
+      <>
+        <span className={classes.rowText}>
+          <span className={classes.rowTitle}>{title}</span>
+          <span className={classes.rowSubtitle}>{subtitle}</span>
+        </span>
+        <Amount
+          t={t}
+          currency={currency}
+        />
+      </>
+    );
+    return (
+      <li key={t.id}>
+        {selecting ? (
+          <label
+            className={classes.row}
+            // A fresh press, so the next tick is never mistaken for a long
+            // press's release
+            onPointerDown={() => (press.current.fired = false)}
+          >
+            <input
+              type="checkbox"
+              className={`sf-tick ${classes.tick}`}
+              aria-label={name}
+              checked={ticked.has(t.id)}
+              onChange={() => {
+                // The release of the long press that ticked it leaves it ticked
+                if (press.current.fired) {
+                  press.current.fired = false;
+                  return;
+                }
+                onToggle(t.id);
+              }}
+            />
+            {body}
+          </label>
+        ) : (
+          <button
+            type="button"
+            className={classes.row}
+            aria-label={name}
+            onPointerDown={() => {
+              letGo();
+              press.current.fired = false;
+              press.current.timer = setTimeout(() => {
+                press.current.timer = null;
+                press.current.fired = true;
+                onLongPress(t.id);
+              }, LONG_PRESS_MS);
+            }}
+            onPointerUp={letGo}
+            onPointerLeave={letGo}
+            onPointerCancel={letGo}
+            // A long press on a phone would open the browser's menu
+            onContextMenu={(e) => {
+              if (press.current.timer != null || press.current.fired) e.preventDefault();
+            }}
+            onClick={() => {
+              // The press that started selecting isn't also a tap
+              if (press.current.fired) {
+                press.current.fired = false;
+                return;
+              }
+              onOpen(t);
+            }}
+          >
+            <EntryTile
+              t={t}
+              categories={categories}
+            />
+            {body}
+          </button>
+        )}
+      </li>
+    );
+  };
+
+  // Selecting, it's one list, each row saying its day (R-Activity-Select)
+  if (selecting) {
+    return (
+      <ul
+        className={`${classes.list} ${classes.selectingList}`}
+        aria-label="Entries"
+      >
+        {rows.map(row)}
+      </ul>
+    );
+  }
+
   return (
     <div className={classes.days}>
       {days.map(({ day, rows: onDay }) => {
@@ -651,93 +764,7 @@ function DayList({
               className={classes.list}
               aria-label={heading}
             >
-              {onDay.map((t) => {
-                const { title, subtitle } = rowText(t, {
-                  accounts,
-                  categories,
-                  q,
-                  selecting,
-                  today,
-                });
-                const name = `${title}, ${subtitle}, ${listAmount(t, currency)}`;
-                const body = (
-                  <>
-                    <span className={classes.rowText}>
-                      <span className={classes.rowTitle}>{title}</span>
-                      <span className={classes.rowSubtitle}>{subtitle}</span>
-                    </span>
-                    <Amount
-                      t={t}
-                      currency={currency}
-                    />
-                  </>
-                );
-                return (
-                  <li key={t.id}>
-                    {selecting ? (
-                      <label
-                        className={classes.row}
-                        // A fresh press, so the next tick is never mistaken for a long
-                        // press's release
-                        onPointerDown={() => (press.current.fired = false)}
-                      >
-                        <input
-                          type="checkbox"
-                          className={`sf-tick ${classes.tick}`}
-                          aria-label={name}
-                          checked={ticked.has(t.id)}
-                          onChange={() => {
-                            // The release of the long press that ticked it leaves it ticked
-                            if (press.current.fired) {
-                              press.current.fired = false;
-                              return;
-                            }
-                            onToggle(t.id);
-                          }}
-                        />
-                        {body}
-                      </label>
-                    ) : (
-                      <button
-                        type="button"
-                        className={classes.row}
-                        aria-label={name}
-                        onPointerDown={() => {
-                          letGo();
-                          press.current.fired = false;
-                          press.current.timer = setTimeout(() => {
-                            press.current.timer = null;
-                            press.current.fired = true;
-                            onLongPress(t.id);
-                          }, LONG_PRESS_MS);
-                        }}
-                        onPointerUp={letGo}
-                        onPointerLeave={letGo}
-                        onPointerCancel={letGo}
-                        // A long press on a phone would open the browser's menu
-                        onContextMenu={(e) => {
-                          if (press.current.timer != null || press.current.fired)
-                            e.preventDefault();
-                        }}
-                        onClick={() => {
-                          // The press that started selecting isn't also a tap
-                          if (press.current.fired) {
-                            press.current.fired = false;
-                            return;
-                          }
-                          onOpen(t);
-                        }}
-                      >
-                        <EntryTile
-                          t={t}
-                          categories={categories}
-                        />
-                        {body}
-                      </button>
-                    )}
-                  </li>
-                );
-              })}
+              {onDay.map(row)}
             </ul>
           </div>
         );
@@ -824,6 +851,14 @@ function Register({
           className={classes.table}
           aria-label="Transactions"
         >
+          <colgroup>
+            <col className={classes.colTick} />
+            <col className={classes.colDate} />
+            <col className={classes.colPayee} />
+            <col className={classes.colCategory} />
+            <col />
+            <col className={classes.colAmount} />
+          </colgroup>
           <thead>
             <tr>
               <th scope="col">
@@ -912,6 +947,10 @@ function Register({
                         }}
                       >
                         {categoryName(categories, t.categoryId)}
+                        <DownIcon
+                          size={12}
+                          aria-hidden
+                        />
                       </button>
                     )}
                     {scheduledNote(t)}

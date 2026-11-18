@@ -383,7 +383,8 @@ describe('moving several to another category', () => {
       categoryId: SALARY,
       note: 'pay',
     });
-    const user = await openActivity(server, 'desktop');
+    // Every kind, so the transfer is listed to tick
+    const user = await openActivity(server, 'desktop', '/?activity&dates=all&kind=all');
     await user.click(tick('to bank'));
     await changeCategory(user);
     expect(

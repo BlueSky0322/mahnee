@@ -136,12 +136,12 @@ textarea::placeholder {
   opacity: 1;
 }
 
-/* Larger text sits tighter */
-h1,
-h2,
-h3,
-.mantine-Title-root {
-  letter-spacing: -0.02em;
+/* Buttons and fields keep the browser's own spacing, as the design's do */
+button,
+input,
+select,
+textarea {
+  letter-spacing: normal;
 }
 
 /* A segmented control's highlight and labels stay layered inside it, so sticky footers

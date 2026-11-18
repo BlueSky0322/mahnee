@@ -426,8 +426,8 @@ of its kind; and transfers, money moved from one of the person's accounts to ano
 (an e-wallet top-up, paying off a card), with no category. Add, in the tab bar on phones
 and tablets, or New entry (or N) in the sidebar on computers, opens Add on every page that
 shows them, while any account is running: the whole screen on phones and tablets, with a
-keypad (1-2-3 on top, as drawn), and on computers a dialog, "New entry", whose Amount field
-takes the same keys typed or pasted ("Sums work: 8+4.5"). The amount is a sum of numbers
+keypad (1-2-3 on top, as drawn), and on computers a dialog, "New entry", whose figure is its
+Amount field (no row of its own) and takes the same keys typed or pasted ("Sums work: 8+4.5"). The amount is a sum of numbers
 joined by + − ×, worked out in whole cents (`shared/keypad.ts`: × before + and −, each
 product rounded to the cent, half up; at most two decimals and nine digits a number; = puts
 the total in place; a key that would go past `MAX_TRANSACTION` is refused, and Save and the
@@ -443,8 +443,10 @@ Today opens the day (2000 up to today, in the person's own time zone; a day left
 follows the clock); Repeat sets it to repeat monthly or weekly from that day. Save says what
 it will do ("Save RM 12.50", "Move RM 12.50") or why it can't ("Type an amount", "The total
 is below zero", "Up to 10,000,000", "Pick a day from 2000 up to today"), and does nothing
-until it can. For opens the category list (a page on phones, under the row on computers):
-Recent, then the rest, or what's typed found by name, or made new: under the category the
+until it can. For opens the category list (a sheet over Add on phones, which keeps Recent
+under what's typed; on computers the For row takes the typing and the list opens under the
+fields, what Enter takes marked with its key): Recent, then the rest, or what's typed found
+by name, or made new: under the category the
 payee was last filed in ("Tealive was in Food", from `GET /api/payee-categories`), as its
 own category, or under another picked; one with no room under it, a name an archived one
 has, or past `MAX_CATEGORIES`, is not offered. A new category is saved with the entry, first,
@@ -1066,8 +1068,9 @@ ignoring the case of A to Z; words that read as an amount ("8", "8.50", "1,000")
 that exact amount, and text containing them ("8" finds RM 8.00, and a note "8 refund", but
 not RM 8.50 or RM 80). Four chips narrow it: the account (transfers into it too), the
 category (a top-level one with its subcategories), the days (This month, Last month, All
-months, or From and To, both included) and the kind (All kinds, Expenses, Income,
-Transfers, Expenses and income); `&scheduled` (Scheduled's "See them") keeps only entries
+months, or From and To, both included) and the kind (Expenses and income, where it starts,
+so transfers are left out until asked for; Expenses, Income, Transfers, or All kinds,
+`&kind=all`); `&scheduled` (Scheduled's "See them") keeps only entries
 added from Scheduled, with a pressed "From Scheduled" chip that takes it off. "12 found · RM 43.18 spent" (and "· RM x received"
 when income is found) counts everything found, loaded or not. Amounts say which way:
 spending "−8.50" in ink, income "+50.00" green, a transfer "100.00" grey with no sign.
@@ -1075,11 +1078,13 @@ spending "−8.50" in ink, income "+50.00" green, a transfer "100.00" grey with 
 On phones and tablets the list is grouped by day, each day with its total (received less
 spent; none for a day of transfers alone); tapping one opens it in a sheet to change or
 delete. Select, or a long press on a row (half a second; the release isn't a tap), starts
-selecting (`&select`, with no tab bar): rows have tick boxes, "Select all N" ticks
+selecting (`&select`, with no tab bar): one list without day headings, each row saying its
+day, with tick boxes, "Select all N" ticks
 everything found (loading every page, stopping past 500), and the foot says what's ticked
 ("3 entries · RM 30.90 · all Kedai") with Delete N and Change category. On a computer
 it's a register (Date, Payee and note, Category, Account, Amount), every row with a tick
-box, and the open row (the first until another is picked) is changed beside it; J and K
+box, and the open row (the first until another is picked) is changed beside it, its payee,
+day and amount typed where the pane shows them (R-Desk-Activity); J and K
 move the open row, X ticks it, C changes the category of what's ticked (or of the open
 row), and a row's category opens Change category for it alone. Esc closes the top dialog;
 with a row always open, there's no pane to close.

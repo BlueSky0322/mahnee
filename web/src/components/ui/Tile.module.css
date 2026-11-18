@@ -13,6 +13,6 @@
 }
 
 .tile[data-tone='category'] {
-  background-color: color-mix(in srgb, var(--tile) 14%, var(--surface));
+  background-color: color-mix(in srgb, var(--tile) var(--tile-tint, 14%), var(--surface));
   color: var(--tile);
 }

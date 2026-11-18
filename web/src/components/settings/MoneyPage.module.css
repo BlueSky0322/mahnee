@@ -14,8 +14,9 @@
   padding: 0 7px;
   border-radius: 6px;
   background: var(--accent-tint);
-  color: var(--accent);
-  font-size: 11px;
+  /* In the line's grey, as the boards draw it beside a setting's name */
+  color: var(--ink-3);
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -103,6 +104,13 @@
   gap: 14px;
 }
 
+/* R-Set-Money's sheet ends 28px above the edge, with nothing under the preview */
+@media (max-width: 767px) {
+  .sheet {
+    padding-bottom: 8px;
+  }
+}
+
 .days {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -161,6 +169,10 @@
   text-decoration: none;
 }
 
+.preview b {
+  font-weight: 500;
+}
+
 .preview {
   display: flex;
   align-items: baseline;
@@ -176,4 +188,19 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* A computer's panel under "Month starts on" (R-Desk-Prefs) */
+.pop {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgb(20 20 20 / 16%);
+}
+
+.pop .day,
+.pop .lastDay {
+  height: 36px;
+  font-size: 14px;
 }

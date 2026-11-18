@@ -33,6 +33,15 @@ export function namesText(names: readonly string[]) {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
+/** The month end's line names the one account, with nothing due: words, not figures */
+export function namesAccount(
+  accounts: readonly unknown[],
+  billsCents: number,
+  payCents: number,
+): boolean {
+  return accounts.length === 1 && billsCents === 0 && payCents === 0;
+}
+
 /**
  * The line under the month-end figure: today's balances, the bills still due and the pay
  * still due, each part only when there's something in it. With the one account and nothing
@@ -51,7 +60,7 @@ export function heroLine({
   payCents: number;
   currency: string;
 }): { today: string; bills: string | null; pay: string | null } {
-  const alone = accounts.length === 1 && billsCents === 0 && payCents === 0;
+  const alone = namesAccount(accounts, billsCents, payCents);
   return {
     today: `${alone ? accounts[0].name : signedMoney(balancesCents, currency)} today`,
     bills: billsCents > 0 ? `− ${formatMoney(billsCents, currency)}` : null,

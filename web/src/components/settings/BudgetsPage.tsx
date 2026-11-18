@@ -4,6 +4,7 @@ import { SECTION_NAMES, SETTINGS_INDEX } from './settings-search';
 import { settingValue } from './settings-text';
 import { SectionHeader } from './SettingsPage';
 import { useSettingInView } from './setting-in-view';
+import { NewTag } from '../ui/Badge';
 import { OnOff, SettingRow } from './setting-parts';
 import classes from './Settings.module.css';
 
@@ -17,6 +18,8 @@ export default function BudgetsPage() {
   const title = SECTION_NAMES.budgets;
   const settings = profile?.settings;
   const reminders = SETTINGS_INDEX.filter((s) => s.section === 'budgets' && s.key !== 'carryOver');
+  // The reminders the boards mark New (R-Set-Budgets)
+  const isNew = (key: string) => key === 'dailyReminder' || key === 'beforeScheduled';
 
   return (
     <div className={classes.page}>
@@ -48,7 +51,10 @@ export default function BudgetsPage() {
               tabIndex={-1}
             >
               <div className={classes.rowText}>
-                <div className={classes.label}>{s.name}</div>
+                <div className={`${classes.label} ${classes.settingName}`}>
+                  {s.name}
+                  {isNew(s.key) && <NewTag />}
+                </div>
                 <div className={classes.detail}>{s.line}</div>
               </div>
               <span className={classes.value}>

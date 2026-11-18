@@ -85,6 +85,10 @@
   margin-left: -12px;
 }
 
+.desktop .monthNav {
+  gap: 4px;
+}
+
 .title {
   margin: 0;
   font-size: 20px;
@@ -101,6 +105,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* A computer's search is drawn 340px wide, narrower only when the room is */
+.desktop .headerEnd {
+  flex: 0 1 340px;
 }
 
 .iconButton {
@@ -137,6 +146,7 @@
 .search input {
   flex: 1;
   min-width: 0;
+  padding: 1px 2px;
   border: 0;
   outline: 0;
   background: transparent;
@@ -177,7 +187,7 @@
   font-weight: 500;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 .heroLine {
@@ -185,6 +195,20 @@
   font-size: 13px;
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* A line of words alone keeps the body's tracking */
+.heroLine.words {
+  font-variant-numeric: normal;
+  letter-spacing: inherit;
+}
+
+/* A computer's month-end line: each part on one line, wrapping between parts */
+.heroParts {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 6px;
 }
 
 .cards {
@@ -211,6 +235,7 @@
   font-size: 20px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
@@ -231,6 +256,10 @@
   padding: 20px;
 }
 
+.glance .answerLabel {
+  font-weight: 500;
+}
+
 .glance .cardFigure {
   font-size: 30px;
   line-height: 1.05;
@@ -241,6 +270,32 @@
 .glance .heroLine {
   font-size: 13px;
   line-height: 1.45;
+}
+
+.glance .heroLine {
+  font-variant-numeric: normal;
+  letter-spacing: inherit;
+}
+
+/* A first day on a computer: the three drawn smaller (R-Desk-Empty-Home) */
+.glanceQuiet .answer {
+  gap: 6px;
+  padding: 18px;
+}
+
+.glanceQuiet .answerLabel {
+  font-weight: 400;
+}
+
+.glanceQuiet .cardFigure {
+  font-size: 28px;
+  line-height: normal;
+  letter-spacing: -0.01em;
+}
+
+.glanceQuiet .answerLine,
+.glanceQuiet .heroLine {
+  line-height: 1.4;
 }
 
 /* Tidy up */
@@ -281,6 +336,7 @@
   color: var(--ink);
   font-size: 13.5px;
   font-weight: 500;
+  line-height: 1;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -312,6 +368,18 @@
   font-size: 12px;
 }
 
+/* A phone's Budgets card: All of Plan is a full tap tall, centred on the title */
+.budgetsCard .cardHead {
+  align-items: center;
+}
+
+.budgetsCard .more {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  margin: -12px 0;
+}
+
 /* Coming up */
 
 .coming {
@@ -320,6 +388,10 @@
 
 .coming .cardHead {
   padding: 16px 16px 6px;
+}
+
+.coming .more {
+  font-size: 13px;
 }
 
 .needs {
@@ -377,6 +449,14 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.desktop .daysCard .days {
+  gap: 8px;
+}
+
+.desktop .daysCard .cardTitle {
+  font-size: 14px;
 }
 
 .grid {
@@ -502,6 +582,10 @@
   gap: 16px;
 }
 
+.desktop > .budgets {
+  gap: 10px;
+}
+
 .budgetList {
   display: flex;
   flex-direction: column;
@@ -572,6 +656,7 @@
   margin: 0;
   color: var(--ink-2);
   font-size: 14px;
+  line-height: 1.5;
 }
 
 .lineButton {
@@ -584,6 +669,7 @@
   color: var(--ink);
   font-size: 13.5px;
   font-weight: 500;
+  line-height: 1;
   text-decoration: none;
 }
 
@@ -594,7 +680,12 @@
   padding: 16px;
 }
 
-.combined .budgets {
+.desktop .combined {
+  padding: 18px;
+}
+
+.combined .budgets,
+.combined .days {
   gap: 8px;
 }
 
@@ -636,6 +727,12 @@
   padding: 16px 16px 14px;
 }
 
+/* A first day: Getting started and the empty budgets and days, three parts to two */
+.splitFirst {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+}
+
 /* Getting started */
 
 .started {
@@ -644,6 +741,10 @@
 
 .started .cardHead {
   padding: 14px 16px 6px;
+}
+
+.started .middle {
+  font-size: 13px;
 }
 
 .hide {
@@ -674,6 +775,8 @@
   font: inherit;
   text-align: left;
   text-decoration: none;
+  /* Links in the design: the body's tracking */
+  letter-spacing: inherit;
 }
 
 button.step {
@@ -752,6 +855,11 @@ button.step {
   justify-content: space-between;
 }
 
+/* The initial stands out of the row, which is as tall as the name (as drawn) */
+.firstTop .headerEnd {
+  height: 0;
+}
+
 .brand {
   margin: 0;
   font-size: 15px;
@@ -778,6 +886,7 @@ button.step {
   color: var(--ink-2);
   font-size: 15px;
   line-height: 1.5;
+  text-wrap: pretty;
 }
 
 .kinds {
@@ -837,6 +946,10 @@ button.step {
 
 .firstFoot p {
   margin: 0;
+}
+
+.firstFoot .small {
+  line-height: normal;
 }
 
 @media (min-width: 1024px) {

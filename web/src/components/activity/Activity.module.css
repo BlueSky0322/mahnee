@@ -204,9 +204,16 @@
   margin-top: 6px;
 }
 
-/* Select and Done are quiet, in ink (R-Activity, R-Activity-Select) */
+/* Select and Done are quiet, in ink (R-Activity, R-Activity-Select); links in the design,
+   so in the body's tracking, as are the foot's Change category and the empty states' buttons */
 .header .quiet[data-variant] {
   color: var(--ink);
+}
+
+.header .quiet,
+.selectionActions :global(.mantine-Button-root),
+.state[data-state='none'] .stateActions :global(.mantine-Button-root) {
+  letter-spacing: inherit;
 }
 
 /* ---------- A phone's days ---------- */

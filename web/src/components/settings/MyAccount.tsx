@@ -89,8 +89,10 @@ export default function MyAccount() {
           >
             {you.initial}
           </span>
-          <div className={classes.name}>{you.name}</div>
-          <div className={classes.detail}>{you.email}</div>
+          <div className={classes.who}>
+            <div className={classes.name}>{you.name}</div>
+            <div className={classes.detail}>{you.email}</div>
+          </div>
           {changeName}
         </section>
       )}

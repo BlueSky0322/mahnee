@@ -7,7 +7,7 @@ export interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {
   size?: number | string;
 }
 
-const icon = (paths: ReactNode, strokeWidth = 1.8) => {
+const icon = (paths: ReactNode, strokeWidth = 1.8, ends: 'round' | 'butt' = 'round') => {
   const Icon = ({ size = 20, ...rest }: IconProps) => (
     <svg
       width={size}
@@ -16,7 +16,7 @@ const icon = (paths: ReactNode, strokeWidth = 1.8) => {
       fill="none"
       stroke="currentColor"
       strokeWidth={strokeWidth}
-      strokeLinecap="round"
+      strokeLinecap={ends}
       strokeLinejoin="round"
       aria-hidden
       {...rest}
@@ -63,9 +63,11 @@ export const SettingsIcon = icon(
   </>,
 );
 
-// Kinds of account
+// Kinds of account, drawn with square ends
 export const BankIcon = icon(
   <path d="M3 9.5 12 4l9 5.5M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18" />,
+  1.8,
+  'butt',
 );
 export const EwalletIcon = icon(
   <>
@@ -82,6 +84,8 @@ export const EwalletIcon = icon(
       r="2.5"
     />
   </>,
+  1.8,
+  'butt',
 );
 export const CashIcon = icon(
   <>
@@ -99,6 +103,8 @@ export const CashIcon = icon(
       r="2.5"
     />
   </>,
+  1.8,
+  'butt',
 );
 export const CardIcon = icon(
   <>
@@ -111,6 +117,8 @@ export const CardIcon = icon(
     />
     <path d="M3 10h18M7 15h4" />
   </>,
+  1.8,
+  'butt',
 );
 
 // Settings' sections
@@ -198,8 +206,13 @@ export const SearchIcon = icon(
     <path d="M16 16l4 4" />
   </>,
 );
+/** Money going out, and coming in (the kinds of category) */
+export const OutIcon = icon(<path d="M7 17L17 7M9 7h8v8" />, 2);
+export const InIcon = icon(<path d="M17 7L7 17M15 17H7V9" />, 2);
 export const PlusIcon = icon(<path d="M12 5v14M5 12h14" />, 2.2);
 export const CheckIcon = icon(<path d="M5 12.5l4.5 4.5L19 7.5" />, 2.2);
+/** Getting started's done step: a heavier tick */
+export const DoneIcon = icon(<path d="M5 12l5 5 9-10" />, 3);
 export const CloseIcon = icon(<path d="M6 6l12 12M18 6L6 18" />);
 export const AlertIcon = icon(
   <>

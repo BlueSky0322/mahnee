@@ -9,8 +9,9 @@ import { fakeServer, renderApp, setupAppTests } from '../../testing/app';
 
 // Scheduled on Home (R-Desk-Home; digest 3.1, 4.6; owner decisions D8, D13 and D19). Entries
 // are added on their day by the server, so what needs the person is what's left to check:
-// each entry added this month whose amount changes is listed first in Coming up, "amount to
-// check", and opens that day in Activity to confirm it. An item whose amount changes says
+// each entry added this month whose amount changes is listed first in a computer's Coming
+// up, "amount to check", and opens that day in Activity to confirm it. A phone's Home has no
+// Coming up (R-Home; owner, 2026-11-18): there the entries to check are in Activity. An item whose amount changes says
 // so on its next date, as it will be added for the person to check; every entry to check is
 // listed, and the next three items however many more there are. What Scheduled added in
 // the person's month is named under the list ("Added this month: ..."). Log it and Skip are
@@ -29,6 +30,8 @@ afterAll(() => {
 setupAppTests();
 
 const SIZES = ['desktop', 'phone'] as const;
+/** Coming up is on a computer's Home only */
+const COMING_UP_SIZES = ['desktop'] as const;
 const BANK = 'b'.repeat(16);
 const id = (name: string) => DEFAULT_CATEGORIES.find((c) => c.name === name)!.id;
 const [BILLS, FUN] = [id('Bills'), id('Fun')];
@@ -143,7 +146,18 @@ const comingUp = () => screen.findByRole('region', { name: 'Coming up' }, { time
 const comingRows = (region: HTMLElement) => within(region).getAllByRole('listitem').map(seen);
 
 describe('what Scheduled added, on Home', () => {
-  test.each(SIZES)(
+  test("a phone's Home lists none of it, as drawn", async () => {
+    tenthJustAfterMidnight();
+    renderApp(withScheduled(), '/', { size: 'phone' });
+    expect(
+      await screen.findByRole('region', { name: 'Day by day' }, { timeout: 3000 }),
+    ).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Coming up' })).toBeNull();
+    expect(screen.queryByText(/amount to check/)).toBeNull();
+    expect(screen.queryByText(/Added this month/)).toBeNull();
+  });
+
+  test.each(COMING_UP_SIZES)(
     'lists each entry still to check first, then what is coming, and names what was added (%s)',
     async (size) => {
       tenthJustAfterMidnight();
@@ -167,35 +181,29 @@ describe('what Scheduled added, on Home', () => {
     },
   );
 
-  test.each(SIZES)('says nothing of what was added while nothing was (%s)', async (size) => {
-    tenthJustAfterMidnight();
-    renderApp(withScheduled([POWER]), '/', { size });
-    const coming = await comingUp();
-    await waitFor(() =>
-      expect(comingRows(coming)).toEqual(['Power · RM 210.40 Nov 20 · amount to check']),
-    );
-    expect(within(coming).queryByText(/Added this month/)).toBeNull();
-  });
+  test.each(COMING_UP_SIZES)(
+    'says nothing of what was added while nothing was (%s)',
+    async (size) => {
+      tenthJustAfterMidnight();
+      renderApp(withScheduled([POWER]), '/', { size });
+      const coming = await comingUp();
+      await waitFor(() =>
+        expect(comingRows(coming)).toEqual(['Power · RM 210.40 Nov 20 · amount to check']),
+      );
+      expect(within(coming).queryByText(/Added this month/)).toBeNull();
+    },
+  );
 
-  test.each(SIZES)(
+  test.each(COMING_UP_SIZES)(
     'an entry confirmed elsewhere leaves the list at once, though still added (%s)',
     async (size) => {
       tenthJustAfterMidnight();
       const server = withScheduled();
       renderApp(server, '/?activity&day=2026-11-05', { size });
       const user = userEvent.setup();
-      // A phone's row is named by all it says; a computer's register names the payee
-      await user.click(
-        await screen.findByRole(
-          'button',
-          { name: size === 'phone' ? /^Water, / : 'Water' },
-          { timeout: 3000 },
-        ),
-      );
-      const form =
-        size === 'phone'
-          ? within(await screen.findByRole('dialog', { name: 'Water' }))
-          : within(await screen.findByRole('complementary', { name: /^Water, Nov 5/ }));
+      // A computer's register names the payee
+      await user.click(await screen.findByRole('button', { name: 'Water' }, { timeout: 3000 }));
+      const form = within(await screen.findByRole('complementary', { name: /^Water, Nov 5/ }));
       await user.click(form.getByRole('button', { name: 'Save' }));
       await user.click(screen.getAllByRole('link', { name: 'Home' })[0]);
       const coming = await comingUp();
@@ -206,23 +214,26 @@ describe('what Scheduled added, on Home', () => {
     },
   );
 
-  test.each(SIZES)('Essentials keeps the amounts to check and the next item (%s)', async (size) => {
-    tenthJustAfterMidnight();
-    const server = withScheduled();
-    server.me.settings = { ...server.me.settings, homeDensity: 'essentials' };
-    renderApp(server, '/', { size });
-    const coming = await comingUp();
-    await waitFor(() =>
-      expect(comingRows(coming)).toEqual([
-        'Water · RM 30.15 Nov 5 · amount to check',
-        'Power · RM 210.40 Nov 20 · amount to check',
-      ]),
-    );
-  });
+  test.each(COMING_UP_SIZES)(
+    'Essentials keeps the amounts to check and the next item (%s)',
+    async (size) => {
+      tenthJustAfterMidnight();
+      const server = withScheduled();
+      server.me.settings = { ...server.me.settings, homeDensity: 'essentials' };
+      renderApp(server, '/', { size });
+      const coming = await comingUp();
+      await waitFor(() =>
+        expect(comingRows(coming)).toEqual([
+          'Water · RM 30.15 Nov 5 · amount to check',
+          'Power · RM 210.40 Nov 20 · amount to check',
+        ]),
+      );
+    },
+  );
 });
 
 describe('how much Home lists', () => {
-  test.each(SIZES)(
+  test.each(COMING_UP_SIZES)(
     'every entry still to check, and the next three items, however many more there are (%s)',
     async (size) => {
       tenthJustAfterMidnight();
@@ -256,7 +267,7 @@ describe('how much Home lists', () => {
     },
   );
 
-  test.each(SIZES)(
+  test.each(COMING_UP_SIZES)(
     "names what was added in the person's month: from the 25th, October 25 to November 24 (%s)",
     async (size) => {
       tenthJustAfterMidnight();

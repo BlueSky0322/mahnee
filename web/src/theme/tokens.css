@@ -136,7 +136,9 @@ textarea::placeholder {
   opacity: 1;
 }
 
-/* Buttons and fields keep the browser's own spacing, as the design's do */
+/* Buttons and fields keep the browser's own spacing, as the design's do; a button the design
+   draws as a link (a back link, New entry, a step) keeps the body's, with letter-spacing:
+   inherit where it's drawn */
 button,
 input,
 select,
@@ -232,6 +234,7 @@ textarea {
   padding: 0 10px 0 2px;
   margin-left: -6px;
   font-size: 0.84375rem;
+  letter-spacing: inherit;
 }
 .sf-back .mantine-Button-section[data-position='left'] {
   margin-inline-end: 8px;

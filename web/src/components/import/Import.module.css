@@ -1,23 +1,44 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+  box-sizing: border-box;
+  min-height: 100dvh;
   max-width: 560px;
   margin: 0 auto;
-  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px calc(24px + var(--sf-safe-bottom));
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(24px + var(--sf-safe-bottom));
 }
 
 .header {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+  padding: 0 4px;
 }
 
 .title {
   margin: 0;
   font-size: 22px;
   font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.soft {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.small {
+  color: var(--ink-3);
+  font-size: 12px;
 }
 
 .section {
@@ -37,9 +58,9 @@
   flex-direction: column;
   gap: 12px;
   padding: 20px;
+  border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--surface);
-  box-shadow: var(--shadow-card);
 }
 
 .muted {
@@ -96,15 +117,17 @@
   overflow-wrap: anywhere;
 }
 
+/* A phone's lines (R-Import): a card of items */
 .list {
   display: flex;
   flex-direction: column;
   margin: 0;
-  padding: 4px 0;
-  list-style: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--surface);
-  box-shadow: var(--shadow-card);
+  list-style: none;
 }
 
 .row {
@@ -114,27 +137,46 @@
   padding: 10px 16px;
 }
 
-.row + .row {
+.row + .row,
+.item + .item {
   border-top: 1px solid var(--line);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  box-sizing: border-box;
+  padding: 10px 16px;
 }
 
 .tick {
   flex: none;
-  margin-top: 2px;
 }
 
-.rowBody {
+.main {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
-.rowLine {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+.payee {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rowText {
@@ -144,41 +186,95 @@
 
 .amount {
   flex: none;
+  font-size: 15px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.detail {
+[data-income] .amount {
+  color: var(--pos);
+}
+
+.note {
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 
+/* "Looks already saved", in amber; a phone says it mid-line, in lower case */
 .flag {
-  align-self: flex-start;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--sunk);
-  color: var(--ink-2);
+  display: inline-block;
+  color: var(--due);
   font-size: 12px;
 }
 
+.line .flag {
+  font-size: 13px;
+}
+
+.line .flag::first-letter {
+  text-transform: lowercase;
+}
+
+/* A phone's category, picked in place in the line */
+.inlinePick {
+  display: inline-block;
+  vertical-align: baseline;
+}
+
+.inlineSelect {
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  appearance: none;
+}
+
+.inlineArrow {
+  display: none;
+}
+
+[data-other] .inlineSelect,
+.inlineSelect[data-other] {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.showMore {
+  align-self: center;
+  color: var(--ink-2);
+}
+
+/* Add, held at the foot of a phone's screen */
 .importBar {
   position: sticky;
   bottom: 0;
+  /* At the foot of the screen, however few the lines */
+  margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 0 -16px;
-  padding: 12px 16px calc(12px + var(--sf-safe-bottom));
+  gap: 6px;
+  margin-right: -16px;
+  margin-bottom: calc(-24px - var(--sf-safe-bottom));
+  margin-left: -16px;
+  padding: 12px 16px calc(28px + var(--sf-safe-bottom));
+  border-top: 1px solid var(--line);
   background: var(--ground);
-  box-shadow: 0 -1px 0 var(--line);
 }
 
-/* "Import 2 transactions and 2 repeating items" wraps rather than being cut off */
 .importButton {
   height: auto;
-  min-height: 42px;
+  min-height: 46px;
   padding-block: 8px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 500;
 }
 
 .importButtonLabel {
@@ -191,33 +287,64 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  align-self: stretch;
+  min-height: 48px;
 }
 
-/* The steps: 1 File, 2 Columns, 3 Check, the one now in ink */
+/* The steps: 1 File, 2 Columns, 3 Check, each a numbered circle, the one now in ink */
 .steps {
   display: flex;
   gap: 14px;
-  margin: 4px 0;
-  padding: 0;
-  color: var(--ink-3);
-  font-size: 13px;
+  margin: 0;
+  padding: 0 4px;
   list-style: none;
 }
 
-.steps li[aria-current='step'] {
-  color: var(--ink);
+.step,
+.stepBack {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.stepBack {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.stepMark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--sunk);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-style: normal;
   font-weight: 600;
 }
 
-.steps li[data-done] {
-  color: var(--pos);
+.step[aria-current='step'] {
+  color: var(--ink);
+  font-weight: 500;
 }
 
-/* How many of each */
+.step[aria-current='step'] .stepMark {
+  background: var(--ink);
+  color: var(--ground);
+}
+
+/* How many of each: on a phone, three small cards, what's already saved in amber */
 .counts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -228,41 +355,356 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 12px;
-  border-radius: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
   background: var(--surface);
-  box-shadow: var(--shadow-card);
+}
+
+.counts li[data-saved] {
+  border-color: color-mix(in srgb, var(--due) 40%, var(--line));
+}
+
+.counts li[data-saved] .countNumber,
+.facts li[data-saved] {
+  color: var(--due);
 }
 
 .countNumber {
-  font-size: 22px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
 .countLabel {
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: 12px;
+}
+
+/* A computer's counts: each beside its figure, under the columns */
+.facts {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: 8px;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  list-style: none;
+}
+
+.facts li {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  color: var(--ink-2);
+}
+
+.facts .countLabel {
+  color: inherit;
+  font-size: 14px;
+}
+
+.facts .countNumber {
+  font-size: 14px;
+  font-weight: 400;
+  text-align: right;
+}
+
+.facts li:nth-child(-n + 2) .countNumber {
+  font-weight: 500;
+}
+
+.rule {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* A computer's import (R-Desk-Import): a large dialog over Settings › Import and export */
+.behind {
+  pointer-events: none;
+}
+
+/* Mantine's dialog, drawn as the board's: on the ground, 22px corners, 48px down */
+.dialogInner {
+  overflow-y: auto;
+  padding-inline: 32px;
+}
+
+.dialog {
+  display: flex;
+  flex: 0 0 min(1200px, 100%);
+  flex-direction: column;
+  gap: 20px;
+  box-sizing: border-box;
+  max-height: none;
+  margin-bottom: 48px;
+  padding: 24px 28px 28px;
+  border-radius: 22px;
+  background: var(--ground);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 28%);
+}
+
+.deskHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.deskHeader .titleBlock {
+  padding: 0;
+}
+
+.deskHeader .title {
+  font-size: 26px;
+  letter-spacing: -0.03em;
+}
+
+.deskHeader .steps {
+  gap: 20px;
+  margin-left: auto;
+  padding: 0;
+}
+
+.deskHeader .step,
+.deskHeader .stepBack {
+  gap: 8px;
+  font-size: 14px;
+}
+
+.deskHeader .stepMark {
+  width: 24px;
+  height: 24px;
+}
+
+.deskHeader .step[data-done] .stepMark {
+  background: var(--pos);
+  color: #fff;
+}
+
+.closeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  background: var(--sunk);
+}
+
+.deskBody {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.deskSide {
+  display: flex;
+  flex: 1 1 340px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.deskMain {
+  display: flex;
+  flex: 999 1 560px;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.columns {
+  gap: 14px;
+}
+
+.dialog .columns {
+  padding: 18px;
+}
+
+.columnsHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dialog .sectionTitle {
+  font-size: 15px;
+}
+
+/* A column's name beside its pick */
+.map {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.mapLabel {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.mapInput {
+  height: 40px;
+  min-height: 40px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+/* The lines, as a table under chips that pick which */
+.lines {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 .tabs {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
 }
 
 .tab {
-  height: 32px;
+  height: 34px;
   padding: 0 12px;
-  border: 0;
+  border: 1px solid var(--line-2);
   border-radius: 999px;
-  background: var(--sunk);
-  color: var(--ink-2);
+  background: var(--surface);
+  color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .tab[aria-selected='true'] {
+  border-color: var(--ink);
   background: var(--ink);
-  color: var(--surface);
+  color: var(--ground);
+}
+
+.lines .section {
+  gap: 0;
+  overflow-x: auto;
+}
+
+.table {
+  min-width: 600px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tableRow {
+  display: grid;
+  grid-template-columns: 32px 64px minmax(0, 1.5fr) minmax(0, 1fr) 110px;
+  align-items: center;
+  column-gap: 14px;
+  min-width: 600px;
+  min-height: 50px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.table .tableRow:last-child {
+  border-bottom: 0;
+}
+
+.tableRow[data-saved] {
+  background: var(--due-tint);
+}
+
+.tableHead {
+  min-height: 40px;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.date {
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.payeeCell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 6px 0;
+}
+
+.tableRow .payee {
+  font-size: 14px;
+}
+
+.categoryCell {
+  min-width: 0;
+}
+
+.right {
+  text-align: right;
+}
+
+.tableRow .amount {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.categoryPick {
+  display: inline-block;
+  max-width: 100%;
+}
+
+/* A computer's category: an outlined button-like pick, dashed in the accent for Other */
+.categoryButton {
+  width: auto;
+  max-width: 100%;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  font-size: 13px;
+  appearance: none;
+  field-sizing: content;
+}
+
+[data-other] .categoryButton,
+.categoryButton[data-other] {
+  border-style: dashed;
+  color: var(--accent);
+}
+
+.inlineLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
 }

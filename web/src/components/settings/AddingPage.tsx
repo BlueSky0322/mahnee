@@ -1,4 +1,5 @@
-import { ForwardIcon } from '../ui/icons';
+import { Button } from '@mantine/core';
+import { DownIcon, ForwardIcon } from '../ui/icons';
 import { useState } from 'react';
 import type { StartWith } from '@shared/api';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
@@ -63,19 +64,31 @@ export default function AddingPage() {
             found={found}
             beside
           >
-            <button
-              type="button"
-              className={classes.pick}
-              aria-label={isDesktop ? `Account to use: ${accountName}` : undefined}
-              onClick={() => setPicking(true)}
-            >
-              {!isDesktop && <span className="sr-only">Account to use </span>}
-              {accountName}
-              <ForwardIcon
-                size={16}
-                aria-hidden
-              />
-            </button>
+            {isDesktop ? (
+              <Button
+                variant="default"
+                size="xs"
+                aria-label={`Account to use: ${accountName}`}
+                aria-haspopup="dialog"
+                rightSection={<DownIcon size={14} />}
+                onClick={() => setPicking(true)}
+              >
+                {accountName}
+              </Button>
+            ) : (
+              <button
+                type="button"
+                className={classes.pick}
+                onClick={() => setPicking(true)}
+              >
+                <span className="sr-only">Account to use </span>
+                {accountName}
+                <ForwardIcon
+                  size={16}
+                  aria-hidden
+                />
+              </button>
+            )}
           </SettingRow>
           <SettingRow
             settingKey="suggest"

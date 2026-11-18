@@ -164,12 +164,20 @@ describe('addresses', () => {
     expect(await pageTitle('Settings')).toBeTruthy();
   });
 
-  test("?import goes back up to Import and export, where it's opened from", async () => {
-    renderApp(withWallet(), '/?import');
-    expect(await pageTitle('Import')).toBeTruthy();
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Import and export' }));
-    expect(await pageTitle('Import and export')).toBeTruthy();
-    expect(window.location.search).toBe('?settings=data');
-  });
+  // A phone goes back up with its back link; a computer's import is a dialog over Import and
+  // export (R-Desk-Import), closed with its X
+  test.each([
+    ['phone', 'Import and export'],
+    ['desktop', 'Cancel import, nothing is saved'],
+  ] as const)(
+    "?import goes back up to Import and export, where it's opened from (%s)",
+    async (size, back) => {
+      renderApp(withWallet(), '/?import', { size });
+      expect(await pageTitle('Import')).toBeTruthy();
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('button', { name: back }));
+      expect(await pageTitle('Import and export')).toBeTruthy();
+      expect(window.location.search).toBe('?settings=data');
+    },
+  );
 });

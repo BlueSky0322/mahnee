@@ -114,7 +114,10 @@ async function openImport() {
  * import itself for another), then the account when given
  */
 async function pickFile(user: User, file: File, account?: string) {
-  const choose = screen.queryByLabelText(/^(Choose a file|Import a file)$/);
+  // Not the one on Import and export, dimmed behind a computer's import
+  const [choose] = screen
+    .queryAllByLabelText(/^(Choose a file|Import a file)$/)
+    .filter((input) => input.closest('[aria-hidden="true"]') == null);
   if (choose != null) {
     await user.upload(choose, file);
     await screen.findByLabelText('CSV file');
@@ -410,7 +413,7 @@ describe('what the page says', () => {
       expect(shownCategory('Grab')).toBe('Other');
 
       // Asked again, it's known, and nothing more is said
-      await user.click(screen.getByRole('button', { name: 'Preview' }));
+      await user.click(screen.getByRole('button', { name: 'Try again' }));
       await waitFor(() => expect(shownCategory('Grab')).toBe('Transport'));
       expect(screen.queryByText(/Couldn't look up categories/)).toBeNull();
     },
@@ -642,7 +645,7 @@ describe("Mahnee's own export", () => {
       renderApp(after, '/', { size });
       const user = await openImport();
       await pickFile(user, new File([original], 'mahnee-2026-11-06.csv', { type: 'text/csv' }));
-      expect(await screen.findByText(/Mahnee export/)).toBeTruthy();
+      expect(await screen.findByText(/^This is a Mahnee export/)).toBeTruthy();
       // Its accounts are added; the file doesn't say their kinds, so they're asked
       for (const [name, kind] of [
         ['Maybank', 'bank'],
@@ -729,7 +732,7 @@ describe("Mahnee's own export", () => {
       renderApp(server, '/', { size });
       const user = await openImport();
       await pickFile(user, exportOf(150_000));
-      expect(await screen.findByText(/Mahnee export/)).toBeTruthy();
+      expect(await screen.findByText(/^This is a Mahnee export/)).toBeTruthy();
 
       // Maybank's differs: listed with both amounts, unticked. Wallet's is the same: not listed.
       await waitFor(() => expect(openingLines()).toHaveLength(1));
@@ -777,7 +780,7 @@ describe("Mahnee's own export", () => {
       renderApp(server, '/?settings=data', { size });
       const user = await openImport();
       await pickFile(user, exportOf(150_000));
-      expect(await screen.findByText(/Mahnee export/)).toBeTruthy();
+      expect(await screen.findByText(/^This is a Mahnee export/)).toBeTruthy();
       expect(screen.queryByRole('button', { name: /^Add \d/ })).toBeNull();
 
       answers.forEach((a) => a.release());
@@ -953,7 +956,7 @@ describe("repeating bills in Mahnee's export", () => {
         csvLine(EXPORT_COLUMNS) +
         `2026-12-01,,Repeating spent,Maybank,,1200.00,MYR,Bills,,Rent,"Monthly, day 1",${'4'.repeat(16)}\r\n`;
       await pickFile(user, csv(file, 'mahnee-2026-11-06.csv'));
-      await screen.findByText(/Mahnee export/);
+      await screen.findByText(/^This is a Mahnee export/);
       await user.click(await screen.findByRole('button', { name: /^Add \d/ }));
       await waitFor(() => expect(server.recurring).toHaveLength(2));
       expect(server.recurring[1]).toMatchObject({
@@ -1019,7 +1022,7 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
     renderApp(server, '/', { size });
     const user = await openImport();
     await pickFile(user, file);
-    await screen.findByText(/Mahnee export/);
+    await screen.findByText(/^This is a Mahnee export/);
     return user;
   }
 
@@ -1390,6 +1393,17 @@ describe('recording an import, and how it reads', () => {
       '2 going to Other',
     ]);
     expect(screen.getByRole('button', { name: 'Add 2 transactions' })).toBeTruthy();
+
+    // Checking, the file and its columns are done and out of the way (R-Import); their step
+    // goes back to them as they were
+    expect(screen.queryByRole('heading', { name: 'Which column is which' })).toBeNull();
+    expect(screen.queryByLabelText('CSV file')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Back to Columns' }));
+    expect(steps()).toEqual(['1 File', '2 Columns (now)', '3 Check']);
+    expect(screen.getByRole('heading', { name: 'Which column is which' })).toBeTruthy();
+    expect(screen.getByLabelText('Date')).toHaveProperty('value', 'Date');
+    expect(screen.getByLabelText('CSV file')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Add \d/ })).toBeNull();
   });
 
   test('on a computer, says it all in its header, and Cancel saves nothing', async () => {
@@ -1431,6 +1445,52 @@ describe('recording an import, and how it reads', () => {
     await settle();
     expect(server.transactions).toHaveLength(1);
     expect(server.imports).toEqual([]);
+  });
+
+  test('on a computer, is a dialog that takes the keyboard, keeps it, and gives it back', async () => {
+    const server = withGrab();
+    renderApp(server, '/');
+    const user = await openImport();
+    await user.upload(screen.getByLabelText('Import a file'), csv(FILE, 'maybank-oct.csv'));
+    const dialog = await screen.findByRole('dialog', { name: 'Import maybank-oct.csv' });
+    // It opens with the keyboard in it
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    // Tab goes round inside it, never to the page dimmed behind it
+    for (let i = 0; i < 12; i++) {
+      await user.tab();
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    }
+    await user.tab({ shift: true });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    // Esc cancels it wherever the keyboard is, and the keyboard is back on Import a file
+    act(() => (document.activeElement as HTMLElement).blur());
+    await user.keyboard('{Escape}');
+    expect(
+      await screen.findByRole('heading', { name: 'Import and export', level: 1 }),
+    ).toBeTruthy();
+    expect(window.location.search).toBe('?settings=data');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText('Import a file')),
+    );
+    await settle();
+    expect(server.imports).toEqual([]);
+  });
+
+  test('on a computer, a click on the dimmed page around it keeps the file being looked over', async () => {
+    const server = withGrab();
+    renderApp(server, '/');
+    const user = await openImport();
+    await user.upload(screen.getByLabelText('Import a file'), csv(FILE, 'maybank-oct.csv'));
+    await screen.findByRole('dialog', { name: 'Import maybank-oct.csv' });
+    // The space around the window, over the dimmed Import and export
+    const around = document.querySelector<HTMLElement>('.mantine-Modal-overlay');
+    expect(around).not.toBeNull();
+    await user.click(around!);
+    await settle();
+    expect(screen.getByRole('dialog', { name: 'Import maybank-oct.csv' })).toBeTruthy();
+    expect(window.location.search).toBe('?import');
   });
 
   test.each(SIZES)(

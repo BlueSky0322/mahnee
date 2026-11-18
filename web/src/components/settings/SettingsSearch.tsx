@@ -1,14 +1,14 @@
-import { SearchIcon } from '../ui/icons';
+import { ForwardIcon, SearchIcon } from '../ui/icons';
 import { forwardRef } from 'react';
 import { navigate } from '../../hooks/useRoute';
-import Key from '../ui/Key';
 import type { SettingResult } from './settings-search';
 import { searchSettings } from './settings-search';
 import classes from './Settings.module.css';
 
 // Searching settings: the box ("Search settings", with Ctrl K beside it on a computer) and
 // what it finds, each setting with its section and, when it was found by what it's for,
-// those words quoted with the match marked. Enter opens the first.
+// those words quoted with the match marked. The first is marked: Enter opens it. On a phone
+// what's found takes the sections' place; on a computer it takes the sidebar's list.
 
 /** Opens the section a setting is in, with that setting in view */
 function open(result: SettingResult, desktop: boolean) {
@@ -59,7 +59,7 @@ export const SettingsSearch = forwardRef<HTMLInputElement, SearchProps>(function
           ×
         </button>
       ) : (
-        desktop && <Key>Ctrl K</Key>
+        desktop && <kbd className={classes.searchKey}>Ctrl K</kbd>
       )}
     </label>
   );
@@ -78,21 +78,33 @@ export function SearchResults({
 }) {
   const found = searchSettings(words);
   if (found.length === 0) {
-    return <p className={classes.muted}>No settings match "{words.trim()}"</p>;
+    return (
+      <p className={desktop ? classes.navNone : classes.muted}>
+        No settings match "{words.trim()}"
+      </p>
+    );
   }
   const count = `${found.length} ${found.length === 1 ? 'setting' : 'settings'}`;
   return (
     <>
-      <p className={classes.foundCount}>{desktop ? `${count} · Enter opens the first` : count}</p>
+      <p className={desktop ? classes.navFoundCount : classes.foundCount}>
+        {desktop ? `${count} · Enter opens the first` : count}
+      </p>
       <section
-        className={classes.card}
+        className={desktop ? classes.navResults : classes.card}
         aria-label="Search results"
       >
-        {found.map((r) => (
+        {found.map((r, i) => (
           <a
             key={r.key}
             href={`?settings=${r.section}&setting=${r.key}`}
-            className={`${classes.row} ${classes.result}`}
+            className={
+              desktop
+                ? `${classes.navResult} ${classes.result}`
+                : `${classes.row} ${classes.result} ${i === 0 ? classes.found : ''}`
+            }
+            // The one Enter opens
+            aria-current={i === 0 ? 'true' : undefined}
             onClick={(e) => {
               e.preventDefault();
               onOpen();
@@ -123,6 +135,13 @@ export function SearchResults({
                 )}
               </div>
             </div>
+            {!desktop && (
+              <ForwardIcon
+                size={16}
+                className={classes.caret}
+                aria-hidden
+              />
+            )}
           </a>
         ))}
       </section>

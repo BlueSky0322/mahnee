@@ -1,7 +1,7 @@
 import { useThisMonth } from '../../ledger/month-start';
 import { ActionIcon, Button } from '@mantine/core';
 import { ArrowDown, ArrowUp } from '@phosphor-icons/react';
-import { DownIcon, ForwardIcon, PlusIcon } from '../ui/icons';
+import { CheckIcon, InIcon, OutIcon, PlusIcon } from '../ui/icons';
 import { Fragment, useState } from 'react';
 import type { Category, MonthBudget } from '@shared/api';
 import { DEFAULT_CURRENCY } from '@shared/ledger';
@@ -82,9 +82,8 @@ export default function CategoriesPage() {
     tree != null && tree.archived.length > 0 ? (
       <Button
         variant="subtle"
-        color="gray"
-        size="xs"
-        leftSection={showArchived ? <DownIcon size={14} /> : <ForwardIcon size={14} />}
+        size={isDesktop ? 'xs' : 'sm'}
+        className={classes.archivedToggle}
         aria-expanded={showArchived}
         onClick={() => setShowArchived((shown) => !shown)}
       >
@@ -229,6 +228,7 @@ function Section({
   onAdd,
 }: SectionProps) {
   const titleId = `categories-${kind}`;
+  const isDesktop = useIsDesktop();
   const [adding, setAdding] = useState<string | null>(null);
   const [typed, setTyped] = useState('');
   const newLabel = kind === 'expense' ? 'New expense category' : 'New income category';
@@ -236,13 +236,28 @@ function Section({
     <section
       className={classes.section}
       aria-labelledby={titleId}
+      // Settings' list of parts on a computer brings it into view with the keyboard on it
+      tabIndex={-1}
     >
-      <h2
-        id={titleId}
-        className={classes.sectionTitle}
-      >
-        {KIND_LABELS[kind]}
-      </h2>
+      <div className={classes.kindHead}>
+        <span
+          className={classes.kindIcon}
+          data-kind={kind}
+          aria-hidden
+        >
+          {kind === 'expense' ? (
+            <OutIcon size={isDesktop ? 20 : 18} />
+          ) : (
+            <InIcon size={isDesktop ? 20 : 18} />
+          )}
+        </span>
+        <h2
+          id={titleId}
+          className={classes.sectionTitle}
+        >
+          {KIND_LABELS[kind]}
+        </h2>
+      </div>
       <ul className={`${classes.list} ${kind === 'income' ? classes.income : ''}`}>
         {nodes.map((node) => (
           <li
@@ -276,20 +291,26 @@ function Section({
             )}
           </li>
         ))}
-        <li className={classes.newRow}>
-          <input
-            className={classes.newField}
-            aria-label={newLabel}
-            placeholder={newLabel}
-            maxLength={MAX_CATEGORY_NAME}
-            value={typed}
-            onChange={(e) => setTyped(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return;
-              e.preventDefault();
-              if (onAdd(typed, kind, null)) setTyped('');
-            }}
-          />
+        <li>
+          <label className={classes.newRow}>
+            <PlusIcon
+              size={16}
+              className={classes.newPlus}
+            />
+            <input
+              className={classes.newField}
+              aria-label={newLabel}
+              placeholder={newLabel}
+              maxLength={MAX_CATEGORY_NAME}
+              value={typed}
+              onChange={(e) => setTyped(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                if (onAdd(typed, kind, null)) setTyped('');
+              }}
+            />
+          </label>
         </li>
       </ul>
     </section>
@@ -417,7 +438,7 @@ function Subcategories({
           </Fragment>
         ))}
         {adding ? (
-          <span
+          <label
             role="listitem"
             className={classes.inline}
           >
@@ -440,19 +461,18 @@ function Subcategories({
               }}
             />
             {name !== '' && (
-              <ActionIcon
-                variant="filled"
-                size="md"
-                radius="xl"
+              <button
+                type="button"
+                className={classes.inlineAdd}
                 aria-label={`Add ${name} under ${node.name}`}
                 // Kept from taking the keyboard, so the field doesn't close first
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={save}
               >
-                <PlusIcon size={14} />
-              </ActionIcon>
+                <CheckIcon size={14} />
+              </button>
             )}
-          </span>
+          </label>
         ) : (
           !reordering &&
           node.subcategories.length > 0 && (
@@ -480,19 +500,17 @@ function Subcategories({
   );
 }
 
-/** + : a new subcategory under `parent` */
+/** + : a new subcategory under `parent`, a dashed ring */
 function AddButton({ parent, onClick }: { parent: string; onClick: () => void }) {
   return (
-    <ActionIcon
-      variant="subtle"
-      color="gray"
-      size="lg"
-      radius="xl"
+    <button
+      type="button"
+      className={classes.addButton}
       aria-label={`Add a subcategory under ${parent}`}
       onClick={onClick}
     >
-      <PlusIcon size={16} />
-    </ActionIcon>
+      <PlusIcon size={14} />
+    </button>
   );
 }
 

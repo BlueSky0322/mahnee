@@ -432,6 +432,48 @@ describe('Settings on computers', () => {
     expect(window.location.search).toBe('?activity');
   });
 
+  test.each([
+    ['Categories', '?settings=categories', ['Expenses', 'Income']],
+    ['Import and export', '?settings=data', ['Import', 'Export']],
+  ] as const)(
+    '%s lists its parts under it, each bringing its card into view',
+    async (name, address, parts) => {
+      renderApp(withWallet(), `/${address}`);
+      const shown: Element[] = [];
+      const spy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (
+        this: Element,
+      ) {
+        shown.push(this);
+      });
+      onTestFinished(() => spy.mockRestore());
+      const user = userEvent.setup();
+      await pageTitle(name);
+      const nav = within(screen.getByRole('navigation', { name: 'Settings' }));
+      const group = within(nav.getByRole('group', { name: `Parts of ${name}` }));
+      const buttons = group.getAllByRole('button');
+      expect(buttons.map(text)).toEqual([...parts]);
+      expect(buttons.map((b) => b.getAttribute('aria-current'))).toEqual(['true', null]);
+      // The other sections have none
+      expect(nav.getAllByRole('group')).toHaveLength(1);
+
+      const card = await screen.findByRole('region', { name: parts[1] });
+      await user.click(group.getByRole('button', { name: parts[1] }));
+      expect(shown.at(-1)).toBe(card);
+      // The keyboard and screen readers go with it
+      expect(document.activeElement).toBe(card);
+      expect(buttons.map((b) => b.getAttribute('aria-current'))).toEqual([null, 'true']);
+      // Moving within a section isn't kept in history
+      expect(window.location.search).toBe(address);
+    },
+  );
+
+  test('a section without parts lists none', async () => {
+    renderApp(withWallet(), '/?settings=look');
+    await pageTitle('Look and start');
+    const nav = within(screen.getByRole('navigation', { name: 'Settings' }));
+    expect(nav.queryByRole('group')).toBeNull();
+  });
+
   test('opened at its own address, Close goes Home', async () => {
     renderApp(withWallet(), '/?settings');
     const user = userEvent.setup();
@@ -517,13 +559,41 @@ describe('searching settings', () => {
     expect(document.activeElement).toBe(search);
 
     await user.keyboard('month');
-    expect(await screen.findByText('3 settings · Enter opens the first')).toBeTruthy();
-    // What's found takes the open section's place
+    const nav = within(screen.getByRole('navigation', { name: 'Settings' }));
+    expect(await nav.findByText('3 settings · Enter opens the first')).toBeTruthy();
+    // What's found takes the sections' place in the sidebar, the first one marked
+    const found = within(nav.getByRole('region', { name: 'Search results' })).getAllByRole('link');
+    expect(found.map(withMarks)).toEqual([
+      'Month starts on Money',
+      'Main currency Money · "the month end"',
+      'Home shows Look and start · "the month-end figure"',
+    ]);
+    expect(found.map((a) => a.getAttribute('aria-current'))).toEqual(['true', null, null]);
+    expect(nav.queryByRole('link', { name: 'Categories' })).toBeNull();
+    expect(nav.getByRole('button', { name: 'Sign out' })).toBeTruthy();
+    // Beside it, the first one's section, without leaving the keyboard or the address
+    expect(await pageTitle('Money')).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Categories', level: 1 })).toBeNull();
+    expect(document.activeElement).toBe(search);
+    expect(window.location.search).toBe('?settings=categories');
+
     await user.keyboard('{Enter}');
     expect(await pageTitle('Money')).toBeTruthy();
     expect(window.location.search).toBe('?settings=money&setting=monthStart');
     await waitFor(() => expect(text(document.activeElement!)).toMatch(/^Month starts on /));
     expect(search).toHaveProperty('value', '');
+    expect(nav.getByRole('link', { name: 'Money' }).getAttribute('aria-current')).toBe('page');
+  });
+
+  test('on a computer, what nothing matches leaves the open section as it was', async () => {
+    renderApp(withWallet(), '/?settings=categories');
+    const user = userEvent.setup();
+    await pageTitle('Categories');
+    await user.type(screen.getByRole('searchbox', { name: 'Search settings' }), 'zebra');
+    const nav = within(screen.getByRole('navigation', { name: 'Settings' }));
+    expect(await nav.findByText('No settings match "zebra"')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Categories', level: 1 })).toBeTruthy();
+    await user.click(nav.getByRole('button', { name: 'Clear search' }));
+    expect(nav.getByRole('link', { name: 'Categories' }).getAttribute('aria-current')).toBe('page');
   });
 });

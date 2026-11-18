@@ -79,7 +79,10 @@ describe('N', () => {
     await user.keyboard('n');
     await user.keyboard('/');
     await settle();
-    expect(screen.queryByRole('dialog')).toBeNull();
+    // A computer's import is itself a dialog (R-Desk-Import): no other opens over it
+    expect(screen.getAllByRole('dialog')).toEqual([
+      screen.getByRole('dialog', { name: 'Import bank.csv' }),
+    ]);
     expect(window.location.search).toBe('?import');
   });
 
@@ -160,8 +163,9 @@ describe('Esc', () => {
     expect(screen.getByRole('heading', { name: 'My account', level: 1 })).toBeTruthy();
   });
 
-  test('on Import, does nothing: a file being looked over is kept', async () => {
-    renderApp(withWallet(), '/?import');
+  // On a computer the import is a dialog, which Esc cancels (Import.test.tsx)
+  test('on the Import page, does nothing: a file being looked over is kept', async () => {
+    renderApp(withWallet(), '/?import', { size: 'tablet' });
     await pageTitle('Import');
     await userEvent.setup().keyboard('{Escape}');
     await settle();

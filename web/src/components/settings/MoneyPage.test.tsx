@@ -238,6 +238,20 @@ describe('Settings › Money', () => {
     expect(preview(dialog)).toBe('This month Oct 31 to Nov 29');
   });
 
+  test('on a computer, a click outside the panel closes it and keeps the month as it was', async () => {
+    onNovember(10);
+    const server = withWallet();
+    renderApp(server, '/?settings=money');
+    const { user, dialog, element } = await openMonth();
+    await user.click(dialog.getByRole('radio', { name: '25' }));
+    await user.click(screen.getByRole('heading', { level: 1, name: 'Money' }));
+    await waitFor(() => expect(element.isConnected).toBe(false));
+    expect(screen.queryByRole('dialog', { name: 'Month starts on' })).toBeNull();
+    expect((await monthButton()).textContent).toContain('The 1st');
+    await settle();
+    expect(server.me.settings.monthStartDay).toBe(1);
+  });
+
   test('on a computer, Cancel keeps the month as it was', async () => {
     onNovember(10);
     const server = withWallet();

@@ -23,7 +23,6 @@ import { useProfile } from '../../profile/ProfileContext';
 import { SettingsFooter } from '../common/Freshness';
 import { useConfirmSignOut } from '../common/useConfirmSignOut';
 import { useYou } from '../common/you';
-import Key from '../ui/Key';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import CategoriesPage from '../categories/CategoriesPage';
 import AddingPage from './AddingPage';
@@ -33,7 +32,8 @@ import LookPage from './LookPage';
 import MyAccount from './MyAccount';
 import MoneyPage from './MoneyPage';
 import SectionPage from './SectionPage';
-import { SECTION_NAMES } from './settings-search';
+import { SECTION_NAMES, searchSettings } from './settings-search';
+import { PreviewedSetting } from './setting-in-view';
 import { SearchResults, SettingsSearch } from './SettingsSearch';
 import {
   addingSummary,
@@ -261,9 +261,22 @@ function SectionLink({ section, summary }: { section: SettingsSection; summary: 
   );
 }
 
+/** The parts of a section listed under it on a computer, each its card's heading id */
+const PARTS: Partial<Record<SettingsSection, [string, string][]>> = {
+  categories: [
+    ['Expenses', 'categories-expense'],
+    ['Income', 'categories-income'],
+  ],
+  data: [
+    ['Import', 'data-import'],
+    ['Export', 'data-export'],
+  ],
+};
+
 /**
- * A computer's Settings: the sections down the left with search, Sign out and how fresh
- * the figures are; the open section beside them, or what search finds while it's typed
+ * A computer's Settings: the sections down the left with search, and Sign out and how fresh
+ * the figures are at the foot; the open section beside them. While search is typed, what it
+ * finds takes the sections' place, and the first one's section is shown with it marked.
  */
 function DesktopSettings({ section }: { section: SettingsSection }) {
   // The person's month (shared/period.ts)
@@ -271,6 +284,8 @@ function DesktopSettings({ section }: { section: SettingsSection }) {
   const [words, setWords] = useState('');
   const search = useRef<HTMLInputElement>(null);
   const { askToSignOut, dialog } = useConfirmSignOut();
+  const searching = words.trim() !== '';
+  const [first] = searching ? searchSettings(words) : [];
 
   // Ctrl K (Cmd K on a Mac) finds the search, wherever the keyboard is
   useEffect(() => {
@@ -297,14 +312,22 @@ function DesktopSettings({ section }: { section: SettingsSection }) {
             onChange={setWords}
             desktop
           />
-          {(['account', ...APP_SECTIONS, 'categories', 'data'] as const).map((s, i) => (
-            <NavLink
-              key={s}
-              section={s}
-              current={s === section}
-              gapBefore={i === 1 || i === 5}
+          {searching ? (
+            <SearchResults
+              words={words}
+              onOpen={() => setWords('')}
+              desktop
             />
-          ))}
+          ) : (
+            (['account', ...APP_SECTIONS, 'categories', 'data'] as const).map((s, i) => (
+              <NavLink
+                key={s}
+                section={s}
+                current={s === section}
+                gapBefore={i === 1 || i === 5}
+              />
+            ))
+          )}
           <hr className={classes.navRule} />
           <button
             type="button"
@@ -326,24 +349,23 @@ function DesktopSettings({ section }: { section: SettingsSection }) {
           <span className={classes.closeIcon}>
             <CloseIcon size={18} />
           </span>
-          <Key>Esc</Key>
+          <span className={classes.closeKey}>Esc</span>
         </button>
-        {words.trim() !== '' ? (
-          <div className={classes.paneBody}>
-            <SearchResults
-              words={words}
-              onOpen={() => setWords('')}
-              desktop
-            />
-          </div>
-        ) : (
-          <div className={classes.paneBody}>
+        <div className={classes.paneBody}>
+          {first != null ? (
+            <PreviewedSetting.Provider value={first.key}>
+              <SectionContent
+                key={`found:${first.section}`}
+                section={first.section}
+              />
+            </PreviewedSetting.Provider>
+          ) : (
             <SectionContent
               key={window.location.search}
               section={section}
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
       {dialog}
     </div>
@@ -361,6 +383,7 @@ function NavLink({
   gapBefore: boolean;
 }) {
   const address = section === 'account' ? '?settings' : `?settings=${section}`;
+  const parts = current ? PARTS[section] : undefined;
   return (
     <>
       {gapBefore && <hr className={classes.navGap} />}
@@ -376,7 +399,46 @@ function NavLink({
         <span aria-hidden>{ICONS[section]}</span>
         {SECTION_NAMES[section]}
       </a>
+      {parts != null && (
+        <SectionParts
+          name={SECTION_NAMES[section]}
+          parts={parts}
+        />
+      )}
     </>
+  );
+}
+
+/**
+ * The open section's parts (Categories: Expenses and Income), each bringing its card into
+ * view with the keyboard on it; the last one asked for is marked
+ */
+function SectionParts({ name, parts }: { name: string; parts: [string, string][] }) {
+  const [at, setAt] = useState(0);
+  return (
+    <div
+      role="group"
+      aria-label={`Parts of ${name}`}
+      className={classes.navParts}
+    >
+      {parts.map(([label, headingId], i) => (
+        <button
+          key={headingId}
+          type="button"
+          className={classes.navPart}
+          aria-current={i === at ? 'true' : undefined}
+          onClick={() => {
+            setAt(i);
+            const card = document.getElementById(headingId)?.closest<HTMLElement>('section');
+            if (card == null) return;
+            card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            card.focus({ preventScroll: true });
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 

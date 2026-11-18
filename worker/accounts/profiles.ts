@@ -12,7 +12,9 @@ import {
 } from '../../shared/api';
 import { readSettingChanges } from '../../shared/settings';
 import {
+  type ConversionRow,
   type ConvertJob,
+  SELECT_CONVERSION,
   conversionOf,
   readConversionRow,
   startStatements,
@@ -78,9 +80,11 @@ export const ensureProfileStatement = (db: D1Database, email: string) =>
     .bind(email, Date.now());
 
 export async function getProfile(db: D1Database, email: string): Promise<Profile> {
-  const [profile, settings] = await db.batch([
+  // Read together, so a currency and the conversion that changed it always agree
+  const [profile, settings, conversion] = await db.batch([
     db.prepare('SELECT display_name AS displayName FROM profiles WHERE email = ?').bind(email),
     db.prepare(SELECT_SETTINGS).bind(email),
+    db.prepare(SELECT_CONVERSION).bind(email),
   ]);
   const row = settings.results[0] as Record<string, unknown> | undefined;
   return {
@@ -88,7 +92,7 @@ export async function getProfile(db: D1Database, email: string): Promise<Profile
     displayName:
       (profile.results[0] as { displayName: string | null } | undefined)?.displayName ?? null,
     settings: row ? fromRow(row) : { ...DEFAULT_SETTINGS },
-    conversion: conversionOf(await readConversionRow(db, email)),
+    conversion: conversionOf((conversion.results[0] as ConversionRow | undefined) ?? null),
   };
 }
 

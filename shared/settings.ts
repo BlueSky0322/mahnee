@@ -62,7 +62,7 @@ export function isTimeZone(v: unknown): v is string {
 
 /** Each setting's check */
 export const SETTING_CHECKS: { [K in keyof Settings]: (v: unknown) => v is Settings[K] } = {
-  // Saved with the conversion it starts (worker/currency/convert.ts); 0010 holds the list
+  // Saved with the conversion it starts (worker/currency/convert.ts); 0011 holds the list
   currency: isHomeCurrency,
   theme: oneOf(THEMES),
   accent: oneOf(ACCENTS),

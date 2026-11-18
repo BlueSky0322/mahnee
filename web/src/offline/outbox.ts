@@ -51,17 +51,14 @@ const utf8 = new TextEncoder();
 const WRAPPER_BYTES = utf8.encode('{"changes":[],"ids":[],"currencies":[]}').length;
 
 /**
- * What's sent for these changes: each with its id, and the currency each was typed in when
- * every one of them says (sw.js sends the same)
+ * What's sent for these changes: each with its id and the currency it was typed in, null
+ * for one kept from before changes said (sw.js sends the same)
  */
-export function changesBody(batch: Queued[]): ChangesBody {
-  const currencies = batch.map((q) => q.currency);
-  return {
-    changes: batch.map((q) => q.change),
-    ids: batch.map((q) => q.cid),
-    ...(currencies.every((c) => c != null) && { currencies }),
-  };
-}
+export const changesBody = (batch: Queued[]): ChangesBody => ({
+  changes: batch.map((q) => q.change),
+  ids: batch.map((q) => q.cid),
+  currencies: batch.map((q) => q.currency ?? null),
+});
 
 /**
  * The changes that go in the next request, in order: at most MAX_CHANGES, and no more
@@ -76,7 +73,7 @@ export function nextBatch(queued: Queued[]): Queued[] {
     bytes +=
       utf8.encode(JSON.stringify(q.change)).length +
       utf8.encode(JSON.stringify(q.cid)).length +
-      utf8.encode(JSON.stringify(q.currency ?? '')).length +
+      utf8.encode(JSON.stringify(q.currency ?? null)).length +
       (count > 0 ? 3 : 0);
     if (count > 0 && bytes > MAX_CHANGES_BYTES) break;
     count++;

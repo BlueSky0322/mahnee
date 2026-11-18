@@ -15,6 +15,11 @@ const files = readdirSync(DIR)
   .sort();
 const before0007 = files.filter((f) => f < '0007');
 const SETTINGS_MIGRATION = '0007_settings.sql';
+/**
+ * Numbers another branch has taken and not yet landed: 0010 is the profile picture's. Drop
+ * one from here once its migration is on main.
+ */
+const RESERVED = ['0010'];
 
 function database(migrations: string[]) {
   const db = new DatabaseSync(':memory:');
@@ -80,7 +85,9 @@ function takes(db: DatabaseSync, sql: string, ...params: (string | number | null
 
 describe('the migrations', () => {
   it('number each one once, in order, with 0007 for the settings', () => {
-    const numbers = files.map((f) => f.slice(0, 4));
+    // A number taken by a change on another branch counts as used until that change lands
+    const numbers = [...new Set([...files.map((f) => f.slice(0, 4)), ...RESERVED])].sort();
+    expect(files.map((f) => f.slice(0, 4))).toEqual([...new Set(files.map((f) => f.slice(0, 4)))]);
     expect(numbers).toEqual(numbers.map((_, i) => String(i + 1).padStart(4, '0')));
     expect(files).toContain(SETTINGS_MIGRATION);
   });
@@ -641,11 +648,11 @@ describe('0009, Scheduled', () => {
   });
 });
 
-describe('0010, the home currency', () => {
-  const CURRENCY_MIGRATION = '0010_currency.sql';
+describe('0011, the home currency', () => {
+  const CURRENCY_MIGRATION = '0011_currency.sql';
   const OWNER = 'teal@example.com';
 
-  /** Today's rows, every migration before 0010, then 0010 */
+  /** Today's rows, every migration before 0011, then 0011 */
   const migrated = () => {
     const db = database(before0007);
     seedToday(db);
@@ -655,7 +662,8 @@ describe('0010, the home currency', () => {
     return db;
   };
 
-  it('is the next migration after Scheduled', () => {
+  it('is the next migration after Scheduled and the reserved 0010', () => {
+    expect(RESERVED).toEqual(['0010']);
     expect(files.indexOf(CURRENCY_MIGRATION)).toBe(files.indexOf('0009_scheduled.sql') + 1);
   });
 

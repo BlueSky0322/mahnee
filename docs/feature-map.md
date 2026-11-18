@@ -1666,13 +1666,19 @@ totals kept, fetches everything again and sends the changes kept meanwhile. `use
   the switch and swaps everything in at once, the accounts' `currency` too. One past its
   limit refuses the whole change: the currency goes back, nothing was converted, and the
   profile names the limit (`amount`, `opening`, `budget` or `scheduled`).
-- A failed step is tried again by the queue (30 s, doubling to an hour, 8 tries, then
-  `mahnee-reconvert-dlq`); one stalled for 2 minutes is queued again when the person's
-  profile is read.
+- A failed step is tried again by the queue (30 s, doubling to an hour, 8 tries) and notes
+  when its next try is due; after the last, `mahnee-reconvert-dlq` gives the person their
+  currency back, nothing converted (refused `rates`: "Kept MYR: rates for USD weren't
+  available, so nothing was converted. Try again later"). One 2 minutes past its due time is
+  queued again when the person's profile is read, at most 3 times, then given back the same
+  way.
+- The swap checks every transaction was worked out (else it starts over) and puts them in
+  10,000 to a statement, all in one batch.
 - While converting, `POST /api/changes` answers 503 with code `converting` (the outbox
   keeps the changes and sends them again), and the nightly job skips the person.
 - Every change the app sends says the currency it was typed in (`currencies`, from
-  `currencyNow` when made; the outbox and `web/public/sw.js` keep it). One typed in a currency
+  `currencyNow` when made, null for one kept from before; the outbox and
+  `web/public/sw.js` keep it). One typed in a currency
   since left is converted on saving at its rate (an entry's day, otherwise today's)
   ([worker/currency/typed-in.ts](../worker/currency/typed-in.ts)).
 
@@ -1681,15 +1687,16 @@ totals kept, fetches everything again and sends the changes kept meanwhile. `use
 - Every amount keeps what it was typed as (`original_currency`, `original_cents`, `rate`,
   `rate_source`, `rate_at`): one converted again is converted from that, and one typed in
   the new currency is plain again, so changing back restores the exact amounts. Changing an
-  amount outside a conversion makes it typed in the home currency (triggers in 0010).
+  amount outside a conversion makes it typed in the home currency (triggers in 0011).
 - Amounts never show in two currencies at once, and limits stay as they are
   (`MAX_TRANSACTION_CENTS` each, so every total stays exact); a converted amount above zero
-  is at least a cent.
+  is at least a cent. An earlier day no service has a rate for is converted at today's,
+  which `rate_at` shows.
 - Only an error's name and message, or the limit that refused a change, are logged.
 
 **Tests.** [worker/test/currency.test.ts](../worker/test/currency.test.ts) (each rate,
 back exactly, an edit since, writes held and typed in the old currency, retries, both
-refusals), the 0010 cases in [worker/test/migrations.test.ts](../worker/test/migrations.test.ts),
+refusals), the 0011 cases in [worker/test/migrations.test.ts](../worker/test/migrations.test.ts),
 [settings/HomeCurrency.test.tsx](../web/src/components/settings/HomeCurrency.test.tsx)
 (the picker, converting on Home, changes held then converted, each refusal, offline) and
 the `currencies` cases in [offline/outbox.test.ts](../web/src/offline/outbox.test.ts).

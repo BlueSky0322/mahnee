@@ -165,8 +165,9 @@ erDiagram
     TEXT phase "converting or refused"
     TEXT after_date "how far through the transactions"
     TEXT after_id "with after_date"
-    INTEGER touched_at "ms: when it last moved on"
-    TEXT refused "amount, opening, budget or scheduled; when refused"
+    INTEGER touched_at "ms: when it last moved on, or its next try is due"
+    INTEGER restarts "times started again after stalling"
+    TEXT refused "amount, opening, budget, scheduled or rates; when refused"
   }
   conversion_staged {
     TEXT email PK "and FK to profiles"
@@ -293,10 +294,11 @@ erDiagram
   Meanwhile the person's writes wait (the API answers 503) and the nightly job skips them,
   so what's worked out stays true. One amount past its limit refuses the whole change: the
   currency goes back, nothing is swapped, and the row stays as `refused`, naming the limit,
-  until the next change.
+  until the next change; so does one the queue gave up on, or that stalled more than 3
+  times (`rates`).
 - **What an amount was typed as.** `transactions.amount_cents`, `accounts.opening_cents`,
   `budgets.amount_cents` and `recurring.amount_cents` each have `original_currency`,
-  `original_cents`, `rate`, `rate_source` and `rate_at` (0010), all null for an amount typed
+  `original_cents`, `rate`, `rate_source` and `rate_at` (0011), all null for an amount typed
   in the home currency. A converted one is converted again from what it was typed as, and
   one typed in the new currency is plain again, so changing back restores it exactly.
   Changing the amount outside a conversion (no `converting` row) makes it typed in the home

@@ -14,7 +14,7 @@ export const isCurrency = (v: unknown): v is string =>
 /**
  * The currencies a person's home currency can be: the ones the ECB publishes (through
  * Frankfurter), so every amount can be converted at its own day's rate without Wise.
- * migrations/0010_currency.sql holds the same list in its CHECK.
+ * migrations/0011_currency.sql holds the same list in its CHECK.
  */
 export const HOME_CURRENCIES = [
   'AUD',

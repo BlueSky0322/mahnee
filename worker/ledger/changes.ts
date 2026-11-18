@@ -1265,7 +1265,7 @@ export async function applyChanges(
     currencies !== undefined &&
     (!Array.isArray(currencies) ||
       currencies.length !== changes.length ||
-      !currencies.every(isCurrency))
+      !currencies.every((c: unknown) => c === null || isCurrency(c)))
   ) {
     return fail('Send the currency each change was typed in, one each', 400);
   }

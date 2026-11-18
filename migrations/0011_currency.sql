@@ -22,9 +22,13 @@ CREATE TABLE conversions (
   phase TEXT NOT NULL CHECK (phase IN ('converting', 'refused')),
   after_date TEXT NOT NULL DEFAULT '',
   after_id TEXT NOT NULL DEFAULT '',
-  -- When it last moved on, so one that stopped (the queue gave up) is started again
+  -- When it last moved on, or (after a step failed) when its next try is due: one that
+  -- passes it by long enough is started again, at most a few times (restarts)
   touched_at INTEGER NOT NULL,
-  refused TEXT CHECK (refused IS NULL OR refused IN ('amount', 'opening', 'budget', 'scheduled')),
+  restarts INTEGER NOT NULL DEFAULT 0,
+  -- Why it was refused: a limit an amount would have gone past, or rates that never came
+  refused TEXT CHECK (refused IS NULL
+    OR refused IN ('amount', 'opening', 'budget', 'scheduled', 'rates')),
   CHECK ((phase = 'refused') = (refused IS NOT NULL))
 );
 

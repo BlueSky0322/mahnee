@@ -35,6 +35,7 @@ function refusedText({ from, to, refused }: Conversion) {
     opening: `an opening balance would come to more than ${MOST} ${to} either way`,
     budget: `a budget would come to more than ${MOST} ${to}`,
     scheduled: `a scheduled item would come to more than ${MOST} ${to}`,
+    rates: `rates for ${to} weren't available, so nothing was converted. Try again later`,
   }[refused ?? 'amount'];
   return `Kept ${from}: ${what}`;
 }

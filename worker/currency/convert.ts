@@ -15,14 +15,24 @@
 // it was for (since), so one for an older change, or run twice, does nothing.
 
 import {
-  CONVERSION_LIMITS,
+  CONVERSION_REFUSALS,
   type ConversionLimit,
+  type ConversionRefusal,
   type Conversion,
   type FetchedRateSource,
 } from '../../shared/api';
 import { MAX_TRANSACTION_CENTS } from '../../shared/ledger';
 import { convertCents, convertSignedCents, rateDay } from '../../shared/rates';
-import type { Rate } from './exchange-rates';
+
+/**
+ * A rate as getRateOn (exchange-rates.ts) answers it; written out here so this file needs
+ * nothing of the Worker's runtime (worker/test/convert.test.ts runs it in Node)
+ */
+export interface Rate {
+  rate: number;
+  source: FetchedRateSource;
+  fetchedAt: number;
+}
 
 /** One conversion's next step, sent to the queue */
 export interface ConvertJob {
@@ -37,6 +47,11 @@ export const PAGE = 200;
 export const STALLED_MS = 2 * 60 * 1000;
 /** Budget rows worked out in one statement, well within D1's statement size */
 const CHUNK = 500;
+/**
+ * Worked-out transactions swapped in by one statement: the swap is one batch (all or
+ * nothing), its statements each bounded, so none runs long
+ */
+export const SWAP_CHUNK = 10_000;
 
 /** The rate from one currency into another for a day (2026-11-05) */
 export type FetchRate = (from: string, to: string, day: string) => Promise<Rate>;
@@ -114,7 +129,7 @@ function rateKeeper(to: string, fetchRate: FetchRate) {
 }
 
 /** The person's conversion as conversions holds it */
-interface ConversionRow {
+export interface ConversionRow {
   from: string;
   to: string;
   since: number;
@@ -122,11 +137,12 @@ interface ConversionRow {
   afterDate: string;
   afterId: string;
   touchedAt: number;
-  refused: ConversionLimit | null;
+  restarts: number;
+  refused: ConversionRefusal | null;
 }
 
-const SELECT_CONVERSION = `SELECT from_currency AS "from", to_currency AS "to", since, phase,
-    after_date AS afterDate, after_id AS afterId, touched_at AS touchedAt, refused
+export const SELECT_CONVERSION = `SELECT from_currency AS "from", to_currency AS "to", since, phase,
+    after_date AS afterDate, after_id AS afterId, touched_at AS touchedAt, restarts, refused
   FROM conversions WHERE email = ?`;
 
 export const readConversionRow = (db: D1Database, email: string) =>
@@ -140,7 +156,9 @@ export const conversionOf = (row: ConversionRow | null): Conversion | null =>
         from: row.from,
         to: row.to,
         since: row.since,
-        refused: CONVERSION_LIMITS.includes(row.refused as ConversionLimit) ? row.refused : null,
+        refused: CONVERSION_REFUSALS.includes(row.refused as ConversionRefusal)
+          ? row.refused
+          : null,
       };
 
 /** Only while the conversion `since` names is still under way; binds email then since */
@@ -194,8 +212,36 @@ function stageStatements(
   return statements;
 }
 
-/** Puts every worked-out amount of `kind` into `table`, matched by `match` */
-const swap = (db: D1Database, email: string, since: number, kind: string, table: string) => {
+/**
+ * Puts the worked-out transactions in, SWAP_CHUNK of the staged rows (by rowid, `low` to
+ * `high`) per statement
+ */
+function swapTransactions(
+  db: D1Database,
+  email: string,
+  since: number,
+  low: number | null,
+  high: number | null,
+) {
+  if (low == null || high == null) return [];
+  const statements: D1PreparedStatement[] = [];
+  for (let from = low; from <= high; from += SWAP_CHUNK) {
+    statements.push(
+      swap(db, email, since, 'transaction', 'transactions', [from, from + SWAP_CHUNK - 1]),
+    );
+  }
+  return statements;
+}
+
+/** Puts every worked-out amount of `kind` (with `rows`, those of its rowids) into `table` */
+const swap = (
+  db: D1Database,
+  email: string,
+  since: number,
+  kind: string,
+  table: string,
+  rows?: [number, number],
+) => {
   const amount = table === 'accounts' ? 'opening_cents' : 'amount_cents';
   const match =
     table === 'budgets'
@@ -207,37 +253,42 @@ const swap = (db: D1Database, email: string, since: number, kind: string, table:
          original_cents = s.original_cents, rate = s.rate, rate_source = s.rate_source,
          rate_at = s.rate_at
        FROM conversion_staged s
-       WHERE s.email = ?1 AND s.kind = ?3 AND ${table}.email = ?1 AND ${match} AND ${STILL}`,
+       WHERE s.email = ?1 AND s.kind = ?3 AND ${table}.email = ?1 AND ${match} AND ${STILL}
+         ${rows == null ? '' : 'AND s.rowid BETWEEN ?4 AND ?5'}`,
     )
-    .bind(email, since, kind);
+    .bind(email, since, kind, ...(rows ?? []));
 };
 
 /**
- * Takes the change back: the currency is what it was, nothing was converted, and the
- * profile names the limit until the currency is changed again
+ * Takes the change back, if it's still the one under way: the currency is what it was,
+ * nothing was converted (what was worked out goes), the person's writes go through again,
+ * and the profile says why (`reason`) until the currency is changed again
  */
-async function refuse(
+export async function release(
   db: D1Database,
-  email: string,
-  conversion: ConversionRow,
-  limit: ConversionLimit,
+  { email, since }: ConvertJob,
+  reason: ConversionRefusal,
 ) {
-  const { since, from } = conversion;
+  const now = Date.now();
   await db.batch([
     db
       .prepare(
-        `UPDATE user_settings SET currency = ?3, updated_at = ?4 WHERE email = ?1 AND ${STILL}`,
+        `UPDATE user_settings SET currency =
+           (SELECT from_currency FROM conversions WHERE email = ?1 AND since = ?2),
+           updated_at = ?3
+         WHERE email = ?1 AND ${STILL}`,
       )
-      .bind(email, since, from, Date.now()),
-    db.prepare('DELETE FROM conversion_staged WHERE email = ?').bind(email),
+      .bind(email, since, now),
+    db.prepare(`DELETE FROM conversion_staged WHERE email = ?1 AND ${STILL}`).bind(email, since),
+    // Last, as the two above hold only while it's under way
     db
       .prepare(
         `UPDATE conversions SET phase = 'refused', refused = ?3, touched_at = ?4
          WHERE email = ?1 AND since = ?2 AND phase = 'converting'`,
       )
-      .bind(email, since, limit, Date.now()),
+      .bind(email, since, reason, now),
   ]);
-  console.error(`refused a change of currency: an amount past the ${limit} limit`);
+  console.error(`refused a change of currency: ${reason}`);
 }
 
 /**
@@ -269,7 +320,7 @@ export async function convertStep(
   if (page.length > 0) {
     const staged = await stage(page, 'amount', from, to, rateOf);
     if (typeof staged === 'string') {
-      await refuse(db, email, conversion, staged);
+      await release(db, { email, since }, staged);
       return false;
     }
     const last = page[page.length - 1];
@@ -277,7 +328,7 @@ export async function convertStep(
       ...stageStatements(db, email, since, 'transaction', staged),
       db
         .prepare(
-          `UPDATE conversions SET after_date = ?5, after_id = ?6, touched_at = ?7
+          `UPDATE conversions SET after_date = ?5, after_id = ?6, touched_at = ?7, restarts = 0
            WHERE email = ?1 AND since = ?2 AND phase = 'converting'
              AND after_date = ?3 AND after_id = ?4`,
         )
@@ -320,16 +371,48 @@ export async function convertStep(
   ] as const) {
     const done = await stage(rows.results as Amount[], limit, from, to, rateOf);
     if (typeof done === 'string') {
-      await refuse(db, email, conversion, done);
+      await release(db, { email, since }, done);
       return false;
     }
     staged.push([kind, limit, done]);
   }
 
-  // Everything fits: all of it swapped in at once, then let go
+  // Every transaction has to be worked out, or some would stay in the old currency: if any
+  // isn't (what was worked out went, by a refusal for an older change), it starts over
+  const counts = await db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM transactions WHERE email = ?1) AS held,
+         (SELECT COUNT(*) FROM conversion_staged WHERE email = ?1 AND kind = 'transaction')
+           AS worked, (SELECT MIN(rowid) FROM conversion_staged
+             WHERE email = ?1 AND kind = 'transaction') AS low,
+         (SELECT MAX(rowid) FROM conversion_staged
+             WHERE email = ?1 AND kind = 'transaction') AS high`,
+    )
+    .bind(email)
+    .first<{ held: number; worked: number; low: number | null; high: number | null }>();
+  if (counts == null || counts.held !== counts.worked) {
+    await db
+      .prepare(
+        `UPDATE conversions SET after_date = '', after_id = '', touched_at = ?3
+         WHERE email = ?1 AND since = ?2 AND phase = 'converting'`,
+      )
+      .bind(email, since, Date.now())
+      .run();
+    return true;
+  }
+
+  // Everything fits: all of it swapped in at once, then let go. The first statement undoes
+  // the batch if what was worked out changed since it was counted.
   await db.batch([
+    db
+      .prepare(
+        `INSERT INTO change_receipts (email, change_id, fingerprint, saved_at)
+         SELECT ?1, NULL, '', 0 WHERE ${STILL} AND ?3 <>
+           (SELECT COUNT(*) FROM conversion_staged WHERE email = ?1 AND kind = 'transaction')`,
+      )
+      .bind(email, since, counts.worked),
     ...staged.flatMap(([kind, , rows]) => stageStatements(db, email, since, kind, rows)),
-    swap(db, email, since, 'transaction', 'transactions'),
+    ...swapTransactions(db, email, since, counts.low, counts.high),
     swap(db, email, since, 'account', 'accounts'),
     swap(db, email, since, 'budget', 'budgets'),
     swap(db, email, since, 'recurring', 'recurring'),

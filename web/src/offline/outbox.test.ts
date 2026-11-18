@@ -133,13 +133,14 @@ describe('the service worker and the app', () => {
   });
 
   test('the service worker says the currency each change was typed in, as the app does', async () => {
-    const typed = queued(2).map((q) => ({ ...q, currency: 'MYR' }));
+    // One kept from before changes said theirs doesn't stop the others saying
+    const typed = queued(3).map((q, i) => (i === 1 ? q : { ...q, currency: 'MYR' }));
     await writeOutbox('ryan@example.com', typed);
     const { outcome, fetch } = await backgroundSync(ok);
     expect(outcome).toBe('done');
     const body = JSON.parse(fetch.mock.calls[0][1].body as string) as unknown;
     expect(body).toEqual(changesBody(typed));
-    expect(body).toMatchObject({ currencies: ['MYR', 'MYR'] });
+    expect(body).toMatchObject({ currencies: ['MYR', null, 'MYR'] });
   });
 
   test('the service worker sends what the app kept, as whoever the app says is signed in', async () => {

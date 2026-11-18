@@ -1,19 +1,24 @@
 // Running conversions (convert.ts) from the mahnee-reconvert queue (wrangler.jsonc): each
 // message takes one conversion one step on, then queues the next. A step that fails (both
-// rate services down) is tried again, each time waiting longer; after max_retries it goes to
-// mahnee-reconvert-dlq, and the person reading their profile starts it again
-// (restartStalled). Only an error's name and message are logged, never a job: it names the
-// person.
+// rate services down) is tried again, each time waiting longer, and the conversion notes
+// when that try is due. After max_retries the job goes to mahnee-reconvert-dlq, which gives
+// the person their currency back (release, refused for `rates`): nothing was converted, and
+// they can try again later. One that stops some other way (a step never queued) is started
+// again when the person reads their profile, once its next try is well overdue, at most
+// MAX_RESTARTS times before it's given back the same way (restartStalled). Only an error's
+// name and message are logged, never a job: it names the person.
 
 import type { Env } from '../app';
 import { getRatePreference } from '../accounts/profiles';
-import { type ConvertJob, STALLED_MS, convertStep, readConversionRow } from './convert';
+import { type ConvertJob, STALLED_MS, convertStep, readConversionRow, release } from './convert';
 import { getRateOn } from './exchange-rates';
 
 /** The first retry waits this long, giving the rate services a moment to come back */
 const FIRST_RETRY_S = 30;
 /** The longest wait between tries; 8 tries fit in the day a message is kept */
 const MAX_RETRY_S = 60 * 60;
+/** How many times a stalled conversion is started again before it's given back */
+export const MAX_RESTARTS = 3;
 
 /** Seconds before try `attempts + 1`; CONVERT_RETRY_DELAY_S (for tests) sets every wait */
 export function retryDelay(env: Pick<Env, 'CONVERT_RETRY_DELAY_S'>, attempts: number) {
@@ -51,16 +56,38 @@ export async function handleConvertBatch(batch: MessageBatch<ConvertJob>, env: E
       msg.ack();
     } catch (err) {
       console.error(`conversion step failed, attempt ${msg.attempts}: ${named(err)}`);
-      msg.retry({ delaySeconds: retryDelay(env, msg.attempts) });
+      const delaySeconds = retryDelay(env, msg.attempts);
+      msg.retry({ delaySeconds });
+      // Not stalled while its next try is still to come
+      await postpone(env, msg.body, delaySeconds).catch((e: unknown) =>
+        console.error(`could not note a conversion's next try: ${named(e)}`),
+      );
     }
   }
 }
 
-/** Given up after max_retries: still converting, and started again when the person reads it */
-export function handleConvertDeadLetters(batch: MessageBatch<ConvertJob>) {
+/** Notes when a conversion's next try is due, so it isn't taken for stalled before then */
+const postpone = (env: Env, { email, since }: ConvertJob, delaySeconds: number) =>
+  env.DB.prepare(
+    `UPDATE conversions SET touched_at = MAX(touched_at, ?3)
+     WHERE email = ?1 AND since = ?2 AND phase = 'converting'`,
+  )
+    .bind(email, since, Date.now() + delaySeconds * 1000)
+    .run();
+
+/**
+ * Given up after max_retries: the person gets their currency back, nothing converted, and
+ * can try again later. One that fails to is tried again by the queue.
+ */
+export async function handleConvertDeadLetters(batch: MessageBatch<ConvertJob>, env: Env) {
   for (const msg of batch.messages) {
-    console.error('gave up on a conversion step for now');
-    msg.ack();
+    try {
+      await release(env.DB, msg.body, 'rates');
+      msg.ack();
+    } catch (err) {
+      console.error(`could not give back a currency: ${named(err)}`);
+      msg.retry();
+    }
   }
 }
 
@@ -70,22 +97,27 @@ export const DEAD_LETTER_QUEUE = 'mahnee-reconvert-dlq';
 /** The Worker's queue handler: steps, and the ones given up on */
 export const handleConvertQueue = (batch: MessageBatch<ConvertJob>, env: Env) =>
   batch.queue === DEAD_LETTER_QUEUE
-    ? handleConvertDeadLetters(batch)
+    ? handleConvertDeadLetters(batch, env)
     : handleConvertBatch(batch, env);
 
 /**
- * A conversion that hasn't moved on for STALLED_MS (the queue gave up, or a step was never
- * queued) is started again, once: marked as moved on first, so readers at once don't each
- * queue it
+ * A conversion that hasn't moved on for STALLED_MS past when it was last due (a step never
+ * queued, or one lost) is started again: marked as moved on first, so readers at once
+ * don't each queue it. After MAX_RESTARTS without moving on, it's given back.
  */
 export async function restartStalled(env: Env, email: string, now = Date.now()) {
   const row = await readConversionRow(env.DB, email);
   if (row?.phase !== 'converting' || now - row.touchedAt < STALLED_MS) return;
+  const job = { email, since: row.since };
+  if (row.restarts >= MAX_RESTARTS) {
+    await release(env.DB, job, 'rates');
+    return;
+  }
   const { meta } = await env.DB.prepare(
-    `UPDATE conversions SET touched_at = ?3
+    `UPDATE conversions SET touched_at = ?3, restarts = restarts + 1
      WHERE email = ?1 AND since = ?2 AND phase = 'converting' AND touched_at = ?4`,
   )
     .bind(email, row.since, now, row.touchedAt)
     .run();
-  if (meta.changes > 0) await queueConversion(env, { email, since: row.since });
+  if (meta.changes > 0) await queueConversion(env, job);
 }

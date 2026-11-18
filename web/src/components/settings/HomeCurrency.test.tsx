@@ -153,6 +153,10 @@ describe('Main currency', () => {
     ['opening', 'Kept MYR: an opening balance would come to more than 10,000,000 IDR either way'],
     ['budget', 'Kept MYR: a budget would come to more than 10,000,000 IDR'],
     ['scheduled', 'Kept MYR: a scheduled item would come to more than 10,000,000 IDR'],
+    [
+      'rates',
+      "Kept MYR: rates for IDR weren't available, so nothing was converted. Try again later",
+    ],
   ] as const)('says which limit refused a change (%s)', async (limit, words) => {
     const server = withWallet();
     server.me.conversion = { from: 'MYR', to: 'IDR', since: Date.now(), refused: limit };

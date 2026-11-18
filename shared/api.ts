@@ -113,6 +113,13 @@ export const CONVERSION_LIMITS = ['amount', 'opening', 'budget', 'scheduled'] as
 export type ConversionLimit = (typeof CONVERSION_LIMITS)[number];
 
 /**
+ * Why a change of currency was refused: a limit, or `rates` when it couldn't be finished
+ * (the rate services stayed down through every try), so the person got their currency back
+ */
+export const CONVERSION_REFUSALS = [...CONVERSION_LIMITS, 'rates'] as const;
+export type ConversionRefusal = (typeof CONVERSION_REFUSALS)[number];
+
+/**
  * The latest change of home currency, while its amounts are converted (refused null), or
  * once it was refused, naming the limit, until the currency is changed again
  */
@@ -121,7 +128,7 @@ export interface Conversion {
   to: string;
   /** When the currency was changed, in ms */
   since: number;
-  refused: ConversionLimit | null;
+  refused: ConversionRefusal | null;
 }
 
 /** The signed-in account and its private settings */
@@ -677,9 +684,11 @@ export interface ChangesBody {
   ids: string[];
   /**
    * The home currency each change was typed in, one each in order (currencyNow when it was
-   * made): an amount typed before the currency changed is converted from it on saving
+   * made), null for one that doesn't say (kept from before): an amount typed before the
+   * currency changed is converted from it on saving; one that doesn't say is taken as typed
+   * in the home currency
    */
-  currencies?: string[];
+  currencies?: (string | null)[];
 }
 
 /**

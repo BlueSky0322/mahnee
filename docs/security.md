@@ -49,8 +49,10 @@ hack-proof, and the limits below are real.
   email and the time it changed on the `mahnee-reconvert` queue; each step reads and writes
   only that person's rows, checked against that change (a step for an older one does
   nothing). Its writes go through no change of the person's, so the person's own writes
-  wait (503) until it's done. A step that fails is tried again 8 times, then set aside on
-  `mahnee-reconvert-dlq`, and started again when the person next reads their profile. It
+  wait (503) until it's done. A step that fails is tried again 8 times; then
+  `mahnee-reconvert-dlq` gives the person their currency back, nothing converted, so they
+  are never left unable to write. One that stalls is started again when the person reads
+  their profile, at most 3 times, then given back the same way. It
   logs an error's name and message, or the name of the limit that refused a change, never
   a job (it names the person), an amount or a rate. Both queues are made in Cloudflare
   before the first deploy that names them; a deploy doesn't make them.

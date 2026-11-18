@@ -26,7 +26,7 @@ const id = (name: string) => DEFAULT_CATEGORIES.find((c) => c.name === name)!.id
 const [FOOD, BILLS] = [id('Food'), id('Bills')];
 
 /** Today's rates, the same in every test: the Worker keeps them for hours */
-const TODAY = { USD: 0.25, SGD: 0.3, THB: 7.5, IDR: 3500, JPY: 33 };
+const TODAY = { USD: 0.25, SGD: 0.3, THB: 7.5, IDR: 3500, JPY: 33, ZAR: 3.9 };
 
 beforeAll(async () => {
   api = await startLocalWorker();
@@ -50,7 +50,7 @@ const freshDay = () => {
   return new Date(at).toISOString().slice(0, 10);
 };
 
-async function send(who: string, changes: unknown[], currencies?: string[]) {
+async function send(who: string, changes: unknown[], currencies?: (string | null)[]) {
   return api.call(who, 'POST', '/api/changes', {
     changes,
     ids: changes.map(() => rowId()),
@@ -58,7 +58,7 @@ async function send(who: string, changes: unknown[], currencies?: string[]) {
   });
 }
 
-async function saved(who: string, changes: unknown[], currencies?: string[]) {
+async function saved(who: string, changes: unknown[], currencies?: (string | null)[]) {
   expect(await send(who, changes, currencies)).toEqual({ status: 200, data: { ok: true } });
 }
 
@@ -418,5 +418,218 @@ describe('changing the home currency', () => {
     const profile = await me(person('new'));
     expect(profile.settings.currency).toBe('MYR');
     expect(profile.conversion).toBeNull();
+  });
+
+  it('MYR to USD to SGD and back to MYR restores every amount exactly, and no one else is touched', async () => {
+    const { who, wallet, bill, entries } = await someone();
+    const other = await someone('other');
+    for (const [day, usd, sgd] of [
+      [entries[0].day, 0.21, 0.29],
+      [entries[1].day, 0.22, 0.28],
+    ] as const) {
+      api.rates.setOn(day, 'MYR', 'USD', usd);
+      api.rates.setOn(day, 'MYR', 'SGD', sgd);
+    }
+    await change(who, 'USD');
+    expect((await finished(who)).conversion).toBeNull();
+    await change(who, 'SGD');
+    expect((await finished(who)).conversion).toBeNull();
+    // Converted from what was typed (MYR), not from the USD in between
+    expect(await entry(who, entries[0].id)).toEqual([
+      { cents: 358, currency: 'MYR', originalCents: 1_234, rate: 0.29, rateAt: expect.any(Number) },
+    ]);
+    await change(who, 'MYR');
+    expect((await finished(who)).settings.currency).toBe('MYR');
+    for (const { id: entryId, cents } of entries) {
+      expect(await entry(who, entryId)).toEqual([
+        { cents, currency: null, originalCents: null, rate: null, rateAt: null },
+      ]);
+    }
+    expect((await amountOf(who, 'accounts', 'id = ?', wallet))[0]).toMatchObject({
+      cents: 100_000,
+      currency: null,
+    });
+    expect((await amountOf(who, 'recurring', 'id = ?', bill))[0]).toMatchObject({
+      cents: 18_937,
+      currency: null,
+    });
+    // The other person's, all along
+    expect((await me(other.who)).settings.currency).toBe('MYR');
+    for (const { id: entryId, cents } of other.entries) {
+      expect(await entry(other.who, entryId)).toEqual([
+        { cents, currency: null, originalCents: null, rate: null, rateAt: null },
+      ]);
+    }
+    expect(await api.sql('SELECT * FROM conversion_staged WHERE email = ?', who)).toEqual([]);
+  });
+
+  it.each([
+    ['budget', 300_000, 18_937],
+    ['scheduled', 60_000, 300_000],
+  ])('is refused when a %s would go past its limit', async (limit, budgetCents, billCents) => {
+    const who = person(limit);
+    const wallet = rowId();
+    const bill = rowId();
+    await saved(who, [
+      {
+        op: 'addAccount',
+        account: { id: wallet, name: 'Wallet', kind: 'cash', openingCents: 1_000 },
+      },
+      {
+        op: 'setBudget',
+        categoryId: FOOD,
+        fromMonth: '2025-01',
+        amountCents: budgetCents,
+        carryOver: false,
+      },
+      {
+        op: 'addRecurring',
+        recurring: {
+          id: bill,
+          kind: 'expense',
+          accountId: wallet,
+          toAccountId: null,
+          amountCents: billCents,
+          categoryId: BILLS,
+          payee: 'TNB',
+          schedule: 'monthly',
+          day: 20,
+          startDate: '2025-01-20',
+          nextDue: nextTwentieth(),
+        },
+      },
+    ]);
+    expect((await change(who, 'IDR')).status).toBe(200);
+    const profile = await finished(who);
+    expect(profile.settings.currency).toBe('MYR');
+    expect(profile.conversion).toMatchObject({ to: 'IDR', refused: limit });
+    expect((await amountOf(who, 'budgets', 'category_id = ?', FOOD))[0]).toMatchObject({
+      cents: budgetCents,
+      currency: null,
+    });
+    expect((await amountOf(who, 'recurring', 'id = ?', bill))[0]).toMatchObject({
+      cents: billCents,
+      currency: null,
+    });
+  });
+
+  it('gives the currency back once every try has failed, nothing converted', async () => {
+    const { who, wallet, entries } = await someone();
+    api.rates.down('frankfurter', true);
+    api.rates.down('wise', true);
+    try {
+      expect((await change(who, 'USD')).status).toBe(200);
+      const { since } = (await me(who)).conversion!;
+      // A failed try notes when the next is due, so it isn't taken for stalled meanwhile
+      const until = Date.now() + 30_000;
+      for (;;) {
+        const [row] = (await api.sql(
+          'SELECT touched_at AS touchedAt FROM conversions WHERE email = ?',
+          who,
+        )) as { touchedAt: number }[];
+        if (row.touchedAt > since) break;
+        if (Date.now() > until) throw new Error('No try noted');
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      // Every try fails: the person gets MYR back, and says why
+      const profile = await finished(who);
+      expect(profile.settings.currency).toBe('MYR');
+      expect(profile.conversion).toEqual({ from: 'MYR', to: 'USD', since, refused: 'rates' });
+    } finally {
+      api.rates.down('frankfurter', false);
+      api.rates.down('wise', false);
+    }
+    expect((await entry(who, entries[0].id))[0]).toMatchObject({ cents: 1_234, currency: null });
+    expect(await api.sql('SELECT * FROM conversion_staged WHERE email = ?', who)).toEqual([]);
+    // Writes go through again
+    await saved(who, [spend(wallet, 100, entries[0].day)]);
+  }, 90_000);
+
+  it('gives the currency back once a stalled one has been started again too often', async () => {
+    const { who, entries } = await someone();
+    const held = api.rates.hold('MYR', 'NOK');
+    try {
+      await change(who, 'NOK');
+      await held.reached;
+      await api.sql('UPDATE conversions SET touched_at = 0, restarts = 3 WHERE email = ?', who);
+      // Reading the profile notices it
+      await me(who);
+      const profile = await finished(who);
+      expect(profile.settings.currency).toBe('MYR');
+      expect(profile.conversion).toMatchObject({ to: 'NOK', refused: 'rates' });
+      expect((await entry(who, entries[0].id))[0]).toMatchObject({ cents: 1_234, currency: null });
+    } finally {
+      held.release();
+    }
+  });
+
+  it('a step run twice, once more for a stall, converts each amount once', async () => {
+    const { who, entries } = await someone();
+    api.rates.setOn(entries[0].day, 'MYR', 'DKK', 1.5);
+    api.rates.setOn(entries[1].day, 'MYR', 'DKK', 1.6);
+    api.rates.set('MYR', 'DKK', 1.55);
+    const held = api.rates.hold('MYR', 'DKK');
+    await change(who, 'DKK');
+    await held.reached;
+    // Taken for stalled while its step waits: started again alongside it
+    await api.sql('UPDATE conversions SET touched_at = 0 WHERE email = ?', who);
+    await me(who);
+    const until = Date.now() + 10_000;
+    while (
+      (
+        (await api.sql('SELECT restarts FROM conversions WHERE email = ?', who)) as {
+          restarts: number;
+        }[]
+      )[0]?.restarts !== 1
+    ) {
+      if (Date.now() > until) throw new Error('Not started again');
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    held.release();
+    expect((await finished(who)).conversion).toBeNull();
+    expect(await entry(who, entries[0].id)).toEqual([
+      {
+        cents: 1_851,
+        currency: 'MYR',
+        originalCents: 1_234,
+        rate: 1.5,
+        rateAt: expect.any(Number),
+      },
+    ]);
+    expect((await entry(who, entries[1].id))[0]).toMatchObject({ cents: 8_002 });
+  }, 60_000);
+
+  it('converts each change in a batch by the currency it says, one that says none as typed', async () => {
+    const { who, wallet, entries } = await someone();
+    const day = freshDay();
+    api.rates.setOn(entries[0].day, 'MYR', 'USD', 0.24);
+    api.rates.setOn(entries[1].day, 'MYR', 'USD', 0.24);
+    api.rates.setOn(day, 'MYR', 'USD', 0.2);
+    await change(who, 'USD');
+    await finished(who);
+    const typedInRinggit = spend(wallet, 10_000, day);
+    const saysNone = spend(wallet, 500, day);
+    await saved(who, [typedInRinggit, saysNone], ['MYR', null]);
+    expect((await entry(who, typedInRinggit.transaction.id))[0]).toMatchObject({
+      cents: 2_000,
+      currency: 'MYR',
+      originalCents: 10_000,
+    });
+    expect((await entry(who, saysNone.transaction.id))[0]).toMatchObject({
+      cents: 500,
+      currency: null,
+    });
+  });
+
+  it("uses today's rate for a day no service has one for, and says when it was from", async () => {
+    const { who, entries } = await someone();
+    await change(who, 'ZAR');
+    expect((await finished(who)).conversion).toBeNull();
+    const [row] = await entry(who, entries[0].id);
+    expect(row).toMatchObject({ cents: 4_813, currency: 'MYR', rate: TODAY.ZAR });
+    const rateAt = (row as unknown as { rateAt: number }).rateAt;
+    // Its rate is today's, as rate_at says, not one for the entry's own day
+    expect(new Date(rateAt).toISOString().slice(0, 10)).toBe(new Date().toISOString().slice(0, 10));
+    expect(entries[0].day < new Date().toISOString().slice(0, 10)).toBe(true);
   });
 });

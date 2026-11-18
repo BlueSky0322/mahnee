@@ -282,6 +282,8 @@
   cursor: pointer;
   -webkit-touch-callout: none;
   user-select: none;
+  /* Rows the design draws as plain items: the body's tracking, not a button's */
+  letter-spacing: inherit;
 }
 
 .rowText {
@@ -522,6 +524,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+  letter-spacing: inherit;
 }
 
 .categoryButton {

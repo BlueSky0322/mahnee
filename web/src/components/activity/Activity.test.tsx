@@ -718,6 +718,27 @@ describe('nothing to show', () => {
     },
   );
 
+  test('with two transfers that cancel out, it says nothing matches, not nothing yet', async () => {
+    const server = fakeServer();
+    seedAccount(server, { id: CASH, name: 'Cash' });
+    seedAccount(server, { id: BANK, name: 'Bank', kind: 'bank', openingCents: 50_000 });
+    for (const [from, to] of [
+      [BANK, CASH],
+      [CASH, BANK],
+    ]) {
+      seed(server, {
+        kind: 'transfer',
+        accountId: from,
+        toAccountId: to,
+        amountCents: 2_000,
+        categoryId: null,
+      });
+    }
+    await open(server, 'desktop');
+    expect(await screen.findByRole('heading', { name: 'No transactions match' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'No transactions yet' })).toBeNull();
+  });
+
   test('with nothing yet and a filter, says nothing matches until the filters are cleared', async () => {
     const server = fakeServer();
     seedAccount(server, { id: CASH, name: 'Cash' });
@@ -876,7 +897,19 @@ describe('changing one', () => {
     const now = within(await screen.findByRole('complementary', { name: /^Hana, / }));
     fireEvent.change(now.getByLabelText('Date'), { target: { value: '2026-12-25' } });
     await user.click(now.getByRole('button', { name: 'Save' }));
-    expect(await now.findByText('Pick a day from 2000 up to today')).toBeTruthy();
+    // Said aloud as it's refused
+    expect((await now.findByRole('alert')).textContent).toBe('Pick a day from 2000 up to today');
+    expect(server.transactions.find((t) => t.payee === 'Hana')).toEqual(sent);
+    // An amount that can't be one is refused the same way
+    fireEvent.change(now.getByLabelText('Date'), { target: { value: '2026-11-05' } });
+    const typed = now.getByLabelText('Amount');
+    await user.clear(typed);
+    await user.type(typed, 'abc');
+    await user.click(now.getByRole('button', { name: 'Save' }));
+    const alert = await now.findByRole('alert');
+    expect(alert.textContent).not.toBe('');
+    expect(typed.getAttribute('aria-invalid')).toBe('true');
+    expect(typed.getAttribute('aria-describedby')).toBe(alert.id);
     expect(server.transactions.find((t) => t.payee === 'Hana')).toEqual(sent);
   });
 

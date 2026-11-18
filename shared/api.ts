@@ -258,6 +258,8 @@ export interface SearchPage extends TransactionPage {
    * outside them, the rest of it the same
    */
   elsewhere?: number;
+  /** The first page only: whether the person has any transaction at all, matching or not */
+  anywhere?: boolean;
 }
 
 /** What was spent in one category, or received in one, over a month */

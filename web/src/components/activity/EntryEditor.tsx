@@ -1,6 +1,6 @@
 import { Button, NativeSelect, SegmentedControl, TextInput } from '@mantine/core';
 import type { FormEvent } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { LedgerChange, Transaction } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
 import {
@@ -101,8 +101,10 @@ export default function EntryEditor({
   ]);
   const categoryId = categoryKind == null ? null : picked[kind] ?? '';
   const currency = account?.currency ?? DEFAULT_CURRENCY;
-  // Beside the register: its payee, day and amount typed where they're shown
+  // Beside the register: its payee, day and amount typed where they're shown, each refusal
+  // said aloud and tied to its field
   const inline = title != null;
+  const errorIds = { date: useId(), amount: useId() };
   const chevron = (
     <DownIcon
       size={16}
@@ -202,6 +204,8 @@ export default function EntryEditor({
               <input
                 type="date"
                 aria-label="Date"
+                aria-invalid={errors.date != null || undefined}
+                aria-describedby={errors.date != null ? errorIds.date : undefined}
                 value={date}
                 min="2000-01-01"
                 max={today}
@@ -216,7 +220,15 @@ export default function EntryEditor({
               />
             </label>
           </div>
-          {errors.date != null && <p className={classes.fieldError}>{errors.date}</p>}
+          {errors.date != null && (
+            <p
+              id={errorIds.date}
+              role="alert"
+              className={classes.fieldError}
+            >
+              {errors.date}
+            </p>
+          )}
           <label
             className={`${classes.headline} sf-tabular`}
             data-kind={kind}
@@ -226,6 +238,8 @@ export default function EntryEditor({
               ref={amountField}
               className={classes.inlineField}
               aria-label="Amount"
+              aria-invalid={errors.amount != null || undefined}
+              aria-describedby={errors.amount != null ? errorIds.amount : undefined}
               inputMode="decimal"
               autoComplete="off"
               data-autofocus={toCheck || undefined}
@@ -233,7 +247,15 @@ export default function EntryEditor({
               onChange={(e) => setAmount(e.currentTarget.value)}
             />
           </label>
-          {errors.amount != null && <p className={classes.fieldError}>{errors.amount}</p>}
+          {errors.amount != null && (
+            <p
+              id={errorIds.amount}
+              role="alert"
+              className={classes.fieldError}
+            >
+              {errors.amount}
+            </p>
+          )}
         </>
       ) : (
         <>

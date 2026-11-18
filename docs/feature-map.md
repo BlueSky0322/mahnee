@@ -1103,8 +1103,9 @@ person's month, from their month start day) move the budget, and none already in
 a budget is a month's, so an October entry moved to Food changes October's Food, not the
 one shown. Spending or income
 alone, no transfers. Delete N takes them out at once, with Undo. More than 500 ticked is
-refused with a message. With nothing yet (no money moved on any account: a transfer alone
-shows the filters, with nothing matching) it says "No transactions yet" with Log your first
+refused with a message. With nothing yet (the first page of a search says whether the person
+has any entry at all, `anywhere`: a transfer alone shows the filters, with nothing matching)
+it says "No transactions yet" with Log your first
 one and Import a bank's CSV; with nothing found, 'No "bolt" in Transport this month. 2 in
 other months.' with Clear filters (the chips, not the words or the days) and Search all
 months. Offline with nothing loaded: "Connect to search" (results aren't kept on the

@@ -155,15 +155,6 @@
   font-size: 14px;
 }
 
-.kbd {
-  padding: 2px 6px;
-  border: 1px solid var(--line-2);
-  border-radius: 6px;
-  color: var(--ink-3);
-  font-family: 'Geist Mono', monospace;
-  font-size: 11px;
-}
-
 /* The month end, and the two cards under it */
 
 .hero {

@@ -1478,6 +1478,21 @@ describe('recording an import, and how it reads', () => {
     expect(server.imports).toEqual([]);
   });
 
+  test('on a computer, a click on the dimmed page around it keeps the file being looked over', async () => {
+    const server = withGrab();
+    renderApp(server, '/');
+    const user = await openImport();
+    await user.upload(screen.getByLabelText('Import a file'), csv(FILE, 'maybank-oct.csv'));
+    await screen.findByRole('dialog', { name: 'Import maybank-oct.csv' });
+    // The space around the window, over the dimmed Import and export
+    const around = document.querySelector<HTMLElement>('.mantine-Modal-overlay');
+    expect(around).not.toBeNull();
+    await user.click(around!);
+    await settle();
+    expect(screen.getByRole('dialog', { name: 'Import maybank-oct.csv' })).toBeTruthy();
+    expect(window.location.search).toBe('?import');
+  });
+
   test.each(SIZES)(
     'records the import, its entries naming it, and lists it under Recent imports (%s)',
     async (size) => {

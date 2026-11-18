@@ -665,6 +665,8 @@ export default function ImportPage() {
         <Modal.Root
           opened
           onClose={cancel}
+          // A stray click on the dimmed page keeps the file being looked over; Esc and X cancel
+          closeOnClickOutside={false}
           size={1200}
           yOffset={48}
           // Import and export takes the keyboard back as it opens again (askFocusBack)

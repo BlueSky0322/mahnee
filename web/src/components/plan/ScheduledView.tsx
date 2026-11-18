@@ -14,6 +14,7 @@ import { formatMoney } from '../../utils/money';
 import EntryTile from '../common/EntryTile';
 import PageLink from '../home/PageLink';
 import { AlertIcon, ForwardIcon, ScheduledIcon } from '../ui/icons';
+import NextDays from './NextDays';
 import type { Opened, Prefill } from './ScheduleSheet';
 import classes from './Scheduled.module.css';
 import {
@@ -31,9 +32,10 @@ import {
 // scheduled item, as Expenses and Income (each with what it comes to in the person's
 // month, a weekly item counted each time it falls in it) and Transfers ("not an expense"),
 // in the order they were set up; a note for each card owed with no payment scheduled; and
-// how many entries Scheduled added this month, with a link to them in Activity. Each item
-// opens to change; with nothing scheduled, common ones to start from. Owner decision D8:
-// each is added on its day by the server.
+// how many entries Scheduled added this month, with a link to them in Activity; then the next
+// 30 days, under what's drawn (NextDays.tsx). Each item opens to change; with nothing
+// scheduled, common ones to start from. Owner decision D8: each is added on its day by the
+// server.
 
 /** The common ones R-Empty-Bills offers, and what each starts with */
 const COMMON: { label: string; kind: TransactionKind; category: string; payee: string | null }[] = [
@@ -140,6 +142,10 @@ export default function ScheduledView({ onOpen }: { onOpen: (opened: Opened) => 
           <span className={classes.addedLink}>See them</span>
         </PageLink>
       )}
+      <NextDays
+        ledger={ledger}
+        today={today}
+      />
     </>
   );
   // A computer: every group in one card, the notes in a column beside it

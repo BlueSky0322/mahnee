@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Account, Ledger, LedgerChange, Recurring } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
-import { fallsOn, nextAfter } from '@shared/recurring';
+import { MAX_TRANSACTION_CENTS } from '@shared/ledger';
+import { MAX_RECURRING, fallsOn, nextAfter } from '@shared/recurring';
 import { apply } from './apply';
-import { comingUp, dueNow, monthEndForecast } from './forecast';
+import { comingUp, dueNow, monthEndForecast, nextThirtyDays } from './forecast';
 
 // What's expected at the end of this month: today's balances of every listed account (what's
 // owed on a card counts against it), less the repeating bills still due this month, plus the
@@ -545,5 +546,192 @@ describe('due now, once Scheduled adds entries on their day', () => {
       { op: 'skipRecurring', id: asking.recurring![0].id, due: TODAY },
     ] as LedgerChange[]);
     expect(dueNow(twice, TODAY)).toEqual([]);
+  });
+});
+
+// The next 30 days on Scheduled (owner decision D12): from today's balances and what's
+// scheduled, today through the day 30 days on, what comes in and goes out, and each account's
+// lowest balance and the day it's first reached. Transfers move money between the person's
+// own accounts: each side's balance moves, the totals don't. An occurrence overdue (waiting
+// on Home) counts as today's.
+describe('the next 30 days', () => {
+  const lows = (ledger: Ledger, today = TODAY) =>
+    nextThirtyDays(ledger, today).lowest.map((l) => [l.account.name, l.cents, l.date]);
+
+  it('runs from today to the day 30 days on, and with nothing scheduled moves nothing', () => {
+    expect(nextThirtyDays(ledgerWith([]), TODAY)).toEqual({
+      until: '2026-12-06',
+      inCents: 0,
+      outCents: 0,
+      lowest: [],
+    });
+  });
+
+  it('finds where an account dips before pay brings it back, and the day it does', () => {
+    const rent = item('Rent', { amountCents: 200_000, day: 10, nextDue: '2026-11-10' });
+    const phone = item('Phone', { amountCents: 5_000, day: 12, nextDue: '2026-11-12' });
+    const salary = item('Salary', {
+      kind: 'income',
+      categoryId: SALARY,
+      amountCents: 150_000,
+      day: 25,
+      nextDue: '2026-11-25',
+    });
+    const next = nextThirtyDays(ledgerWith([rent, phone, salary]), TODAY);
+    expect(next.inCents).toBe(150_000);
+    expect(next.outCents).toBe(205_000);
+    // RM 3,000, less 2,000 on the 10th and 50 on the 12th, back up by 1,500 on the 25th
+    expect(lows(ledgerWith([rent, phone, salary]))).toEqual([['Maybank', 95_000, '2026-11-12']]);
+  });
+
+  it('counts the days across month end, both ends of the window included', () => {
+    // From December 20 to January 19: the 31st falls on December 31, the 1st on January 1
+    const loan = item('Loan', { amountCents: 20_000, day: 31, nextDue: '2026-12-31' });
+    const club = item('Club', { amountCents: 3_000, day: 1, nextDue: '2027-01-01' });
+    // Today's and the last day's; the day after that is out
+    const today = item('Today', { amountCents: 100, day: 20, nextDue: '2026-12-20' });
+    const last = item('Last', { amountCents: 10, day: 19, nextDue: '2027-01-19' });
+    const after = item('After', { amountCents: 1, day: 20, nextDue: '2027-01-20' });
+    const next = nextThirtyDays(ledgerWith([loan, club, today, last, after]), '2026-12-20');
+    expect(next.until).toBe('2027-01-19');
+    // Today's again on January 20 is past the window
+    expect(next.outCents).toBe(20_000 + 3_000 + 100 + 10);
+    expect(lows(ledgerWith([loan, club, today, last, after]), '2026-12-20')).toEqual([
+      ['Maybank', 300_000 - 23_110, '2027-01-19'],
+    ]);
+  });
+
+  it('takes a bill on the 31st on the last day of a short month, and an overdue one today', () => {
+    // From February 10 to March 12: January 31's is overdue and counts today, then February 28;
+    // March 31 is past the window
+    const loan = item('Loan', { amountCents: 20_000, day: 31, nextDue: '2027-01-31' });
+    const next = nextThirtyDays(ledgerWith([loan]), '2027-02-10');
+    expect(next.outCents).toBe(2 * 20_000);
+    expect(lows(ledgerWith([loan]), '2027-02-10')).toEqual([['Maybank', 260_000, '2027-02-28']]);
+  });
+
+  it('leaves out a transfer to or from an archived account, moving neither side', () => {
+    const toOld = item('To old', {
+      kind: 'transfer',
+      toAccountId: OLD,
+      categoryId: null,
+      amountCents: 50_000,
+      day: 20,
+      nextDue: '2026-11-20',
+    });
+    const fromOld = item('From old', {
+      kind: 'transfer',
+      accountId: OLD,
+      toAccountId: BANK,
+      categoryId: null,
+      amountCents: 70_000,
+      day: 22,
+      nextDue: '2026-11-22',
+    });
+    expect(nextThirtyDays(ledgerWith([toOld, fromOld]), TODAY)).toEqual({
+      until: '2026-12-06',
+      inCents: 0,
+      outCents: 0,
+      lowest: [],
+    });
+  });
+
+  it('moves both accounts for a transfer, and counts it in neither total', () => {
+    const payCard = item('Card', {
+      kind: 'transfer',
+      toAccountId: CARD,
+      categoryId: null,
+      amountCents: 50_000,
+      day: 20,
+      nextDue: '2026-11-20',
+    });
+    const charge = item('Charge', {
+      accountId: CARD,
+      amountCents: 2_000,
+      day: 8,
+      nextDue: '2026-11-08',
+    });
+    const next = nextThirtyDays(ledgerWith([payCard, charge]), TODAY);
+    expect(next.inCents).toBe(0);
+    expect(next.outCents).toBe(2_000);
+    // In the person's order: Maybank lowest once the card's paid; the card most owed on the 8th
+    expect(lows(ledgerWith([payCard, charge]))).toEqual([
+      ['Maybank', 250_000, '2026-11-20'],
+      ['Visa', -52_000, '2026-11-08'],
+    ]);
+  });
+
+  it("names today when nothing scheduled takes an account below today's balance", () => {
+    const salary = item('Salary', {
+      kind: 'income',
+      categoryId: SALARY,
+      amountCents: 10_000,
+      day: 25,
+      nextDue: '2026-11-25',
+    });
+    expect(lows(ledgerWith([salary]))).toEqual([['Maybank', 300_000, TODAY]]);
+  });
+
+  it('nets a dip and its recovery on the same day, and names the first of equal lows', () => {
+    const out = item('Out', { amountCents: 400_000, day: 15, nextDue: '2026-11-15' });
+    const back = item('Back', {
+      kind: 'income',
+      categoryId: SALARY,
+      amountCents: 400_000,
+      day: 15,
+      nextDue: '2026-11-15',
+    });
+    const later = item('Later', { amountCents: 1_000, day: 20, nextDue: '2026-11-20' });
+    const refund = item('Refund', {
+      kind: 'income',
+      categoryId: SALARY,
+      amountCents: 1_000,
+      day: 22,
+      nextDue: '2026-11-22',
+    });
+    const evenAgain = item('Again', { amountCents: 1_000, day: 28, nextDue: '2026-11-28' });
+    // The 15th ends where it began; 2,990 on the 20th, again on the 28th: the 20th is named
+    expect(lows(ledgerWith([out, back, later, refund, evenAgain]))).toEqual([
+      ['Maybank', 299_000, '2026-11-20'],
+    ]);
+  });
+
+  it('counts what waits on Home as today, and leaves out stopped items and archived accounts', () => {
+    const waiting = item('Insurance', {
+      schedule: 'weekly',
+      day: 5,
+      nextDue: '2026-10-23',
+      askFirst: true,
+    });
+    const stopped = item('Stopped', { amountCents: 99_999, archived: true });
+    const onOld = item('Old', {
+      accountId: OLD,
+      amountCents: 99_999,
+      day: 9,
+      nextDue: '2026-11-09',
+    });
+    const next = nextThirtyDays(ledgerWith([waiting, stopped, onOld]), TODAY);
+    // October 23 and 30 and today, the 6th, all count today; then the 13th to December 4
+    expect(next.outCents).toBe(7 * 1_000);
+    expect(lows(ledgerWith([waiting, stopped, onOld]))).toEqual([
+      ['Maybank', 293_000, '2026-12-04'],
+    ]);
+  });
+
+  it('stays exact at the limits: every item at the most, five times in the window', () => {
+    // From Monday November 9 to December 9: Mondays the 9th to December 7, five of them
+    const most = Array.from({ length: MAX_RECURRING }, (_, i) =>
+      item(`Most ${i}`, {
+        schedule: 'weekly',
+        day: 1,
+        amountCents: MAX_TRANSACTION_CENTS,
+        nextDue: '2026-11-09',
+      }),
+    );
+    const next = nextThirtyDays(ledgerWith(most), '2026-11-09');
+    expect(next.outCents).toBe(MAX_RECURRING * 5 * MAX_TRANSACTION_CENTS);
+    expect(lows(ledgerWith(most), '2026-11-09')).toEqual([
+      ['Maybank', 300_000 - MAX_RECURRING * 5 * MAX_TRANSACTION_CENTS, '2026-12-07'],
+    ]);
   });
 });

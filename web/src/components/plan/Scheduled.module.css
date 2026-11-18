@@ -6,11 +6,10 @@
   gap: 16px;
 }
 
+/* A phone: each group's heading on the page, its items in a card under it */
 .group {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .groupHead {
@@ -18,7 +17,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px 6px;
+  padding: 4px 4px 8px;
 }
 
 .groupTitle {
@@ -30,15 +29,22 @@
 .groupAside {
   color: var(--ink-3);
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 .rows {
   margin: 0;
   padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
   list-style: none;
 }
 
-.rows li + li {
+/* The rule between items is inside each one's 60px, as drawn */
+.rows li + li > button {
   border-top: 1px solid var(--line);
 }
 
@@ -57,21 +63,9 @@
   cursor: pointer;
 }
 
-.row:hover {
+.row:hover,
+.deskRow:hover {
   background: var(--accent-tint);
-}
-
-.tile {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: var(--accent-tint);
-  color: var(--accent);
-  font-size: 14px;
-  font-weight: 600;
 }
 
 .rowText {
@@ -83,14 +77,24 @@
 }
 
 .rowTitle {
+  overflow: hidden;
   font-size: 15px;
   font-weight: 500;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rowLine {
+  overflow: hidden;
   color: var(--ink-3);
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "20th · amount changes": the person checks each one */
+.rowLine[data-changes] {
+  color: var(--due);
 }
 
 .rowEnd {
@@ -101,28 +105,17 @@
   gap: 2px;
 }
 
-.rowNext {
-  flex: none;
+.rowNextPhone {
   color: var(--ink-3);
-  font-size: 13px;
-}
-
-.changes {
-  margin-left: 4px;
-  color: var(--due);
-}
-
-.about {
-  flex: none;
-  color: var(--ink-3);
-  font-size: 13px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .amount {
   flex: none;
   font-size: 15px;
   font-weight: 500;
-  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .amount[data-kind='income'] {
@@ -130,34 +123,161 @@
 }
 
 .amount[data-kind='transfer'] {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 [data-waiting] {
   color: var(--due);
 }
 
+/* A computer: every group in one card, beside a column of notes */
+.desk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.deskCard {
+  flex: 999 1 600px;
+  min-width: 0;
+  overflow: hidden;
+  padding-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.deskCard .groupHead {
+  padding: 18px 20px 10px;
+}
+
+.deskCard .rows {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.deskCard .rows li > button {
+  border-top: 1px solid var(--line);
+}
+
+.deskRow {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1.4fr) minmax(0, 1.1fr) minmax(0, 1fr) 120px 20px;
+  align-items: center;
+  column-gap: 16px;
+  width: 100%;
+  min-height: 60px;
+  padding: 0 20px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.deskName {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deskWhen {
+  color: var(--ink-2);
+}
+
+.rowNext {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.changes {
+  color: var(--due);
+}
+
+.deskRow .amount {
+  font-size: 14px;
+  font-weight: 400;
+  text-align: right;
+}
+
+.about {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.chevron {
+  color: var(--ink-3);
+}
+
+.side {
+  display: flex;
+  flex: 1 1 300px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* A card owed with nothing scheduled into it */
 .note {
-  margin: 0;
-  padding: 14px 16px;
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
   border-radius: 14px;
   background: var(--due-tint);
+  color: var(--ink);
   font-size: 14px;
+  line-height: 1.45;
+}
+
+.side .note {
+  padding: 14px 16px;
+  border-radius: 16px;
   line-height: 1.5;
+}
+
+.noteIcon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--due);
+}
+
+.noteName {
+  font-weight: 600;
 }
 
 .noteLink,
 .addedLink {
   color: var(--accent);
-  font-weight: 600;
-  text-decoration: underline;
+  font-weight: 500;
+  text-decoration: none;
 }
 
 .added {
   align-self: flex-start;
-  color: var(--ink-2);
-  font-size: 14px;
+  padding: 0 4px;
+  color: var(--ink-3);
+  font-size: 13px;
   text-decoration: none;
+}
+
+/* Nothing scheduled: on a phone the message on the page with common ones under it; on a
+   computer, both in one card */
+.emptyPage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.emptyCard {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
 }
 
 .empty {
@@ -166,10 +286,27 @@
   align-items: center;
   gap: 10px;
   padding: 32px 20px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--surface);
   text-align: center;
+}
+
+.emptyPage .empty {
+  margin-top: 24px;
+}
+
+.emptyCard .empty {
+  padding: 56px 20px 20px;
+}
+
+.emptyIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 4px;
+  border-radius: 16px;
+  background: var(--sunk);
+  color: var(--ink-2);
 }
 
 .emptyTitle {
@@ -179,13 +316,31 @@
 }
 
 .soft {
+  max-width: 340px;
   margin: 0;
   color: var(--ink-2);
   font-size: 14px;
+  line-height: 1.5;
+}
+
+.emptyAction {
+  margin-top: 6px;
+}
+
+.common {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 4px;
+}
+
+.emptyCard .common {
+  align-items: center;
+  padding: 0 20px 48px;
 }
 
 .commonTitle {
-  margin: 12px 0 0;
+  margin: 0;
   color: var(--ink-3);
   font-size: 13px;
 }
@@ -193,46 +348,229 @@
 .chips {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 8px;
 }
 
+.emptyCard .chips {
+  justify-content: center;
+}
+
 .chip {
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--line);
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
   border-radius: 999px;
   background: var(--surface);
   color: var(--ink);
   font: inherit;
   font-size: 14px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
+/* The sheet (R-Bill-Edit): Cancel, the title and Save; one card of rows; what's next */
 .form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
 }
 
-.field {
+.sheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0 14px;
+}
+
+.cancel {
+  margin-left: -8px;
+}
+
+.sheetTitle {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+/* The name, typed over to rename it, as the title */
+.titleInput {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: center;
+  text-overflow: ellipsis;
+}
+
+.titleInput:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.kinds {
+  margin-bottom: 12px;
+}
+
+.fields {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.frow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 6px 14px;
+  color: var(--ink);
+}
+
+.frow + .frow {
+  border-top: 1px solid var(--line);
+}
+
+.k {
+  flex: none;
+  width: 72px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.v {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Drawn as buttons, the rows that pick and the two ways keep the browser's own spacing */
+.pick .v,
+.each label,
+.kinds label {
+  letter-spacing: normal;
+}
+
+.vText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.input:focus {
+  outline: none;
+}
+
+.frow:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.frow:has(.each):focus-within {
+  box-shadow: none;
+}
+
+.amountNote {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.each {
+  flex: 1;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--dot);
+}
+
+.chevron {
+  flex: none;
+  color: var(--ink-3);
+}
+
+/* The device's own list, over the whole row so a tap anywhere opens it */
+.pickSelect {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.errors {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 0 4px;
+  color: var(--neg);
+  font-size: 13px;
 }
 
-.fieldLabel {
-  font-size: 14px;
+.errors p {
+  margin: 0;
+}
+
+.nextCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.nextTitle {
+  font-size: 15px;
   font-weight: 500;
 }
 
 .next {
+  margin: 0;
   color: var(--ink-2);
   font-size: 14px;
+  line-height: 1.5;
 }
 
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+.stop {
+  align-self: center;
+  margin-top: 8px;
+}
+
+/* The design's small buttons: 13.5px in the browser's own spacing; a quiet one has no edge,
+   so its words sit 14px in */
+.small[data-size] {
+  font-size: 13.5px;
+  letter-spacing: normal;
+}
+
+.small[data-variant='light'] {
+  border: 0;
 }

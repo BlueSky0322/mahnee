@@ -74,11 +74,23 @@ export function deskSubtitle(
   return carriesOver ? `${what} · carries over` : what;
 }
 
-/** "RM 156.24 under your usual RM 371.46", or "the same as your usual RM 10.00" */
-export function usualText({ averageCents, byCents, direction }: AgainstAverage): string {
+/**
+ * The same in two parts, so a page can stand out how far off it is: "RM 156.24 under" and
+ * "your usual RM 371.46", or nothing and "the same as your usual RM 10.00"
+ */
+export function usualParts({ averageCents, byCents, direction }: AgainstAverage): {
+  by: string | null;
+  rest: string;
+} {
   const usual = `your usual ${money(averageCents)}`;
-  if (direction === 'same') return `the same as ${usual}`;
-  return `${money(byCents)} ${direction === 'above' ? 'over' : 'under'} ${usual}`;
+  if (direction === 'same') return { by: null, rest: `the same as ${usual}` };
+  return { by: `${money(byCents)} ${direction === 'above' ? 'over' : 'under'}`, rest: usual };
+}
+
+/** "RM 156.24 under your usual RM 371.46", or "the same as your usual RM 10.00" */
+export function usualText(against: AgainstAverage): string {
+  const { by, rest } = usualParts(against);
+  return by == null ? rest : `${by} ${rest}`;
 }
 
 /**

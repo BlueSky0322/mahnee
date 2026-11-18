@@ -250,15 +250,12 @@ describe('every scheduled item', () => {
     async (size) => {
       const user = await open(everything(), size);
       // Owed RM 839.90 (RM 800 and Streaming's RM 39.90 this month), and Streaming again on Dec 3
-      expect(
-        (
-          await screen.findAllByText(
-            (_, el) =>
-              el != null &&
-              seen(el) === 'Visa: RM 879.80 owed by Dec 3, no payment scheduled. Schedule one',
-          )
-        ).length,
-      ).toBeGreaterThan(0);
+      const note = await screen.findByRole('note');
+      expect(note.textContent).toBe(
+        'Visa: RM 879.80 owed by Dec 3, no payment scheduled. Schedule one',
+      );
+      // The card's name stands out, on its own
+      expect(within(note).getByText('Visa')).toBeTruthy();
       await user.click(screen.getByRole('link', { name: 'Schedule one' }));
       const form = within(await screen.findByRole('dialog', { name: 'New schedule' }));
       expect(form.getByRole('radio', { name: 'Transfer' })).toHaveProperty('checked', true);
@@ -282,14 +279,9 @@ describe('every scheduled item', () => {
         ]),
         size,
       );
-      expect(
-        (
-          await screen.findAllByText(
-            (_, el) =>
-              el != null && seen(el) === 'Visa: RM 800.00 owed, no payment scheduled. Schedule one',
-          )
-        ).length,
-      ).toBeGreaterThan(0);
+      expect((await screen.findByRole('note')).textContent).toBe(
+        'Visa: RM 800.00 owed, no payment scheduled. Schedule one',
+      );
     },
   );
 
@@ -332,12 +324,33 @@ describe('nothing scheduled yet', () => {
     renderApp(withAccounts([]), '/?plan=scheduled', { size });
     expect(await screen.findByRole('heading', { name: 'Nothing scheduled' })).toBeTruthy();
     expect(screen.getByText('Rent, bills and pay, added on their day.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Schedule something' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Schedule something' }).length).toBe(
+      size === 'phone' ? 1 : 2,
+    );
     expect(screen.getByText('Common ones')).toBeTruthy();
     for (const name of ['Rent', 'Salary', 'Phone bill', 'Netflix', 'Car loan']) {
       expect(screen.getByRole('button', { name })).toBeTruthy();
     }
     expect(screen.queryByRole('region', { name: 'Expenses' })).toBeNull();
+  });
+
+  test('on a phone, the header names the month, with no Schedule beside it', async () => {
+    tenthJustAfterMidnight();
+    renderApp(withAccounts([]), '/?plan=scheduled', { size: 'phone' });
+    await screen.findByRole('heading', { name: 'Nothing scheduled' });
+    expect(screen.getByText('Nov 2026')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Schedule' })).toBeNull();
+  });
+
+  test('on a computer, Schedule something stays in the header too, and opens a new one', async () => {
+    tenthJustAfterMidnight();
+    renderApp(withAccounts([]), '/?plan=scheduled', { size: 'desktop' });
+    const user = userEvent.setup();
+    await screen.findByRole('heading', { name: 'Nothing scheduled' });
+    const both = screen.getAllByRole('button', { name: 'Schedule something' });
+    expect(both).toHaveLength(2);
+    await user.click(both[0]);
+    expect(await screen.findByRole('dialog', { name: 'New schedule' })).toBeTruthy();
   });
 
   test.each(SIZES)('a common one opens a new schedule filled in for it (%s)', async (size) => {
@@ -425,7 +438,44 @@ describe('changing one', () => {
     expect(sheet.getByText('Dec 3 · added automatically from Visa')).toBeTruthy();
     expect(sheet.getByRole('button', { name: 'Stop scheduling Streaming' })).toBeTruthy();
     expect(sheet.queryByText('last time')).toBeNull();
+    // Its name is the sheet's title, and changed there; Cancel closes it, so no Close
+    expect(sheet.getByRole('textbox', { name: 'Name' })).toHaveProperty('value', 'Streaming');
+    expect(sheet.queryByRole('button', { name: 'Close' })).toBeNull();
   });
+
+  test.each(SIZES)(
+    'one called by its category keeps that title, its name in a row of its own (%s)',
+    async (size) => {
+      const user = await open(everything(), size);
+      await user.click(within(group('Income')).getByRole('button'));
+      const sheet = within(await screen.findByRole('dialog', { name: 'Salary' }));
+      expect(sheet.getByRole('textbox', { name: 'Name' })).toHaveProperty('value', 'Initech');
+      expect(sheet.getByRole('textbox', { name: 'Amount' })).toHaveProperty('value', '5200.00');
+    },
+  );
+
+  test.each(SIZES)(
+    'a whole amount reads with its cents, renamed from the title (%s)',
+    async (size) => {
+      const server = everything();
+      const user = await open(server, size);
+      await user.click(within(group('Expenses')).getByRole('button', { name: /Rent/ }));
+      const sheet = within(await screen.findByRole('dialog', { name: 'Rent' }));
+      expect(sheet.getByRole('textbox', { name: 'Amount' })).toHaveProperty('value', '1350.00');
+      const name = sheet.getByRole('textbox', { name: 'Name' });
+      await user.clear(name);
+      await user.type(name, 'Flat');
+      await user.click(sheet.getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(rows('Expenses')[0]).toMatch(/^Flat /);
+      await waitFor(() =>
+        expect(server.recurring.find((r) => r.id === RENT.id)).toMatchObject({
+          payee: 'Flat',
+          amountCents: 135_000,
+        }),
+      );
+    },
+  );
 
   test.each(SIZES)(
     'one whose amount changes is added for the person to check (%s)',

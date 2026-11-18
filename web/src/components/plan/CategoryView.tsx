@@ -2,6 +2,7 @@ import { Button, Switch, TextInput } from '@mantine/core';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { Category, MonthBudget, MonthTrend } from '@shared/api';
+import type { AgainstAverage } from '@shared/trend';
 import { categoriesOrDefaults } from '@shared/categories';
 import { DEFAULT_CURRENCY } from '@shared/ledger';
 import { againstAverage } from '@shared/trend';
@@ -22,7 +23,7 @@ import classes from './Plan.module.css';
 import BudgetBar from './BudgetBar';
 import { activityAddress, planAddress } from './plan-address';
 import type { PlanMonth } from './plan-month';
-import { entriesText, usualText, yearComparison } from './plan-text';
+import { entriesText, usualParts, usualText, yearComparison } from './plan-text';
 import BackButton from '../ui/BackButton';
 
 const money = (cents: number) => formatMoney(cents, DEFAULT_CURRENCY);
@@ -149,7 +150,7 @@ export default function CategoryView({
   const cents = spending?.cents ?? 0;
   const entries = spending?.entries ?? 0;
   const year = trend.trend == null ? null : yearOf(trend.trend, categories, category);
-  const usual = year == null ? null : usualText(againstAverage(year.map((m) => m.cents)));
+  const usual = year == null ? null : againstAverage(year.map((m) => m.cents));
   const comparison = year == null ? null : yearComparison(year);
   const monthName = monthHeading(shown.month, { short: true });
   const line: BudgetLine | undefined = budgetLines(summary, categories).find((l) => l.id === id);
@@ -192,7 +193,7 @@ export default function CategoryView({
               <span className={classes.insideName}>{sub.name}</span>
               {isPage && <span className={classes.rowSub}>{entriesText(sub.entries)}</span>}
             </span>
-            <span className={classes.num}>{amount(sub.cents)}</span>
+            <span className={`${classes.num} ${classes.insideAmount}`}>{amount(sub.cents)}</span>
           </li>
         ))}
         {spending.ownCents > 0 && (
@@ -207,7 +208,9 @@ export default function CategoryView({
                 </span>
               )}
             </span>
-            <span className={classes.num}>{amount(spending.ownCents)}</span>
+            <span className={`${classes.num} ${classes.insideAmount}`}>
+              {amount(spending.ownCents)}
+            </span>
           </li>
         )}
       </ul>
@@ -237,8 +240,8 @@ export default function CategoryView({
       titleId={titleId}
     >
       {header}
-      <div className={isPage ? classes.categoryTop : classes.paneTop}>
-        {isPage ? (
+      {isPage ? (
+        <div className={classes.categoryTop}>
           <h1
             id={titleId}
             className={classes.categoryTitle}
@@ -250,7 +253,16 @@ export default function CategoryView({
             />
             {category.name}
           </h1>
-        ) : (
+          <p className={`${classes.num} ${classes.bigFigure}`}>{money(cents)}</p>
+          {usual != null && (
+            <UsualLine
+              against={usual}
+              lead={`${isIncome ? 'Received' : 'Spent'} in ${monthName}`}
+            />
+          )}
+        </div>
+      ) : (
+        <>
           <div className={classes.paneHead}>
             <h2
               id={titleId}
@@ -265,16 +277,12 @@ export default function CategoryView({
             </h2>
             {seeLink}
           </div>
-        )}
-        <p className={`${classes.num} ${isPage ? classes.bigFigure : classes.paneFigure}`}>
-          {money(cents)}
-        </p>
-        {usual != null && (
-          <p className={classes.soft}>
-            {isPage ? `${isIncome ? 'Received' : 'Spent'} in ${monthName} · ${usual}` : usual}
-          </p>
-        )}
-      </div>
+          <div className={classes.paneFigures}>
+            <p className={`${classes.num} ${classes.paneFigure}`}>{money(cents)}</p>
+            {usual != null && <UsualLine against={usual} />}
+          </div>
+        </>
+      )}
 
       <section
         aria-label={`${category.name}, last 12 months${comparison != null ? `, ${comparison}` : ''}`}
@@ -304,6 +312,7 @@ export default function CategoryView({
           <YearBars
             months={year}
             colour={categoryColour(categories, id)}
+            labelled={isPage}
           />
         )}
       </section>
@@ -323,6 +332,27 @@ export default function CategoryView({
 
       {isPage && seeLink}
     </Shell>
+  );
+}
+
+/**
+ * The month against the usual: on a page after what it is ("Spent in November ·"), with how
+ * far off it is standing out; in a pane on its own
+ */
+export function UsualLine({ against, lead }: { against: AgainstAverage; lead?: string }) {
+  if (lead == null)
+    return <p className={`${classes.soft} ${classes.usual}`}>{usualText(against)}</p>;
+  const { by, rest } = usualParts(against);
+  return (
+    <p className={`${classes.soft} ${classes.usual}`}>
+      {`${lead} · `}
+      {by != null && (
+        <>
+          <strong className={classes.usualBy}>{by}</strong>{' '}
+        </>
+      )}
+      {rest}
+    </p>
   );
 }
 
@@ -352,7 +382,16 @@ export function Shell({
  * The 12 months as bars, oldest first, each read out with its month and amount, the month
  * shown picked out in the category's colour; the average of the 11 before as a line
  */
-export function YearBars({ months, colour }: { months: MonthAmount[]; colour: string }) {
+export function YearBars({
+  months,
+  colour,
+  labelled,
+}: {
+  months: MonthAmount[];
+  colour: string;
+  /** A page names the average on its line; a pane's line under the figure already does */
+  labelled: boolean;
+}) {
   const largest = Math.max(0, ...months.map((m) => m.cents));
   const { averageCents } = againstAverage(months.map((m) => m.cents));
   // Heights for drawing only: the amounts stay in cents
@@ -360,6 +399,7 @@ export function YearBars({ months, colour }: { months: MonthAmount[]; colour: st
   return (
     <div
       className={classes.bars}
+      data-labelled={labelled || undefined}
       style={{ '--dot': colour } as CSSProperties}
     >
       <div className={classes.barArea}>
@@ -369,7 +409,7 @@ export function YearBars({ months, colour }: { months: MonthAmount[]; colour: st
             style={{ bottom: `${height(averageCents)}%` }}
             aria-hidden
           >
-            <span className={classes.averageText}>avg {amount(averageCents)}</span>
+            {labelled && <span className={classes.averageText}>avg {amount(averageCents)}</span>}
           </div>
         )}
         <ul className={classes.barList}>
@@ -400,7 +440,7 @@ export function YearBars({ months, colour }: { months: MonthAmount[]; colour: st
           })}
         </ul>
       </div>
-      {largest === 0 && <p className={classes.muted}>avg {amount(averageCents)}</p>}
+      {largest === 0 && labelled && <p className={classes.muted}>avg {amount(averageCents)}</p>}
     </div>
   );
 }
@@ -469,7 +509,14 @@ function BudgetField({
       <TextInput
         ref={input}
         label="Monthly budget"
+        // "RM" 14px in from the edge, the amount 10px after it
         leftSection={<span className={classes.muted}>RM</span>}
+        leftSectionWidth={47}
+        classNames={{
+          label: classes.budgetLabel,
+          section: classes.budgetSection,
+          input: classes.budgetInput,
+        }}
         inputMode="decimal"
         placeholder="300"
         value={shownText}

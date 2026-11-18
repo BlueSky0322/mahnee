@@ -3,8 +3,14 @@ import type { Category, Transaction } from '@shared/api';
 import { categoryColour } from '../../utils/category-colour';
 import Tile from '../ui/Tile';
 
-/** An entry's tile, on Activity and an account's page: its category's letter in its colour, or a transfer's arrows */
-export default function EntryTile({ t, categories }: { t: Transaction; categories: Category[] }) {
+/** An entry's tile, on Activity, an account's page and Scheduled: its category's letter in its colour, or a transfer's arrows */
+export default function EntryTile({
+  t,
+  categories,
+}: {
+  t: Pick<Transaction, 'kind' | 'categoryId'>;
+  categories: Category[];
+}) {
   if (t.kind === 'transfer') {
     return (
       <Tile>

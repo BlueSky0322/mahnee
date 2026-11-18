@@ -1,5 +1,5 @@
 import { Button } from '@mantine/core';
-import { AlertIcon, BackIcon, ForwardIcon, PlusIcon } from '../ui/icons';
+import { BackIcon, ForwardIcon, PlanIcon, PlusIcon } from '../ui/icons';
 import type { CSSProperties, ReactNode } from 'react';
 import { useId, useState } from 'react';
 import type { Category, Ledger, MonthSummary } from '@shared/api';
@@ -70,16 +70,19 @@ export default function PlanPage({
     );
   }
   return (
-    <div className={isDesktop ? `${classes.page} ${classes.desktop}` : classes.page}>
+    <div
+      className={isDesktop ? `${classes.page} ${classes.desktop}` : classes.page}
+      data-half={half}
+    >
       <Header
         shown={shown}
         half={half}
         category={category}
         isDesktop={isDesktop}
-        onSchedule={
-          half === 'scheduled' && ledger != null && anyRepeating(ledger)
-            ? () => setOpened({ prefill: {} })
-            : null
+        scheduling={
+          half !== 'scheduled' || ledger == null
+            ? null
+            : { any: anyRepeating(ledger), open: () => setOpened({ prefill: {} }) }
         }
       />
       {half === 'scheduled' ? (
@@ -135,14 +138,14 @@ function Header({
   half,
   category,
   isDesktop,
-  onSchedule,
+  scheduling,
 }: {
   shown: PlanMonth;
   half: 'budgets' | 'scheduled';
   category: string | null;
   isDesktop: boolean;
-  /** Scheduled with something set up: a new one */
-  onSchedule: (() => void) | null;
+  /** On Scheduled: whether anything is, and setting a new one up */
+  scheduling: { any: boolean; open: () => void } | null;
 }) {
   // Each month is its own address, so Back returns; a computer keeps the category open
   const step = (to: string) =>
@@ -198,16 +201,24 @@ function Header({
       </PageLink>
     </nav>
   );
-  const schedule = onSchedule != null && (
-    <Button
-      variant={isDesktop ? 'filled' : 'light'}
-      size="xs"
-      leftSection={isDesktop ? undefined : <PlusIcon size={16} />}
-      onClick={onSchedule}
-    >
-      {isDesktop ? 'Schedule something' : 'Schedule'}
-    </Button>
-  );
+  // Schedule something on a computer (outlined while nothing is, beside the one in the
+  // page); Schedule on a phone once something is, and the month while nothing is
+  let schedule: ReactNode = null;
+  if (scheduling != null && (isDesktop || scheduling.any)) {
+    schedule = (
+      <Button
+        variant={isDesktop ? (scheduling.any ? 'filled' : 'default') : 'light'}
+        size="xs"
+        className={isDesktop ? classes.small : `${classes.small} ${classes.asLink}`}
+        leftSection={isDesktop ? undefined : <PlusIcon size={16} />}
+        onClick={scheduling.open}
+      >
+        {isDesktop ? 'Schedule something' : 'Schedule'}
+      </Button>
+    );
+  } else if (scheduling != null) {
+    schedule = <span className={classes.monthQuiet}>{monthLabel(shown.month)}</span>;
+  }
   if (isDesktop) {
     return (
       <header className={classes.header}>
@@ -310,11 +321,37 @@ function Budgets({
           shown={shown}
           isDesktop={false}
           open={null}
+          quiet={nothing}
         />
       </>
     );
-    // A computer with nothing to list still opens what was asked for beside the cards
-    if (!isDesktop || category == null) return cards;
+    if (!isDesktop) return cards;
+    // A computer with nothing this month: No budgets yet beside the two small cards
+    if (category == null && shown.isCurrent && data.lines.length === 0) {
+      return (
+        <div className={classes.emptyGrid}>
+          <PhoneBudgets
+            data={data}
+            shown={shown}
+          />
+          <div className={classes.emptySide}>
+            <WhereItWent
+              data={data}
+              shown={shown}
+            />
+            <Income
+              data={data}
+              shown={shown}
+              isDesktop={false}
+              open={null}
+              quiet
+            />
+          </div>
+        </div>
+      );
+    }
+    if (category == null) return cards;
+    // Asked for a category, it opens beside the cards
     return (
       <div className={classes.split}>
         <div className={classes.mainColumn}>{cards}</div>
@@ -377,6 +414,12 @@ function PhoneBudgets({ data, shown }: { data: Month; shown: PlanMonth }) {
         aria-label="Budgets"
         className={`${classes.card} ${classes.empty}`}
       >
+        <span
+          className={classes.emptyIcon}
+          aria-hidden
+        >
+          <PlanIcon size={24} />
+        </span>
         <h2 className={classes.emptyTitle}>No budgets yet</h2>
         <p className={classes.soft}>
           A monthly amount per category, with a bar for what&apos;s left.
@@ -454,15 +497,7 @@ function PhoneBudgets({ data, shown }: { data: Month; shown: PlanMonth }) {
                 shown={shown}
               />
               <div className={`${classes.budgetMeta} ${tone || classes.muted}`}>
-                <span className={classes.metaStart}>
-                  {words.pace === 'faster' && (
-                    <AlertIcon
-                      size={14}
-                      aria-hidden
-                    />
-                  )}
-                  {words.meta}
-                </span>
+                <span>{words.meta}</span>
                 {carried != null && <span>{carried}</span>}
               </div>
             </li>
@@ -482,6 +517,7 @@ function WhereItWent({ data, shown }: { data: Month; shown: PlanMonth }) {
     <section
       aria-labelledby={titleId}
       className={`${classes.card} ${classes.went}`}
+      data-empty={total === 0 || undefined}
     >
       <div className={classes.wentHead}>
         <div className={classes.cardHead}>
@@ -570,11 +606,14 @@ function Income({
   shown,
   isDesktop,
   open,
+  quiet = false,
 }: {
   data: Month;
   shown: PlanMonth;
   isDesktop: boolean;
   open: string | null;
+  /** Nothing this month at all: drawn a little closer */
+  quiet?: boolean;
 }) {
   const titleId = useId();
   const rows = rollUpEntries(data.summary.incomeByCategory, data.categories);
@@ -601,6 +640,7 @@ function Income({
     <section
       aria-labelledby={titleId}
       className={`${classes.card} ${isDesktop ? classes.incomeDesk : classes.income}`}
+      data-quiet={quiet || undefined}
     >
       <div className={classes.incomeText}>
         <h2
@@ -800,7 +840,7 @@ function ExpensesTable({
                 <td className={`${classes.end} ${classes.num}`}>
                   {amount(row.spending?.cents ?? 0)}
                 </td>
-                <td className={classes.barCell}>
+                <td>
                   {line != null ? (
                     <BudgetBar
                       line={line}

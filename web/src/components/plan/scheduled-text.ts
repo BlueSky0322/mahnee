@@ -127,10 +127,13 @@ function daysAfter(date: string, days: number) {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
-/** A card owed with no payment scheduled into it */
+/** A card owed with no payment scheduled into it: what's owed, and by when if a charge is ahead */
 export interface CardNote {
   account: Account;
-  text: string;
+  /** "RM 879.80" */
+  owed: string;
+  /** "Dec 3", the day of its last charge in the next 30 days, or null with none ahead */
+  by: string | null;
 }
 
 /**
@@ -154,13 +157,10 @@ export function cardNotes(ledger: Ledger, today: string): CardNote[] {
           if (last == null || at > last) last = at;
         }
       }
-      const money = formatMoney(owed, card.currency);
       return {
         account: card,
-        text:
-          last == null
-            ? `${card.name}: ${money} owed, no payment scheduled.`
-            : `${card.name}: ${money} owed by ${shortDate(last)}, no payment scheduled.`,
+        owed: formatMoney(owed, card.currency),
+        by: last == null ? null : shortDate(last),
       };
     });
 }

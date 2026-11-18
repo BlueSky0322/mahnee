@@ -188,8 +188,16 @@ async function opened(size: (typeof SIZES)[number], name: string) {
 }
 
 /** How the month compares with the usual: "Spent in November · " before it on a phone */
-const usualLine = (size: (typeof SIZES)[number], prefix: string, line: string) =>
-  size === 'phone' ? `${prefix} · ${line}` : line;
+const usualLine = (size: (typeof SIZES)[number], prefix: string, line: string) => {
+  const whole = size === 'phone' ? `${prefix} · ${line}` : line;
+  return (_: string, el: Element | null) => el?.tagName === 'P' && el.textContent === whole;
+};
+
+/** The bars' average line is named on a page; a pane names the usual under its figure */
+const averageLabel = (size: (typeof SIZES)[number], year: HTMLElement, label: string) =>
+  size === 'phone'
+    ? expect(within(year).getByText(label)).toBeTruthy()
+    : expect(within(year).queryByText(/^avg/)).toBeNull();
 
 /** Home's card, once its figure is in: "Expenses so far" or "Income" */
 async function homeCard(name: 'Expenses so far' | 'Income', figure: string) {
@@ -236,7 +244,7 @@ describe('all spending and all income over 12 months', () => {
         }),
         shown: ['Nov 2026, RM 16.00'],
       });
-      expect(within(year).getByText('avg 4.13')).toBeTruthy();
+      averageLabel(size, year, 'avg 4.13');
     },
   );
 
@@ -262,7 +270,7 @@ describe('all spending and all income over 12 months', () => {
       months: expected(TO_NOVEMBER, { 'Sep 2026': 'RM 40.00', 'Nov 2026': 'RM 50.00' }),
       shown: ['Nov 2026, RM 50.00'],
     });
-    expect(within(year).getByText('avg 3.64')).toBeTruthy();
+    averageLabel(size, year, 'avg 3.64');
   });
 
   test('on a phone, Back returns to Home at the month it was opened from', async () => {
@@ -456,8 +464,8 @@ describe('all spending and all income over 12 months', () => {
       expect(
         await view.findByText(
           which === 'expenses'
-            ? 'Spent in November · RM 11.87 over your usual RM 4.13'
-            : 'Received in November · RM 46.36 over your usual RM 3.64',
+            ? usualLine('phone', 'Spent in November', 'RM 11.87 over your usual RM 4.13')
+            : usualLine('phone', 'Received in November', 'RM 46.36 over your usual RM 3.64'),
         ),
       ).toBeTruthy();
     },
@@ -535,7 +543,9 @@ describe('income by category', () => {
       expect(window.location.search).toBe(`?plan&category=${SALARY}`);
       expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull();
       expect(
-        await screen.findByText('Received in November · RM 46.36 over your usual RM 3.64'),
+        await screen.findByText(
+          usualLine('phone', 'Received in November', 'RM 46.36 over your usual RM 3.64'),
+        ),
       ).toBeTruthy();
       const year = screen.getByRole('region', { name: /^Salary, last 12 months/ });
       expect(readYear(year)).toEqual({

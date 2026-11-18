@@ -257,7 +257,8 @@ describe.each(SIZES)('Look and start (%s)', (size) => {
     const page = await openLook(server, size);
     await userEvent.setup().click(page.getByRole('radio', { name: 'Expenses in red' }));
     await waitFor(() => expect(server.me.settings.expenseColour).toBe('red'));
-    await reloadApp(server, '/?activity', { size });
+    // Every kind, so the transfer is listed too
+    await reloadApp(server, '/?activity&kind=all', { size });
     const results = within(await screen.findByRole('region', { name: 'Results' }));
     await waitFor(async () =>
       expect(textColour(await results.findByText('−7.25'))).toBe(TOKENS.light['--neg']),
@@ -269,7 +270,7 @@ describe.each(SIZES)('Look and start (%s)', (size) => {
       // The open entry's own figure beside the register, too
       await userEvent.setup().click(screen.getByRole('button', { name: 'Kiosk' }));
       const pane = within(await screen.findByRole('complementary', { name: /^Kiosk, / }));
-      expect(textColour(pane.getByText('−RM 7.25'))).toBe(TOKENS.light['--neg']);
+      expect(textColour(pane.getByText('−RM'))).toBe(TOKENS.light['--neg']);
     }
   });
 

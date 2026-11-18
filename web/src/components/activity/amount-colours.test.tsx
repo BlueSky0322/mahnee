@@ -81,7 +81,8 @@ function withEach() {
 
 describe.each(['phone', 'desktop'] as const)('amounts on Activity (%s)', (size) => {
   test('spending ink, income green, a transfer grey', async () => {
-    renderApp(withEach(), '/?activity', { size });
+    // Every kind, so the transfer is listed beside them
+    renderApp(withEach(), '/?activity&kind=all', { size });
     const colourOf = async (text: string) =>
       textColour(
         await within(await screen.findByRole('region', { name: 'Results' })).findByText(text),

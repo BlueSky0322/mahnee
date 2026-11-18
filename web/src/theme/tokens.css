@@ -136,12 +136,14 @@ textarea::placeholder {
   opacity: 1;
 }
 
-/* Larger text sits tighter */
-h1,
-h2,
-h3,
-.mantine-Title-root {
-  letter-spacing: -0.02em;
+/* Buttons and fields keep the browser's own spacing, as the design's do; a button the design
+   draws as a link (a back link, New entry, a step) keeps the body's, with letter-spacing:
+   inherit where it's drawn */
+button,
+input,
+select,
+textarea {
+  letter-spacing: normal;
 }
 
 /* A segmented control's highlight and labels stay layered inside it, so sticky footers
@@ -230,8 +232,10 @@ h3,
 .mantine-Button-root.sf-back {
   color: var(--ink);
   padding: 0 10px 0 2px;
+  border: 0;
   margin-left: -6px;
   font-size: 0.84375rem;
+  letter-spacing: inherit;
 }
 .sf-back .mantine-Button-section[data-position='left'] {
   margin-inline-end: 8px;

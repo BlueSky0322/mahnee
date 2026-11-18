@@ -296,7 +296,8 @@ async function pageOf(query: D1PreparedStatement, values: (string | number)[], l
  * subcategories, ?from= and ?to= days, ?kind=, ?scheduled=1 for entries from Scheduled), carrying on from ?before= as
  * /api/transactions does. With it, what matches beyond the page (rest, and the part of it
  * on the page's last day), and on the first page of a search for days how many match
- * outside them (elsewhere). Someone else's account or category is answered as one that
+ * outside them (elsewhere), and on every first page whether the person has any entry at all
+ * (anywhere). Someone else's account or category is answered as one that
  * doesn't exist.
  *
  * Every figure is one query built from the same conditions as the page, the person's
@@ -398,9 +399,16 @@ export async function searchTransactions(
        WHERE ${where.join(' AND ')} AND NOT (${days.join(' AND ') || '1'})`,
     )
     .bind(...values, ...dayValues);
-  const [found, outside] = await db.batch<TransactionRow | { n: number }>(
-    askElsewhere ? [page, elsewhere] : [page],
-  );
+  // On the first page, whether the person has any entry at all (Activity's "nothing yet")
+  const first = cursor == null;
+  const any = db.prepare('SELECT 1 AS n FROM transactions WHERE email = ? LIMIT 1').bind(email);
+  const [found, ...more] = await db.batch<TransactionRow | { n: number }>([
+    page,
+    ...(first ? [any] : []),
+    ...(askElsewhere ? [elsewhere] : []),
+  ]);
+  const anyAtAll = first ? more.shift() : undefined;
+  const outside = askElsewhere ? more.shift() : undefined;
   const results = found.results as TransactionRow[];
   const transactions = results.slice(0, limit).map(toTransaction);
   const last = results.length > limit ? transactions[transactions.length - 1] : null;
@@ -449,5 +457,6 @@ export async function searchTransactions(
     rest,
     restOfLastDay,
     ...(askElsewhere && { elsewhere: (outside?.results[0] as { n: number } | undefined)?.n ?? 0 }),
+    ...(first && { anywhere: (anyAtAll?.results.length ?? 0) > 0 }),
   });
 }

@@ -24,6 +24,7 @@ import DueItems from './DueItems';
 import FirstRun from './FirstRun';
 import GettingStarted, { type StartedSteps } from './GettingStarted';
 import { isStartedHidden } from './getting-started';
+import Key from '../ui/Key';
 import classes from './Home.module.css';
 import HomeBudgets from './HomeBudgets';
 import {
@@ -458,12 +459,7 @@ function SearchEverything() {
         value={words}
         onChange={(e) => setWords(e.currentTarget.value)}
       />
-      <span
-        className={classes.kbd}
-        aria-hidden
-      >
-        /
-      </span>
+      <Key>/</Key>
     </form>
   );
 }

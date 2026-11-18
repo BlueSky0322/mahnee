@@ -15,6 +15,8 @@ export interface Found {
   days: Map<string, SearchTotals>;
   /** How many match outside the days asked for; null when not said */
   elsewhere: number | null;
+  /** Whether the person has any entry at all, matching or not; null when not said */
+  anywhere: boolean | null;
 }
 
 const none = (): SearchTotals => ({ entries: 0, spentCents: 0, receivedCents: 0 });
@@ -51,5 +53,10 @@ export function searchTotals(shown: readonly Transaction[], pages: readonly Sear
       add(day, rest);
     }
   }
-  return { found, days, elsewhere: pages[0]?.elsewhere ?? null };
+  return {
+    found,
+    days,
+    elsewhere: pages[0]?.elsewhere ?? null,
+    anywhere: pages[0]?.anywhere ?? null,
+  };
 }

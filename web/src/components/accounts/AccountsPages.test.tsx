@@ -194,10 +194,31 @@ describe('Accounts (?accounts)', () => {
         'Current, Bank, −25.00',
       ]);
       const cards = await group('Cards');
-      expect(within(cards).getByText('331.90 owed')).toBeTruthy();
+      // The group's total, beside its name (a computer's row says "331.90 owed" too)
+      expect(
+        within(cards)
+          .getAllByText('331.90 owed')
+          .filter((e) => e.closest('ul') == null),
+      ).toHaveLength(1);
       expect(rows(cards)).toEqual(['Visa, Card, 331.90 owed']);
       // The archived one counts in none of it, and is listed only once opened
       expect(screen.queryByRole('link', { name: /^Gone,/ })).toBeNull();
+    },
+  );
+
+  test.each(SIZES)(
+    "a card's row says owed under the amount, or beside it on a computer (%s)",
+    async (size) => {
+      renderApp(withAccounts(), '/?accounts', { size });
+      const visa = within(await accountRow('Visa'));
+      // R-Desk-Accounts draws "331.90 owed" as one figure; R-Accounts puts "owed" under it
+      if (size === 'desktop') {
+        expect(visa.getByText('331.90 owed')).toBeTruthy();
+        expect(visa.queryByText('owed')).toBeNull();
+      } else {
+        expect(visa.getByText('331.90')).toBeTruthy();
+        expect(visa.getByText('owed')).toBeTruthy();
+      }
     },
   );
 
@@ -434,14 +455,16 @@ describe("an account's page", () => {
     );
   });
 
-  test('Search on a phone opens Activity on this account, every month', async () => {
+  test('Search on a phone opens Activity on this account, every month and every kind', async () => {
     renderApp(withAccounts(), `/?account=${SAVER}`, { size: 'phone' });
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Search' }));
     await waitFor(() =>
-      expect(window.location.search).toBe(`?activity&account=${SAVER}&dates=all`),
+      expect(window.location.search).toBe(`?activity&account=${SAVER}&kind=all&dates=all`),
     );
     expect(await screen.findByRole('button', { name: /^Saver/ })).toBeTruthy();
     expect(await screen.findByText('Kedai Ali')).toBeTruthy();
+    // An account's own search shows the money moved into it too
+    expect(await screen.findByRole('button', { name: /, 15\.00$/ })).toBeTruthy();
   });
 
   test.each(SIZES)(

@@ -3651,6 +3651,19 @@ describe('transactions', () => {
       expect((await search(me, 'from=2025-09-03&to=2025-09-07')).data.elsewhere).toBe(before.days);
     });
 
+    it('says on the first page whether the person has any entry at all, theirs alone', async () => {
+      const { me } = await withHistory();
+      // However narrow the search, and whatever matches it
+      expect((await search(me, 'q=nothing-like-this')).data.anywhere).toBe(true);
+      const first = await search(me, 'limit=1');
+      expect(first.data.anywhere).toBe(true);
+      const second = await search(me, `limit=1&before=${first.data.nextBefore}`);
+      expect(second.status).toBe(200);
+      expect('anywhere' in second.data).toBe(false);
+      // Someone with none, beside someone with many
+      expect((await search(person('stranger'))).data.anywhere).toBe(false);
+    });
+
     it('says how many match outside the days asked for, on the first page only', async () => {
       const { me } = await withHistory();
       const days = 'from=2025-09-03&to=2025-09-07';

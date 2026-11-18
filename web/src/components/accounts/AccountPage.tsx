@@ -1,5 +1,5 @@
 import { Button } from '@mantine/core';
-import { PencilSimple, Receipt } from '@phosphor-icons/react';
+import { Receipt } from '@phosphor-icons/react';
 import { PlusIcon, SearchIcon, TransferIcon } from '../ui/icons';
 import { useState } from 'react';
 import type { Account, Category, Transaction } from '@shared/api';
@@ -29,14 +29,14 @@ export default function AccountPage({ id }: { id: string }) {
   const account = accounts?.find((a) => a.id === id);
 
   return (
-    <div className={classes.page}>
+    <div className={`${classes.page} ${classes.accountPage}`}>
       <header className={classes.pageHeader}>
         <BackButton onClick={() => goUp('?accounts')}>Accounts</BackButton>
         {account != null && (
           <Button
             variant="light"
             size="xs"
-            leftSection={<PencilSimple size={16} />}
+            className={classes.small}
             onClick={() => setEditing(true)}
           >
             Edit
@@ -135,6 +135,7 @@ export function ArchivedNote({ account }: { account: Account }) {
       <Button
         variant="default"
         size="xs"
+        className={classes.small}
         onClick={unarchive}
       >
         Unarchive

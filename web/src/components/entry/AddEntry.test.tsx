@@ -908,9 +908,11 @@ describe('a new category from Add', () => {
     const form = await openAdd(user);
     await user.click(form.getByRole('button', { name: /^For Food/ }));
     await user.type(await screen.findByLabelText('Find or create a category'), 'bills');
-    expect(await screen.findByRole('button', { name: 'Bills' })).toBeTruthy();
+    // Found first, above the recent ones a phone keeps under what's typed
+    const [match] = await screen.findAllByRole('button', { name: 'Bills' });
+    expect(screen.getByRole('region', { name: 'Recent' }).contains(match)).toBe(false);
     expect(screen.queryByText(/^New category:/)).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Bills' }));
+    await user.click(match);
     expect(form.getByRole('button', { name: /^For Bills/ })).toBeTruthy();
   });
 
@@ -1517,6 +1519,67 @@ describe('a new category, within the limits', () => {
       if (how === 'down') await waitFor(() => expect(server.transactions).toHaveLength(2));
     },
   );
+});
+
+describe('picking the category, as drawn', () => {
+  test('on a phone it is a sheet over the entry, and Recent stays under what is typed', async () => {
+    const server = withAccounts();
+    renderApp(server, '/?accounts', { size: 'phone' });
+    const user = userEvent.setup();
+    const form = await openAdd(user);
+    await user.click(form.getByRole('button', { name: /^For Food/ }));
+    const sheet = within(await screen.findByRole('dialog', { name: 'Category' }));
+    expect(sheet.getByRole('button', { name: 'Entry' })).toBeTruthy();
+    await user.type(sheet.getByLabelText('Find or create a category'), 'Bubble tea');
+    expect(await sheet.findByText('New category: Bubble tea')).toBeTruthy();
+    const recent = sheet.getByRole('region', { name: 'Recent' });
+    expect(
+      within(recent)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Food', 'Transport', 'Groceries', 'Bills', 'Shopping']);
+    await user.click(within(recent).getByRole('button', { name: 'Groceries' }));
+    expect(form.getByRole('button', { name: /^For Groceries/ })).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Category' })).toBeNull();
+  });
+
+  test('on a computer the For row takes the typing, its choices listed under the fields', async () => {
+    const server = withAccounts();
+    renderApp(server, '/?accounts');
+    const user = userEvent.setup();
+    const form = await openAdd(user);
+    await user.click(form.getByRole('button', { name: /^For Food/ }));
+    const search = await form.findByLabelText('Find or create a category');
+    // Typed in the For row itself, which stays put with its name
+    const row = search.closest('[data-row]') as HTMLElement;
+    expect(within(row).getByText('For')).toBeTruthy();
+    expect(form.queryByRole('button', { name: /^For / })).toBeNull();
+    // The recent chips step aside while the list is open
+    expect(form.queryByRole('radiogroup', { name: 'Recent categories' })).toBeNull();
+    await user.type(search, 'Bubble tea');
+    const list = await form.findByRole('listbox', { name: 'Create Bubble tea' });
+    expect(row.contains(list)).toBe(false);
+    // What Enter takes is marked, with its key
+    const first = within(list).getByRole('option', { selected: true });
+    expect(first.textContent).toMatch(/^As its own expense category/);
+    expect(within(first).getByText('Enter')).toBeTruthy();
+    await user.keyboard('{Enter}');
+    expect(form.getByRole('button', { name: /^For Bubble tea/ })).toBeTruthy();
+    expect(form.getByRole('radiogroup', { name: 'Recent categories' })).toBeTruthy();
+  });
+
+  test('on a computer the figure is the amount: no row of its own', async () => {
+    renderApp(withAccounts(), '/?accounts');
+    const user = userEvent.setup();
+    const form = await openAdd(user);
+    expect(form.queryByText('Amount')).toBeNull();
+    const field = amountField(form);
+    expect(field.closest('label')?.contains(form.getByRole('status', { name: /^Amount, / }))).toBe(
+      true,
+    );
+    await user.type(field, '8+4.5');
+    expect(amount(form)).toBe('Amount, RM 12.50');
+  });
 });
 
 describe('the category list', () => {

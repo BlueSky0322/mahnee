@@ -5,8 +5,8 @@ import { periodMonthOf, periodOf } from '@shared/period';
 import { MAX_SEARCH_TEXT, isCalendarDay, readKinds } from '@shared/search';
 
 // Activity's filters, as its address holds them (docs/feature-map.md, Pages): ?activity is
-// this month on every account; &q=, &account=, &category=, &kind= (one kind, or two joined by
-// a comma); &scheduled (only what Scheduled added); the days as &day= (that day alone), &from= and &to= (both included), or
+// this month on every account, expenses and income (transfers only when asked for); &q=,
+// &account=, &category=, &kind= (one kind, two joined by a comma, or all); &scheduled (only what Scheduled added); the days as &day= (that day alone), &from= and &to= (both included), or
 // &dates=all (every month); and &select (a phone opens selecting). A part that makes no
 // sense is left out: a day that isn't one, a kind not known, and (once the ledger is
 // known) an account or category the person doesn't have. A day wins over from and to, and
@@ -25,7 +25,7 @@ export interface Filters {
   q: string;
   account: string | null;
   category: string | null;
-  /** Only these kinds, in TRANSACTION_KINDS' order; null for every kind */
+  /** Only these kinds, in TRANSACTION_KINDS' order (DEFAULT_KINDS to start); null for all */
   kinds: TransactionKind[] | null;
   days: Days;
   /** Only entries added from Scheduled (Plan's "See them") */
@@ -33,22 +33,32 @@ export interface Filters {
   select: boolean;
 }
 
+/** What Activity shows until another kind is picked: transfers are left out (R-Activity) */
+export const DEFAULT_KINDS: readonly TransactionKind[] = ['expense', 'income'];
+
+/** Whether `kinds` are the ones Activity starts on */
+export const isDefaultKinds = (kinds: readonly TransactionKind[] | null) =>
+  kinds != null &&
+  kinds.length === DEFAULT_KINDS.length &&
+  DEFAULT_KINDS.every((k) => kinds.includes(k));
+
 export const NO_FILTERS: Omit<Filters, 'q' | 'days' | 'select'> = {
   account: null,
   category: null,
-  kinds: null,
+  kinds: [...DEFAULT_KINDS],
   scheduled: false,
 };
 
 const day = (v: string | null) => (v != null && isCalendarDay(v) ? v : null);
 
 /**
- * The kinds the address names, by shared/search.ts's rule: no filter when it can't be read,
- * or when it names all three
+ * The kinds the address names, by shared/search.ts's rule, or every kind for "all"; the
+ * default when it names none or can't be read
  */
 function kindsOf(text: string | null): TransactionKind[] | null {
+  if (text === 'all') return null;
   const kinds = readKinds(text);
-  if (kinds == null || 'error' in kinds) return null;
+  if (kinds == null || 'error' in kinds) return [...DEFAULT_KINDS];
   return kinds.length === TRANSACTION_KINDS.length ? null : kinds;
 }
 
@@ -86,7 +96,7 @@ export function writeFilters(filters: Filters) {
   put('q', filters.q);
   put('account', filters.account);
   put('category', filters.category);
-  put('kind', filters.kinds?.join(',') ?? null);
+  if (!isDefaultKinds(filters.kinds)) put('kind', filters.kinds?.join(',') ?? 'all');
   if (filters.scheduled) parts.push('scheduled');
   const { days } = filters;
   if (days.kind === 'day') put('day', days.day);

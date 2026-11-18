@@ -59,6 +59,8 @@
   background: none;
   color: inherit;
   font: inherit;
+  /* A row of the list in the design, at the page's tracking */
+  letter-spacing: inherit;
   text-align: left;
   cursor: pointer;
 }
@@ -176,6 +178,7 @@
   color: inherit;
   font: inherit;
   font-size: 14px;
+  letter-spacing: inherit;
   text-align: left;
   cursor: pointer;
 }
@@ -327,6 +330,13 @@
   margin-top: 6px;
 }
 
+/* A link on a phone's board, at the page's tracking; a button on a computer's */
+@media (max-width: 1023px) {
+  .emptyAction {
+    letter-spacing: inherit;
+  }
+}
+
 .common {
   display: flex;
   flex-direction: column;
@@ -454,7 +464,7 @@
 }
 
 /* Drawn as buttons, the rows that pick and the two ways keep the browser's own spacing */
-.pick .v,
+.pick,
 .each label,
 .kinds label {
   letter-spacing: normal;

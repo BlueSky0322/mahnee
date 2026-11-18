@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-18
 
+- Fixed: Fields, small buttons, lists and dialogs match the design's lines, sizes and spacing everywhere [#?]
 - Changed: Plan, each category's page and Scheduled match the design [#48]
 - Changed: Activity and Add match the design; Activity leaves out transfers until you ask for them [#47]
 - Changed: Accounts and each account's page match the design [#46]

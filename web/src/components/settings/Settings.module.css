@@ -24,6 +24,7 @@
   border: 0;
   background: none;
   color: var(--ink-3);
+  letter-spacing: inherit;
   cursor: pointer;
 }
 
@@ -57,6 +58,7 @@
   background: var(--surface);
 }
 
+/* Who's signed in, at the top of a phone's Settings: a card without an edge, as drawn */
 .profile {
   flex-direction: row;
   align-items: center;
@@ -64,6 +66,7 @@
   min-height: 76px;
   padding: 14px 16px;
   box-sizing: border-box;
+  border: 0;
 }
 
 .loading {
@@ -316,6 +319,7 @@
 .profileCentred .detail {
   color: var(--ink-3);
   font-size: 14px;
+  line-height: normal;
 }
 
 .profile h2 {
@@ -433,6 +437,8 @@ section > .cardTitle {
   color: var(--ink-2);
   font-size: 14px;
   font-weight: 500;
+  /* Its options are buttons in the design, at the browser's own tracking */
+  letter-spacing: normal;
   cursor: pointer;
 }
 
@@ -537,6 +543,11 @@ section > .cardTitle {
 .dataHead {
   display: flex;
   flex-direction: column;
+  gap: 3px;
+}
+
+/* A computer's pane sets its line 1px closer, as drawn */
+.paneBody .dataHead {
   gap: 2px;
 }
 
@@ -585,6 +596,11 @@ section > .cardTitle {
 
 .dataList:last-child {
   padding-bottom: 6px;
+}
+
+/* Nothing listed: its line carries the card's foot */
+.dataList:last-child:has(> .dataNone) {
+  padding-bottom: 0;
 }
 
 .dataRow {
@@ -759,13 +775,13 @@ section > .cardTitle {
   color: var(--ink-3);
   font: inherit;
   font-size: 14px;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
 }
 
 .navPart[aria-current='true'] {
   color: var(--ink);
-  font-weight: 500;
 }
 
 .navPart[aria-current='true']::before {
@@ -1079,6 +1095,7 @@ section > .cardTitle {
 .paneBody .profile {
   gap: 16px;
   padding: 20px;
+  border: 1px solid var(--line);
 }
 
 .paneBody .initialLarge {

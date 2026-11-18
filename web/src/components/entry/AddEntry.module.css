@@ -62,7 +62,9 @@
 
 /* Which way: a pill track, the chosen one a surface pill */
 .seg {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
   width: 264px;
   padding: 3px;
   border-radius: 999px;
@@ -70,7 +72,6 @@
 }
 
 .seg button {
-  flex: 1;
   min-height: 34px;
   border: 0;
   border-radius: 999px;
@@ -78,13 +79,13 @@
   color: var(--ink-2);
   font: inherit;
   font-size: 0.875rem;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .seg .segOn {
   background: var(--surface);
   color: var(--ink);
-  font-weight: 500;
   box-shadow: 0 1px 2px rgba(15, 16, 18, 0.12);
 }
 
@@ -143,6 +144,7 @@
   color: var(--ink-3);
   font-size: 1.375rem;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 .deskStatus .currency {
@@ -154,6 +156,7 @@
   font-weight: 500;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
   color: var(--ink);
 }
 
@@ -197,12 +200,15 @@
   background: none;
   color: var(--ink);
   font: inherit;
+  /* A row of the entry on a phone's board, at the page's tracking; a computer's are buttons */
+  letter-spacing: inherit;
   text-align: left;
   cursor: pointer;
 }
 
 .deskForm .row {
   min-height: 48px;
+  letter-spacing: normal;
 }
 
 /* A computer's For row while the category is typed into it */
@@ -537,7 +543,7 @@
 .saveSmall {
   height: 34px;
   padding: 0 14px;
-  font-size: 0.875rem;
+  font-size: 0.84375rem;
 }
 
 /* Its keycap is drawn in the button's own ink, as on every filled button (tokens.css) */
@@ -610,7 +616,8 @@
   background: var(--sunk);
   color: var(--ink);
   font: inherit;
-  font-size: 0.875rem;
+  font-size: 0.84375rem;
+  font-weight: 500;
   cursor: pointer;
 }
 

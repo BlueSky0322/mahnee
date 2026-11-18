@@ -5,7 +5,7 @@ import { afterAll, describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Recurring, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, renderApp, setupAppTests } from '../../testing/app';
+import { fakeServer, reloadApp, renderApp, setupAppTests } from '../../testing/app';
 
 // Plan › Scheduled (R-Bills, R-Desk-Bills; R-Empty-Bills, R-Desk-Empty-Bills; edit
 // R-Bill-Edit, R-Bill-Edit-Tnb and their desktop boards; digest 3.8, 4.5, 4.6; owner
@@ -685,5 +685,89 @@ describe('setting one up: weekly, offline and refused', () => {
     ).toBeTruthy();
     await waitFor(() => expect(rows('Expenses').some((r) => r.startsWith('Water'))).toBe(false));
     expect(server.recurring.some((r) => r.payee === 'Water')).toBe(false);
+  });
+});
+
+// The next 30 days (owner decision D12; not drawn, so its wording is proposed for the owner
+// to change): from today's balances and what's scheduled, today (November 10) through
+// December 10, what comes in and goes out, and each account an item touches at its lowest,
+// with the day. Maybank holds RM 3,540.00 (RM 5,000 less this month's Rent, two Mondays of
+// Gym and the Top-up), Visa owes RM 839.90 and Wallet holds RM 80.00.
+describe('the next 30 days', () => {
+  const next = () => screen.getByRole('region', { name: 'Next 30 days' });
+  const lowest = () => within(next()).getByRole('list', { name: 'Lowest point' });
+
+  test.each(SIZES)(
+    'what comes in and goes out, and each account at its lowest, with the day (%s)',
+    async (size) => {
+      await open(everything(), size);
+      // In: Salary. Out: Power 210.40 (Nov 20), Gym 15.00 four Mondays from Nov 16, Rent
+      // 1,350.00 (Dec 1) and Streaming 39.90 (Dec 3); the Top-up only moves money
+      expect(seen(next())).toBe(
+        'Next 30 days to Dec 10 Coming in +RM 5,200.00 Going out −RM 1,660.30 Lowest point ' +
+          'Maybank RM 3,299.60 on Nov 23 Visa RM 879.80 owed on Dec 3 Wallet RM 80.00 today ' +
+          "From today's balances and what's scheduled. Spending that isn't scheduled isn't counted.",
+      );
+      // Maybank dips after Power and two Mondays, before pay on the 25th brings it back
+      expect(within(lowest()).getAllByRole('listitem').map(seen)).toEqual([
+        'Maybank RM 3,299.60 on Nov 23',
+        'Visa RM 879.80 owed on Dec 3',
+        'Wallet RM 80.00 today',
+      ]);
+    },
+  );
+
+  test.each(SIZES)('says when an account would go below zero (%s)', async (size) => {
+    await open(
+      withAccounts([scheduled({ payee: 'Rent', amountCents: 600_000, nextDue: '2026-12-01' })]),
+      size,
+    );
+    expect(seen(next())).toContain('Coming in RM 0.00 Going out −RM 6,000.00 Lowest point');
+    expect(within(lowest()).getAllByRole('listitem').map(seen)).toEqual([
+      'Maybank −RM 1,000.00 on Dec 1',
+    ]);
+  });
+
+  test.each(SIZES)('says so when nothing scheduled falls in them (%s)', async (size) => {
+    await open(withAccounts([scheduled({ payee: 'Rent', nextDue: '2027-01-01' })]), size);
+    expect(seen(next())).toBe('Next 30 days to Dec 10 Nothing scheduled in these 30 days.');
+  });
+
+  test.each(SIZES)('is gone with nothing scheduled at all (%s)', async (size) => {
+    tenthJustAfterMidnight();
+    renderApp(withAccounts([]), '/?plan=scheduled', { size });
+    await screen.findByRole('heading', { name: 'Nothing scheduled' });
+    expect(screen.queryByRole('region', { name: 'Next 30 days' })).toBeNull();
+  });
+
+  test.each(SIZES)('changes at once when an item stops (%s)', async (size) => {
+    const user = await open(everything(), size);
+    await user.click(within(group('Expenses')).getByRole('button', { name: /Streaming/ }));
+    const sheet = within(await screen.findByRole('dialog', { name: 'Streaming' }));
+    await user.click(sheet.getByRole('button', { name: 'Stop scheduling Streaming' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // RM 1,660.30 less Streaming; Visa owes no more than today
+    expect(seen(next())).toContain('Going out −RM 1,620.40');
+    expect(within(lowest()).getAllByRole('listitem').map(seen)).toEqual([
+      'Maybank RM 3,299.60 on Nov 23',
+      'Wallet RM 80.00 today',
+    ]);
+  });
+
+  test.each(SIZES)('still shows offline, from what the device kept (%s)', async (size) => {
+    const server = everything();
+    await open(server, size);
+    expect(seen(next())).toContain('Going out −RM 1,660.30');
+    server.health = 'unreachable';
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    onTestFinished(() => onLine.mockRestore());
+    act(() => void window.dispatchEvent(new Event('offline')));
+    await reloadApp(server, '/?plan=scheduled', { size });
+    await screen.findByRole('region', { name: 'Next 30 days' }, { timeout: 3000 });
+    expect(within(lowest()).getAllByRole('listitem').map(seen)).toEqual([
+      'Maybank RM 3,299.60 on Nov 23',
+      'Visa RM 879.80 owed on Dec 3',
+      'Wallet RM 80.00 today',
+    ]);
   });
 });

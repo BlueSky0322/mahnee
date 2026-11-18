@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-18
 
+- Added: Scheduled shows the next 30 days: what comes in and goes out, and each account's lowest point [#?]
 - Changed: Plan, each category's page and Scheduled match the design [#48]
 - Changed: Activity and Add match the design; Activity leaves out transfers until you ask for them [#47]
 - Changed: Accounts and each account's page match the design [#46]

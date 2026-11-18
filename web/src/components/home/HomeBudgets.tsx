@@ -81,7 +81,8 @@ export default function HomeBudgets({
                   state={BAR_STATE[text.pace]}
                 />
                 <span className={`${classes.budgetMeta} ${tone}`}>
-                  {text.pace === 'faster' && (
+                  {/* A phone puts a warning sign before it; a computer the words alone */}
+                  {text.pace === 'faster' && !short && (
                     <AlertIcon
                       size={14}
                       aria-hidden

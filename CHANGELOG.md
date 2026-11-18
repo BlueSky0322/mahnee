@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-18
 
+- Changed: Home matches the design; phones no longer show Coming up [#44]
 - Changed: the app's spacing, icons, category colours and controls now match the design [#43]
 
 ## 2026-11-17
@@ -117,3 +118,4 @@ For agents:
 [#40]: https://github.com/BlueSky0322/mahnee/pull/40
 [#42]: https://github.com/BlueSky0322/mahnee/pull/42
 [#43]: https://github.com/BlueSky0322/mahnee/pull/43
+[#44]: https://github.com/BlueSky0322/mahnee/pull/44

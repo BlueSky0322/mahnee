@@ -413,7 +413,8 @@ describe('Plan: budgets and where it went', () => {
       name: 'Food, last 12 months, November lowest since August',
     });
     expect(within(year).getAllByRole('listitem')).toHaveLength(12);
-    expect(within(year).getByText('avg 31.82')).toBeTruthy();
+    // The usual is named on the line under the figure, so the bars' line goes unlabelled
+    expect(within(year).queryByText(/^avg/)).toBeNull();
     expect(items(within(food).getByRole('list', { name: 'Inside Food' }))).toEqual([
       'Dining out 60.00',
       'Coffee 15.00',

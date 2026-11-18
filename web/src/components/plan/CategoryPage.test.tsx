@@ -151,6 +151,10 @@ const NOVEMBER_YEAR = [
   'Nov 2026, RM 84.00',
 ];
 
+/** The line saying how the month stands against the usual, read whole */
+const usualLine = (text: string) => (_: string, el: Element | null) =>
+  el?.tagName === 'P' && el.textContent === text;
+
 const pause = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)));
 
 describe('a category over 12 months', () => {
@@ -169,9 +173,11 @@ describe('a category over 12 months', () => {
 
       expect(await screen.findByText('RM 84.00')).toBeTruthy();
       // RM 350.00 over the 11 months before is RM 31.82 a month
-      expect(
-        await screen.findByText('Spent in November · RM 52.18 over your usual RM 31.82'),
-      ).toBeTruthy();
+      const usual = await screen.findByText(
+        usualLine('Spent in November · RM 52.18 over your usual RM 31.82'),
+      );
+      // How far over stands out, on its own
+      expect(within(usual).getByText('RM 52.18 over')).toBeTruthy();
       const year = await screen.findByRole('region', {
         name: 'Food, last 12 months, November lowest since August',
       });
@@ -203,7 +209,7 @@ describe('a category over 12 months', () => {
     expect(screen.getByRole('meter', { name: 'Transport: 150% spent' })).toBeTruthy();
     // RM 40.00 in October over 11 months is RM 3.64; RM 30.00 is RM 26.36 more
     expect(
-      await screen.findByText('Spent in November · RM 26.36 over your usual RM 3.64'),
+      await screen.findByText(usualLine('Spent in November · RM 26.36 over your usual RM 3.64')),
     ).toBeTruthy();
     // No subcategories: nothing inside to list
     expect(screen.queryByRole('region', { name: 'Inside Transport' })).toBeNull();
@@ -231,7 +237,7 @@ describe('a category over 12 months', () => {
     // October against the 11 months before it: RM 99.00 a year before and RM 100.00 in
     // September, RM 18.09 a month
     expect(
-      await screen.findByText('Spent in October · RM 231.91 over your usual RM 18.09'),
+      await screen.findByText(usualLine('Spent in October · RM 231.91 over your usual RM 18.09')),
     ).toBeTruthy();
     const year = await screen.findByRole('region', { name: /^Food, last 12 months/ });
     expect(readYear(year).shown).toEqual(['Oct 2026, RM 250.00']);
@@ -253,7 +259,7 @@ describe('a category over 12 months', () => {
     expect(await screen.findByText('RM 0.00')).toBeTruthy();
     // Sep 2025 to Jul 2026: only the RM 99.00 of November 2025, RM 9.00 a month
     expect(
-      await screen.findByText('Spent in August · RM 9.00 under your usual RM 9.00'),
+      await screen.findByText(usualLine('Spent in August · RM 9.00 under your usual RM 9.00')),
     ).toBeTruthy();
     // Level with July, so no comparison in its name
     const year = await screen.findByRole('region', { name: 'Food, last 12 months' });
@@ -269,7 +275,7 @@ describe('a category over 12 months', () => {
     renderApp(aYearOfFood(), `/?plan&month=2026-10&category=${HEALTH}`, { size: 'phone' });
     expect(await screen.findByRole('heading', { level: 1, name: 'Health' })).toBeTruthy();
     expect(
-      await screen.findByText('Spent in October · the same as your usual RM 0.00'),
+      await screen.findByText(usualLine('Spent in October · the same as your usual RM 0.00')),
     ).toBeTruthy();
     const year = await screen.findByRole('region', { name: 'Health, last 12 months' });
     expect(readYear(year).months.every((m) => m.endsWith(', RM 0.00'))).toBe(true);
@@ -354,7 +360,7 @@ describe('a category over 12 months', () => {
     server.pathsDown.delete('/api/summary/trend');
     await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }));
     expect(
-      await screen.findByText('Spent in November · RM 52.18 over your usual RM 31.82'),
+      await screen.findByText(usualLine('Spent in November · RM 52.18 over your usual RM 31.82')),
     ).toBeTruthy();
   });
 

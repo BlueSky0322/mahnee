@@ -11,7 +11,9 @@ import { useMonths } from '../../ledger/month-start';
 import { useMonthSummary, useWholeLedger } from '../../ledger/useLedger';
 import { toDateInput } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
+import EntryTile from '../common/EntryTile';
 import PageLink from '../home/PageLink';
+import { AlertIcon, ForwardIcon, ScheduledIcon } from '../ui/icons';
 import type { Opened, Prefill } from './ScheduleSheet';
 import classes from './Scheduled.module.css';
 import {
@@ -54,6 +56,7 @@ export default function ScheduledView({ onOpen }: { onOpen: (opened: Opened) => 
     return (
       <Empty
         categories={categories}
+        isDesktop={isDesktop}
         onOpen={onOpen}
       />
     );
@@ -73,8 +76,8 @@ export default function ScheduledView({ onOpen }: { onOpen: (opened: Opened) => 
       onOpen={() => onOpen({ item: r })}
     />
   );
-  return (
-    <div className={classes.scheduled}>
+  const groups = (
+    <>
       {(['expense', 'income'] as const).map(
         (kind) =>
           of(kind).length > 0 && (
@@ -95,23 +98,38 @@ export default function ScheduledView({ onOpen }: { onOpen: (opened: Opened) => 
           {of('transfer').map(row)}
         </Group>
       )}
-      {cardNotes(ledger, today).map(({ account, text }) => (
-        <p
+    </>
+  );
+  const aside = (
+    <>
+      {cardNotes(ledger, today).map(({ account, owed, by }) => (
+        <div
           key={account.id}
+          role="note"
           className={classes.note}
         >
-          {text}{' '}
-          <a
-            href="?plan=scheduled"
-            className={classes.noteLink}
-            onClick={(e) => {
-              e.preventDefault();
-              onOpen({ prefill: { kind: 'transfer', toAccountId: account.id } });
-            }}
-          >
-            Schedule one
-          </a>
-        </p>
+          <AlertIcon
+            size={16}
+            className={classes.noteIcon}
+            aria-hidden
+          />
+          <span>
+            <b className={classes.noteName}>{account.name}</b>
+            {': '}
+            <span className="sf-tabular">{owed}</span>
+            {` owed${by == null ? '' : ` by ${by}`}, no payment scheduled. `}
+            <a
+              href="?plan=scheduled"
+              className={classes.noteLink}
+              onClick={(e) => {
+                e.preventDefault();
+                onOpen({ prefill: { kind: 'transfer', toAccountId: account.id } });
+              }}
+            >
+              Schedule one
+            </a>
+          </span>
+        </div>
       ))}
       {added > 0 && (
         <PageLink
@@ -122,6 +140,21 @@ export default function ScheduledView({ onOpen }: { onOpen: (opened: Opened) => 
           <span className={classes.addedLink}>See them</span>
         </PageLink>
       )}
+    </>
+  );
+  // A computer: every group in one card, the notes in a column beside it
+  if (isDesktop) {
+    return (
+      <div className={classes.desk}>
+        <div className={classes.deskCard}>{groups}</div>
+        <div className={classes.side}>{aside}</div>
+      </div>
+    );
+  }
+  return (
+    <div className={classes.scheduled}>
+      {groups}
+      {aside}
     </div>
   );
 }
@@ -165,16 +198,51 @@ function Row({
   onOpen: () => void;
 }) {
   const title = itemTitle(r, ledger.accounts, categories, isDesktop);
-  const letter = (r.payee ?? title).trim().charAt(0).toUpperCase();
+  const changes = r.amountVaries === true;
   const amount = (
     <span
       className={`${classes.amount} sf-tabular`}
       data-kind={r.kind}
     >
+      {isDesktop && changes && <span className={classes.about}>about </span>}
       {signedAmount(r)}
     </span>
   );
-  const changes = r.amountVaries === true;
+  // The item's category letter in its colour, or a transfer's arrows
+  const tile = (
+    <EntryTile
+      t={r}
+      categories={categories}
+    />
+  );
+  if (isDesktop) {
+    return (
+      <li>
+        <button
+          type="button"
+          className={classes.deskRow}
+          onClick={onOpen}
+        >
+          {tile}
+          <span className={classes.deskName}>{title}</span>
+          <span className={classes.deskWhen}>{whenText(r, true)}</span>
+          <span className={classes.rowNext}>
+            <span data-waiting={waiting(r, today) || undefined}>
+              {nextText(r, today)}
+              {changes && ' · '}
+            </span>
+            {changes && <span className={classes.changes}>amount changes</span>}
+          </span>
+          {amount}
+          <ForwardIcon
+            size={16}
+            className={classes.chevron}
+            aria-hidden
+          />
+        </button>
+      </li>
+    );
+  }
   return (
     <li>
       <button
@@ -182,41 +250,25 @@ function Row({
         className={classes.row}
         onClick={onOpen}
       >
-        <span
-          className={classes.tile}
-          aria-hidden="true"
-        >
-          {letter}
-        </span>
+        {tile}
         <span className={classes.rowText}>
           <span className={classes.rowTitle}>{title}</span>
-          <span className={classes.rowLine}>
-            {isDesktop ? whenText(r, true) : phoneLine(r, ledger.accounts)}
+          <span
+            className={classes.rowLine}
+            data-changes={changes || undefined}
+          >
+            {phoneLine(r, ledger.accounts)}
           </span>
         </span>
-        {isDesktop ? (
-          <>
-            <span className={classes.rowNext}>
-              <span data-waiting={waiting(r, today) || undefined}>
-                {nextText(r, today)}
-                {changes && ' ·'}
-              </span>
-              {changes && <span className={classes.changes}>amount changes</span>}
-            </span>
-            {changes && <span className={classes.about}>about</span>}
-            {amount}
-          </>
-        ) : (
-          <span className={classes.rowEnd}>
-            {amount}
-            <span
-              className={classes.rowLine}
-              data-waiting={waiting(r, today) || undefined}
-            >
-              {nextText(r, today)}
-            </span>
+        <span className={classes.rowEnd}>
+          {amount}
+          <span
+            className={classes.rowNextPhone}
+            data-waiting={waiting(r, today) || undefined}
+          >
+            {nextText(r, today)}
           </span>
-        )}
+        </span>
       </button>
     </li>
   );
@@ -225,9 +277,11 @@ function Row({
 /** Nothing scheduled yet: what Scheduled does, and common ones to start from */
 function Empty({
   categories,
+  isDesktop,
   onOpen,
 }: {
   categories: Category[];
+  isDesktop: boolean;
   onOpen: (opened: Opened) => void;
 }) {
   const start = (common: (typeof COMMON)[number]): Prefill => ({
@@ -237,24 +291,46 @@ function Empty({
       categories.find((c) => c.name === common.category && c.parentId == null && !c.archived)?.id ??
       null,
   });
-  return (
-    <section className={classes.empty}>
-      <h2 className={classes.emptyTitle}>Nothing scheduled</h2>
-      <p className={classes.soft}>Rent, bills and pay, added on their day.</p>
-      <Button onClick={() => onOpen({ prefill: {} })}>Schedule something</Button>
+  const common = (
+    <div className={classes.common}>
       <p className={classes.commonTitle}>Common ones</p>
       <div className={classes.chips}>
-        {COMMON.map((common) => (
+        {COMMON.map((c) => (
           <button
-            key={common.label}
+            key={c.label}
             type="button"
             className={classes.chip}
-            onClick={() => onOpen({ prefill: start(common) })}
+            onClick={() => onOpen({ prefill: start(c) })}
           >
-            {common.label}
+            {c.label}
           </button>
         ))}
       </div>
+    </div>
+  );
+  // A phone: the message on the page, common ones under it; a computer: both in one card
+  return (
+    <section
+      aria-label="Scheduled"
+      className={isDesktop ? classes.emptyCard : classes.emptyPage}
+    >
+      <div className={classes.empty}>
+        <span
+          className={classes.emptyIcon}
+          aria-hidden
+        >
+          <ScheduledIcon size={24} />
+        </span>
+        <h2 className={classes.emptyTitle}>Nothing scheduled</h2>
+        <p className={classes.soft}>Rent, bills and pay, added on their day.</p>
+        <Button
+          className={classes.emptyAction}
+          onClick={() => onOpen({ prefill: {} })}
+        >
+          Schedule something
+        </Button>
+      </div>
+      {common}
     </section>
   );
 }

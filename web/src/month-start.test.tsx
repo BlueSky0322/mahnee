@@ -486,7 +486,11 @@ describe('12 months, with the month from the 25th', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'All expenses' })).toBeTruthy();
     // December 10.00 against (36.00 + 16.00) / 11 = 4.727..., RM 4.73 to the cent
     expect(
-      await screen.findByText('Spent in December · RM 5.27 over your usual RM 4.73'),
+      await screen.findByText(
+        (_, el) =>
+          el?.tagName === 'P' &&
+          el.textContent === 'Spent in December · RM 5.27 over your usual RM 4.73',
+      ),
     ).toBeTruthy();
     const year = screen.getByRole('region', { name: /^All expenses, last 12 months/ });
     expect(bars(year).slice(-3)).toEqual([

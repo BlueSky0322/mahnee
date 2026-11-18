@@ -1,18 +1,20 @@
-import { Button, NativeSelect, SegmentedControl, TextInput } from '@mantine/core';
-import type { FormEvent } from 'react';
-import { useState } from 'react';
+import { Button, SegmentedControl } from '@mantine/core';
+import type { CSSProperties, FormEvent, ReactNode } from 'react';
+import { useId, useState } from 'react';
 import type { LedgerChange, Recurring } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
 import { DEFAULT_CURRENCY, MAX_PAYEE, categoryKindFor, readOptionalText } from '@shared/ledger';
 import { fallsOn, nextAfter, onOrAfter } from '@shared/recurring';
 import { change } from '../../ledger/ledger';
+import { categoryColour } from '../../utils/category-colour';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
 import { toDateInput } from '../../utils/date-input';
 import { newId } from '../../utils/id';
 import { currencySymbol } from '../../utils/money';
 import { showUndo } from '../common/undo-toast';
-import { amountText, readAmount } from '../entry/entry-text';
-import ResponsiveDialog from '../ui/ResponsiveDialog';
+import { readAmount } from '../entry/entry-text';
+import ResponsiveDialog, { DialogTitle } from '../ui/ResponsiveDialog';
+import { ForwardIcon } from '../ui/icons';
 import classes from './Scheduled.module.css';
 import { REPEATS, itemTitle, nextLine, repeatsLabel } from './scheduled-text';
 
@@ -38,11 +40,12 @@ const EACH_TIME = [
   { value: 'changes', label: 'It changes' },
 ];
 
-// One scheduled item, to change or stop (R-Bill-Edit, R-Bill-Edit-Tnb), or a new one: Cancel
-// and Save; its name, the amount and whether it's the same each time or changes ("last
-// time"); where it's from (and, for a transfer, to), what it's for, when it repeats; for an
-// item, what happens next, and Stop scheduling (with Undo); for a new one, which way it goes
-// and its first day. Everything is saved through the ledger, shown at once.
+// One scheduled item, to change or stop (R-Bill-Edit, R-Bill-Edit-Tnb), or a new one: Cancel,
+// its name as the title (typed over to rename it) and Save; then one card of rows: the
+// amount and whether it's the same each time or changes ("last time"), where it's from (and,
+// for a transfer, to), what it's for, when it repeats; for an item, what happens next, and
+// Stop scheduling (with Undo); for a new one, which way it goes, its name and its first day.
+// Everything is saved through the ledger, shown at once.
 export default function ScheduleSheet({
   opened,
   onClose,
@@ -64,10 +67,9 @@ export default function ScheduleSheet({
     <ResponsiveDialog
       opened={opened != null}
       onClose={onClose}
-      title={title}
-      width={480}
-      // Its own Cancel and Save are at its foot
-      closeLabel={null}
+      width={520}
+      top={96}
+      grouped
     >
       {drawn != null && (
         <Fields
@@ -81,6 +83,101 @@ export default function ScheduleSheet({
   );
 }
 
+/** An amount as the sheet shows it to change: "189.00", "54.90", always with its cents */
+const twoPlaces = (cents: number) =>
+  `${Math.trunc(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;
+
+/** One row of the card: its name at the left, what it is beside it */
+function Row({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={classes.frow}>
+      {htmlFor == null ? (
+        <span className={classes.k}>{label}</span>
+      ) : (
+        <label
+          htmlFor={htmlFor}
+          className={classes.k}
+        >
+          {label}
+        </label>
+      )}
+      {children}
+    </div>
+  );
+}
+
+/**
+ * A row that picks one of a list: what's chosen, and a chevron; the device's own list opens
+ * from anywhere on it
+ */
+function PickRow({
+  label,
+  value,
+  options,
+  onChange,
+  dot,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+  /** The colour of the category chosen */
+  dot?: string;
+}) {
+  const id = useId();
+  const chosen = options.find((o) => o.value === value)?.label ?? '';
+  return (
+    <div className={`${classes.frow} ${classes.pick}`}>
+      <label
+        htmlFor={id}
+        className={classes.k}
+      >
+        {label}
+      </label>
+      <span
+        className={classes.v}
+        aria-hidden
+      >
+        {dot != null && (
+          <span
+            className={classes.dot}
+            style={{ '--dot': dot } as CSSProperties}
+          />
+        )}
+        <span className={classes.vText}>{chosen}</span>
+      </span>
+      <ForwardIcon
+        size={16}
+        className={classes.chevron}
+        aria-hidden
+      />
+      <select
+        id={id}
+        className={classes.pickSelect}
+        value={value}
+        onChange={(e) => onChange(e.currentTarget.value)}
+      >
+        {options.map((o) => (
+          <option
+            key={o.value}
+            value={o.value}
+          >
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function Fields({
   opened,
   title,
@@ -91,7 +188,8 @@ function Fields({
   onDone: () => void;
 }) {
   const { accounts } = useAccounts();
-  const { tree } = useCategories();
+  const { tree, categories } = useCategories();
+  const ids = { amount: useId(), name: useId(), firstOn: useId() };
   const today = toDateInput(new Date());
   const item = 'item' in opened ? opened.item : null;
   const prefill = 'prefill' in opened ? opened.prefill : {};
@@ -100,7 +198,7 @@ function Fields({
   );
   const [kind, setKind] = useState<TransactionKind>(item?.kind ?? prefill.kind ?? 'expense');
   const [payee, setPayee] = useState(item?.payee ?? prefill.payee ?? '');
-  const [amount, setAmount] = useState(item == null ? '' : amountText(item.amountCents));
+  const [amount, setAmount] = useState(item == null ? '' : twoPlaces(item.amountCents));
   const [varies, setVaries] = useState(item?.amountVaries === true);
   const toFirst = listed.find((a) => a.id !== prefill.toAccountId);
   const [accountId, setAccountId] = useState(item?.accountId ?? toFirst?.id ?? '');
@@ -195,115 +293,179 @@ function Fields({
     );
   };
 
+  // An item called by its name is renamed in its title; a new one, and one called by its
+  // category or where it goes ("Salary", "Top-up to Wallet"), has a Name row
+  const named = item != null && item.payee != null && item.payee === title;
+  const errorList = [errors.amount, errors.to, errors.firstOn].filter((e) => e != null);
   return (
     <form
       className={classes.form}
       onSubmit={submit}
       noValidate
     >
+      <div className={classes.sheetHead}>
+        <Button
+          variant="light"
+          size="xs"
+          className={`${classes.cancel} ${classes.small}`}
+          onClick={onDone}
+        >
+          Cancel
+        </Button>
+        <DialogTitle className={classes.sheetTitle}>
+          {!named ? (
+            title
+          ) : (
+            <input
+              aria-label="Name"
+              className={classes.titleInput}
+              value={payee}
+              placeholder={title}
+              maxLength={MAX_PAYEE}
+              autoComplete="off"
+              onChange={(e) => setPayee(e.currentTarget.value)}
+            />
+          )}
+        </DialogTitle>
+        <Button
+          type="submit"
+          size="xs"
+          className={classes.small}
+        >
+          Save
+        </Button>
+      </div>
       {item == null && (
         <SegmentedControl
           aria-label="What it is"
           fullWidth
+          className={classes.kinds}
           value={kind}
           onChange={(value) => setKind(value as TransactionKind)}
           data={KINDS}
         />
       )}
-      <TextInput
-        label="Name"
-        value={payee}
-        maxLength={MAX_PAYEE}
-        autoComplete="off"
-        onChange={(e) => setPayee(e.currentTarget.value)}
-      />
-      <TextInput
-        label="Amount"
-        inputMode="decimal"
-        autoComplete="off"
-        leftSection={<span>{currencySymbol(currency)}</span>}
-        description={varies ? 'last time' : undefined}
-        value={amount}
-        onChange={(e) => setAmount(e.currentTarget.value)}
-        error={errors.amount}
-      />
-      <div className={classes.field}>
-        <span className={classes.fieldLabel}>Each time</span>
-        <SegmentedControl
-          aria-label="Amount each time"
-          fullWidth
-          value={varies ? 'changes' : 'same'}
-          onChange={(value) => setVaries(value === 'changes')}
-          data={EACH_TIME}
+      <div className={classes.fields}>
+        {!named && (
+          <Row
+            label="Name"
+            htmlFor={ids.name}
+          >
+            <input
+              id={ids.name}
+              className={classes.input}
+              value={payee}
+              maxLength={MAX_PAYEE}
+              autoComplete="off"
+              onChange={(e) => setPayee(e.currentTarget.value)}
+            />
+          </Row>
+        )}
+        <Row
+          label="Amount"
+          htmlFor={ids.amount}
+        >
+          <span className={`${classes.v} sf-tabular`}>
+            <span aria-hidden>{currencySymbol(currency)}</span>
+            <input
+              id={ids.amount}
+              className={classes.input}
+              inputMode="decimal"
+              autoComplete="off"
+              aria-invalid={errors.amount != null || undefined}
+              value={amount}
+              onChange={(e) => setAmount(e.currentTarget.value)}
+            />
+          </span>
+          {varies && <span className={classes.amountNote}>last time</span>}
+        </Row>
+        <Row label="Each time">
+          <SegmentedControl
+            aria-label="Amount each time"
+            className={classes.each}
+            value={varies ? 'changes' : 'same'}
+            onChange={(value) => setVaries(value === 'changes')}
+            data={EACH_TIME}
+          />
+        </Row>
+        <PickRow
+          label={kind === 'income' ? 'Into' : 'From'}
+          value={accountId}
+          onChange={setAccountId}
+          options={listed.map((a) => ({ value: a.id, label: a.name }))}
         />
+        {transfer ? (
+          <PickRow
+            label="To"
+            value={to?.id ?? ''}
+            onChange={setToAccountId}
+            options={destinations.map((a) => ({ value: a.id, label: a.name }))}
+          />
+        ) : (
+          <PickRow
+            label="For"
+            value={categoryId ?? ''}
+            onChange={(value) => setPicked((now) => ({ ...now, [kind]: value }))}
+            options={options}
+            dot={categoryId == null ? undefined : categoryColour(categories ?? [], categoryId)}
+          />
+        )}
+        <PickRow
+          label="Repeats"
+          value={repeats}
+          onChange={(next) => {
+            setRepeats(next);
+            const [s, d] = next.split(':');
+            setFirstOn(firstAfterToday(s as Recurring['schedule'], Number(d)));
+          }}
+          options={REPEATS.map((r) => ({
+            value: `${r.schedule}:${r.day}`,
+            label: repeatsLabel(r),
+          }))}
+        />
+        {item == null && (
+          <Row
+            label="First on"
+            htmlFor={ids.firstOn}
+          >
+            <input
+              id={ids.firstOn}
+              type="date"
+              className={classes.input}
+              value={firstOn}
+              min={today}
+              aria-invalid={errors.firstOn != null || undefined}
+              onChange={(e) => setFirstOn(e.currentTarget.value)}
+            />
+          </Row>
+        )}
       </div>
-      <NativeSelect
-        label={kind === 'income' ? 'Into' : 'From'}
-        value={accountId}
-        onChange={(e) => setAccountId(e.currentTarget.value)}
-        data={listed.map((a) => ({ value: a.id, label: a.name }))}
-      />
-      {transfer ? (
-        <NativeSelect
-          label="To"
-          value={to?.id ?? ''}
-          onChange={(e) => setToAccountId(e.currentTarget.value)}
-          data={destinations.map((a) => ({ value: a.id, label: a.name }))}
-          error={errors.to}
-        />
-      ) : (
-        <NativeSelect
-          label="For"
-          value={categoryId ?? ''}
-          onChange={(e) => setPicked((now) => ({ ...now, [kind]: e.currentTarget.value }))}
-          data={options}
-        />
+      {errorList.length > 0 && (
+        <div
+          role="alert"
+          className={classes.errors}
+        >
+          {errorList.map((e) => (
+            <p key={e}>{e}</p>
+          ))}
+        </div>
       )}
-      <NativeSelect
-        label="Repeats"
-        value={repeats}
-        onChange={(e) => {
-          const next = e.currentTarget.value;
-          setRepeats(next);
-          const [s, d] = next.split(':');
-          setFirstOn(firstAfterToday(s as Recurring['schedule'], Number(d)));
-        }}
-        data={REPEATS.map((r) => ({ value: `${r.schedule}:${r.day}`, label: repeatsLabel(r) }))}
-      />
-      {item == null ? (
-        <TextInput
-          type="date"
-          label="First on"
-          value={firstOn}
-          min={today}
-          onChange={(e) => setFirstOn(e.currentTarget.value)}
-          error={errors.firstOn}
-        />
-      ) : (
-        <div className={classes.field}>
-          <span className={classes.fieldLabel}>Next</span>
-          <span className={classes.next}>
+      {item != null && (
+        <div className={classes.nextCard}>
+          <b className={classes.nextTitle}>Next</b>
+          <p className={classes.next}>
             {nextLine(
               { ...item, amountCents: typedCents, amountVaries: varies },
               accounts ?? [],
               today,
             )}
-          </span>
+          </p>
         </div>
       )}
-      <div className={classes.actions}>
-        <Button
-          variant="default"
-          onClick={onDone}
-        >
-          Cancel
-        </Button>
-        <Button type="submit">Save</Button>
-      </div>
       {item != null && (
         <Button
           variant="subtle"
-          className="sf-danger"
+          className={`sf-danger ${classes.stop}`}
           onClick={stop}
         >
           {`Stop scheduling ${title}`}

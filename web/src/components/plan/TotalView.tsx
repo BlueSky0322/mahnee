@@ -10,9 +10,9 @@ import { formatMoney } from '../../utils/money';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import classes from './Plan.module.css';
 import type { MonthAmount } from './CategoryView';
-import { Shell, YearBars } from './CategoryView';
+import { Shell, UsualLine, YearBars } from './CategoryView';
 import type { PlanMonth } from './plan-month';
-import { usualText, yearComparison } from './plan-text';
+import { yearComparison } from './plan-text';
 import BackButton from '../ui/BackButton';
 
 const money = (cents: number) => formatMoney(cents, DEFAULT_CURRENCY);
@@ -99,7 +99,7 @@ export default function TotalView({
 
   const cents = income ? summary.incomeCents : summary.spentCents;
   const year = trend.trend == null ? null : yearOf(trend.trend, income);
-  const usual = year == null ? null : usualText(againstAverage(year.map((m) => m.cents)));
+  const usual = year == null ? null : againstAverage(year.map((m) => m.cents));
   const comparison = year == null ? null : yearComparison(year);
   const monthName = monthHeading(shown.month, { short: true });
   const colour = income ? 'var(--pos)' : 'var(--accent)';
@@ -110,17 +110,26 @@ export default function TotalView({
       titleId={titleId}
     >
       {header}
-      <div className={isPage ? classes.categoryTop : classes.paneTop}>
-        {title}
-        <p className={`${classes.num} ${isPage ? classes.bigFigure : classes.paneFigure}`}>
-          {money(cents)}
-        </p>
-        {usual != null && (
-          <p className={classes.soft}>
-            {isPage ? `${income ? 'Received' : 'Spent'} in ${monthName} · ${usual}` : usual}
-          </p>
-        )}
-      </div>
+      {isPage ? (
+        <div className={classes.categoryTop}>
+          {title}
+          <p className={`${classes.num} ${classes.bigFigure}`}>{money(cents)}</p>
+          {usual != null && (
+            <UsualLine
+              against={usual}
+              lead={`${income ? 'Received' : 'Spent'} in ${monthName}`}
+            />
+          )}
+        </div>
+      ) : (
+        <>
+          {title}
+          <div className={classes.paneFigures}>
+            <p className={`${classes.num} ${classes.paneFigure}`}>{money(cents)}</p>
+            {usual != null && <UsualLine against={usual} />}
+          </div>
+        </>
+      )}
 
       <section
         aria-label={`${name}, last 12 months${comparison != null ? `, ${comparison}` : ''}`}
@@ -150,6 +159,7 @@ export default function TotalView({
           <YearBars
             months={year}
             colour={colour}
+            labelled={isPage}
           />
         )}
       </section>

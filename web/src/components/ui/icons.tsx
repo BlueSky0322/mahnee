@@ -239,6 +239,19 @@ export const CalendarIcon = icon(
     <path d="M4 10h16M9 3v4M15 3v4" />
   </>,
 );
+/** Nothing scheduled's calendar (R-Empty-Bills) */
+export const ScheduledIcon = icon(
+  <>
+    <rect
+      x="3.5"
+      y="5"
+      width="17"
+      height="15"
+      rx="2.5"
+    />
+    <path d="M3.5 10h17M8 3v4M16 3v4" />
+  </>,
+);
 export const RepeatIcon = icon(
   <>
     <path d="M17 3l3 3-3 3" />

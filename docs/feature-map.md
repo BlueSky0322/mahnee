@@ -1245,10 +1245,18 @@ changing it (its first due date the next one after the person's own today).
   added this month · See them" (entries from Scheduled in the person's month) opens
   `?activity&scheduled`. Nothing scheduled: "Rent, bills and pay, added on their day.",
   Schedule something and the common ones (Rent, Salary, Phone bill, Netflix, Car loan),
-  each filling in a new schedule.
-- **The sheet** (named after the item; "New schedule" for a new one): Name, Amount ("last
-  time" when it changes), Amount each time, From (income Into; a transfer From and To),
-  For, Repeats ("Monthly on the 3rd", "Weekly on Mondays"), then for an item "Next" ("Dec 3
+  each filling in a new schedule. A phone heads a group on the page with its items in a card
+  under it; a computer has every group in one card (tile, name, day, next date, amount,
+  chevron) with the card notes and "added this month" beside it. Each tile is the item's
+  category letter in its colour (a transfer's arrows), as Activity's. A phone's header has
+  Schedule once something is (the month while nothing is); a computer's always has
+  Schedule something.
+- **The sheet** (named after the item, the name typed over in the title to rename it; "New
+  schedule" for a new one, with a Name row): Cancel, the title and Save at its head, then
+  one card of rows: Amount ("last time" when it changes, always with its cents), Each time,
+  From (income Into; a transfer From and To), For (with its colour), Repeats ("Monthly on
+  the 3rd", "Weekly on Mondays"), each picked from the device's own list, then for an item
+  "Next" in its own card ("Dec 3
   · added automatically from Visa Platinum", "Nov 20 · added at RM 189.00, for you to
   check") and Stop scheduling, or for a new one What it is and First on (the first after
   today on its repeat). A new schedule or day falls first on or after the one it was next
@@ -1824,7 +1832,8 @@ may use either name for anything else (Activity's filters included).
   height (0 otherwise), which the page's end, the notices and the undo messages keep clear
   of.
 - [ResponsiveDialog](../web/src/components/ui/ResponsiveDialog.tsx): a sheet on phones,
-  a dialog elsewhere.
+  a dialog elsewhere. `grouped` is a form of grouped rows on the page's colour that draws
+  its own header (Cancel, its `DialogTitle`, Save), as Scheduled's sheet does.
 - [Skeleton](../web/src/components/ui/Skeleton.tsx): the shimmering placeholders a page
   shows until its data arrives.
 - The look, "Paper ledger": the colours, light and dark, under the design's own names

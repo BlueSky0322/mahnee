@@ -9,8 +9,18 @@
   padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(24px + var(--sf-safe-bottom));
 }
 
+/* A phone's Scheduled sits a little closer, as drawn */
+.page[data-half='scheduled']:not(.desktop) {
+  gap: 16px;
+}
+
+.page[data-half='scheduled']:not(.desktop) .halves {
+  margin-top: 0;
+}
+
+/* A computer: the whole width beside the sidebar, as drawn */
 .desktop {
-  max-width: 1200px;
+  max-width: none;
   padding: 24px 32px 48px;
 }
 
@@ -29,7 +39,6 @@
   margin: 0;
   color: var(--ink-2);
   font-size: 14px;
-  line-height: 1.5;
 }
 
 .muted {
@@ -101,7 +110,17 @@
 .monthNav {
   display: flex;
   align-items: center;
+}
+
+.desktop .monthNav {
   gap: 4px;
+}
+
+/* Scheduled with nothing in it: the month, quietly */
+.monthQuiet {
+  color: var(--ink-2);
+  font-size: 15px;
+  font-weight: 500;
 }
 
 .monthName {
@@ -130,6 +149,7 @@
 .halves {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
   padding: 3px;
   margin-top: -4px;
   border-radius: 999px;
@@ -249,12 +269,6 @@
   font-size: 12px;
 }
 
-.metaStart {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
 /* Nothing yet: no budgets, nothing scheduled */
 
 .empty {
@@ -265,6 +279,55 @@
   padding: 32px 20px;
   border-radius: 20px;
   text-align: center;
+}
+
+.empty .soft {
+  max-width: 340px;
+  line-height: 1.5;
+}
+
+.emptyIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 4px;
+  border-radius: 16px;
+  background: var(--sunk);
+  color: var(--ink-2);
+}
+
+/* A computer with nothing this month: No budgets yet beside the two small cards */
+.emptyGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.emptyGrid .empty {
+  padding: 56px 20px;
+}
+
+.emptySide {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.emptySide .went[data-empty] .wentHead,
+.emptySide .income {
+  padding: 18px;
+}
+
+.emptySide .cardTitle {
+  font-size: 15px;
+}
+
+.emptySide .headFigure {
+  font-size: 16px;
+  font-weight: 400;
 }
 
 .emptyTitle {
@@ -278,7 +341,7 @@
   align-items: center;
   height: 40px;
   margin-top: 6px;
-  padding: 0 18px;
+  padding: 0 16px;
   border-radius: 999px;
   background: var(--accent);
   color: var(--accent-ink);
@@ -300,6 +363,12 @@
   padding: 16px 16px 12px;
 }
 
+/* Nothing spent: the line sits closer under the heading */
+.went[data-empty] .wentHead {
+  gap: 6px;
+  padding: 16px;
+}
+
 .share {
   display: flex;
   gap: 2px;
@@ -318,7 +387,8 @@
   list-style: none;
 }
 
-.rows li + li {
+/* The rule between rows is inside each one's 60px, as drawn */
+.rows li + li > .row {
   border-top: 1px solid var(--line);
 }
 
@@ -379,6 +449,10 @@
   padding: 16px;
 }
 
+.income[data-quiet] {
+  gap: 6px;
+}
+
 .income .soft {
   grid-column: 1 / -1;
 }
@@ -419,7 +493,7 @@
 }
 
 .incomeRows a[aria-current='true'] {
-  background: var(--ground);
+  background: var(--accent-tint);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
@@ -460,15 +534,34 @@
   font-size: 14px;
 }
 
+/* Each row is the design's grid: Category, Spent, the budget bar and Left */
 .table {
+  display: block;
   width: 100%;
-  border-collapse: collapse;
   font-size: 14px;
 }
 
-.table th {
-  padding: 8px 20px;
+.table thead,
+.table tbody {
+  display: block;
+}
+
+.table tr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1.4fr) 104px;
+  align-items: center;
+  column-gap: 16px;
+  min-height: 56px;
+  padding: 0 20px;
   border-bottom: 1px solid var(--line);
+}
+
+.table thead tr {
+  min-height: 40px;
+}
+
+.table th {
+  padding: 0;
   color: var(--ink-3);
   font-size: 12px;
   font-weight: 500;
@@ -480,17 +573,12 @@
 }
 
 .table td {
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--line);
-  vertical-align: middle;
-}
-
-.table tr:last-child td {
-  border-bottom: 0;
+  min-width: 0;
+  padding: 0;
 }
 
 .table tr[data-open] {
-  background: var(--ground);
+  background: var(--accent-tint);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
@@ -509,13 +597,17 @@
 
 .rowSubDesk {
   display: block;
+  margin-top: 2px;
   padding-left: 18px;
   color: var(--ink-3);
   font-size: 12px;
 }
 
-.barCell {
-  width: 30%;
+/* Drawn as one button a row, its words keep the browser's own spacing */
+.rowButton,
+.rowSubDesk,
+.setBudget {
+  letter-spacing: normal;
 }
 
 .setBudget {
@@ -562,25 +654,38 @@
   border-radius: 999px;
   background: var(--sunk);
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
+  line-height: 1;
   text-decoration: none;
 }
 
 .wideQuiet {
   height: 40px;
+  font-size: 14px;
 }
 
-.categoryTop,
-.paneTop {
+.categoryTop {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   padding: 0 4px;
 }
 
-.paneTop {
-  padding: 0;
+/* A pane's figure with its usual line under it */
+.paneFigures {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.usual {
+  line-height: 1.5;
+}
+
+.usualBy {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .paneHead {
@@ -644,6 +749,23 @@
   height: 140px;
 }
 
+/* A page's bars are 150px tall, 8px over their letters */
+.year .barArea {
+  height: 172px;
+}
+
+.year .barItem {
+  gap: 8px;
+}
+
+.year .barFill {
+  max-height: calc(100% - 22px);
+}
+
+.year .average {
+  margin-bottom: 22px;
+}
+
 .barList {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -682,7 +804,19 @@
 
 .barLetter[data-shown] {
   color: var(--ink);
+}
+
+.bars[data-labelled] .barLetter[data-shown] {
   font-weight: 600;
+}
+
+/* A pane's bars sit a little closer, a little less round */
+.yearPane .barList {
+  gap: 5px;
+}
+
+.yearPane .barFill {
+  border-radius: 5px 5px 2px 2px;
 }
 
 .average {
@@ -721,16 +855,18 @@
   list-style: none;
 }
 
+/* A page's rows are 60px with their rule inside, names and amounts in the heavier weight;
+   a pane's are 44px and lighter */
 .insideRow {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 44px;
+  min-height: 60px;
   padding: 10px 16px;
 }
 
 .insidePane .insideRow {
-  padding: 8px 20px;
+  min-height: 44px;
 }
 
 .insideRow + .insideRow {
@@ -739,6 +875,22 @@
 
 .insideName {
   font-size: 15px;
+  font-weight: 500;
+}
+
+.insideAmount {
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.insidePane .insideName,
+.insidePane .insideAmount {
+  font-weight: 400;
+}
+
+.insidePane .insideAmount {
+  font-size: 16px;
 }
 
 .budgetCard {
@@ -748,10 +900,32 @@
   padding: 14px 16px;
 }
 
+.budgetCard .budgetHead {
+  font-size: 14px;
+}
+
 .budgetRead {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* The label on its own line, 6px over the field */
+.budgetLabel {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.budgetSection {
+  justify-content: flex-start;
+  padding-left: 14px;
+  font-size: 15px;
+}
+
+.budgetInput {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 .budgetForm {
@@ -780,4 +954,20 @@
 
 .small {
   font-size: 12px;
+}
+
+/* The design's small buttons: 13.5px in the browser's own spacing; a quiet one has no edge,
+   so its words sit 14px in */
+.small[data-size] {
+  font-size: 13.5px;
+  letter-spacing: normal;
+}
+
+.small[data-variant='light'] {
+  border: 0;
+}
+
+/* Drawn as a link, it keeps the page's tracking */
+.small.asLink {
+  letter-spacing: inherit;
 }

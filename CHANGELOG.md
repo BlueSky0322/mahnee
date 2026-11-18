@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-18
 
+- Changed: Home matches the design; phones no longer show Coming up [#?]
 - Changed: the app's spacing, icons, category colours and controls now match the design [#43]
 
 ## 2026-11-17

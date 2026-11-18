@@ -855,8 +855,9 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   known (it may be the first run, which has its own) or couldn't be loaded ("Couldn't load
   your accounts.", Try again), so Settings and Sign out are always a tap away.
 - "Expected at month end": the month-end sum (Repeating bills and month end) with its line,
-  "RM 8,157.00 today − RM 189.00 bills + RM 6,800.00 pay", the bills part in the negative
-  colour and the pay part in the positive one, each only when something is due; with the
+  "RM 8,157.00 today − RM 189.00 bills + RM 6,800.00 pay", each part only when something is
+  due: on a phone the bills amount in the negative colour and the pay amount in the positive
+  one; on a computer the bills in the line's colour and the whole pay part positive; with the
   one account and nothing due, "Maybank Savings today". Below zero it reads "−RM 120.00".
 - "Expenses so far" ("None yet", or "Day 10 of 30", with " · Food running fast" for the
   budget furthest ahead of the month) and "Income" ("Salary due Nov 25", the listed income
@@ -867,7 +868,7 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
 - Tidy up, on the due tint, this month only and only when there are any: "2 entries since
   Oct 1, still in Other" (Other's own name), with Sort them opening
   `?activity&category=<OTHER_EXPENSE_ID>&from=<tidyUp.from>&select`.
-- Coming up: first each entry Scheduled added this month whose amount is still to check
+- Coming up, on a computer only (R-Home draws none on a phone; owner, 2026-11-18): first each entry Scheduled added this month whose amount is still to check
   (every one, from the month's `fromScheduled`), "Water · RM 30.15" / "Nov 5 · amount to
   check", a link to `?activity&day=<day>` where it's confirmed; then each listed repeating
   item's next day after today (one row per item, soonest first, at most 3), "TNB
@@ -884,8 +885,8 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   (green) still to come. Nothing spent this month: "Fills in as you log."
 - "Budgets": each budget with "RM 36.00 left" (on a computer "36.00 left"), a bar with a
   marker for how much of the month has gone, and "RM 24.00 of RM 60.00 · faster than the
-  month" (on track, faster than the month, or over; amber with a warning icon when faster,
-  the negative colour when over). "All of Plan" opens Plan. None: "No budgets yet." with
+  month" (on track, faster than the month, or over; amber when faster, with a warning icon on
+  a phone, the negative colour when over). "All of Plan" opens Plan. None: "No budgets yet." with
   "Set a budget" (`?settings=categories`, where budgets are set).
 - Getting started, this month while any of its five steps is left and it isn't hidden:
   where the money is (always done), the first expense (spending this month), past months
@@ -903,8 +904,8 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
 
 Home shows (Look and start, owner decision D13): "Everything" is all of the above;
 "Essentials" is the month-end figure (or what an earlier month left), what's due now (Log
-it / Skip), Tidy up, Getting started on a first day, and Coming up with the next scheduled
-item and any whose amount is to check (`essentialRows` in home-text.ts); the two cards,
+it / Skip), Tidy up, Getting started on a first day, and on a computer Coming up with the
+next scheduled item and any whose amount is to check (`essentialRows` in home-text.ts); the two cards,
 the calendar and the budgets are left out, on every size. The theme is chosen in Settings ›
 Look and start; installing the app is offered on Settings › My account only.
 
@@ -1213,7 +1214,7 @@ changing it (its first due date the next one after the person's own today).
   paid.
 - **Amounts that change.** "Each time: Same amount / It changes". An entry added at an
   amount that changes reads "amount to check" in Activity, on its account's page and first
-  in Home's Coming up; opening it says "Added at RM 189.00 from Scheduled, for you to
+  in Home's Coming up on a computer; opening it says "Added at RM 189.00 from Scheduled, for you to
   check" with the amount ready to type; Save confirms it as it is, or at the amount the
   bill came to, which on the item's latest entry becomes the item's amount next time.
 - **Undo.** An entry from Scheduled is deleted as any entry is, with Undo (it comes back

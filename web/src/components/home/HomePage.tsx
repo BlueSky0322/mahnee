@@ -31,6 +31,7 @@ import {
   expensesLine,
   heroLine,
   incomeLine,
+  namesAccount,
   runningFast,
   signedMoney,
   tidyText,
@@ -47,8 +48,8 @@ const COMING_UP = 3;
 const homeAddress = (month: string, current: string) => (month >= current ? '' : `?month=${month}`);
 
 // The first screen, at a glance: where the month will land with the sum under it, spent so far and
-// what came in (each opening its last 12 months), what needs you (what's due now, Tidy up, Coming
-// up), a day by day calendar and the budgets with a marker for today. The full lists live in
+// what came in (each opening its last 12 months), what needs you (what's due now, Tidy up, and on a
+// computer Coming up), a day by day calendar and the budgets with a marker for today. The full lists live in
 // Activity, Plan and Accounts. An earlier month (`month`, ?month=2026-10; null for this one) says
 // what it left instead, with its days and budgets. Until the first account is added, the first run
 // asks where the money is kept.
@@ -279,11 +280,19 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
           lines={lines}
           isDesktop
           essentials={essentials}
+          quiet={bothEmpty}
         />
         {failedMonth}
         {isCurrent && <DueItems />}
         {tidy}
-        <div className={classes.split}>
+        {/* A first day: Getting started beside the empty budgets and days, three parts to two */}
+        <div
+          className={
+            bothEmpty && (started || comingUp)
+              ? `${classes.split} ${classes.splitFirst}`
+              : classes.split
+          }
+        >
           {(started || comingUp) && (
             <div className={classes.needsColumn}>
               {started}
@@ -314,8 +323,8 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
       {failedMonth}
       {isCurrent && <DueItems />}
       {tidy}
+      {/* A phone's Home leaves what's coming up to the calendar's dots and Scheduled, as drawn */}
       {started}
-      {comingUp}
       {essentials ? null : bothEmpty ? (
         combined
       ) : (
@@ -471,6 +480,7 @@ function Answers({
   lines,
   isDesktop,
   essentials,
+  quiet = false,
 }: {
   month: string;
   figures: Figures;
@@ -480,19 +490,28 @@ function Answers({
   isDesktop: boolean;
   /** Home shows Essentials: the month end alone, without the two cards */
   essentials: boolean;
+  /** Nothing spent and no budgets yet: a computer draws the three smaller */
+  quiet?: boolean;
 }) {
   const heroId = useId();
   const { isCurrent, today, at } = figures;
   const planHref = isCurrent ? '?plan' : `?plan&month=${month}`;
   const name = monthHeading(month, { short: true });
 
-  let hero: { eyebrow: string; cents: number | null; line: ReturnType<typeof heroLine> | null };
+  let hero: {
+    eyebrow: string;
+    cents: number | null;
+    line: ReturnType<typeof heroLine> | null;
+    /** The line is words alone (the one account's name), drawn without the figures' tracking */
+    words?: boolean;
+  };
   if (isCurrent) {
     const forecast = ledger == null ? null : monthEndForecast(ledger, today, figures.lastDay);
     const listed: Account[] = ledger?.accounts.filter((a) => !a.archived) ?? [];
     hero = {
       eyebrow: 'Expected at month end',
       cents: forecast?.cents ?? null,
+      words: forecast != null && namesAccount(listed, forecast.billsCents, forecast.payCents),
       line:
         forecast == null
           ? null
@@ -531,28 +550,39 @@ function Answers({
       <span className={big ? classes.heroFigure : classes.cardFigure}>{signedMoney(cents)}</span>
     );
 
-  const line = hero.line && (
-    // Each part kept on one line, as drawn
-    <span className={classes.heroLine}>
-      <span className={classes.part}>{hero.line.today}</span>
-      {hero.line.bills != null && (
-        <>
-          {' '}
-          <span className={classes.part}>
+  // As drawn: on a phone one run of words, the amounts in their colours; on a computer each
+  // part kept on one line, the bills in the line's colour and the whole pay part positive
+  const line =
+    hero.line &&
+    (isDesktop ? (
+      <span className={`${classes.heroLine} ${classes.heroParts}`}>
+        <span className={classes.part}>{hero.line.today}</span>{' '}
+        {hero.line.bills != null && (
+          <>
+            <span className={classes.part}>{`${hero.line.bills} bills`}</span>{' '}
+          </>
+        )}
+        {hero.line.pay != null && (
+          <span className={`${classes.part} ${classes.pos}`}>{`${hero.line.pay} pay`}</span>
+        )}
+      </span>
+    ) : (
+      <span className={hero.words ? `${classes.heroLine} ${classes.words}` : classes.heroLine}>
+        {hero.line.today}
+        {hero.line.bills != null && (
+          <>
+            {' '}
             <span className={classes.neg}>{hero.line.bills}</span> bills
-          </span>
-        </>
-      )}
-      {hero.line.pay != null && (
-        <>
-          {' '}
-          <span className={classes.part}>
+          </>
+        )}
+        {hero.line.pay != null && (
+          <>
+            {' '}
             <span className={classes.pos}>{hero.line.pay}</span> pay
-          </span>
-        </>
-      )}
-    </span>
-  );
+          </>
+        )}
+      </span>
+    ));
 
   // Each card opens its last 12 months, over Home so Back returns
   const card = (label: string, cents: number | null, sub: string | null, href: string) => (
@@ -583,7 +613,7 @@ function Answers({
     return (
       <section
         aria-label={`${name} at a glance`}
-        className={classes.glance}
+        className={quiet ? `${classes.glance} ${classes.glanceQuiet}` : classes.glance}
       >
         <PageLink
           href={isCurrent ? '?plan=scheduled' : planHref}

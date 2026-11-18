@@ -5,8 +5,8 @@
 /* A computer's: the sidebar, then the page beside it */
 .layout[data-shell='sidebar'] {
   display: grid;
-  /* The sidebar is 232px and its edge */
-  grid-template-columns: 233px minmax(0, 1fr);
+  /* The sidebar is as wide as drawn: 232px grown by its share of the room, and its edge */
+  grid-template-columns: 234px minmax(0, 1fr);
   align-items: start;
 }
 

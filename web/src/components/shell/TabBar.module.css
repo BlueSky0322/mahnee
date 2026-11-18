@@ -10,6 +10,8 @@
   padding: 8px 12px max(24px, var(--sf-safe-bottom));
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* One row the bar's own height, so Add stands centred in it, as drawn */
+  grid-template-rows: minmax(0, 1fr);
   align-items: center;
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--ground) 92%, transparent);

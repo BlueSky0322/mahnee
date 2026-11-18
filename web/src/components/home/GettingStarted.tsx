@@ -1,4 +1,4 @@
-import { CheckIcon } from '../ui/icons';
+import { DoneIcon } from '../ui/icons';
 import { useId } from 'react';
 import { useAddEntry } from '../shell/add-entry';
 import { hideStarted } from './getting-started';
@@ -100,7 +100,7 @@ export default function GettingStarted({
                 className={row.done ? `${classes.tick} ${classes.tickOn}` : classes.tick}
                 aria-hidden
               >
-                {row.done && <CheckIcon size={14} />}
+                {row.done && <DoneIcon size={14} />}
               </span>
               <span className={classes.stepText}>
                 <b>{row.title}</b>

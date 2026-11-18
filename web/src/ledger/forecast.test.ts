@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Account, Ledger, LedgerChange, Recurring } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import { MAX_TRANSACTION_CENTS } from '@shared/ledger';
-import { MAX_RECURRING } from '@shared/recurring';
-import { fallsOn, nextAfter } from '@shared/recurring';
+import { MAX_RECURRING, fallsOn, nextAfter } from '@shared/recurring';
 import { apply } from './apply';
 import { comingUp, dueNow, monthEndForecast, nextThirtyDays } from './forecast';
 
@@ -600,6 +599,41 @@ describe('the next 30 days', () => {
     expect(lows(ledgerWith([loan, club, today, last, after]), '2026-12-20')).toEqual([
       ['Maybank', 300_000 - 23_110, '2027-01-19'],
     ]);
+  });
+
+  it('takes a bill on the 31st on the last day of a short month, and an overdue one today', () => {
+    // From February 10 to March 12: January 31's is overdue and counts today, then February 28;
+    // March 31 is past the window
+    const loan = item('Loan', { amountCents: 20_000, day: 31, nextDue: '2027-01-31' });
+    const next = nextThirtyDays(ledgerWith([loan]), '2027-02-10');
+    expect(next.outCents).toBe(2 * 20_000);
+    expect(lows(ledgerWith([loan]), '2027-02-10')).toEqual([['Maybank', 260_000, '2027-02-28']]);
+  });
+
+  it('leaves out a transfer to or from an archived account, moving neither side', () => {
+    const toOld = item('To old', {
+      kind: 'transfer',
+      toAccountId: OLD,
+      categoryId: null,
+      amountCents: 50_000,
+      day: 20,
+      nextDue: '2026-11-20',
+    });
+    const fromOld = item('From old', {
+      kind: 'transfer',
+      accountId: OLD,
+      toAccountId: BANK,
+      categoryId: null,
+      amountCents: 70_000,
+      day: 22,
+      nextDue: '2026-11-22',
+    });
+    expect(nextThirtyDays(ledgerWith([toOld, fromOld]), TODAY)).toEqual({
+      until: '2026-12-06',
+      inCents: 0,
+      outCents: 0,
+      lowest: [],
+    });
   });
 
   it('moves both accounts for a transfer, and counts it in neither total', () => {

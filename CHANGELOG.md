@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-18
 
+- Changed: Accounts and each account's page match the design [#?]
 - Changed: Settings matches the design, including its sidebar, search and sections [#45]
 - Changed: Home matches the design; phones no longer show Coming up [#44]
 - Changed: the app's spacing, icons, category colours and controls now match the design [#43]

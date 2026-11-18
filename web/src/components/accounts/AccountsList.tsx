@@ -55,6 +55,7 @@ export default function AccountsList({ selected }: { selected?: string | null })
             account={account}
             current={account.id === selected}
             muted={muted}
+            desktop={desktop}
             onClick={open(account)}
           />
         </li>
@@ -86,7 +87,7 @@ export default function AccountsList({ selected }: { selected?: string | null })
           <Button
             variant={desktop ? 'default' : 'light'}
             size="xs"
-            className={classes.addAccount}
+            className={`${classes.addAccount} ${classes.small}`}
             leftSection={desktop ? undefined : <PlusIcon size={16} />}
             aria-label={desktop ? undefined : 'Add account'}
             onClick={() => setAdding(true)}
@@ -172,7 +173,7 @@ export default function AccountsList({ selected }: { selected?: string | null })
         </div>
       ) : (
         <div
-          className={classes.groups}
+          className={desktop ? classes.deskList : classes.groups}
           aria-label={desktop ? 'Your accounts' : undefined}
           role={desktop ? 'region' : undefined}
         >
@@ -247,16 +248,22 @@ export default function AccountsList({ selected }: { selected?: string | null })
   );
 }
 
-/** One account: its kind's tile, name, kind (and the day it was archived) and balance */
+/**
+ * One account: its kind's tile, name, kind (and the day it was archived) and balance. On a
+ * computer the list is plainer (R-Desk-Accounts): no tile, and a card's "owed" on the same
+ * line as the amount.
+ */
 function Row({
   account,
   current,
   muted,
+  desktop,
   onClick,
 }: {
   account: Account;
   current: boolean;
   muted: boolean;
+  desktop: boolean;
   onClick: (e: MouseEvent) => void;
 }) {
   const kind = kindLine(account);
@@ -270,20 +277,26 @@ function Row({
       aria-label={`${account.name}, ${kind}, ${listBalanceText(account)}`}
       onClick={onClick}
     >
-      <Tile>
-        <KindIcon
-          kind={account.kind}
-          size={18}
-        />
-      </Tile>
+      {!desktop && (
+        <Tile>
+          <KindIcon
+            kind={account.kind}
+            size={18}
+          />
+        </Tile>
+      )}
       <span className={classes.rowMain}>
         <span className={classes.rowTitle}>{account.name}</span>
         <span className={classes.rowSub}>{kind}</span>
       </span>
-      <span className={classes.rowEnd}>
-        <span className={`${classes.rowAmount} sf-tabular`}>{amount}</span>
-        {note != null && <span className={classes.rowNote}>{note}</span>}
-      </span>
+      {desktop ? (
+        <span className={`${classes.rowAmount} sf-tabular`}>{listBalanceText(account)}</span>
+      ) : (
+        <span className={classes.rowEnd}>
+          <span className={`${classes.rowAmount} sf-tabular`}>{amount}</span>
+          {note != null && <span className={classes.rowNote}>{note}</span>}
+        </span>
+      )}
     </a>
   );
 }

@@ -64,7 +64,7 @@ export default function AccountPane({ account }: { account: Account }) {
           >
             {account.name}
           </h2>
-          <span className={classes.muted}>
+          <span className={classes.paneMeta}>
             {account.archived ? kindLine(account) : startedLine(account)}
           </span>
           <Balance
@@ -79,6 +79,7 @@ export default function AccountPane({ account }: { account: Account }) {
             <>
               <Button
                 size="xs"
+                className={`${classes.small} ${classes.linkLike}`}
                 onClick={addHere}
               >
                 Add here
@@ -86,6 +87,7 @@ export default function AccountPane({ account }: { account: Account }) {
               <Button
                 variant="light"
                 size="xs"
+                className={`${classes.small} ${classes.linkLike}`}
                 onClick={transfer}
               >
                 Transfer
@@ -95,6 +97,7 @@ export default function AccountPane({ account }: { account: Account }) {
           <Button
             variant="light"
             size="xs"
+            className={classes.small}
             onClick={() => setEditing(true)}
           >
             Edit
@@ -108,6 +111,8 @@ export default function AccountPane({ account }: { account: Account }) {
           aria-label="Search this account"
           placeholder="Search this account"
           leftSection={<SearchIcon size={16} />}
+          leftSectionWidth={40}
+          leftSectionProps={{ className: 'sf-lead' }}
           maxLength={MAX_SEARCH_TEXT}
           value={words}
           onChange={(e) => setWords(e.currentTarget.value)}
@@ -187,14 +192,17 @@ function Register({
         onOpen={onOpen}
       />
       {hasMore && (
-        <Button
-          variant="light"
-          className={classes.more}
-          loading={loadingMore}
-          onClick={loadMore}
-        >
-          Show 50 more
-        </Button>
+        <div className={classes.moreRow}>
+          <Button
+            variant="light"
+            size="xs"
+            className={classes.small}
+            loading={loadingMore}
+            onClick={loadMore}
+          >
+            Show 50 more
+          </Button>
+        </div>
       )}
     </>
   );
@@ -238,14 +246,17 @@ function Found({
         onOpen={onOpen}
       />
       {hasMore && (
-        <Button
-          variant="light"
-          className={classes.more}
-          loading={loadingMore}
-          onClick={loadMore}
-        >
-          Load more
-        </Button>
+        <div className={classes.moreRow}>
+          <Button
+            variant="light"
+            size="xs"
+            className={classes.small}
+            loading={loadingMore}
+            onClick={loadMore}
+          >
+            Load more
+          </Button>
+        </div>
       )}
     </>
   );
@@ -286,6 +297,7 @@ function Table({
     <div className={classes.tableWrap}>
       <table
         className={classes.table}
+        data-after={after != null || undefined}
         aria-label="Transactions"
       >
         <thead>
@@ -321,7 +333,7 @@ function Table({
             return (
               <tr key={t.id}>
                 <td className={classes.muted}>{shortDay(t.date, today)}</td>
-                <td className={classes.payee}>
+                <td>
                   <button
                     type="button"
                     className={classes.payeeButton}
@@ -330,7 +342,9 @@ function Table({
                     {title}
                   </button>
                 </td>
-                <td className={classes.soft}>{subtitle}</td>
+                <td className={classes.soft}>
+                  <span className={classes.clip}>{subtitle}</span>
+                </td>
                 <td
                   className={`${classes.right} ${classes.rowAmount} sf-tabular`}
                   data-incoming={(incoming && t.kind === 'income') || undefined}

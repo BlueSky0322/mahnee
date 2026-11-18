@@ -3,7 +3,7 @@ import type { TransactionKind } from '@shared/ledger';
 import { periodMonthOf, periodOf, shiftMonth } from '@shared/period';
 import { foldCase, isCalendarDay } from '@shared/search';
 import { clockText, fromDateInput, monthHeading } from '../../utils/date-input';
-import { formatAmount, formatMoney } from '../../utils/money';
+import { currencySymbol, formatAmount, formatMoney } from '../../utils/money';
 import { categoryName } from '../common/category-name';
 import { scheduledNote } from '../common/scheduled-note';
 
@@ -18,6 +18,10 @@ const SIGNS: Record<TransactionKind, string> = { expense: '−', income: '+', tr
 /** In a list, without the currency: "−7.25", "+3,250.00", a transfer's "75.00" */
 export const listAmount = (t: Transaction, currency: string) =>
   `${SIGNS[t.kind]}${formatAmount(t.amountCents, currency)}`;
+
+/** What comes before a headline's figure: "−RM", "+RM", a transfer's "RM" */
+export const headlinePrefix = (kind: TransactionKind, currency: string) =>
+  `${SIGNS[kind]}${currencySymbol(currency)}`;
 
 /** As an entry's headline, with the currency: "−RM 212.00", a transfer's "RM 75.00" */
 export const headlineAmount = (t: Transaction, currency: string) =>

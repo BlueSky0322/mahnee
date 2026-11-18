@@ -455,14 +455,16 @@ describe("an account's page", () => {
     );
   });
 
-  test('Search on a phone opens Activity on this account, every month', async () => {
+  test('Search on a phone opens Activity on this account, every month and every kind', async () => {
     renderApp(withAccounts(), `/?account=${SAVER}`, { size: 'phone' });
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Search' }));
     await waitFor(() =>
-      expect(window.location.search).toBe(`?activity&account=${SAVER}&dates=all`),
+      expect(window.location.search).toBe(`?activity&account=${SAVER}&kind=all&dates=all`),
     );
     expect(await screen.findByRole('button', { name: /^Saver/ })).toBeTruthy();
     expect(await screen.findByText('Kedai Ali')).toBeTruthy();
+    // An account's own search shows the money moved into it too
+    expect(await screen.findByRole('button', { name: /, 15\.00$/ })).toBeTruthy();
   });
 
   test.each(SIZES)(

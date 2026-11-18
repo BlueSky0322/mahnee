@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-18
 
+- Changed: Activity and Add match the design; Activity leaves out transfers until you ask for them [#47]
 - Changed: Accounts and each account's page match the design [#46]
 - Changed: Settings matches the design, including its sidebar, search and sections [#45]
 - Changed: Home matches the design; phones no longer show Coming up [#44]
@@ -123,3 +124,4 @@ For agents:
 [#44]: https://github.com/BlueSky0322/mahnee/pull/44
 [#45]: https://github.com/BlueSky0322/mahnee/pull/45
 [#46]: https://github.com/BlueSky0322/mahnee/pull/46
+[#47]: https://github.com/BlueSky0322/mahnee/pull/47

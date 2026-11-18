@@ -30,6 +30,7 @@ import { clockText, dayHeading, isPastDay, toDateInput, toTimeInput } from '../.
 import { newId } from '../../utils/id';
 import { currencySymbol } from '../../utils/money';
 import { balanceText } from '../accounts/account-text';
+import BackButton from '../ui/BackButton';
 import Key from '../ui/Key';
 import { useReturnFocus } from '../ui/return-focus';
 import type { AddDraft } from './add-draft';
@@ -47,7 +48,7 @@ import classes from './AddEntry.module.css';
 
 // Add (R-Add, R-Desk-Add): a new transaction. On phones and tablets it covers the screen,
 // with a keypad that works sums out in whole cents (shared/keypad.ts); on a computer it's a
-// dialog, "New entry", whose Amount field takes the same sums typed. Which way it went;
+// dialog, "New entry", whose figure takes the same sums typed (R-Desk-Add). Which way it went;
 // the account it's From (Into, for income) and the category it's For (From), or for a
 // transfer the two accounts with their balances; the five recent categories as chips; one
 // "Payee or note" field, which fills the payee (owner decision D10: the note stays apart,
@@ -212,6 +213,13 @@ function AddForm({
   const [showDate, setShowDate] = useState(false);
   const [showRepeat, setShowRepeat] = useState(false);
   const ids = { hint: useId(), way: useId() };
+  // A computer's For row, where the category is typed while its list is open
+  const [forSlot, setForSlot] = useState<HTMLElement | null>(null);
+  // A phone's entry under a list's sheet takes no focus or taps until the sheet closes
+  const phoneForm = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    phoneForm.current?.toggleAttribute('inert', picking != null);
+  }, [picking]);
 
   // Back closes a phone's list first, then Add
   useBackDismiss(!desktop && picking != null, () => setPicking(null), { tablets: true });
@@ -428,6 +436,7 @@ function AddForm({
         payee={payee}
         accountId={account?.id ?? null}
         page={!desktop}
+        inputSlot={forSlot}
         onPick={pickCategory}
         onCreate={(next) => {
           setMade({ id: newId(), ...next });
@@ -469,13 +478,32 @@ function AddForm({
         onClick={() => setPicking(picking === 'from' ? null : 'from')}
       />
       {desktop && picking === 'from' && pickerShown}
-      <Row
-        k={kind === 'income' ? 'From' : 'For'}
-        value={forLabel}
-        dot={forDot}
-        onClick={() => setPicking(picking === 'category' ? null : 'category')}
-      />
-      {desktop && picking === 'category' && pickerShown}
+      {desktop && picking === 'category' ? (
+        // Typed into in place (R-Desk-Add-Pick)
+        <div
+          className={classes.row}
+          data-row
+          data-focus
+        >
+          <span className={classes.k}>{kind === 'income' ? 'From' : 'For'}</span>
+          <span
+            ref={setForSlot}
+            className={classes.v}
+          />
+          <ForwardIcon
+            size={16}
+            aria-hidden
+            className={classes.caret}
+          />
+        </div>
+      ) : (
+        <Row
+          k={kind === 'income' ? 'From' : 'For'}
+          value={forLabel}
+          dot={forDot}
+          onClick={() => setPicking(picking === 'category' ? null : 'category')}
+        />
+      )}
     </>
   );
 
@@ -486,7 +514,7 @@ function AddForm({
       aria-label={`Amount, ${currencySymbol(currency)} ${centsShown(total)}${
         keypad.tooMuch ? `. ${LIMIT_TEXT}` : ''
       }`}
-      className={desktop ? classes.deskAmount : classes.amount}
+      className={desktop ? classes.deskStatus : classes.amount}
     >
       <span className={classes.expression}>{expressionLine(keypad.expr)}</span>
       <span className={classes.figure}>
@@ -706,17 +734,13 @@ function AddForm({
         </div>
         <div className={classes.deskTop}>
           {way}
-          {status}
-        </div>
-        <div className={classes.fields}>
-          <label className={classes.row}>
-            <span className={classes.k}>Amount</span>
+          {/* The figure is the field: what's typed is worked out as it's shown */}
+          <label className={classes.deskAmount}>
             <input
               className={classes.amountField}
               aria-label="Amount"
               aria-describedby={ids.hint}
               inputMode="decimal"
-              placeholder="0.00"
               autoComplete="off"
               value={keypad.expr}
               data-autofocus={picking == null ? true : undefined}
@@ -726,10 +750,14 @@ function AddForm({
               }}
               onChange={(e) => setKeypad(typeKeys(e.currentTarget.value))}
             />
+            {status}
           </label>
+        </div>
+        <div className={classes.fields}>
           {rows}
           {note}
         </div>
+        {picking === 'category' && pickerShown}
         {chips}
         {options}
         <div className={classes.deskFoot}>
@@ -762,7 +790,9 @@ function AddForm({
         aria-label="Add a transaction"
         className={classes.phoneForm}
         onSubmit={submit}
-        hidden={picking != null}
+        // Under a list's sheet, it's out of reach until the sheet closes
+        ref={phoneForm}
+        aria-hidden={picking != null || undefined}
         noValidate
       >
         <div className={classes.top}>
@@ -782,7 +812,16 @@ function AddForm({
           {save}
         </div>
       </form>
-      {pickerShown}
+      {pickerShown != null && (
+        <>
+          <div
+            className={classes.scrim}
+            aria-hidden
+            onClick={() => setPicking(null)}
+          />
+          {pickerShown}
+        </>
+      )}
     </div>
   );
 }
@@ -828,7 +867,7 @@ function Row({
   );
 }
 
-/** A list to pick from: a page of its own on phones, open under its row on computers */
+/** A list to pick from: a sheet over the entry on phones, open under its row on computers */
 function Picker({
   page,
   title,
@@ -840,18 +879,17 @@ function Picker({
   onBack: () => void;
   children: ReactNode;
 }) {
+  const heading = useId();
   if (!page) return <div className={classes.pickInline}>{children}</div>;
   return (
-    <div className={classes.pickPage}>
+    <div
+      className={classes.pickSheet}
+      role="dialog"
+      aria-labelledby={heading}
+    >
       <div className={classes.pickHeader}>
-        <button
-          type="button"
-          className={classes.back}
-          onClick={onBack}
-        >
-          Entry
-        </button>
-        <h2>{title}</h2>
+        <BackButton onClick={onBack}>Entry</BackButton>
+        <h2 id={heading}>{title}</h2>
         <span className={classes.headerSpace} />
       </div>
       {children}

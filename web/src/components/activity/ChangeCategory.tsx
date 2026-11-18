@@ -1,5 +1,5 @@
 import { Button, TextInput } from '@mantine/core';
-import { SearchIcon } from '../ui/icons';
+import { CheckIcon, SearchIcon } from '../ui/icons';
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
 import type { Category, LedgerChange, Transaction } from '@shared/api';
@@ -61,7 +61,11 @@ export default function ChangeCategory({
     <ResponsiveDialog
       opened={chosen != null}
       onClose={onClose}
-      title={`Change the category of ${isMobile ? n : entriesText(n)}`}
+      title={
+        <span className={classes.movingTitle}>
+          Change the category of {isMobile ? n : entriesText(n)}
+        </span>
+      }
       subtitle={
         n > 0 && (
           <WhatMoves
@@ -124,11 +128,14 @@ function Moving({
   const currency = DEFAULT_CURRENCY;
 
   const words = foldCase(find.trim());
-  const has = (c: Category) => words === '' || foldCase(c.name).includes(words);
+  // Where they all are already isn't offered: moving there would change nothing
+  const already = new Set(chosen.map((t) => t.categoryId));
+  const here = (c: Category) => already.size === 1 && already.has(c.id);
+  const has = (c: Category) => !here(c) && (words === '' || foldCase(c.name).includes(words));
   const nodes = (tree?.listed[kind] ?? [])
     .map((node) => ({
       node,
-      subs: has(node) ? node.subcategories : node.subcategories.filter(has),
+      subs: has(node) ? node.subcategories.filter((c) => !here(c)) : node.subcategories.filter(has),
     }))
     .filter(({ node, subs }) => has(node) || subs.length > 0);
 
@@ -185,6 +192,8 @@ function Moving({
       type="button"
       role="radio"
       aria-checked={to === c.id}
+      // Kept only as the heading of its subcategories
+      disabled={here(c)}
       className={sub ? classes.subOption : classes.option}
       onClick={() => setTo(c.id)}
     >
@@ -200,7 +209,10 @@ function Moving({
   );
 
   return (
-    <div className={classes.moving}>
+    <div
+      className={classes.moving}
+      data-wide={wide || undefined}
+    >
       {wide && (
         <>
           <div className={classes.movingList}>
@@ -257,6 +269,14 @@ function Moving({
           >
             {option(node, false)}
             {subs.map((c) => option(c, true))}
+            {top?.id === node.id && (
+              <span className={classes.picked}>
+                <CheckIcon
+                  size={18}
+                  aria-hidden
+                />
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -279,6 +299,7 @@ function Moving({
           {wide && (
             <Button
               variant="light"
+              size="xs"
               onClick={onCancel}
               rightSection={<Key>Esc</Key>}
             >
@@ -286,6 +307,8 @@ function Moving({
             </Button>
           )}
           <Button
+            size={wide ? 'xs' : undefined}
+            fullWidth={!wide}
             disabled={target == null}
             onClick={move}
           >

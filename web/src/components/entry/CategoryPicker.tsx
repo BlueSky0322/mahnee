@@ -1,12 +1,14 @@
-import { BackIcon, ForwardIcon, PlusIcon } from '../ui/icons';
+import { ForwardIcon, PlusIcon, SearchIcon } from '../ui/icons';
 import type { KeyboardEvent } from 'react';
 import { useEffect, useId, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Category, PayeeCategory } from '@shared/api';
 import type { CategoryKind } from '@shared/categories';
 import { MAX_CATEGORIES, MAX_CATEGORY_NAME, whyNotUnder } from '@shared/categories';
 import { api } from '../../api';
 import type { CategoryNode } from '../../ledger/category-tree';
 import { categoryColour } from '../../utils/category-colour';
+import BackButton from '../ui/BackButton';
 import Key from '../ui/Key';
 import type { NamedCategory } from './add-text';
 import { listedCategories, payeeHint } from './add-text';
@@ -16,8 +18,10 @@ import classes from './AddEntry.module.css';
 // R-Desk-Add-Pick): a search that finds the kind's listed categories by name, and, when
 // what's typed isn't one, ways to make it: under the category the payee was last filed in
 // ("Tealive was in Food"), as its own category, or under another one picked. With nothing
-// typed it lists the recent ones, then the rest. On a phone it's a page of its own, with
-// Entry to go back; on a computer it opens under the For row.
+// typed it lists the recent ones, then the rest; on a phone the recent ones stay under what's
+// typed. On a phone it's a sheet over the entry, with Entry to go back (R-Add-Pick); on a
+// computer the For row itself takes the typing, and the choices open in a list under the
+// fields, what Enter takes marked with its key (R-Desk-Add-Pick).
 
 export interface NewCategory {
   id: string;
@@ -34,8 +38,10 @@ interface CategoryPickerProps {
   payee: string;
   /** The account Add is on, whose payees come first */
   accountId: string | null;
-  /** A page of its own (phones), with a header and Entry to go back */
+  /** A sheet over the entry (phones), with a header and Entry to go back */
   page: boolean;
+  /** A computer's For row, where the search is typed */
+  inputSlot?: HTMLElement | null;
   onPick: (id: string) => void;
   onCreate: (made: Omit<NewCategory, 'id'>) => void;
   onBack: () => void;
@@ -68,6 +74,7 @@ export default function CategoryPicker({
   payee,
   accountId,
   page,
+  inputSlot,
   onPick,
   onCreate,
   onBack,
@@ -85,16 +92,23 @@ export default function CategoryPicker({
       style={{ background: categoryColour(categories, id) }}
     />
   );
-  const pickButton = (c: NamedCategory) => (
+  const pickButton = (c: NamedCategory, enter = false) => (
     <button
       key={c.id}
       type="button"
-      className={classes.option}
+      className={`${classes.option} ${enter ? classes.optionOn : ''}`}
       onClick={() => onPick(c.id)}
     >
       {dot(c.id)}
       <span className={classes.optionText}>{c.fullName}</span>
+      {enter && <Key>Enter</Key>}
     </button>
+  );
+  const plus = (
+    <PlusIcon
+      size={page ? 18 : 14}
+      aria-hidden
+    />
   );
 
   const found = name === '' ? [] : listed.filter((c) => c.fullName.toLowerCase().includes(lower));
@@ -106,6 +120,9 @@ export default function CategoryPicker({
   const hint = payeeHint(payee, kind, payees, categories);
   const creating = name !== '' && !exact && archived == null && !full;
   const kindWord = kind === 'expense' ? 'expense' : 'income';
+  // What Enter takes, marked on a computer's list: a match, else the hint, else its own
+  const enterFound = !page && name !== '' && found.length > 0;
+  const enterOwn = !page && !enterFound && creating && hint == null;
 
   // Enter takes the first choice, as the computer's list marks it
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -164,7 +181,7 @@ export default function CategoryPicker({
           >
             Recent
           </p>
-          <div className={classes.pickCard}>{recent.map(pickButton)}</div>
+          <div className={classes.pickCard}>{recent.map((c) => pickButton(c))}</div>
         </section>
         {rest.length > 0 && (
           <section
@@ -177,7 +194,7 @@ export default function CategoryPicker({
             >
               All categories
             </p>
-            <div className={classes.pickCard}>{rest.map(pickButton)}</div>
+            <div className={classes.pickCard}>{rest.map((c) => pickButton(c))}</div>
           </section>
         )}
       </>
@@ -217,10 +234,7 @@ export default function CategoryPicker({
                   className={`${classes.option} ${classes.optionOn}`}
                   onClick={() => onCreate({ name, parentId: hint.parentId })}
                 >
-                  <PlusIcon
-                    size={16}
-                    aria-hidden
-                  />
+                  {plus}
                   <span className={classes.optionText}>
                     Under {hint.parentName}
                     <span className={classes.why}>{hint.text}</span>
@@ -231,15 +245,13 @@ export default function CategoryPicker({
               <button
                 type="button"
                 role="option"
-                aria-selected={hint == null}
-                className={classes.option}
+                aria-selected={hint == null && !enterFound}
+                className={`${classes.option} ${enterOwn ? classes.optionOn : ''}`}
                 onClick={() => onCreate({ name, parentId: null })}
               >
-                <PlusIcon
-                  size={16}
-                  aria-hidden
-                />
+                {plus}
                 <span className={classes.optionText}>As its own {kindWord} category</span>
+                {enterOwn && <Key>Enter</Key>}
               </button>
               <button
                 type="button"
@@ -248,58 +260,87 @@ export default function CategoryPicker({
                 className={classes.option}
                 onClick={() => setChoosingParent(true)}
               >
-                <PlusIcon
-                  size={16}
-                  aria-hidden
-                />
+                {plus}
                 <span className={classes.optionText}>Under another category</span>
-                <ForwardIcon
-                  size={14}
-                  aria-hidden
-                />
+                {page && (
+                  <ForwardIcon
+                    size={16}
+                    aria-hidden
+                  />
+                )}
               </button>
             </div>
           </section>
         )}
-        {found.length > 0 && <div className={classes.pickCard}>{found.map(pickButton)}</div>}
+        {found.length > 0 && (
+          <div className={classes.pickCard}>
+            {found.map((c, i) => pickButton(c, enterFound && i === 0))}
+          </div>
+        )}
+        {/* A phone keeps the recent ones under what's typed (R-Add-Pick) */}
+        {page && recent.length > 0 && (
+          <section
+            aria-labelledby={ids.recent}
+            className={classes.pickSection}
+          >
+            <p
+              id={ids.recent}
+              className={classes.pickLabel}
+            >
+              Recent
+            </p>
+            <div className={classes.pickCard}>{recent.map((c) => pickButton(c))}</div>
+          </section>
+        )}
+      </>
+    );
+  }
+
+  const search = (
+    <input
+      className={classes.search}
+      type="search"
+      aria-label="Find or create a category"
+      value={typed}
+      maxLength={MAX_CATEGORY_NAME}
+      autoComplete="off"
+      data-autofocus
+      autoFocus
+      onChange={(e) => {
+        setTyped(e.currentTarget.value);
+        setChoosingParent(false);
+      }}
+      onKeyDown={onKeyDown}
+    />
+  );
+
+  if (!page) {
+    return (
+      <>
+        {inputSlot != null && createPortal(search, inputSlot)}
+        <div className={classes.pickList}>{body}</div>
       </>
     );
   }
 
   return (
-    <div className={page ? classes.pickPage : classes.pickInline}>
-      {page && (
-        <div className={classes.pickHeader}>
-          <button
-            type="button"
-            className={classes.back}
-            onClick={onBack}
-          >
-            <BackIcon
-              size={18}
-              aria-hidden
-            />
-            Entry
-          </button>
-          <h2 id={ids.heading}>Category</h2>
-          <span className={classes.headerSpace} />
-        </div>
-      )}
-      <input
-        className={classes.search}
-        type="search"
-        aria-label="Find or create a category"
-        value={typed}
-        maxLength={MAX_CATEGORY_NAME}
-        autoComplete="off"
-        data-autofocus
-        autoFocus
-        onChange={(e) => {
-          setTyped(e.currentTarget.value);
-          setChoosingParent(false);
-        }}
-        onKeyDown={onKeyDown}
-      />
+    <div
+      className={classes.pickSheet}
+      role="dialog"
+      aria-labelledby={ids.heading}
+    >
+      <div className={classes.pickHeader}>
+        <BackButton onClick={onBack}>Entry</BackButton>
+        <h2 id={ids.heading}>Category</h2>
+        <span className={classes.headerSpace} />
+      </div>
+      <label className={classes.searchBox}>
+        <SearchIcon
+          size={18}
+          aria-hidden
+        />
+        {search}
+      </label>
       {body}
     </div>
   );

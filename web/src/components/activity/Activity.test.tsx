@@ -148,6 +148,10 @@ const THIS_MONTH = [
 ];
 const EARLIER = ['Bolt', 'Furniture shop', 'Parking', 'Bolt'];
 const FOUND = '7 found · RM 92.05 spent · RM 3,250.00 received';
+/** What Activity starts on: expenses and income, the transfer left out until asked for */
+const SHOWN = THIS_MONTH.filter((t) => t !== 'top-up');
+/** Activity with every kind, the transfer too */
+const ALL_KINDS = '/?activity&kind=all';
 
 const results = () => screen.getByRole('region', { name: 'Results' });
 /** A phone's or tablet's rows, each by its name: title, subtitle and amount */
@@ -230,14 +234,15 @@ async function pick(user: ReturnType<typeof userEvent.setup>, chipName: string, 
 
 describe('the page', () => {
   test('on a phone: this month by day, each day with its total, signed by which way it went', async () => {
-    await open(withMonth(), 'phone');
+    await open(withMonth(), 'phone', ALL_KINDS);
     expect(screen.getByRole('searchbox', { name: 'Search' }).getAttribute('placeholder')).toBe(
       'Payee, note, category or amount',
     );
     expect(chip('Select')).toBeTruthy();
-    for (const name of ['All accounts', 'All categories', 'This month', 'All kinds']) {
+    for (const name of ['All accounts', 'All categories', 'This month']) {
       expect(chip(name).getAttribute('aria-pressed')).toBe('false');
     }
+    expect(chip('All kinds').getAttribute('aria-pressed')).toBe('true');
     await waitFor(() => hasLine(FOUND));
     expect(
       within(results())
@@ -269,7 +274,7 @@ describe('the page', () => {
   });
 
   test('on a computer: a register, with the first entry open beside it, and its keys', async () => {
-    await open(withMonth(), 'desktop');
+    await open(withMonth(), 'desktop', ALL_KINDS);
     await waitFor(() => hasLine(FOUND));
     const table = screen.getByRole('table', { name: 'Transactions' });
     expect(
@@ -290,7 +295,9 @@ describe('the page', () => {
     const pane = within(screen.getByRole('complementary', { name: 'Kedai Ali, Nov 10' }));
     expect(pane.getByRole('heading', { name: 'Kedai Ali' })).toBeTruthy();
     expect(pane.getByText('Tue, Nov 10')).toBeTruthy();
-    expect(pane.getByText('−RM 7.25')).toBeTruthy();
+    // The amount is typed where it's shown, after its sign and currency
+    expect(pane.getByText('−RM')).toBeTruthy();
+    expect(pane.getByLabelText('Amount')).toHaveProperty('value', '7.25');
     const way = within(pane.getByRole('radiogroup', { name: 'Which way' }));
     expect(way.getByRole('radio', { name: 'Expense' })).toHaveProperty('checked', true);
     expect(way.getAllByRole('radio')).toHaveLength(3);
@@ -302,7 +309,7 @@ describe('the page', () => {
 
   test('on a tablet: the list by day, Select, and a sheet to change one', async () => {
     const user = await open(withMonth(), 'tablet');
-    await waitFor(() => expect(titles('tablet')).toEqual(THIS_MONTH));
+    await waitFor(() => expect(titles('tablet')).toEqual(SHOWN));
     expect(screen.queryByRole('table')).toBeNull();
     expect(chip('Select')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: /^Restoran Hana, / }));
@@ -316,7 +323,7 @@ describe('the page', () => {
       for (let i = 0; i < 250; i++)
         seed(server, { date: '2026-11-01', amountCents: 100, payee: `Kiosk ${i}` });
       const user = await open(server, size);
-      const all = '257 found · RM 342.05 spent · RM 3,250.00 received';
+      const all = '256 found · RM 342.05 spent · RM 3,250.00 received';
       await waitFor(() => hasLine(all));
       if (size === 'phone') {
         expect(screen.getByRole('heading', { name: /^Sun, Nov 1/ }).textContent).toBe(
@@ -331,7 +338,7 @@ describe('the page', () => {
           'Sun, Nov 1−250.00',
         );
       }
-      expect(titles(size)).toHaveLength(257);
+      expect(titles(size)).toHaveLength(256);
     },
     30_000,
   );
@@ -341,7 +348,7 @@ describe('the page', () => {
     for (let i = 0; i < 250; i++)
       seed(server, { date: '2026-11-02', amountCents: 100, payee: `Kiosk ${i}` });
     await open(server, 'desktop');
-    await waitFor(() => hasLine('257 found · RM 342.05 spent · RM 3,250.00 received'));
+    await waitFor(() => hasLine('256 found · RM 342.05 spent · RM 3,250.00 received'));
     // Saved, but the answer never comes back: sent again later
     server.loseNext.changes = true;
     act(() =>
@@ -363,12 +370,12 @@ describe('the page', () => {
     await waitFor(() =>
       expect(server.transactions.some((t) => t.payee === 'Backdated')).toBe(true),
     );
-    await waitFor(() => hasLine('258 found · RM 352.05 spent · RM 3,250.00 received'), {
+    await waitFor(() => hasLine('257 found · RM 352.05 spent · RM 3,250.00 received'), {
       timeout: 8000,
     });
     await act(() => new Promise((r) => setTimeout(r, 300)));
-    hasLine('258 found · RM 352.05 spent · RM 3,250.00 received');
-    expect(lines('259 found · RM 362.05 spent · RM 3,250.00 received')).toHaveLength(0);
+    hasLine('257 found · RM 352.05 spent · RM 3,250.00 received');
+    expect(lines('258 found · RM 362.05 spent · RM 3,250.00 received')).toHaveLength(0);
   }, 30_000);
 
   test.each(SIZES)(
@@ -397,7 +404,7 @@ describe('the page', () => {
       ).toBeTruthy();
       server.pathsDown.delete('/api/search');
       await user.click(screen.getByRole('button', { name: 'Try again' }));
-      await waitFor(() => expect(titles(size)).toEqual(THIS_MONTH));
+      await waitFor(() => expect(titles(size)).toEqual(SHOWN));
     },
   );
 
@@ -413,7 +420,7 @@ describe('the page', () => {
 
 describe('the filters', () => {
   test.each(SIZES)('an account, transfers into it too, in the address (%s)', async (size) => {
-    const user = await open(withMonth(), size);
+    const user = await open(withMonth(), size, ALL_KINDS);
     await waitFor(() => expect(titles(size)).toEqual(THIS_MONTH));
     // A phone's sheet keeps an entry of its own for Back while it's open: counted once opened
     await user.click(chip('All accounts'));
@@ -424,7 +431,7 @@ describe('the filters', () => {
     await pick(user, 'All accounts', 'Cash');
     await waitFor(() => expect(titles(size)).toEqual(['Kedai Ali', 'top-up', 'Petronas']));
     expect(chip('Cash').getAttribute('aria-pressed')).toBe('true');
-    expect(window.location.search).toBe(`?activity&account=${CASH}`);
+    expect(window.location.search).toBe(`?activity&account=${CASH}&kind=all`);
     expect(window.history.length).toBe(length);
   });
 
@@ -432,7 +439,7 @@ describe('the filters', () => {
     'a category, with the ones under it, or one under it alone (%s)',
     async (size) => {
       const user = await open(withMonth(), size);
-      await waitFor(() => expect(titles(size)).toEqual(THIS_MONTH));
+      await waitFor(() => expect(titles(size)).toEqual(SHOWN));
       await pick(user, 'All categories', 'Food');
       await waitFor(() =>
         expect(titles(size)).toEqual(['Kedai Ali', 'Kopitiam', 'Kopitiam', 'Restoran Hana']),
@@ -446,15 +453,17 @@ describe('the filters', () => {
 
   test.each(SIZES)('the kind: income, transfers, or expenses and income (%s)', async (size) => {
     const user = await open(withMonth(), size);
-    await waitFor(() => expect(titles(size)).toEqual(THIS_MONTH));
-    await pick(user, 'All kinds', 'Income');
+    await waitFor(() => expect(titles(size)).toEqual(SHOWN));
+    await pick(user, 'Expenses and income', 'Income');
     await waitFor(() => expect(titles(size)).toEqual(['Acme']));
     hasLine('1 found · RM 3,250.00 received');
+    expect(new URLSearchParams(window.location.search).get('kind')).toBe('income');
     await pick(user, 'Income', 'Transfers');
     await waitFor(() => expect(titles(size)).toEqual(['top-up']));
     await pick(user, 'Transfers', 'Expenses and income');
-    await waitFor(() => expect(titles(size)).toEqual(THIS_MONTH.filter((t) => t !== 'top-up')));
-    expect(new URLSearchParams(window.location.search).get('kind')).toBe('expense,income');
+    await waitFor(() => expect(titles(size)).toEqual(SHOWN));
+    // Expenses and income is where it starts, so the address names no kind
+    expect(new URLSearchParams(window.location.search).get('kind')).toBeNull();
     await pick(user, 'Expenses and income', 'Expenses');
     await waitFor(() =>
       expect(titles(size)).toEqual(THIS_MONTH.filter((t) => t !== 'top-up' && t !== 'Acme')),
@@ -462,14 +471,51 @@ describe('the filters', () => {
     hasLine('5 found · RM 92.05 spent');
   });
 
+  test.each(SIZES)(
+    'the kind starts on expenses and income, leaving transfers out (%s)',
+    async (size) => {
+      await open(withMonth(), size);
+      await waitFor(() => expect(titles(size)).toEqual(SHOWN));
+      expect(chip('Expenses and income').getAttribute('aria-pressed')).toBe('false');
+      expect(screen.queryByRole('button', { name: 'All kinds' })).toBeNull();
+      // What's found and its figures count what's shown, not the transfer
+      hasLine('6 found · RM 92.05 spent · RM 3,250.00 received');
+      expect(window.location.search).toBe('?activity');
+    },
+  );
+
+  test.each(SIZES)(
+    'all kinds, or transfers alone, shows transfers, and the address keeps it (%s)',
+    async (size) => {
+      const server = withMonth();
+      const user = await open(server, size);
+      await pick(user, 'Expenses and income', 'All kinds');
+      await waitFor(() => expect(titles(size)).toEqual(THIS_MONTH));
+      hasLine(FOUND);
+      expect(chip('All kinds').getAttribute('aria-pressed')).toBe('true');
+      expect(window.location.search).toBe('?activity&kind=all');
+      await reloadApp(server, '/?activity&kind=all', { size });
+      await waitFor(() => expect(titles(size)).toEqual(THIS_MONTH));
+      expect(chip('All kinds').getAttribute('aria-pressed')).toBe('true');
+      await pick(user, 'All kinds', 'Transfers');
+      await waitFor(() => expect(titles(size)).toEqual(['top-up']));
+      hasLine('1 found');
+      expect(window.location.search).toBe('?activity&kind=transfer');
+      // Back to the start leaves the address plain
+      await pick(user, 'Transfers', 'Expenses and income');
+      await waitFor(() => expect(titles(size)).toEqual(SHOWN));
+      expect(window.location.search).toBe('?activity');
+    },
+  );
+
   test.each(SIZES)('the days: last month, all months, or dates picked (%s)', async (size) => {
     const user = await open(withMonth(), size);
-    await waitFor(() => expect(titles(size)).toEqual(THIS_MONTH));
+    await waitFor(() => expect(titles(size)).toEqual(SHOWN));
     await pick(user, 'This month', 'Last month');
     await waitFor(() => expect(titles(size)).toEqual(['Bolt', 'Furniture shop', 'Parking']));
     expect(window.location.search).toBe('?activity&from=2026-10-01&to=2026-10-31');
     await pick(user, 'Last month', 'All months');
-    await waitFor(() => expect(titles(size)).toEqual([...THIS_MONTH, ...EARLIER]));
+    await waitFor(() => expect(titles(size)).toEqual([...SHOWN, ...EARLIER]));
     expect(window.location.search).toBe('?activity&dates=all');
 
     await user.click(chip('All months'));
@@ -482,7 +528,7 @@ describe('the filters', () => {
     expect(chip('Oct 14 to Nov 3').getAttribute('aria-pressed')).toBe('true');
 
     await pick(user, 'Oct 14 to Nov 3', 'This month');
-    await waitFor(() => expect(titles(size)).toEqual(THIS_MONTH));
+    await waitFor(() => expect(titles(size)).toEqual(SHOWN));
     expect(window.location.search).toBe('?activity');
   });
 
@@ -538,6 +584,28 @@ describe('addresses other pages link to', () => {
     expect(await screen.findByRole('heading', { name: 'Activity', level: 1 })).toBeTruthy();
     expect(window.location.search).toBe(`?activity&category=${id('Other')}&from=2026-10-01`);
     expect(screen.getByRole('navigation', { name: 'Main' })).toBeTruthy();
+  });
+
+  test('on a phone, selecting lists every entry in one list, each with its day, no day headings', async () => {
+    const user = await open(withMonth(), 'phone');
+    await waitFor(() => expect(titles('phone')).toEqual(SHOWN));
+    await user.click(chip('Select'));
+    await screen.findByRole('heading', { name: '0 selected' });
+    expect(within(results()).queryAllByRole('heading')).toHaveLength(0);
+    const lists = within(results()).getAllByRole('list');
+    expect(lists).toHaveLength(1);
+    expect(
+      within(lists[0])
+        .getAllByRole('checkbox')
+        .map((box) => box.getAttribute('aria-label')),
+    ).toEqual([
+      'Kedai Ali, Food · Cash · Nov 10, −7.25',
+      'Kopitiam, Food › Coffee · Bank · Nov 10, −4.60',
+      'Kopitiam, Food › Coffee · Bank · Nov 9, −11.30',
+      'Restoran Hana, Food · Visa · Nov 6, −63.40',
+      'Acme, Salary · Bank · Nov 5, +3,250.00',
+      'Petronas, Transport · Cash · Nov 3, −5.50',
+    ]);
   });
 
   test("Tidy up's on a computer: the register, ready to tick", async () => {
@@ -628,6 +696,49 @@ describe('nothing to show', () => {
     },
   );
 
+  test.each(SIZES)(
+    'with only a transfer, says nothing matches, and the kind shows it (%s)',
+    async (size) => {
+      const server = fakeServer();
+      seedAccount(server, { id: CASH, name: 'Cash' });
+      seedAccount(server, { id: BANK, name: 'Bank', kind: 'bank', openingCents: 50_000 });
+      seed(server, {
+        kind: 'transfer',
+        accountId: BANK,
+        toAccountId: CASH,
+        amountCents: 2_000,
+        categoryId: null,
+        note: 'cash out',
+      });
+      const user = await open(server, size);
+      expect(await screen.findByRole('heading', { name: 'No transactions match' })).toBeTruthy();
+      expect(screen.queryByRole('heading', { name: 'No transactions yet' })).toBeNull();
+      await pick(user, 'Expenses and income', 'All kinds');
+      await waitFor(() => expect(titles(size)).toEqual(['cash out']));
+    },
+  );
+
+  test('with two transfers that cancel out, it says nothing matches, not nothing yet', async () => {
+    const server = fakeServer();
+    seedAccount(server, { id: CASH, name: 'Cash' });
+    seedAccount(server, { id: BANK, name: 'Bank', kind: 'bank', openingCents: 50_000 });
+    for (const [from, to] of [
+      [BANK, CASH],
+      [CASH, BANK],
+    ]) {
+      seed(server, {
+        kind: 'transfer',
+        accountId: from,
+        toAccountId: to,
+        amountCents: 2_000,
+        categoryId: null,
+      });
+    }
+    await open(server, 'desktop');
+    expect(await screen.findByRole('heading', { name: 'No transactions match' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'No transactions yet' })).toBeNull();
+  });
+
   test('with nothing yet and a filter, says nothing matches until the filters are cleared', async () => {
     const server = fakeServer();
     seedAccount(server, { id: CASH, name: 'Cash' });
@@ -642,9 +753,10 @@ describe('nothing to show', () => {
     vi.setSystemTime(new Date(2026, 11, 1, 9, 0, 0));
     const user = await open(withMonth(), 'phone');
     expect(await screen.findByRole('heading', { name: 'No transactions match' })).toBeTruthy();
-    await waitFor(() => hasLine('Nothing this month. 11 in other months.'));
+    // The transfer is in no count: it isn't a kind being shown
+    await waitFor(() => hasLine('Nothing this month. 10 in other months.'));
     await user.click(screen.getByRole('button', { name: 'Search all months' }));
-    await waitFor(() => expect(titles('phone')).toEqual([...THIS_MONTH, ...EARLIER]));
+    await waitFor(() => expect(titles('phone')).toEqual([...SHOWN, ...EARLIER]));
   });
 
   test.each(SIZES)(
@@ -687,7 +799,7 @@ describe('nothing to show', () => {
       expect(await screen.findByRole('heading', { name: 'Connect to search' })).toBeTruthy();
       expect(screen.getByText("Search results aren't kept on this device.")).toBeTruthy();
       back();
-      await waitFor(() => expect(titles(size)).toEqual(THIS_MONTH), { timeout: 8000 });
+      await waitFor(() => expect(titles(size)).toEqual(SHOWN), { timeout: 8000 });
     },
     15_000,
   );
@@ -721,13 +833,13 @@ describe('changing one', () => {
     const sheet = within(await screen.findByRole('dialog', { name: 'Restoran Hana' }));
     await user.click(sheet.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(titles('phone')).not.toContain('Restoran Hana'));
-    hasLine('6 found · RM 28.65 spent · RM 3,250.00 received');
+    hasLine('5 found · RM 28.65 spent · RM 3,250.00 received');
     expect(await screen.findByText('Deleted RM 63.40, Food')).toBeTruthy();
     await waitFor(() =>
       expect(server.transactions.some((t) => t.payee === 'Restoran Hana')).toBe(false),
     );
     await user.click(screen.getByRole('button', { name: 'Undo' }));
-    await waitFor(() => expect(titles('phone')).toEqual(THIS_MONTH));
+    await waitFor(() => expect(titles('phone')).toEqual(SHOWN));
     await waitFor(() =>
       expect(server.transactions.some((t) => t.payee === 'Restoran Hana')).toBe(true),
     );
@@ -736,7 +848,7 @@ describe('changing one', () => {
   test('on a computer, a row opens beside the register; Enter saves it there', async () => {
     const server = withMonth();
     const user = await open(server, 'desktop');
-    await waitFor(() => expect(titles('desktop')).toEqual(THIS_MONTH));
+    await waitFor(() => expect(titles('desktop')).toEqual(SHOWN));
     await user.click(screen.getByRole('cell', { name: 'Restoran Hana' }));
     const pane = within(await screen.findByRole('complementary', { name: 'Restoran Hana, Nov 6' }));
     await user.selectOptions(pane.getByLabelText('Category'), 'Transport');
@@ -756,9 +868,54 @@ describe('changing one', () => {
     expect(screen.getByRole('complementary', { name: 'Restoran Hana, Nov 6' })).toBeTruthy();
   });
 
-  test('on a computer, Delete in the pane opens the next one, or the one before at the end', async () => {
+  test('on a computer, the payee, day and amount are typed where the pane shows them', async () => {
     const server = withMonth();
     const user = await open(server, 'desktop');
+    await user.click(await screen.findByRole('cell', { name: 'Restoran Hana' }));
+    const pane = within(await screen.findByRole('complementary', { name: 'Restoran Hana, Nov 6' }));
+    // No field of their own under the figure, as R-Desk-Activity draws it
+    for (const label of ['Payee', 'Date', 'Amount']) expect(pane.queryByText(label)).toBeNull();
+    expect(pane.getByText('Fri, Nov 6')).toBeTruthy();
+    const payee = pane.getByLabelText('Payee');
+    expect(payee).toHaveProperty('value', 'Restoran Hana');
+    await user.clear(payee);
+    await user.type(payee, 'Hana');
+    fireEvent.change(pane.getByLabelText('Date'), { target: { value: '2026-11-05' } });
+    expect(pane.getByText('Thu, Nov 5')).toBeTruthy();
+    const amount = pane.getByLabelText('Amount');
+    await user.clear(amount);
+    await user.type(amount, '64.10');
+    await user.click(pane.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(server.transactions.find((t) => t.payee === 'Hana')).toMatchObject({
+        date: '2026-11-05',
+        amountCents: 6_410,
+      }),
+    );
+    // A day that can't be one is refused, and nothing is sent
+    const sent = server.transactions.find((t) => t.payee === 'Hana');
+    const now = within(await screen.findByRole('complementary', { name: /^Hana, / }));
+    fireEvent.change(now.getByLabelText('Date'), { target: { value: '2026-12-25' } });
+    await user.click(now.getByRole('button', { name: 'Save' }));
+    // Said aloud as it's refused
+    expect((await now.findByRole('alert')).textContent).toBe('Pick a day from 2000 up to today');
+    expect(server.transactions.find((t) => t.payee === 'Hana')).toEqual(sent);
+    // An amount that can't be one is refused the same way
+    fireEvent.change(now.getByLabelText('Date'), { target: { value: '2026-11-05' } });
+    const typed = now.getByLabelText('Amount');
+    await user.clear(typed);
+    await user.type(typed, 'abc');
+    await user.click(now.getByRole('button', { name: 'Save' }));
+    const alert = await now.findByRole('alert');
+    expect(alert.textContent).not.toBe('');
+    expect(typed.getAttribute('aria-invalid')).toBe('true');
+    expect(typed.getAttribute('aria-describedby')).toBe(alert.id);
+    expect(server.transactions.find((t) => t.payee === 'Hana')).toEqual(sent);
+  });
+
+  test('on a computer, Delete in the pane opens the next one, or the one before at the end', async () => {
+    const server = withMonth();
+    const user = await open(server, 'desktop', ALL_KINDS);
     await waitFor(() => expect(titles('desktop')).toEqual(THIS_MONTH));
     await user.click(screen.getByRole('cell', { name: 'Restoran Hana' }));
     const pane = within(await screen.findByRole('complementary', { name: 'Restoran Hana, Nov 6' }));

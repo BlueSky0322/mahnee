@@ -153,16 +153,6 @@
   color: var(--ink);
   font: inherit;
   font-size: 14px;
-  letter-spacing: normal;
-}
-
-.kbd {
-  padding: 2px 6px;
-  border: 1px solid var(--line-2);
-  border-radius: 6px;
-  color: var(--ink-3);
-  font-family: 'Geist Mono', monospace;
-  font-size: 11px;
 }
 
 /* The month end, and the two cards under it */
@@ -355,8 +345,6 @@
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  /* The body's tracking, as drawn, not the app's tighter headings */
-  letter-spacing: inherit;
 }
 
 .more {
@@ -757,7 +745,6 @@
   color: var(--ink-2);
   font: inherit;
   font-weight: 500;
-  letter-spacing: normal;
   cursor: pointer;
 }
 
@@ -779,6 +766,8 @@
   font: inherit;
   text-align: left;
   text-decoration: none;
+  /* Links in the design: the body's tracking */
+  letter-spacing: inherit;
 }
 
 button.step {
@@ -909,7 +898,6 @@ button.step {
   background: var(--surface);
   color: var(--ink);
   font: inherit;
-  letter-spacing: normal;
   text-align: left;
   cursor: pointer;
 }

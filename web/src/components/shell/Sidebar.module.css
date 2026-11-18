@@ -25,19 +25,13 @@
 
 .newEntry {
   border-radius: 14px;
+  /* A link in the design: the body's tracking */
+  letter-spacing: inherit;
 }
 
-/* New entry's keycap sits at the button's own padding, drawn as the design's keycap */
+/* New entry's keycap (ui/Key, the design's keycap) sits at the button's own padding */
 .newEntry[data-with-right-section] {
   padding-inline-end: 16px;
-}
-
-.newEntry kbd {
-  min-width: 0;
-  height: auto;
-  padding: 2px 6px;
-  border-radius: 6px;
-  font-family: 'Geist Mono', monospace;
 }
 
 .nav {

@@ -231,6 +231,8 @@ describe('moving several to another category', () => {
         sheet.getByRole('searchbox', { name: 'Find a category' }).getAttribute('placeholder'),
       ).toBe('Find an expense category');
       const to = within(sheet.getByRole('radiogroup', { name: 'Move to' }));
+      // Where they all are already isn't offered, as drawn
+      expect(to.queryByRole('radio', { name: 'Other' })).toBeNull();
       await user.click(to.getByRole('radio', { name: 'Food' }));
       hasLine('RM 6.00 from Other to Food');
       // Only the two from this month are in its budget
@@ -264,6 +266,18 @@ describe('moving several to another category', () => {
       ]);
     },
   );
+
+  test('entries from several categories can move to any of them', async () => {
+    const user = await openActivity(withSpending(), 'desktop');
+    await user.click(tick('first other'));
+    await user.click(tick('bus fare'));
+    await changeCategory(user);
+    const to = within(
+      within(await screen.findByRole('dialog')).getByRole('radiogroup', { name: 'Move to' }),
+    );
+    expect(to.getByRole('radio', { name: 'Other' })).toBeTruthy();
+    expect(to.getByRole('radio', { name: 'Transport' })).toBeTruthy();
+  });
 
   test.each(SIZES)(
     'the sheet says what it moves under its title, and Cancel closes it with nothing moved (%s)',
@@ -383,7 +397,8 @@ describe('moving several to another category', () => {
       categoryId: SALARY,
       note: 'pay',
     });
-    const user = await openActivity(server, 'desktop');
+    // Every kind, so the transfer is listed to tick
+    const user = await openActivity(server, 'desktop', '/?activity&dates=all&kind=all');
     await user.click(tick('to bank'));
     await changeCategory(user);
     expect(

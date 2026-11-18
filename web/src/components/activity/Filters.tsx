@@ -10,7 +10,7 @@ import Chip from '../ui/Chip';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { kindText, periodText } from './activity-text';
 import type { Days, Filters } from './address';
-import { dayRange, monthDays } from './address';
+import { dayRange, isDefaultKinds, monthDays } from './address';
 import classes from './Activity.module.css';
 
 type Which = 'account' | 'category' | 'days' | 'kind';
@@ -23,11 +23,11 @@ const TITLES: Record<Which, string> = {
 };
 
 const KINDS: { label: string; kinds: TransactionKind[] | null }[] = [
-  { label: 'All kinds', kinds: null },
+  { label: 'Expenses and income', kinds: ['expense', 'income'] },
   { label: 'Expenses', kinds: ['expense'] },
   { label: 'Income', kinds: ['income'] },
   { label: 'Transfers', kinds: ['transfer'] },
-  { label: 'Expenses and income', kinds: ['expense', 'income'] },
+  { label: 'All kinds', kinds: null },
 ];
 
 /** Whether the days are exactly the person's month `month`, from `start` */
@@ -52,7 +52,7 @@ export default function FilterChips({
   filters: Filters;
   today: string;
   onlySet: boolean;
-  /** A phone's chips say they open a list */
+  /** A phone's chips say they open a list (the kind's doesn't, as drawn) */
   carets: boolean;
   onChange: (next: Partial<Filters>) => void;
 }) {
@@ -79,7 +79,7 @@ export default function FilterChips({
       label: periodText(dayRange(filters.days, today, start), today, start),
       on: filters.days.kind !== 'month',
     },
-    { which: 'kind', label: kindText(filters.kinds), on: filters.kinds != null },
+    { which: 'kind', label: kindText(filters.kinds), on: !isDefaultKinds(filters.kinds) },
   ];
   const set = (next: Partial<Filters>) => {
     onChange(next);
@@ -98,7 +98,7 @@ export default function FilterChips({
             onClick={() => setOpen(chip.which)}
           >
             {chip.label}
-            {carets && (
+            {carets && chip.which !== 'kind' && (
               <DownIcon
                 size={14}
                 aria-hidden

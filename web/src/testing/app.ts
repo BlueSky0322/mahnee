@@ -804,6 +804,7 @@ function searchTransactions(
     restOfLastDay:
       last == null ? null : { date: last.date, ...sum(beyond.filter((t) => t.date === last.date)) },
     ...(before == null && days && { elsewhere: elsewhere() }),
+    ...(before == null && { anywhere: server.transactions.length > 0 }),
   };
 }
 

@@ -156,11 +156,10 @@
   flex: none;
 }
 
-/* The design's small buttons: 13.5px, at the browser's own tracking (over the buttons'
-   own 14px) */
+/* The design's small buttons: 13.5px (over the buttons' own 14px), at the browser's own
+   tracking as every button is (theme/tokens.css) */
 .small:global(.mantine-Button-root) {
   font-size: 0.84375rem;
-  letter-spacing: normal;
 }
 
 /* A quiet one has no edge, so its words sit 14px in, as drawn */
@@ -193,6 +192,8 @@
   text-align: start;
   text-decoration: none;
   cursor: pointer;
+  /* Rows the design draws as plain items: the body's tracking, not a button's */
+  letter-spacing: inherit;
 }
 
 /* The account open beside the list */
@@ -279,7 +280,6 @@
   font-size: 0.84375rem;
   font-weight: 500;
   line-height: 1;
-  letter-spacing: normal;
   cursor: pointer;
 }
 
@@ -436,6 +436,8 @@
   font-weight: 500;
   line-height: 1;
   cursor: pointer;
+  /* Links in the design: the body's tracking */
+  letter-spacing: inherit;
 }
 
 .archivedNote {
@@ -469,7 +471,6 @@
   color: var(--ink);
   font-size: 0.8125rem;
   font-weight: 500;
-  letter-spacing: inherit;
 }
 
 .more {
@@ -541,7 +542,6 @@
 
 .paneName {
   margin: 0;
-  letter-spacing: inherit;
   font-size: 1.25rem;
   font-weight: 600;
 }
@@ -596,7 +596,6 @@
   min-height: 2.5rem;
   border-color: var(--line-2);
   font-size: 0.875rem;
-  letter-spacing: normal;
 }
 
 /* Show 50 more, centred under the register */
@@ -716,6 +715,7 @@
   text-align: start;
   text-overflow: ellipsis;
   cursor: pointer;
+  letter-spacing: inherit;
 }
 
 /* ---------- Any date ---------- */

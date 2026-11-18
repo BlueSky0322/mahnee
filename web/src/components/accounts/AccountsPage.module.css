@@ -586,7 +586,7 @@
   border-bottom: 1px solid var(--line);
 }
 
-/* The account's search: 40px, 14px words at the browser's tracking, on the design's line */
+/* The account's search: 40px, 14px words at the browser's tracking */
 .paneSearch {
   width: min(300px, 100%);
 }
@@ -594,7 +594,6 @@
 .paneSearch input {
   height: 2.5rem;
   min-height: 2.5rem;
-  border-color: var(--line-2);
   font-size: 0.875rem;
 }
 

@@ -124,8 +124,8 @@
 
 .dot {
   flex: none;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
 }
 
@@ -140,6 +140,8 @@
   font: inherit;
   font-size: 15px;
   font-weight: 500;
+  /* A name and its subcategories are plain text in the design, at the page's tracking */
+  letter-spacing: inherit;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -176,6 +178,7 @@
   color: var(--ink);
   font: inherit;
   font-size: 13px;
+  letter-spacing: inherit;
   cursor: pointer;
 }
 
@@ -363,6 +366,7 @@
    the far right */
 @media (min-width: 1024px) {
   .page {
+    gap: 20px;
     max-width: none;
     margin: 0;
     padding: 0;
@@ -409,7 +413,7 @@
 
   .nameButton {
     flex: none;
-    min-width: 90px;
+    min-width: 92px;
   }
 
   .budget {

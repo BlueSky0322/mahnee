@@ -230,6 +230,7 @@ h3,
 .mantine-Button-root.sf-back {
   color: var(--ink);
   padding: 0 10px 0 2px;
+  border: 0;
   margin-left: -6px;
   font-size: 0.84375rem;
 }

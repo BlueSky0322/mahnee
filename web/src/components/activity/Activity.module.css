@@ -433,7 +433,8 @@
 }
 
 .table th {
-  height: 40px;
+  /* 40px with its rule, as drawn */
+  height: 39px;
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--ink-3);
@@ -633,6 +634,11 @@
   color: var(--neg);
 }
 
+/* A list's chevron in ink, 14px in from the edge, as drawn */
+.editor :global(.mantine-NativeSelect-section) {
+  color: var(--ink);
+}
+
 /* A field's label is a line of its own, 6px over its box (R-Desk-Activity's .field) */
 .pane :global(.mantine-InputWrapper-label) {
   display: block;
@@ -770,6 +776,12 @@
   font-size: 0.9375rem;
   font-weight: 500;
   text-align: start;
+}
+
+/* A category they're all in, kept only over its subcategories */
+.option:disabled {
+  color: var(--ink-3);
+  cursor: default;
 }
 
 .option[aria-checked='true'] {

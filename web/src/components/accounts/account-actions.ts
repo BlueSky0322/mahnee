@@ -11,7 +11,7 @@ export function useAccountActions(account: Account) {
   return {
     addHere: () => openAdd?.({ accountId: account.id, fromHere: true }),
     transfer: () => openAdd?.({ accountId: account.id, kind: 'transfer', fromHere: true }),
-    search: () => navigate(`?activity&account=${account.id}&dates=all`),
+    search: () => navigate(`?activity&account=${account.id}&kind=all&dates=all`),
     unarchive: () => change({ op: 'archiveAccount', id: account.id, archived: false }),
   };
 }

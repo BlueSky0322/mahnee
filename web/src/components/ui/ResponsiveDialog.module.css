@@ -65,6 +65,8 @@
 
 /* A computer's dialog: 22px corners, a deep shadow */
 .dialog {
+  /* The design's card: a thin rule round it */
+  border: 1px solid var(--line);
   border-radius: 22px;
   background: var(--surface);
   box-shadow: 0 24px 64px rgba(15, 16, 18, 0.28);

@@ -285,6 +285,7 @@ export default function EntryEditor({
           data={destinations.map((a) => ({ value: a.id, label: a.name }))}
           error={errors.to}
           rightSection={chevron}
+          rightSectionWidth={44}
         />
       ) : (
         <NativeSelect
@@ -294,6 +295,7 @@ export default function EntryEditor({
           data={[{ value: '', label: 'Pick a category', disabled: true }, ...options]}
           error={errors.category}
           rightSection={chevron}
+          rightSectionWidth={44}
         />
       )}
       <NativeSelect
@@ -302,6 +304,7 @@ export default function EntryEditor({
         onChange={(e) => setAccountId(e.currentTarget.value)}
         data={listed.map((a) => ({ value: a.id, label: a.name }))}
         rightSection={chevron}
+        rightSectionWidth={44}
       />
       {!inline && (
         <TextInput

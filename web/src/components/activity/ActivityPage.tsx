@@ -142,8 +142,15 @@ export default function ActivityPage({ query }: { query: string }) {
     isDefaultKinds(filters.kinds) &&
     filters.q === '';
   const empty = rows != null && rows.length === 0;
+  // Nothing yet, only while no money has moved on any account: a transfer alone (left out
+  // until asked for) is something, so the filters are shown and nothing matches them
+  const untouched = (accounts ?? []).every((a) => a.balanceCents === a.openingCents);
   const nothingYet =
-    empty && nothingSet && filters.days.kind === 'month' && (totals?.elsewhere ?? 0) === 0;
+    empty &&
+    nothingSet &&
+    untouched &&
+    filters.days.kind === 'month' &&
+    (totals?.elsewhere ?? 0) === 0;
   const selecting = !isDesktop && filters.select;
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [moving, setMoving] = useState<Transaction[] | null>(null);

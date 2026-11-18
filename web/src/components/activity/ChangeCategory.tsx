@@ -128,11 +128,14 @@ function Moving({
   const currency = DEFAULT_CURRENCY;
 
   const words = foldCase(find.trim());
-  const has = (c: Category) => words === '' || foldCase(c.name).includes(words);
+  // Where they all are already isn't offered: moving there would change nothing
+  const already = new Set(chosen.map((t) => t.categoryId));
+  const here = (c: Category) => already.size === 1 && already.has(c.id);
+  const has = (c: Category) => !here(c) && (words === '' || foldCase(c.name).includes(words));
   const nodes = (tree?.listed[kind] ?? [])
     .map((node) => ({
       node,
-      subs: has(node) ? node.subcategories : node.subcategories.filter(has),
+      subs: has(node) ? node.subcategories.filter((c) => !here(c)) : node.subcategories.filter(has),
     }))
     .filter(({ node, subs }) => has(node) || subs.length > 0);
 
@@ -189,6 +192,8 @@ function Moving({
       type="button"
       role="radio"
       aria-checked={to === c.id}
+      // Kept only as the heading of its subcategories
+      disabled={here(c)}
       className={sub ? classes.subOption : classes.option}
       onClick={() => setTo(c.id)}
     >

@@ -192,7 +192,7 @@ archived ("E-wallet · archived Aug 14"; just "archived" for one archived before
 kept). Archived accounts count in no total. List amounts have no RM; a card's says owed (or
 in credit). On a phone or tablet a row opens the account's own page (`?account=<id>`,
 R-Account), which goes back up to Accounts: its kind, name and balance, Add here, Transfer
-and Search (Activity on it, every month: `?activity&account=<id>&dates=all`), and its
+and Search (Activity on it, every month: `?activity&account=<id>&kind=all&dates=all`, transfers too), and its
 entries by day, each signed by what it did to this account (transfers too), titled by the
 other account, the payee, the note or the category, in that order. An archived one says
 "Hidden when adding entries" with Unarchive in place of the actions (R-Account-Archived).
@@ -1090,14 +1090,15 @@ row), and a row's category opens Change category for it alone. Esc closes the to
 with a row always open, there's no pane to close.
 
 Change category lists the kind's categories (each top-level one with its subcategories,
-searchable), says what moves ("RM 30.90 from Other to Food") and what it does to that
+searchable; not the one they are all in already), says what moves ("RM 30.90 from Other to Food") and what it does to that
 category's budget this month ("Food budget: RM 312.50 → RM 291.75 left", "Groceries has no
 budget"), then "Move 3 to Food". Only the entries dated in the budget month Home shows (the
 person's month, from their month start day) move the budget, and none already in it:
 a budget is a month's, so an October entry moved to Food changes October's Food, not the
 one shown. Spending or income
 alone, no transfers. Delete N takes them out at once, with Undo. More than 500 ticked is
-refused with a message. With nothing yet it says "No transactions yet" with Log your first
+refused with a message. With nothing yet (no money moved on any account: a transfer alone
+shows the filters, with nothing matching) it says "No transactions yet" with Log your first
 one and Import a bank's CSV; with nothing found, 'No "bolt" in Transport this month. 2 in
 other months.' with Clear filters (the chips, not the words or the days) and Search all
 months. Offline with nothing loaded: "Connect to search" (results aren't kept on the

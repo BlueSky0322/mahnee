@@ -696,6 +696,28 @@ describe('nothing to show', () => {
     },
   );
 
+  test.each(SIZES)(
+    'with only a transfer, says nothing matches, and the kind shows it (%s)',
+    async (size) => {
+      const server = fakeServer();
+      seedAccount(server, { id: CASH, name: 'Cash' });
+      seedAccount(server, { id: BANK, name: 'Bank', kind: 'bank', openingCents: 50_000 });
+      seed(server, {
+        kind: 'transfer',
+        accountId: BANK,
+        toAccountId: CASH,
+        amountCents: 2_000,
+        categoryId: null,
+        note: 'cash out',
+      });
+      const user = await open(server, size);
+      expect(await screen.findByRole('heading', { name: 'No transactions match' })).toBeTruthy();
+      expect(screen.queryByRole('heading', { name: 'No transactions yet' })).toBeNull();
+      await pick(user, 'Expenses and income', 'All kinds');
+      await waitFor(() => expect(titles(size)).toEqual(['cash out']));
+    },
+  );
+
   test('with nothing yet and a filter, says nothing matches until the filters are cleared', async () => {
     const server = fakeServer();
     seedAccount(server, { id: CASH, name: 'Cash' });

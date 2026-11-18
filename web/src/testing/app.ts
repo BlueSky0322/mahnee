@@ -85,6 +85,12 @@ import {
   repeatingLines,
 } from '@shared/export';
 import { MAX_IMPORT_ROWS } from '@shared/csv-import';
+import {
+  MAX_PUSH_DEVICES,
+  type PushSubscriptionBody,
+  readPushSubscription,
+  toBase64Url,
+} from '@shared/push';
 import type { BudgetRow } from '@shared/budgets';
 import {
   BUDGET_RANGE,
@@ -227,6 +233,13 @@ export interface FakeServer {
    * the change does; the server then refuses it, as the real one does
    */
   oldCursorNext?: boolean;
+  /**
+   * The server's VAPID public key, as GET /api/push answers it; null when reminders aren't
+   * set up on the server
+   */
+  pushKey: string | null;
+  /** Every device subscribed for reminders, whoever's (one device, one account) */
+  pushSubscriptions: (PushSubscriptionBody & { email: string })[];
 }
 
 /**
@@ -324,6 +337,8 @@ function answerNow(server: FakeServer) {
     }
     if (server.pathsDown.has(path)) return json({ error: 'Internal error' }, 500);
     if (path === '/api/me' && method === 'GET') return json(server.me);
+    if (path === '/api/push' && method === 'GET') return json({ publicKey: server.pushKey });
+    if (path === '/api/push/subscription') return pushSubscription(server, method, body);
     const failing = (kind: keyof FakeServer['failNext']) => {
       const failure = server.failNext[kind];
       delete server.failNext[kind];
@@ -1486,6 +1501,9 @@ export function fakeServer(): FakeServer {
     loseNext: {},
     pathsDown: new Set(),
     held: [],
+    // Shaped as a key is: a P-256 point, base64url
+    pushKey: `B${'Q'.repeat(86)}`,
+    pushSubscriptions: [],
   };
 }
 
@@ -1624,6 +1642,135 @@ export async function closeApp() {
   notifications.clean();
   // The device's cache, and whose it is, start empty for the next test
   await clearCache();
+}
+
+/**
+ * A device subscribing for reminders, or letting go, as the real server answers: kept for
+ * the account signed in, taken from whoever had it, at most MAX_PUSH_DEVICES each; a
+ * server without its keys refuses with 503
+ */
+function pushSubscription(server: FakeServer, method: string, body: unknown) {
+  const email = server.me.email;
+  if (method === 'DELETE') {
+    const endpoint = (body as { endpoint?: unknown } | null)?.endpoint;
+    if (typeof endpoint !== 'string') return json({ error: 'Invalid subscription' }, 400);
+    server.pushSubscriptions = server.pushSubscriptions.filter(
+      (s) => !(s.email === email && s.endpoint === endpoint),
+    );
+    return json({ ok: true });
+  }
+  if (method !== 'PUT') return json({ error: 'Not found' }, 404);
+  if (server.pushKey == null) {
+    return json({ error: "Reminders aren't ready on the server yet." }, 503);
+  }
+  const read = readPushSubscription(body);
+  if ('error' in read) return json({ error: read.error }, 400);
+  const others = server.pushSubscriptions.filter((s) => s.endpoint !== read.endpoint);
+  const mine = others.filter((s) => s.email === email);
+  const dropped = mine.slice(0, Math.max(0, mine.length + 1 - MAX_PUSH_DEVICES));
+  server.pushSubscriptions = [
+    ...others.filter((s) => !dropped.includes(s)),
+    { email, endpoint: read.endpoint, keys: read.keys },
+  ];
+  return json({ ok: true });
+}
+
+/** Where the stand-in browser's push subscription goes: a push service's address */
+export const PUSH_ENDPOINT = 'https://fcm.googleapis.com/fcm/send/this-device';
+
+/**
+ * The browser's notifications and push, as the app reaches them: whether it has them at all
+ * (an iPhone has them only once the app is on its Home Screen), the permission it holds and
+ * what it answers when asked, and its subscription. Read back what it was asked.
+ */
+export function stubPush({
+  supported = true,
+  iphone = false,
+  permission = 'default',
+  answer = 'granted',
+  subscribed = false,
+}: {
+  supported?: boolean;
+  iphone?: boolean;
+  permission?: NotificationPermission;
+  answer?: NotificationPermission;
+  subscribed?: boolean;
+} = {}) {
+  const subscriptionOf = () => {
+    const sub = {
+      endpoint: PUSH_ENDPOINT,
+      // A point's shape (65 bytes, uncompressed) and a 16-byte secret, as a browser's are
+      toJSON: () => ({
+        endpoint: PUSH_ENDPOINT,
+        keys: { p256dh: `B${'A'.repeat(86)}`, auth: 'A'.repeat(22) },
+      }),
+      unsubscribe: () => {
+        browser.subscription = null;
+        return Promise.resolve(true);
+      },
+    };
+    return sub;
+  };
+  const browser = {
+    permission,
+    /** How many times the person was asked */
+    asked: 0,
+    /** The server keys each subscription was made with */
+    subscribedWith: [] as string[],
+    subscription: null as ReturnType<typeof subscriptionOf> | null,
+  };
+  if (subscribed) browser.subscription = subscriptionOf();
+  if (iphone) {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1',
+    );
+    onTestFinished(() => {
+      vi.restoreAllMocks();
+    });
+  }
+  if (!supported) {
+    vi.stubGlobal('Notification', undefined);
+    vi.stubGlobal('PushManager', undefined);
+    return browser;
+  }
+  vi.stubGlobal(
+    'Notification',
+    Object.assign(function Notification() {}, {
+      get permission() {
+        return browser.permission;
+      },
+      requestPermission: () => {
+        browser.asked++;
+        browser.permission = answer;
+        return Promise.resolve(answer);
+      },
+    }),
+  );
+  vi.stubGlobal('PushManager', function PushManager() {});
+  const registration = {
+    pushManager: {
+      getSubscription: () => Promise.resolve(browser.subscription),
+      subscribe: ({ applicationServerKey }: { applicationServerKey: Uint8Array }) => {
+        if (browser.permission !== 'granted') {
+          return Promise.reject(new DOMException('Not allowed', 'NotAllowedError'));
+        }
+        browser.subscribedWith.push(toBase64Url(applicationServerKey));
+        browser.subscription = subscriptionOf();
+        return Promise.resolve(browser.subscription);
+      },
+    },
+  };
+  Object.defineProperty(navigator, 'serviceWorker', {
+    configurable: true,
+    value: {
+      ready: Promise.resolve(registration),
+      getRegistration: () => Promise.resolve(registration),
+    },
+  });
+  onTestFinished(() => {
+    delete (navigator as { serviceWorker?: unknown }).serviceWorker;
+  });
+  return browser;
 }
 
 /** Call in a screen test's file: a browser to render into, emptied between tests */

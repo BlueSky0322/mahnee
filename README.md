@@ -37,6 +37,7 @@ Inside `web/src`, what the app knows is kept apart from how it looks:
 | `components/ui/`       | Plain building blocks that know nothing of finances or accounts (dialogs)     |
 | `hooks/`, `utils/`     | What every feature leans on: screen sizes, the page address, money, dates     |
 | `pwa/`                 | Installing the app, its launch screen, and the on-screen keyboard             |
+| `reminders/`           | Whether this device gets reminders, and allowing them                         |
 | `testing/`             | Rendering the whole app in tests, against an in-memory stand-in for the API   |
 
 The Worker is laid out by feature:
@@ -47,6 +48,7 @@ The Worker is laid out by feature:
 | `accounts/`                                | Signing in, the profile and settings                                       |
 | `currency/`                                | Exchange rates                                                             |
 | `ledger/`                                  | Accounts, balances and categories, saving changes, and the nightly job     |
+| `push/`                                    | Reminders by web push: encrypting, signing, sending, and the cron's job    |
 | `test/`                                    | The API tests, run against a real local Worker and database                |
 
 ## Running it

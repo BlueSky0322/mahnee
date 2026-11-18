@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-18
 
+- Added: reminders on your phone: a daily one when nothing was added, and one the day before a scheduled entry, naming it and its amount [#?]
 - Changed: Fields, small buttons, lists and dialogs match the design's lines, sizes and spacing everywhere [#50]
 - Added: Scheduled shows the next 30 days: what comes in and goes out, and each account's lowest point [#49]
 - Changed: Plan, each category's page and Scheduled match the design [#48]

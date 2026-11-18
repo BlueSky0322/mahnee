@@ -46,6 +46,37 @@ hack-proof, and the limits below are real.
   not reachable from the API: only the trigger runs it. It logs only an error's name and
   message, never an amount, payee, account or email.
 
+- **Reminders by web push (owner decision D6, "Push with details").** A device gets
+  reminders only after the person taps Allow notifications and the browser grants it;
+  nothing asks on its own. Its push subscription (the browser's endpoint at its push
+  service and the keys a message is encrypted to) is kept for the account that sent it,
+  through the same sign-in, cross-site and whose-write checks as every write: one made as
+  another account is refused and nothing is kept. One device reminds one account: the
+  endpoint is the key, so a device subscribed by someone else moves to them. Signing out
+  lets the device go (on the server, scoped by the email, and in the browser); a device
+  last subscribed by another account is let go in the browser once someone else is
+  known to be signed in; one the push service says is gone (404, 410) is deleted.
+  Endpoints are taken only on the browsers' push services (Firebase, Mozilla, Apple, WNS,
+  https, no port), so the Worker never sends to an address a person typed.
+- **What a reminder says, and who sees it.** Each message is encrypted to the one device
+  (RFC 8291, aes128gcm) and signed as the app (VAPID, RFC 8292, `sub` the app's own
+  address), with WebCrypto alone; the browser's push service carries it but can't read it.
+  The text names the scheduled item and its amount ("TNB RM 189.00 is added tomorrow"), and
+  is visible on a locked phone, by the owner's choice: anyone who can see the phone's lock
+  screen can read it. The daily reminder names nothing ("Nothing added today").
+- **What the server sends on its own.** The same cron trigger as the nightly job runs the
+  reminders (`worker/push/reminders.ts`) after it: each person with a device, a time zone
+  and a reminder on, at their "Remind me at" time on their own clock (not more than two
+  hours late), once a day a device. It reads only those people's settings, whether they
+  saved an entry that day (not one from Scheduled), and their running items due on the day
+  the reminder is for. It is not reachable from the API. No payload, endpoint or
+  subscription key is logged; only an error's name and message.
+- **The VAPID keys.** The public key is config (`VAPID_PUBLIC_KEY` in `wrangler.jsonc`
+  vars); the private key is the Worker secret `VAPID_PRIVATE_KEY` (a P-256 JWK), never in
+  the repo, and refused at use unless it is the public key's pair. Without both, nothing is
+  sent and subscribing is refused. `PUSH_TEST_ORIGIN` takes one more origin as a push
+  service and is set only by the tests; never set it on the deployed Worker.
+
 ## Limits that bound abuse
 
 - The nightly job: at most 200 items read and 200 entries added a run, at most 31 of one
@@ -55,6 +86,12 @@ hack-proof, and the limits below are real.
   account or category (an account holding its most transactions, say) keeps its place,
   oldest due first, and takes part of each run until it's changed: about seven such weekly
   items could fill a run. Checked by hand, not by the job.
+
+- Reminders: at most 10 devices an account, at most 50 devices reminded a run (two pushes
+  each at most) and 200 scheduled items read; the rest wait for the next run. A push
+  service gets 5 seconds; one that can't take a message now is tried at the next run, and
+  a person whose reminders fail outright doesn't stop the others. A message is at most
+  4096 bytes, as push services take; a subscription request is a JSON body like any other.
 
 - Changes: 60 a minute per account (`API_LIMITER`), counted per Cloudflare location.
   Reading is never limited.
@@ -139,7 +176,11 @@ hack-proof, and the limits below are real.
   only the outbox of the account the app last said is signed in. The server refuses one
   sent while someone else is signed in, and it's kept.
 - The service worker keeps the app's own files and web fonts, never anything from the
-  API. It reads the app's IndexedDB only to send the outbox.
+  API. It reads the app's IndexedDB only to send the outbox. It shows a reminder as it
+  comes and keeps nothing of it; a tap opens only the app's own pages.
+- Which account this device was last subscribed for reminders is kept in `localStorage`
+  (`mahnee:pushOwner`, an email), to let the device go when someone else signs in here;
+  removed on signing out.
 - Once an Access session runs out, the app opens with the last account's kept profile
   and offers to sign in. Whoever holds the device can read what was kept until someone
   signs in or signs out: an unlocked shared device is a risk, as with any app that opens
@@ -166,6 +207,8 @@ hack-proof, and the limits below are real.
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions secrets             | Migrations and deploys from `main` |
 | Access team domain and audience                 | `wrangler.jsonc` vars (not secret) | Checking sign-in tokens            |
 | `WISE_TOKEN` (optional)                         | Worker secret                      | Live rates from Wise               |
+| `VAPID_PUBLIC_KEY`                              | `wrangler.jsonc` vars (not secret) | Devices subscribing for reminders  |
+| `VAPID_PRIVATE_KEY` (a P-256 JWK)               | Worker secret                      | Signing each reminder (VAPID)      |
 
 Never commit `.dev.vars` or tokens, and keep tokens and financial data out of logs. CI
 runs with a read-only GitHub token, and its actions are pinned to commits
@@ -204,6 +247,10 @@ before they're needed.
 - **A leaked Cloudflare token**: revoke it in the Cloudflare dashboard, make a new one
   with only what the deploy needs (Workers scripts and D1 edit on this account), and
   replace the GitHub secret.
+- **A leaked VAPID private key**: make a new pair, set the secret and the public key
+  together and deploy. Every device's subscription was made with the old key, so each has
+  to allow notifications again (Settings, Budgets and reminders); delete the old rows
+  (`DELETE FROM push_subscriptions`) so none is sent to with the new key.
 - **Someone who shouldn't be in**: narrow the Access policy (a change applies to
   Splitfoolish too, unless Mahnee gets a policy of its own); their next request is
   refused.

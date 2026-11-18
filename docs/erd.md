@@ -14,6 +14,7 @@ erDiagram
   accounts ||--o{ transactions : "holds"
   categories ||--o{ transactions : "sorts"
   profiles ||--o{ change_receipts : "has"
+  profiles ||--o{ push_subscriptions : "is reminded on"
   categories ||--o{ budgets : "has"
   profiles ||--o{ recurring : "has"
   profiles ||--o{ imports : "has"
@@ -134,6 +135,15 @@ erDiagram
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
+  push_subscriptions {
+    TEXT endpoint PK "the browser's address at its push service, up to 2048"
+    TEXT email FK
+    TEXT p256dh "the browser's public key, base64url"
+    TEXT auth "its auth secret, base64url"
+    INTEGER created_at "ms"
+    TEXT reminded_on "the person's day last reminded, or null"
+    INTEGER last_ok_at "ms, or null"
+  }
   change_receipts {
     TEXT email PK "and FK to profiles"
     TEXT change_id PK "the app's id for the change"
@@ -242,6 +252,17 @@ erDiagram
   `import_id` is it and sets `undone_at`, in one batch; once undone, nothing more goes and no
   transaction may name it. Keyed by email and then id, so two people's imports never meet.
   Deleting one keeps its transactions, their `import_id` set back to null.
+- **`push_subscriptions`**: one per device that gets reminders (owner decision D6): the
+  browser's push subscription, its endpoint and the keys a message is encrypted to, kept
+  for the account that subscribed it (`PUT /api/push/subscription`). The endpoint is the
+  key, so one device reminds one account: a device subscribed by someone else moves to
+  them. At most 10 per account, the oldest dropped. Let go on signing out
+  (`DELETE /api/push/subscription`, the person's own only), when the push service answers
+  404 or 410, and with the profile. `reminded_on` is the person's own day it was last
+  reminded, so the cron (`worker/push/reminders.ts`) reminds it once a day; the endpoint
+  is checked to be a browser's push service before it's kept and before each send.
+  Migration 0012 also indexes `transactions (email, created_at)`, for whether anything was
+  added during a person's day.
 - **`change_receipts`**: one per change the app saved through `POST /api/changes`, by
   the id the app gave it, with the change's fingerprint, saved in the same batch as the
   change. A change sent again counts once; the same id with a different change is

@@ -16,6 +16,8 @@
 // - Changes made offline are kept by the app (in IndexedDB, web/src/offline/outbox.ts);
 //   background sync sends them here when the connection is back, even if the app is
 //   closed.
+// - Reminders the server pushes (worker/push/reminders.ts) are shown as notifications,
+//   and a tap opens the app at the page the reminder points to.
 const SHELL = 'mahnee-shell-v1';
 const ASSETS = 'mahnee-assets-v1';
 const FONTS = 'mahnee-fonts-v1';
@@ -421,4 +423,62 @@ async function sendOutbox() {
 self.addEventListener('sync', (event) => {
   // Failing makes the browser try again later
   if (event.tag === SYNC_TAG) event.waitUntil(sendOutbox());
+});
+
+// --- Reminders: shown as they come, opened where they point ---------------------------
+
+/** What's shown when a push can't be read: something must be, the browser insists */
+const FALLBACK_REMINDER = {
+  title: 'Mahnee',
+  body: 'Open Mahnee to see your reminder.',
+  url: '/',
+  tag: 'reminder',
+};
+
+/** One of the app's own pages ("/?plan=scheduled"), or Home for anything else */
+const ownPage = (url) =>
+  typeof url === 'string' && url.startsWith('/') && !url.startsWith('//') ? url : '/';
+
+/** The message the server sent (worker/push/send.ts ReminderMessage), or the fallback */
+function readReminder(data) {
+  let message = null;
+  try {
+    message = data?.json();
+  } catch {
+    message = null;
+  }
+  if (typeof message?.title !== 'string' || message.title === '') return FALLBACK_REMINDER;
+  return {
+    title: message.title,
+    body: typeof message.body === 'string' ? message.body : '',
+    url: ownPage(message.url),
+    tag: typeof message.tag === 'string' ? message.tag : FALLBACK_REMINDER.tag,
+  };
+}
+
+self.addEventListener('push', (event) => {
+  const { title, body, url, tag } = readReminder(event.data);
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      tag,
+      icon: '/icon-192.png',
+      data: { url },
+    }),
+  );
+});
+
+/** Brings a window of the app already open to the page, or opens one */
+async function openAt(url) {
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
+  if (open == null) return self.clients.openWindow(url);
+  const shown = (await open.navigate(url)) ?? open;
+  return shown.focus();
+}
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL(ownPage(event.notification.data?.url), self.location.origin).href;
+  event.waitUntil(openAt(url));
 });

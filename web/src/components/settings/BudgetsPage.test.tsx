@@ -1,15 +1,24 @@
 // @vitest-environment jsdom
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, reloadApp, renderApp, setupAppTests } from '../../testing/app';
+import {
+  PUSH_ENDPOINT,
+  fakeServer,
+  reloadApp,
+  renderApp,
+  setupAppTests,
+  stubPush,
+} from '../../testing/app';
 
 // Budgets and reminders (R-Set-Budgets, R-Desk-Set-Budgets; digest 3.15; owner decision
 // D14): "Carry over, for new budgets" is a switch, saved at once, and decides whether a
-// budget set where there was none carries over to start with. The reminder rows stay as
-// they are (read-only) until reminders are built. Names and figures are made up.
+// budget set where there was none carries over to start with. The reminder rows (owner
+// decision D6, "Push with details") set the daily reminder, its time and the reminder
+// before a scheduled entry, and say whether this device gets them: allowing notifications
+// subscribes it, from the person's tap only. Names and figures are made up.
 
 setupAppTests();
 
@@ -151,4 +160,217 @@ describe("Plan's budget field", () => {
       );
     },
   );
+});
+
+/** Each control as its board names it: the phone's rows, a computer's buttons beside them */
+const controls = (size: (typeof SIZES)[number]) =>
+  size === 'desktop'
+    ? {
+        daily: 'Daily reminder',
+        time: (value: string) => `Reminder time: ${value}`,
+        before: (value: string) => `Remind before scheduled items: ${value}`,
+      }
+    : {
+        daily: 'Daily reminder to log',
+        time: (value: string) => new RegExp(`^Remind me at .*${value}$`),
+        before: (value: string) => new RegExp(`^Before one is added .*${value}$`),
+      };
+
+/** What the device row is named on this size: this phone, or this computer */
+const here = (size: (typeof SIZES)[number]) =>
+  size === 'desktop' ? 'Reminders on this computer' : 'Reminders on this phone';
+
+describe.each(SIZES)('Reminders (%s)', (size) => {
+  const named = controls(size);
+
+  test('the daily reminder, its time and the one before a scheduled entry, as drawn', async () => {
+    stubPush({ permission: 'default' });
+    const page = await openBudgets(withWallet(), size);
+    expect(page.getByRole('switch', { name: named.daily })).toHaveProperty('checked', true);
+    expect(page.getByRole('button', { name: named.time('9:00 PM') })).toBeTruthy();
+    expect(page.getByRole('button', { name: named.before('1 day before') })).toBeTruthy();
+    expect(page.getByText("If nothing's added that day")).toBeTruthy();
+    expect(page.getByText('The day before a scheduled entry')).toBeTruthy();
+  });
+
+  test('the daily reminder off is saved', async () => {
+    stubPush({ permission: 'default' });
+    const server = withWallet();
+    const page = await openBudgets(server, size);
+    await userEvent.setup().click(page.getByRole('switch', { name: named.daily }));
+    await waitFor(() => expect(server.me.settings.dailyReminder).toBe(false));
+    expect(page.getByRole('switch', { name: named.daily })).toHaveProperty('checked', false);
+  });
+
+  test('a new time is saved, and shown on the person’s clock', async () => {
+    stubPush({ permission: 'default' });
+    const server = withWallet();
+    const page = await openBudgets(server, size);
+    const user = userEvent.setup();
+    await user.click(page.getByRole('button', { name: named.time('9:00 PM') }));
+    const sheet = within(await screen.findByRole('dialog', { name: 'Remind me at' }));
+    const field = sheet.getByLabelText<HTMLInputElement>('Time');
+    expect(field.value).toBe('21:00');
+    fireEvent.change(field, { target: { value: '20:30' } });
+    await user.click(sheet.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(server.me.settings.reminderTime).toBe('20:30'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(page.getByRole('button', { name: named.time('8:30 PM') })).toBeTruthy();
+  });
+
+  test('how many days before, or none, is saved as it is picked', async () => {
+    stubPush({ permission: 'default' });
+    const server = withWallet();
+    const page = await openBudgets(server, size);
+    const user = userEvent.setup();
+    await user.click(page.getByRole('button', { name: named.before('1 day before') }));
+    let sheet = within(await screen.findByRole('dialog', { name: 'Before one is added' }));
+    expect(sheet.getByRole('radio', { name: '1 day before' })).toHaveProperty('checked', true);
+    expect(sheet.getAllByRole('radio').map((r) => r.closest('label')?.textContent)).toEqual([
+      'Off',
+      '1 day before',
+      '2 days before',
+      '3 days before',
+      '4 days before',
+      '5 days before',
+      '6 days before',
+      '7 days before',
+    ]);
+    await user.click(sheet.getByRole('radio', { name: '3 days before' }));
+    await waitFor(() => expect(server.me.settings.scheduledReminderDays).toBe(3));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    await user.click(page.getByRole('button', { name: named.before('3 days before') }));
+    sheet = within(await screen.findByRole('dialog', { name: 'Before one is added' }));
+    await user.click(sheet.getByRole('radio', { name: 'Off' }));
+    await waitFor(() => expect(server.me.settings.scheduledReminderDays).toBeNull());
+    expect(await page.findByRole('button', { name: named.before('Off') })).toBeTruthy();
+  });
+
+  test('allowing notifications subscribes this device for the account, from the tap', async () => {
+    const browser = stubPush({ permission: 'default', answer: 'granted' });
+    const server = withWallet();
+    const page = await openBudgets(server, size);
+    // Never asked on its own
+    expect(browser.asked).toBe(0);
+    const row = within(page.getByText(here(size)).closest('[data-setting]') as HTMLElement);
+    expect(row.getByText('Allow notifications to get them here')).toBeTruthy();
+    await userEvent.setup().click(row.getByRole('button', { name: 'Allow notifications' }));
+    expect(browser.asked).toBe(1);
+    expect(await row.findByText('Allowed: they come here')).toBeTruthy();
+    expect(row.queryByRole('button', { name: 'Allow notifications' })).toBeNull();
+    expect(browser.subscribedWith).toEqual([server.pushKey]);
+    expect(server.pushSubscriptions).toEqual([
+      {
+        email: 'ryan@example.com',
+        endpoint: PUSH_ENDPOINT,
+        keys: { p256dh: expect.any(String), auth: expect.any(String) },
+      },
+    ]);
+  });
+
+  test('says when this device already gets them', async () => {
+    stubPush({ permission: 'granted', subscribed: true });
+    const server = withWallet();
+    server.pushSubscriptions.push({
+      email: 'ryan@example.com',
+      endpoint: PUSH_ENDPOINT,
+      keys: { p256dh: 'p', auth: 'a' },
+    });
+    const page = await openBudgets(server, size);
+    expect(await page.findByText('Allowed: they come here')).toBeTruthy();
+    expect(page.queryByRole('button', { name: 'Allow notifications' })).toBeNull();
+  });
+
+  test('the browser refusing permission: says how to allow them, and subscribes nothing', async () => {
+    const browser = stubPush({ permission: 'default', answer: 'denied' });
+    const server = withWallet();
+    const page = await openBudgets(server, size);
+    await userEvent.setup().click(page.getByRole('button', { name: 'Allow notifications' }));
+    expect(
+      await page.findByText(
+        "Notifications are blocked. Allow them for Mahnee in the browser's settings.",
+      ),
+    ).toBeTruthy();
+    expect(page.queryByRole('button', { name: 'Allow notifications' })).toBeNull();
+    expect(browser.subscribedWith).toEqual([]);
+    expect(server.pushSubscriptions).toEqual([]);
+  });
+
+  test('blocked before: says so, without asking', async () => {
+    const browser = stubPush({ permission: 'denied' });
+    const page = await openBudgets(withWallet(), size);
+    expect(
+      await page.findByText(
+        "Notifications are blocked. Allow them for Mahnee in the browser's settings.",
+      ),
+    ).toBeTruthy();
+    expect(browser.asked).toBe(0);
+  });
+
+  test('the server refusing the subscription: says why, and lets the browser go', async () => {
+    const browser = stubPush({ permission: 'default', answer: 'granted' });
+    const server = withWallet();
+    server.pushKey = null;
+    const page = await openBudgets(server, size);
+    await userEvent.setup().click(page.getByRole('button', { name: 'Allow notifications' }));
+    expect(await screen.findByText("Reminders aren't ready on the server yet.")).toBeTruthy();
+    expect(server.pushSubscriptions).toEqual([]);
+    expect(browser.subscription).toBeNull();
+    expect(page.getByRole('button', { name: 'Allow notifications' })).toBeTruthy();
+  });
+
+  test('a browser that can’t show notifications says so', async () => {
+    stubPush({ supported: false });
+    const page = await openBudgets(withWallet(), size);
+    expect(await page.findByText("This browser can't show notifications.")).toBeTruthy();
+    expect(page.queryByRole('button', { name: 'Allow notifications' })).toBeNull();
+  });
+
+  test('with every reminder off, there is nothing to allow', async () => {
+    stubPush({ permission: 'default' });
+    const server = withWallet();
+    server.me.settings.dailyReminder = false;
+    server.me.settings.scheduledReminderDays = null;
+    const page = await openBudgets(server, size);
+    expect(page.queryByText(here(size))).toBeNull();
+    expect(page.queryByRole('button', { name: 'Allow notifications' })).toBeNull();
+  });
+});
+
+test('an iPhone asks for the app on the Home Screen first', async () => {
+  stubPush({ supported: false, iphone: true });
+  const page = await openBudgets(withWallet(), 'phone');
+  expect(await page.findByText('Add Mahnee to your Home Screen to get them.')).toBeTruthy();
+});
+
+test('signing out lets this device go, on the server and in the browser', async () => {
+  const browser = stubPush({ permission: 'granted', subscribed: true });
+  const server = withWallet();
+  server.pushSubscriptions.push({
+    email: 'ryan@example.com',
+    endpoint: PUSH_ENDPOINT,
+    keys: { p256dh: 'p', auth: 'a' },
+  });
+  renderApp(server, '/?settings', { size: 'phone' });
+  const sentTo: string[] = [];
+  const real = window.location;
+  vi.stubGlobal(
+    'location',
+    new Proxy(
+      {},
+      {
+        get: (_, key) => Reflect.get(real, key),
+        set: (_, key, value: string) => {
+          if (key === 'href') sentTo.push(value);
+          return true;
+        },
+      },
+    ),
+  );
+  await userEvent.setup().click(await screen.findByRole('button', { name: 'Sign out' }));
+  await waitFor(() => expect(sentTo).toEqual(['/cdn-cgi/access/logout']));
+  vi.unstubAllGlobals();
+  expect(server.pushSubscriptions).toEqual([]);
+  expect(browser.subscription).toBeNull();
 });

@@ -5,11 +5,14 @@ import { MAX_CHANGES, MAX_CHANGES_BYTES } from '@shared/api';
 import { api } from '../api';
 import type { Answer } from '../testing/sw';
 import {
+  appWindow,
   backgroundSync,
+  clickNotification,
   fakeCaches,
   fetchThroughWorker,
   keptPaths,
   ok,
+  pushToWorker,
   respond,
 } from '../testing/sw';
 import { clearCache, setCacheUser } from './cache';
@@ -225,5 +228,79 @@ describe('reading the answer to sending changes', () => {
       expect(outcome).toBe('done');
       expect(await readOutbox(RYAN)).toEqual([]);
     }
+  });
+});
+
+// Reminders (owner decision D6): the server's push message is shown as a notification, its
+// text as sent (it names the item and amount, visible on a locked phone, as the owner
+// chose), and tapping it opens the app where the message points, in a window already open
+// when there is one. Only the app's own pages are ever opened.
+describe('the service worker, with reminders', () => {
+  const ORIGIN = 'https://mahnee.test';
+  const tnb = {
+    title: 'TNB RM 189.00 is added tomorrow',
+    body: 'From Scheduled. Tap to check it.',
+    url: '/?plan=scheduled',
+    tag: 'scheduled',
+  };
+
+  test('shows the message as sent, kept under its tag, to open where it points', async () => {
+    expect(await pushToWorker(JSON.stringify(tnb))).toEqual([
+      {
+        title: 'TNB RM 189.00 is added tomorrow',
+        options: {
+          body: 'From Scheduled. Tap to check it.',
+          tag: 'scheduled',
+          icon: '/icon-192.png',
+          data: { url: '/?plan=scheduled' },
+        },
+      },
+    ]);
+  });
+
+  test.each([
+    ['no data', null],
+    ['data that is not JSON', 'not json'],
+    ['JSON without a title', '{"body":"x"}'],
+  ])('still shows a notification for a message with %s', async (_name, text) => {
+    expect(await pushToWorker(text)).toEqual([
+      {
+        title: 'Mahnee',
+        options: {
+          body: 'Open Mahnee to see your reminder.',
+          tag: 'reminder',
+          icon: '/icon-192.png',
+          data: { url: '/' },
+        },
+      },
+    ]);
+  });
+
+  test.each(['https://elsewhere.example/', '//elsewhere.example/x', 'javascript:alert(1)', 42])(
+    'opens only its own pages: %s becomes Home',
+    async (url) => {
+      const [shown] = await pushToWorker(JSON.stringify({ ...tnb, url }));
+      expect(shown.options.data).toEqual({ url: '/' });
+    },
+  );
+
+  test('a tap brings an open window of the app to the page, and opens no other', async () => {
+    const open = appWindow(`${ORIGIN}/?activity`);
+    const { close, openWindow } = await clickNotification({ url: '/?plan=scheduled' }, [open]);
+    expect(close).toHaveBeenCalled();
+    expect(open.navigate).toHaveBeenCalledWith(`${ORIGIN}/?plan=scheduled`);
+    expect(open.focus).toHaveBeenCalled();
+    expect(openWindow).not.toHaveBeenCalled();
+  });
+
+  test('a tap with no window open opens the app at the page', async () => {
+    const { close, openWindow } = await clickNotification({ url: '/' }, []);
+    expect(close).toHaveBeenCalled();
+    expect(openWindow).toHaveBeenCalledWith(`${ORIGIN}/`);
+  });
+
+  test('a tap on a notification pointing elsewhere opens Home', async () => {
+    const { openWindow } = await clickNotification({ url: 'https://elsewhere.example/' }, []);
+    expect(openWindow).toHaveBeenCalledWith(`${ORIGIN}/`);
   });
 });

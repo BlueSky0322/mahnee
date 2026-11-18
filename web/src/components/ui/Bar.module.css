@@ -28,7 +28,6 @@
   top: -4px;
   bottom: -4px;
   width: 2px;
-  margin-left: -1px;
   border-radius: 2px;
   background: var(--ink-3);
 }

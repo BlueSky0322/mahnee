@@ -112,15 +112,20 @@ const comingRows = () =>
     .map((li) => li.textContent);
 
 describe.each(SIZES)('Home shows (%s)', (size) => {
-  test('Essentials: the month end, Tidy up and the next scheduled item, nothing else', async () => {
+  test('Essentials: the month end, Tidy up and (on a computer) the next scheduled item, nothing else', async () => {
     onTheTenth();
     renderApp(aMonth('essentials'), '/', { size });
     const hero = await monthEnd(size);
     // RM 975.00 today, less RM 189.00 and RM 21.00 of bills
     await waitFor(() => expect(hero.textContent).toContain('RM 765.00'));
     await waitFor(() => expect(tidyUp()).not.toBeNull());
-    await waitFor(() => expect(comingRows()).toHaveLength(1));
-    expect(comingRows()[0]).toMatch(/^TNB electricity/);
+    if (size === 'desktop') {
+      await waitFor(() => expect(comingRows()).toHaveLength(1));
+      expect(comingRows()[0]).toMatch(/^TNB electricity/);
+    } else {
+      // A phone's Home has no Coming up (R-Home; owner, 2026-11-18)
+      expect(screen.queryByRole('region', { name: 'Coming up' })).toBeNull();
+    }
     // The two cards, the calendar and the budgets are hidden
     expect(screen.queryByRole('link', { name: /^Expenses so far/ })).toBeNull();
     expect(screen.queryByRole('link', { name: /^Income/ })).toBeNull();
@@ -138,7 +143,8 @@ describe.each(SIZES)('Home shows (%s)', (size) => {
     expect(screen.getByRole('link', { name: /^Income/ })).toBeTruthy();
     expect(await screen.findByRole('region', { name: 'Day by day' })).toBeTruthy();
     expect(await screen.findByRole('region', { name: 'Budgets' })).toBeTruthy();
-    await waitFor(() => expect(comingRows()).toHaveLength(2));
+    if (size === 'desktop') await waitFor(() => expect(comingRows()).toHaveLength(2));
+    else expect(screen.queryByRole('region', { name: 'Coming up' })).toBeNull();
     expect(tidyUp()).not.toBeNull();
   });
 

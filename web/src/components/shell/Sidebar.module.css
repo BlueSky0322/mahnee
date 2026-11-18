@@ -27,6 +27,19 @@
   border-radius: 14px;
 }
 
+/* New entry's keycap sits at the button's own padding, drawn as the design's keycap */
+.newEntry[data-with-right-section] {
+  padding-inline-end: 16px;
+}
+
+.newEntry kbd {
+  min-width: 0;
+  height: auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-family: 'Geist Mono', monospace;
+}
+
 .nav {
   display: flex;
   flex-direction: column;

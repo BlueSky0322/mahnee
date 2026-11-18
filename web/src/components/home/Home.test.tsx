@@ -188,6 +188,24 @@ describe('Home at a glance', () => {
     if (size === 'desktop') expect(hero.getAttribute('href')).toBe('?plan=scheduled');
   });
 
+  test.each(SIZES)("colours the month end's parts as drawn (%s)", async (size) => {
+    tenthJustAfterMidnight();
+    renderApp(aMonthUnderWay(), '/', { size });
+    const hero = within(await monthEnd(size));
+    await waitFor(() => expect(hero.getByText(/^− RM 189\.00/)).toBeTruthy());
+    if (size === 'phone') {
+      // A phone's line: the bills amount in the negative colour, the pay amount in the positive
+      expect(hero.getByText('− RM 189.00').className).toMatch(/neg/);
+      expect(hero.getByText('+ RM 6,800.00').className).toMatch(/pos/);
+    } else {
+      // A computer's: the bills in the line's own colour, the whole pay part in the positive
+      const bills = hero.getByText('− RM 189.00 bills');
+      expect(bills.className).not.toMatch(/neg/);
+      expect(bills.querySelector('[class*="neg"]')).toBeNull();
+      expect(hero.getByText('+ RM 6,800.00 pay').className).toMatch(/pos/);
+    }
+  });
+
   test.each(SIZES)('names the month, with arrows back but not past this one (%s)', async (size) => {
     tenthJustAfterMidnight();
     renderApp(aMonthUnderWay(), '/', { size });
@@ -309,12 +327,35 @@ describe('Home at a glance', () => {
           name: 'Food: 40% of budget spent, 33% of the month gone',
         }),
       ).toBeTruthy();
+      // Faster than the month: a warning sign before the words on a phone, the words alone
+      // on a computer, as drawn
+      const faster = within(budgets).getByText(/faster than the month$/);
+      expect(faster.querySelector('svg') != null).toBe(size === 'phone');
+      expect(
+        within(budgets)
+          .getByText(/on track$/)
+          .querySelector('svg'),
+      ).toBeNull();
     },
   );
 
-  test.each(SIZES)('lists what is coming up, and where it goes (%s)', async (size) => {
+  test("a phone's Home leaves what's coming up to the calendar's dots and Scheduled, as drawn", async () => {
     tenthJustAfterMidnight();
-    renderApp(aMonthUnderWay(), '/', { size });
+    renderApp(aMonthUnderWay(), '/', { size: 'phone' });
+    const days = await screen.findByRole('region', { name: 'Day by day' });
+    await waitFor(() =>
+      expect(
+        within(days).getByRole('link', { name: 'November 20, TNB electricity due' }),
+      ).toBeTruthy(),
+    );
+    expect(await screen.findByRole('region', { name: 'Budgets' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Coming up' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'All scheduled' })).toBeNull();
+  });
+
+  test('on a computer, lists what is coming up, and where it goes', async () => {
+    tenthJustAfterMidnight();
+    renderApp(aMonthUnderWay(), '/', { size: 'desktop' });
     const coming = await screen.findByRole('region', { name: 'Coming up' });
     expect(within(coming).getByRole('link', { name: 'All scheduled' })).toBeTruthy();
     expect(rows(coming)).toEqual([
@@ -385,13 +426,17 @@ describe('Home at a glance', () => {
         }),
       );
       renderApp(server, '/', { size });
-      const coming = await screen.findByRole('region', { name: 'Coming up' });
-      expect(rows(coming)).toEqual(['Top-up · RM 300.00 Nov 28 · Maybank Savings to Cash']);
+      // Listed in Coming up on a computer; a phone's Home has none (as drawn)
+      if (size === 'desktop') {
+        const coming = await screen.findByRole('region', { name: 'Coming up' });
+        expect(rows(coming)).toEqual(['Top-up · RM 300.00 Nov 28 · Maybank Savings to Cash']);
+      }
       // Moving money between the person's own accounts is neither a bill nor pay
       const hero = await monthEnd(size);
       await waitFor(() => expect(text(hero)).toContain('RM 5,200.00 today'));
       expect(text(hero)).not.toContain('bills');
       expect(text(hero)).not.toContain('pay');
+      if (size === 'phone') expect(screen.queryByRole('region', { name: 'Coming up' })).toBeNull();
     },
   );
 

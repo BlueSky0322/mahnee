@@ -1,5 +1,5 @@
 import { Button, Menu } from '@mantine/core';
-import { CaretDown, CaretRight } from '@phosphor-icons/react';
+import { DownIcon, ForwardIcon } from '../ui/icons';
 import { useState } from 'react';
 import type { Category, Recurring, Settings } from '@shared/api';
 import { periodMonthOf, periodOf } from '@shared/period';
@@ -166,11 +166,11 @@ function MoneyCard({ settings, pays }: { settings: Settings; pays: Recurring[] }
             </div>
             <Button
               variant="default"
-              size="compact-md"
+              size="xs"
               aria-label={`${month.name}: ${monthValue}`}
               aria-haspopup="dialog"
               aria-expanded={draft != null}
-              rightSection={<CaretDown size={14} />}
+              rightSection={<DownIcon size={14} />}
               onClick={() => setDraft(saved)}
             >
               {monthValue}
@@ -194,7 +194,7 @@ function MoneyCard({ settings, pays }: { settings: Settings; pays: Recurring[] }
                 <span className={classes.detail}>{month.line}</span>
               </span>
               <span className={classes.value}>{monthValue}</span>
-              <CaretRight
+              <ForwardIcon
                 size={16}
                 className={classes.caret}
               />
@@ -229,6 +229,8 @@ function MoneyCard({ settings, pays }: { settings: Settings; pays: Recurring[] }
         opened={draft != null}
         onClose={close}
         title={month.name}
+        // Its own Done is at its foot
+        closeLabel={null}
       >
         {draft != null && (
           <MonthSheet
@@ -337,7 +339,7 @@ function MonthSheet({
               <Button
                 variant="default"
                 justify="space-between"
-                rightSection={<CaretDown size={14} />}
+                rightSection={<DownIcon size={14} />}
               >
                 {pay == null ? '' : payLabel(pay, categories)}
               </Button>
@@ -370,8 +372,8 @@ function MonthSheet({
       <div className={money.actions}>
         {isDesktop && (
           <Button
-            variant="subtle"
-            size="compact-md"
+            variant="light"
+            size="xs"
             onClick={onCancel}
           >
             Cancel

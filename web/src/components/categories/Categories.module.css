@@ -61,6 +61,7 @@
 /* Income's card, tinted green as the boards draw it */
 .income {
   background: color-mix(in srgb, var(--pos) 5%, var(--surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pos) 22%, var(--line));
 }
 
 .list > li + li {

@@ -1,12 +1,6 @@
 import { Button } from '@mantine/core';
-import {
-  ArrowsLeftRight,
-  CaretLeft,
-  MagnifyingGlass,
-  PencilSimple,
-  Plus,
-  Receipt,
-} from '@phosphor-icons/react';
+import { PencilSimple, Receipt } from '@phosphor-icons/react';
+import { PlusIcon, SearchIcon, TransferIcon } from '../ui/icons';
 import { useState } from 'react';
 import type { Account, Category, Transaction } from '@shared/api';
 import { goUp } from '../../hooks/useRoute';
@@ -19,6 +13,7 @@ import AccountForm from './AccountForm';
 import { useAccountActions } from './account-actions';
 import { balanceText, entryRow, kindLine } from './account-text';
 import classes from './AccountsPage.module.css';
+import BackButton from '../ui/BackButton';
 
 /** Placeholder rows while the transactions load */
 const LOADING_ROWS = 5;
@@ -36,20 +31,11 @@ export default function AccountPage({ id }: { id: string }) {
   return (
     <div className={classes.page}>
       <header className={classes.pageHeader}>
-        <Button
-          variant="subtle"
-          color="gray"
-          size="compact-md"
-          className={classes.back}
-          leftSection={<CaretLeft size={16} />}
-          onClick={() => goUp('?accounts')}
-        >
-          Accounts
-        </Button>
+        <BackButton onClick={() => goUp('?accounts')}>Accounts</BackButton>
         {account != null && (
           <Button
             variant="light"
-            size="compact-md"
+            size="xs"
             leftSection={<PencilSimple size={16} />}
             onClick={() => setEditing(true)}
           >
@@ -148,7 +134,7 @@ export function ArchivedNote({ account }: { account: Account }) {
       <span className={classes.soft}>Hidden when adding entries</span>
       <Button
         variant="default"
-        size="compact-md"
+        size="xs"
         onClick={unarchive}
       >
         Unarchive
@@ -167,7 +153,7 @@ function Actions({ account }: { account: Account }) {
         className={classes.action}
         onClick={addHere}
       >
-        <Plus
+        <PlusIcon
           size={20}
           aria-hidden
         />
@@ -178,7 +164,7 @@ function Actions({ account }: { account: Account }) {
         className={classes.action}
         onClick={transfer}
       >
-        <ArrowsLeftRight
+        <TransferIcon
           size={20}
           aria-hidden
         />
@@ -189,7 +175,7 @@ function Actions({ account }: { account: Account }) {
         className={classes.action}
         onClick={search}
       >
-        <MagnifyingGlass
+        <SearchIcon
           size={20}
           aria-hidden
         />

@@ -1,17 +1,17 @@
 import { useThisMonth } from '../../ledger/month-start';
 import { Button } from '@mantine/core';
+import BackButton from '../ui/BackButton';
 import {
-  ArrowsDownUp,
-  Bell,
-  CaretLeft,
-  CaretRight,
-  CircleHalf,
-  Money,
-  PlusCircle,
-  Tag,
-  User,
-  X,
-} from '@phosphor-icons/react';
+  AddingIcon,
+  BellIcon,
+  CloseIcon,
+  DataIcon,
+  ForwardIcon,
+  LookIcon,
+  MoneyIcon,
+  PersonIcon,
+  TagIcon,
+} from '../ui/icons';
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { SettingsSection } from '../../hooks/useRoute';
@@ -54,13 +54,13 @@ import classes from './Settings.module.css';
 
 /** Each section's icon, in the order the sections are listed */
 const ICONS: Record<SettingsSection, ReactNode> = {
-  account: <User size={18} />,
-  money: <Money size={18} />,
-  adding: <PlusCircle size={18} />,
-  look: <CircleHalf size={18} />,
-  budgets: <Bell size={18} />,
-  categories: <Tag size={18} />,
-  data: <ArrowsDownUp size={18} />,
+  account: <PersonIcon size={18} />,
+  money: <MoneyIcon size={18} />,
+  adding: <AddingIcon size={18} />,
+  look: <LookIcon size={18} />,
+  budgets: <BellIcon size={18} />,
+  categories: <TagIcon size={18} />,
+  data: <DataIcon size={18} />,
 };
 
 const APP_SECTIONS = ['money', 'adding', 'look', 'budgets'] as const;
@@ -168,7 +168,7 @@ function SettingsIndex() {
                 <div className={classes.name}>{you.name}</div>
                 <div className={classes.detail}>{you.email}</div>
               </div>
-              <CaretRight
+              <ForwardIcon
                 size={16}
                 className={classes.caret}
                 aria-hidden
@@ -252,7 +252,7 @@ function SectionLink({ section, summary }: { section: SettingsSection; summary: 
         <div className={classes.label}>{SECTION_NAMES[section]}</div>
         {summary != null && <div className={classes.detail}>{summary}</div>}
       </div>
-      <CaretRight
+      <ForwardIcon
         size={16}
         className={classes.caret}
         aria-hidden
@@ -324,7 +324,7 @@ function DesktopSettings({ section }: { section: SettingsSection }) {
           onClick={closeSettings}
         >
           <span className={classes.closeIcon}>
-            <X size={18} />
+            <CloseIcon size={18} />
           </span>
           <Key>Esc</Key>
         </button>
@@ -399,21 +399,5 @@ export function SectionHeader({ title, actions }: { title: string; actions?: Rea
         {isDesktop && actions != null && <span className={classes.headerActions}>{actions}</span>}
       </div>
     </>
-  );
-}
-
-/** Back to the page above, named on the button */
-export function BackButton({ onClick, children }: { onClick: () => void; children: string }) {
-  return (
-    <Button
-      variant="subtle"
-      color="gray"
-      size="compact-md"
-      className={classes.back}
-      leftSection={<CaretLeft size={16} />}
-      onClick={onClick}
-    >
-      {children}
-    </Button>
   );
 }

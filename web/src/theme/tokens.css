@@ -19,7 +19,7 @@
   --neg-tint: #f8e4e0;
   --due: #8a5300;
   --due-tint: #f7ecd8;
-  /* Category colours, from each category's place in the list (utils/category-colour.ts) */
+  /* Category colours: the starting categories' own, others' from their id (utils/category-colour.ts) */
   --c1: #3b6fd8;
   --c2: #d2652c;
   --c3: #17876a;
@@ -114,12 +114,26 @@
   --tabbar-h: calc(60px + max(24px, var(--sf-safe-bottom)));
 }
 
+/* Text sits at the font's own line height, as the design's does (it sets none); a block
+   that wants more says so */
+html,
+body {
+  line-height: normal;
+}
+
 body {
   background: var(--ground);
   color: var(--ink);
   font-family: Geist, 'Helvetica Neue', Arial, sans-serif;
   letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
+}
+
+/* What isn't typed yet is in the quiet ink, as the design's fields are */
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
 }
 
 /* Larger text sits tighter */
@@ -164,6 +178,15 @@ h3,
   background: color-mix(in srgb, var(--accent) 88%, var(--ink));
 }
 
+/* A keycap on a filled button is drawn in the button's own ink, as an outline */
+.mantine-Button-root[data-variant='filled'] kbd,
+.mantine-ActionIcon-root[data-variant='filled'] kbd {
+  background: transparent;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--accent-ink) 40%, transparent);
+  color: var(--accent-ink);
+}
+
 /* Text buttons are links: the accent, in both themes */
 .mantine-Button-root[data-variant='subtle'] {
   color: var(--accent);
@@ -200,6 +223,18 @@ h3,
 /* Icon buttons are round */
 .mantine-ActionIcon-root {
   --ai-radius: 999px;
+}
+
+/* Back to the page above (ui/BackButton): a chevron and the name in ink, its chevron
+   just past the page's edge */
+.mantine-Button-root.sf-back {
+  color: var(--ink);
+  padding: 0 10px 0 2px;
+  margin-left: -6px;
+  font-size: 0.84375rem;
+}
+.sf-back .mantine-Button-section[data-position='left'] {
+  margin-inline-end: 8px;
 }
 
 /* Destructive text buttons use the app's red in both themes */
@@ -289,6 +324,13 @@ h3,
   font-size: 0.9375rem;
 }
 
+/* A field's leading icon sits 14px in, in the quiet ink, with the text 10px after it */
+.mantine-Input-section.sf-lead {
+  justify-content: flex-start;
+  padding-left: 14px;
+  color: var(--ink-3);
+}
+
 /* Field labels are small and quiet; the value is what matters */
 .mantine-InputWrapper-label {
   font-size: 0.8125rem;
@@ -330,4 +372,58 @@ h3,
 .mantine-SegmentedControl-label[data-active],
 .mantine-SegmentedControl-label[data-active]:hover {
   color: var(--ink);
+}
+
+/* Switches: a 44 by 26 pill, the accent when on and the darker line when off, with a white
+   thumb 3px in from its edge */
+.mantine-Switch-root {
+  --switch-height: 26px;
+  --switch-width: 44px;
+  --switch-thumb-size: 20px;
+  --switch-track-label-padding: 2px;
+  --switch-color: var(--accent);
+}
+:root .mantine-Switch-track {
+  --switch-bg: var(--line-2);
+  --switch-bd: var(--line-2);
+}
+:root .mantine-Switch-thumb {
+  --switch-thumb-bd: transparent;
+  --switch-thumb-bg: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Tick boxes: a rounded square edged with the darker line, filled with the accent and a
+   check when ticked; 24px on phones and tablets, 20px on a computer */
+.sf-tick {
+  appearance: none;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  border: 1.5px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--surface) center / 14px no-repeat;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.sf-tick:checked {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E");
+}
+:root[data-mantine-color-scheme='dark'] .sf-tick:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f1012' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E");
+}
+.sf-tick:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (min-width: 1024px) {
+  .sf-tick {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    background-size: 12px;
+  }
 }

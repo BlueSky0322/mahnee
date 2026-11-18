@@ -1,4 +1,4 @@
-import { ArrowsLeftRight } from '@phosphor-icons/react';
+import { TransferIcon } from '../ui/icons';
 import type { Category, Transaction } from '@shared/api';
 import { categoryColour } from '../../utils/category-colour';
 import Tile from '../ui/Tile';
@@ -8,7 +8,7 @@ export default function EntryTile({ t, categories }: { t: Transaction; categorie
   if (t.kind === 'transfer') {
     return (
       <Tile>
-        <ArrowsLeftRight size={18} />
+        <TransferIcon size={18} />
       </Tile>
     );
   }

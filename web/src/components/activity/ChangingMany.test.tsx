@@ -265,6 +265,40 @@ describe('moving several to another category', () => {
     },
   );
 
+  test.each(SIZES)(
+    'the sheet says what it moves under its title, and Cancel closes it with nothing moved (%s)',
+    async (size) => {
+      const server = withSpending();
+      const user = await openActivity(server, size);
+      await user.click(tick('first other'));
+      await user.click(tick('second other'));
+      await user.click(tick('third other'));
+      await changeCategory(user);
+      const dialog = await screen.findByRole('dialog', {
+        name: size === 'phone' ? 'Change the category of 3' : 'Change the category of 3 entries',
+      });
+      // Its line sits under the title, above the search
+      const sheet = within(dialog);
+      const title = sheet.getByRole('heading', { level: 2 });
+      const line = sheet.getByText(
+        size === 'phone' ? 'Stall, Nov 7, 6 and Oct 23 · now in Other' : 'All Stall, now in Other',
+      );
+      expect(title.nextElementSibling).toBe(line);
+      expect(
+        line.compareDocumentPosition(sheet.getByRole('searchbox', { name: 'Find a category' })) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      // One way to leave it: Cancel on a phone's sheet, Cancel or Close on a computer's dialog
+      expect(sheet.getAllByRole('button', { name: 'Cancel' })).toHaveLength(1);
+      if (size === 'phone') expect(sheet.queryByRole('button', { name: /close/i })).toBeNull();
+      else expect(sheet.getByRole('button', { name: 'Close' })).toBeTruthy();
+      await user.click(sheet.getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(byNote(server, 'first other').categoryId).toBe(OTHER);
+      expect(screen.getByText('3 selected')).toBeTruthy();
+    },
+  );
+
   test('to a category under another, or to one with no budget; the list can be searched', async () => {
     const server = withSpending();
     const user = await openActivity(server, 'phone');

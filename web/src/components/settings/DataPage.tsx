@@ -160,8 +160,8 @@ function RecentImports() {
                 )}
               </div>
               <Button
-                variant="default"
-                size="compact-md"
+                variant="light"
+                size="xs"
                 onClick={() => setUndoing(record)}
               >
                 {isDesktop ? 'Undo import' : 'Undo'}
@@ -271,9 +271,8 @@ function RememberedLayouts() {
               <div className={classes.detail}>{columnsOf(mapping)}</div>
             </div>
             <Button
-              variant="subtle"
-              color="gray"
-              size="compact-md"
+              variant="light"
+              size="xs"
               onClick={() => {
                 forgetMapping(email, account.id);
                 setForgotten((n) => n + 1);

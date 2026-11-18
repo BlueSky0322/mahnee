@@ -279,10 +279,6 @@
   min-height: 48px;
 }
 
-.back {
-  margin-left: -6px;
-}
-
 .summary {
   display: flex;
   flex-direction: column;

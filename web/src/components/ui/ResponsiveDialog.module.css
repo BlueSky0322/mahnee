@@ -1,3 +1,4 @@
+/* A phone's bottom sheet (the design's .sheet) */
 .sheet {
   height: auto;
   /* Above the on-screen keyboard where the page doesn't shrink for it (pwa/keyboard-inset.ts) */
@@ -5,6 +6,7 @@
   max-height: calc(100dvh - 40px - var(--sf-keyboard, 0px));
   transition: margin-bottom 120ms ease-out;
   border-radius: 26px 26px 0 0;
+  background: var(--surface);
   box-shadow: 0 -10px 40px rgba(15, 16, 18, 0.18);
   padding-bottom: var(--sf-safe-bottom);
 }
@@ -20,45 +22,82 @@
   background: var(--line-2);
 }
 
+/* The title, its line under it, and Cancel at the right */
 .sheetHeader {
-  padding: 12px 20px 4px;
-  font-size: 1.0625rem;
-  font-weight: 600;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 0;
+  padding: 12px 16px 4px;
+  background: var(--surface);
 }
 
 .sheetBody {
-  padding: 8px 20px 20px;
+  padding: 8px 16px 20px;
 }
 
-.title {
+.heading {
   flex: 1;
   min-width: 0;
-  font-size: 1.0625rem;
-  font-weight: 600;
-}
-
-.sheetTitle {
-  flex: 1;
-  min-width: 0;
-}
-
-.modalBody {
-  padding: 4px 24px 24px;
-}
-
-.sheetTitleRow {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  /* Level with the 34px Cancel beside it */
+  min-height: 34px;
+  justify-content: center;
 }
 
 /* The whole title, over as many lines as it takes, rather than cut with an ellipsis */
-.sheetTitleText {
-  flex: 1;
-  min-width: 0;
+.sheetTitle {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
   line-height: 1.3;
   overflow-wrap: anywhere;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+/* A computer's dialog: 22px corners, a deep shadow */
+.dialog {
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 24px 64px rgba(15, 16, 18, 0.28);
+}
+
+.dialogHeader {
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 0;
+  padding: 20px 20px 0 24px;
+  background: var(--surface);
+}
+
+.dialogHeader .heading {
+  gap: 4px;
+  min-height: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+/* Close: a 44px round button in the softer ink, its cross level with the title */
+.close {
+  flex: none;
+  margin: -12px -8px 0 0;
+  color: var(--ink-2);
+}
+
+.modalBody {
+  padding: 14px 24px 24px;
 }
 
 /* A form's own buttons, by the title */

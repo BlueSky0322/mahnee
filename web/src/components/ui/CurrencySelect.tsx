@@ -1,6 +1,6 @@
 import type { ComboboxItem, OptionsFilter, SelectProps } from '@mantine/core';
 import { Select } from '@mantine/core';
-import { CaretDown } from '@phosphor-icons/react';
+import { DownIcon } from './icons';
 import { useEffect, useMemo, useState } from 'react';
 import { COMMON_CURRENCIES } from '@shared/rates';
 import { listCurrencies } from '../../utils/money';
@@ -85,7 +85,7 @@ const CurrencySelect = ({ value, onChange, first = [], ...props }: CurrencySelec
         setSearch(value);
         props.onBlur?.(e);
       }}
-      rightSection={<CaretDown size={12} />}
+      rightSection={<DownIcon size={12} />}
       rightSectionPointerEvents="none"
       renderOption={({ option }) => (
         <span className="flex min-w-0 items-baseline gap-2">

@@ -27,14 +27,6 @@
   border-radius: 14px;
 }
 
-/* The keycap reads on the accent fill */
-.newEntry kbd {
-  border-color: color-mix(in srgb, var(--accent-ink) 40%, transparent);
-  box-shadow: none;
-  background: transparent;
-  color: var(--accent-ink);
-}
-
 .nav {
   display: flex;
   flex-direction: column;

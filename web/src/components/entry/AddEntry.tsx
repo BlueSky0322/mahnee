@@ -1,5 +1,5 @@
 import { Modal } from '@mantine/core';
-import { ArrowsClockwise, CalendarBlank, CaretRight, X } from '@phosphor-icons/react';
+import { CalendarIcon, CloseIcon, ForwardIcon, RepeatIcon } from '../ui/icons';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { LedgerChange } from '@shared/api';
@@ -90,12 +90,14 @@ export default function AddEntry({
       onClose={onClose}
       fullScreen={!isDesktop}
       size={560}
+      // A computer's opens 72px down the page, over a darker scrim
+      yOffset={72}
       closeOnEscape={false}
       classNames={{ content: isDesktop ? classes.dialog : classes.screen, body: classes.body }}
       transitionProps={{ duration: isDesktop ? 150 : 0 }}
     >
       <Modal.Overlay
-        backgroundOpacity={0.38}
+        backgroundOpacity={isDesktop ? 0.5 : 0.38}
         color="#0f1012"
       />
       <Modal.Content aria-label={isDesktop ? undefined : 'New entry'}>
@@ -121,7 +123,7 @@ const CloseButton = ({ onClose }: { onClose: () => void }) => (
     aria-label="Close, keeps what you typed as a draft"
     onClick={onClose}
   >
-    <X
+    <CloseIcon
       size={20}
       aria-hidden
     />
@@ -546,7 +548,7 @@ function AddForm({
           aria-expanded={showDate}
           onClick={() => setShowDate((shown) => !shown)}
         >
-          <CalendarBlank
+          <CalendarIcon
             size={16}
             aria-hidden
           />
@@ -559,7 +561,7 @@ function AddForm({
           aria-expanded={showRepeat}
           onClick={() => setShowRepeat((shown) => !shown)}
         >
-          <ArrowsClockwise
+          <RepeatIcon
             size={16}
             aria-hidden
           />
@@ -817,7 +819,7 @@ function Row({
         <span className={classes.vText}>{value}</span>
       </span>
       {hint !== '' && <span className={classes.h}>{hint}</span>}
-      <CaretRight
+      <ForwardIcon
         size={16}
         aria-hidden
         className={classes.caret}

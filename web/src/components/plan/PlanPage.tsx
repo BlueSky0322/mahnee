@@ -1,5 +1,5 @@
 import { Button } from '@mantine/core';
-import { CaretLeft, CaretRight, Plus, WarningCircle } from '@phosphor-icons/react';
+import { AlertIcon, BackIcon, ForwardIcon, PlusIcon } from '../ui/icons';
 import type { CSSProperties, ReactNode } from 'react';
 import { useId, useState } from 'react';
 import type { Category, Ledger, MonthSummary } from '@shared/api';
@@ -161,7 +161,7 @@ function Header({
         disabled={shown.month <= FIRST_MONTH}
         onClick={() => step(addMonths(shown.month, -1))}
       >
-        <CaretLeft size={20} />
+        <BackIcon size={20} />
       </button>
       <span className={classes.monthName}>
         {isDesktop
@@ -175,7 +175,7 @@ function Header({
         disabled={shown.isCurrent}
         onClick={() => step(addMonths(shown.month, 1))}
       >
-        <CaretRight size={20} />
+        <ForwardIcon size={20} />
       </button>
     </div>
   );
@@ -200,8 +200,9 @@ function Header({
   );
   const schedule = onSchedule != null && (
     <Button
-      variant="subtle"
-      leftSection={<Plus size={16} />}
+      variant={isDesktop ? 'filled' : 'light'}
+      size="xs"
+      leftSection={isDesktop ? undefined : <PlusIcon size={16} />}
       onClick={onSchedule}
     >
       {isDesktop ? 'Schedule something' : 'Schedule'}
@@ -414,7 +415,7 @@ function PhoneBudgets({ data, shown }: { data: Month; shown: PlanMonth }) {
             push
             className={classes.more}
           >
-            <Plus
+            <PlusIcon
               size={14}
               aria-hidden
             />
@@ -455,7 +456,7 @@ function PhoneBudgets({ data, shown }: { data: Month; shown: PlanMonth }) {
               <div className={`${classes.budgetMeta} ${tone || classes.muted}`}>
                 <span className={classes.metaStart}>
                   {words.pace === 'faster' && (
-                    <WarningCircle
+                    <AlertIcon
                       size={14}
                       aria-hidden
                     />

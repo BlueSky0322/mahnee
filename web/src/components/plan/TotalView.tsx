@@ -1,5 +1,4 @@
 import { Button } from '@mantine/core';
-import { CaretLeft } from '@phosphor-icons/react';
 import { useId } from 'react';
 import type { MonthTrend } from '@shared/api';
 import { DEFAULT_CURRENCY } from '@shared/ledger';
@@ -14,6 +13,7 @@ import type { MonthAmount } from './CategoryView';
 import { Shell, YearBars } from './CategoryView';
 import type { PlanMonth } from './plan-month';
 import { usualText, yearComparison } from './plan-text';
+import BackButton from '../ui/BackButton';
 
 const money = (cents: number) => formatMoney(cents, DEFAULT_CURRENCY);
 
@@ -46,16 +46,7 @@ export default function TotalView({
 
   const header = isPage && (
     <header className={classes.pageHeader}>
-      <Button
-        variant="subtle"
-        color="gray"
-        size="compact-md"
-        className={classes.back}
-        leftSection={<CaretLeft size={16} />}
-        onClick={back}
-      >
-        Home
-      </Button>
+      <BackButton onClick={back}>Home</BackButton>
     </header>
   );
   const title = isPage ? (

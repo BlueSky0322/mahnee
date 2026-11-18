@@ -66,6 +66,8 @@ export default function ScheduleSheet({
       onClose={onClose}
       title={title}
       width={480}
+      // Its own Cancel and Save are at its foot
+      closeLabel={null}
     >
       {drawn != null && (
         <Fields

@@ -1,5 +1,5 @@
 import { Button } from '@mantine/core';
-import { ChartPieSlice, GearSix, House, ListBullets, Wallet } from '@phosphor-icons/react';
+import { AccountsIcon, ActivityIcon, HomeIcon, PlanIcon, SettingsIcon } from '../ui/icons';
 import type { Place } from '../../hooks/useRoute';
 import { navigate } from '../../hooks/useRoute';
 import Freshness from '../common/Freshness';
@@ -8,7 +8,7 @@ import Key from '../ui/Key';
 import { PLACES, goToPlace, hrefOf } from './places';
 import classes from './Sidebar.module.css';
 
-const ICONS = { home: House, activity: ListBullets, plan: ChartPieSlice, accounts: Wallet };
+const ICONS = { home: HomeIcon, activity: ActivityIcon, plan: PlanIcon, accounts: AccountsIcon };
 
 // The computer's places, down the left of every page: Mahnee and how fresh the figures are
 // (judged on `month`, Home's open month or this one), New entry (N), Home,
@@ -87,7 +87,7 @@ export default function Sidebar({
           <span className={classes.settingsTitle}>Settings</span>
           <span className={classes.email}>{you?.email}</span>
         </span>
-        <GearSix
+        <SettingsIcon
           size={18}
           className={classes.gear}
           aria-hidden

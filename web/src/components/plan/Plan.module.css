@@ -74,6 +74,12 @@
   padding: 0 4px;
 }
 
+/* A computer's header is as tall as what's in it, from the page's edge */
+.desktop .header {
+  min-height: 0;
+  padding: 0;
+}
+
 .headerStart {
   display: flex;
   flex-wrap: wrap;
@@ -544,11 +550,6 @@
   align-items: center;
   justify-content: space-between;
   min-height: 48px;
-}
-
-.back {
-  margin-left: -6px;
-  color: var(--ink);
 }
 
 .quietButton,

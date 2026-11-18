@@ -1,5 +1,5 @@
 import { Button } from '@mantine/core';
-import { CaretLeft, CaretRight, MagnifyingGlass, Rows } from '@phosphor-icons/react';
+import { BackIcon, ForwardIcon, SearchIcon, TidyIcon } from '../ui/icons';
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { Account, Category, Ledger, MonthSummary, WeekStart } from '@shared/api';
 import { OTHER_EXPENSE_ID, categoriesOrDefaults } from '@shared/categories';
@@ -385,7 +385,7 @@ function Header({
         disabled={month <= FIRST_MONTH}
         onClick={() => step(addMonths(month, -1))}
       >
-        <CaretLeft size={20} />
+        <BackIcon size={20} />
       </button>
       <h1 className={classes.title}>{monthHeading(month, { short: !isDesktop })}</h1>
       <button
@@ -395,7 +395,7 @@ function Header({
         disabled={month >= current}
         onClick={() => step(addMonths(month, 1))}
       >
-        <CaretRight size={20} />
+        <ForwardIcon size={20} />
       </button>
     </div>
   );
@@ -438,7 +438,7 @@ function SearchEverything() {
         });
       }}
     >
-      <MagnifyingGlass
+      <SearchIcon
         size={18}
         aria-hidden
       />
@@ -646,7 +646,7 @@ function TidyUp({ summary, categories }: { summary: MonthSummary; categories: Ca
       role="status"
       className={classes.tidy}
     >
-      <Rows
+      <TidyIcon
         size={18}
         className={classes.tidyIcon}
         aria-hidden

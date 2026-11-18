@@ -1,6 +1,6 @@
 import { Button, NativeSelect, SegmentedControl } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { CaretLeft, FileArrowUp } from '@phosphor-icons/react';
+import { FileArrowUp } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
 import type { Account, Category, LedgerChange } from '@shared/api';
 import { MAX_FILE_NAME } from '@shared/api';
@@ -44,6 +44,7 @@ import {
 } from './import-plan';
 import { rememberMapping, rememberedMapping } from './remembered-mapping';
 import classes from './Import.module.css';
+import BackButton from '../ui/BackButton';
 
 // The Import page (?import): pick an account and a CSV file, say which column holds what
 // (remembered per account on this device), and look over every row before anything is
@@ -369,20 +370,11 @@ export default function ImportPage() {
     <div className={classes.page}>
       <header className={classes.header}>
         <div className={classes.headerRow}>
-          <Button
-            variant="subtle"
-            color="gray"
-            size="compact-md"
-            className={classes.back}
-            leftSection={<CaretLeft size={16} />}
-            onClick={() => goUp('?settings=data')}
-          >
-            Import and export
-          </Button>
+          <BackButton onClick={() => goUp('?settings=data')}>Import and export</BackButton>
           {isDesktop && file != null && (
             <Button
               variant="default"
-              size="compact-md"
+              size="xs"
               aria-label="Cancel import, nothing is saved"
               onClick={() => goUp('?settings=data')}
             >
@@ -652,7 +644,7 @@ function Preview({
               >
                 <input
                   type="checkbox"
-                  className={classes.tick}
+                  className={`sf-tick ${classes.tick}`}
                   aria-label={`Change ${o.name}'s opening balance`}
                   checked={choices.openingsTicked.has(o.accountId)}
                   onChange={(e) => {
@@ -885,7 +877,7 @@ function PreviewRow({
     <li className={classes.row}>
       <input
         type="checkbox"
-        className={classes.tick}
+        className={`sf-tick ${classes.tick}`}
         aria-label={`Import row ${planned.row}`}
         checked={ticked}
         disabled={t == null}

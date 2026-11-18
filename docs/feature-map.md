@@ -376,9 +376,11 @@ arranges them as listed. Screens read through `useCategories()` in
   (`whyNotUnder`, `whyStaysOnTop`) and how siblings are ordered (`siblingsOf`,
   `nextPosition`, `reorder`) in [shared/categories.ts](../shared/categories.ts).
 - Colours: [utils/category-colour.ts](../web/src/utils/category-colour.ts) works out each
-  category's colour from the list, nothing stored. Top-level spending categories take
-  `--c1` to `--c6` in place order (ties by id), archived ones keeping their place, then
-  repeat; a subcategory wears its parent's; "Other" (the top-level spending category named
+  category's colour, nothing stored. The starting spending categories wear the design's
+  own (by their fixed ids, so renamed or moved they keep it: Groceries `--c1`, Shopping
+  `--c2`, Food `--c3`, Bills and Health `--c4`, Transport `--c5`, Fun `--c6`); one a person
+  adds takes one of `--c1` to `--c6` from a hash of its id, so no colour moves when others
+  are added, moved or archived; a subcategory wears its parent's; "Other" (the top-level spending category named
   exactly that, where import puts unsorted spending) is `--line-2` and takes no colour from
   the rest; income, at any level, is `--pos`; an id not in the list is `--line-2`.
 

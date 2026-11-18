@@ -1,6 +1,7 @@
 import { Button, TextInput } from '@mantine/core';
 import { useNetwork } from '@mantine/hooks';
-import { CloudSlash, ListBullets, MagnifyingGlass } from '@phosphor-icons/react';
+import { CloudSlash } from '@phosphor-icons/react';
+import { ActivityIcon, SearchIcon } from '../ui/icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Account, Category, LedgerChange, Transaction } from '@shared/api';
 import { DEFAULT_CURRENCY, MAX_BULK_TRANSACTIONS } from '@shared/ledger';
@@ -229,7 +230,8 @@ export default function ActivityPage({ query }: { query: string }) {
           <>
             <h1 className={classes.selectingTitle}>{ticked.size} selected</h1>
             <Button
-              variant="subtle"
+              variant="light"
+              size="xs"
               className={classes.quiet}
               onClick={stopSelecting}
             >
@@ -241,7 +243,8 @@ export default function ActivityPage({ query }: { query: string }) {
             <h1 className={classes.title}>Activity</h1>
             {!isDesktop && !nothingYet && (
               <Button
-                variant="subtle"
+                variant="light"
+                size="xs"
                 className={classes.quiet}
                 onClick={() => startSelecting()}
               >
@@ -257,7 +260,9 @@ export default function ActivityPage({ query }: { query: string }) {
             className={classes.search}
             autoFocus={searchFocused}
             placeholder="Payee, note, category or amount"
-            leftSection={<MagnifyingGlass size={18} />}
+            leftSection={<SearchIcon size={isDesktop ? 18 : 20} />}
+            leftSectionWidth={isDesktop ? 42 : 44}
+            leftSectionProps={{ className: 'sf-lead' }}
             rightSection={isDesktop ? <Key>/</Key> : undefined}
             maxLength={MAX_SEARCH_TEXT}
             value={text}
@@ -347,7 +352,7 @@ export default function ActivityPage({ query }: { query: string }) {
           ) : nothingYet ? (
             <div className={classes.state}>
               <span className={classes.stateIcon}>
-                <ListBullets size={24} />
+                <ActivityIcon size={24} />
               </span>
               <h2 className={classes.stateTitle}>No transactions yet</h2>
               <p className={classes.muted}>
@@ -374,7 +379,7 @@ export default function ActivityPage({ query }: { query: string }) {
           ) : empty ? (
             <div className={classes.state}>
               <span className={classes.stateIcon}>
-                <MagnifyingGlass size={24} />
+                <SearchIcon size={24} />
               </span>
               <h2 className={classes.stateTitle}>No transactions match</h2>
               <p className={classes.muted}>
@@ -678,7 +683,7 @@ function DayList({
                       >
                         <input
                           type="checkbox"
-                          className={classes.tick}
+                          className={`sf-tick ${classes.tick}`}
                           aria-label={name}
                           checked={ticked.has(t.id)}
                           onChange={() => {
@@ -787,13 +792,13 @@ function Register({
           <>
             <strong className={classes.barCount}>{chosen.length} selected</strong>
             <Button
-              size="compact-md"
+              size="xs"
               onClick={() => onChangeCategory(chosen)}
             >
               Change category
             </Button>
             <Button
-              size="compact-md"
+              size="xs"
               variant="default"
               className="sf-danger-outline"
               onClick={onDelete}
@@ -803,7 +808,7 @@ function Register({
           </>
         )}
         <Button
-          size="compact-md"
+          size="xs"
           variant="subtle"
           onClick={onSelectAll}
         >
@@ -824,7 +829,7 @@ function Register({
               <th scope="col">
                 <input
                   type="checkbox"
-                  className={classes.tick}
+                  className={`sf-tick ${classes.tick}`}
                   aria-label="Select all"
                   checked={allTicked}
                   onChange={onSelectAll}
@@ -870,7 +875,7 @@ function Register({
                   <td>
                     <input
                       type="checkbox"
-                      className={classes.tick}
+                      className={`sf-tick ${classes.tick}`}
                       aria-label={`${title}, ${subtitle}, ${listAmount(t, currency)}`}
                       checked={ticked.has(t.id)}
                       onClick={(e) => e.stopPropagation()}

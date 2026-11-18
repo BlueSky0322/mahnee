@@ -26,6 +26,8 @@ export const buildTheme = (accent: Accent = 'cobalt') =>
     fontFamily: FONT,
     fontFamilyMonospace: "'Geist Mono', monospace",
     headings: { fontFamily: FONT, fontWeight: '600' },
+    // Text at the font's own line height, as the design's; a block that wants more says so
+    lineHeights: { xs: 'normal', sm: 'normal', md: 'normal', lg: 'normal', xl: 'normal' },
     defaultRadius: 'md',
     radius: { xs: '4px', sm: '6px', md: '12px', lg: '18px', xl: '26px' },
     colors: { dark: [...dark], accent: [...ACCENT_RAMPS[accent]] },
@@ -49,9 +51,9 @@ export const buildTheme = (accent: Accent = 'cobalt') =>
       SegmentedControl: { defaultProps: { withItemsBorders: false, radius: 'xl' } },
       ActionIcon: { defaultProps: { variant: 'filled' } },
       Paper: { defaultProps: { bg: 'var(--surface)' } },
-      // The scrim behind a sheet or dialog
+      // The scrim behind a sheet, and the darker one behind a computer's dialog
       Modal: {
-        defaultProps: { radius: 'lg', overlayProps: { backgroundOpacity: 0.38, color: '#0f1012' } },
+        defaultProps: { radius: 'lg', overlayProps: { backgroundOpacity: 0.5, color: '#0f1012' } },
         styles: {
           content: { background: 'var(--surface)' },
           header: { background: 'var(--surface)' },
@@ -73,9 +75,10 @@ const followTokens = {
   '--mantine-color-text': 'var(--ink)',
   '--mantine-color-dimmed': 'var(--ink-3)',
   '--mantine-color-default-border': 'var(--line-2)',
+  '--mantine-color-placeholder': 'var(--ink-3)',
 };
 export const cssVariablesResolver: CSSVariablesResolver = () => ({
-  variables: {},
+  variables: { '--mantine-line-height': 'normal' },
   dark: followTokens,
   light: followTokens,
 });

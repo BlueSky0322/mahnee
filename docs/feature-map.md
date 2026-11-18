@@ -1794,8 +1794,9 @@ may use either name for anything else (Activity's filters included).
   the places); Esc closes Settings (on a computer from any section; on phones and tablets
   it goes up from a section to the index); Ctrl K finds Settings' search on a computer; on a computer, Activity
   adds J, K, X and C. None fires while typing in a field (but Esc), with Ctrl, Cmd or Alt
-  held, or while a dialog is open; Esc does nothing on Import, so a file being looked over
-  is kept. Typing is a text-like field (text, search, number, a day or time, email, phone,
+  held, or while a dialog is open; Esc does nothing on the Import page (phones and
+  tablets), so a file being looked over is kept, and cancels a computer's import, which is
+  a dialog that keeps the keyboard and gives it back to Import a file. Typing is a text-like field (text, search, number, a day or time, email, phone,
   address, password), a longer text, a list to pick from or editable text; a tick box, a
   choice of several (radio) or a button lets the keys through. (For piece 7: a full-screen
   Add on a phone with radios for From/For or Which way and no `role="dialog"` would let N

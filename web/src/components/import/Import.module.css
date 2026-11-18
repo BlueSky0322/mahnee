@@ -426,26 +426,21 @@
   pointer-events: none;
 }
 
-.scrim {
-  position: fixed;
-  z-index: 190;
-  inset: 0;
-  background: rgb(15 16 18 / 45%);
+/* Mantine's dialog, drawn as the board's: on the ground, 22px corners, 48px down */
+.dialogInner {
+  overflow-y: auto;
+  padding-inline: 32px;
 }
 
 .dialog {
-  position: absolute;
-  z-index: 200;
-  top: 48px;
-  left: 50%;
   display: flex;
+  flex: 0 0 min(1200px, 100%);
   flex-direction: column;
   gap: 20px;
-  width: min(1200px, calc(100% - 64px));
   box-sizing: border-box;
+  max-height: none;
   margin-bottom: 48px;
   padding: 24px 28px 28px;
-  transform: translateX(-50%);
   border-radius: 22px;
   background: var(--ground);
   box-shadow: 0 24px 64px rgb(0 0 0 / 28%);

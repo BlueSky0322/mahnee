@@ -16,7 +16,22 @@ export function takeHandedFile(): File | null {
   return file;
 }
 
+// An import left without importing: back on Import and export, the keyboard goes to the
+// file button it was opened from (the page was drawn afresh, so it's found again there)
+let backToButton = false;
+
+export function askFocusBack() {
+  backToButton = true;
+}
+
+export function takeFocusBack(): boolean {
+  const asked = backToButton;
+  backToButton = false;
+  return asked;
+}
+
 // Signing out, or someone else signing in: the file goes with the rest
 onCacheCleared(() => {
   handed = null;
+  backToButton = false;
 });

@@ -1447,6 +1447,37 @@ describe('recording an import, and how it reads', () => {
     expect(server.imports).toEqual([]);
   });
 
+  test('on a computer, is a dialog that takes the keyboard, keeps it, and gives it back', async () => {
+    const server = withGrab();
+    renderApp(server, '/');
+    const user = await openImport();
+    await user.upload(screen.getByLabelText('Import a file'), csv(FILE, 'maybank-oct.csv'));
+    const dialog = await screen.findByRole('dialog', { name: 'Import maybank-oct.csv' });
+    // It opens with the keyboard in it
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    // Tab goes round inside it, never to the page dimmed behind it
+    for (let i = 0; i < 12; i++) {
+      await user.tab();
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    }
+    await user.tab({ shift: true });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    // Esc cancels it wherever the keyboard is, and the keyboard is back on Import a file
+    act(() => (document.activeElement as HTMLElement).blur());
+    await user.keyboard('{Escape}');
+    expect(
+      await screen.findByRole('heading', { name: 'Import and export', level: 1 }),
+    ).toBeTruthy();
+    expect(window.location.search).toBe('?settings=data');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText('Import a file')),
+    );
+    await settle();
+    expect(server.imports).toEqual([]);
+  });
+
   test.each(SIZES)(
     'records the import, its entries naming it, and lists it under Recent imports (%s)',
     async (size) => {

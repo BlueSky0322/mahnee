@@ -1,4 +1,4 @@
-import { Button, NativeSelect, SegmentedControl } from '@mantine/core';
+import { Button, Modal, NativeSelect, SegmentedControl } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { FileArrowUp } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
@@ -30,7 +30,7 @@ import { KIND_LABELS } from '../accounts/account-text';
 import { categoryName } from '../common/category-name';
 import { scheduleText } from '../home/recurring-text';
 import { newId } from '../../utils/id';
-import { takeHandedFile } from './handed-file';
+import { askFocusBack, takeHandedFile } from './handed-file';
 import type { Plan, PlannedRow } from './import-plan';
 import {
   accountsToCheck,
@@ -375,7 +375,10 @@ export default function ImportPage() {
           ? file.name
           : `${file.name} into ${account.name}`;
   const STEPS = isDesktop ? ['File and account', 'Columns', 'Check'] : ['File', 'Columns', 'Check'];
-  const cancel = () => goUp('?settings=data');
+  const cancel = () => {
+    askFocusBack();
+    goUp('?settings=data');
+  };
 
   const steps = (
     <ol
@@ -647,7 +650,8 @@ export default function ImportPage() {
 
   const bankChecking = columnsCard != null && checking;
   if (isDesktop) {
-    // A computer's import is a large dialog over Settings › Import and export (R-Desk-Import)
+    // A computer's import is a large dialog over Settings › Import and export (R-Desk-Import):
+    // it takes the keyboard and keeps it, and Esc or its X leave it, saving nothing
     return (
       <>
         <div
@@ -658,50 +662,67 @@ export default function ImportPage() {
         >
           <Settings section="data" />
         </div>
-        <div className={classes.scrim} />
-        <div
-          className={classes.dialog}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="import-title"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && !e.defaultPrevented) cancel();
-          }}
+        <Modal.Root
+          opened
+          onClose={cancel}
+          size={1200}
+          yOffset={48}
+          // Import and export takes the keyboard back as it opens again (askFocusBack)
+          returnFocus={false}
+          classNames={{ content: classes.dialog, inner: classes.dialogInner }}
         >
-          <header className={classes.deskHeader}>
-            {heading}
-            {steps}
-            <button
-              type="button"
-              className={classes.closeButton}
-              aria-label="Cancel import, nothing is saved"
-              onClick={cancel}
-            >
-              <CloseIcon size={20} />
-            </button>
-          </header>
-          <div className={classes.deskBody}>
-            <div className={classes.deskSide}>
-              {!bankChecking && fileCard}
-              {exportNotes}
-              {columnsCard}
-              {reading}
-              {columnsCard == null && counts != null && (
-                <section className={`${classes.card} ${classes.columns}`}>
-                  {counts}
-                  {plan?.problem != null && <p className={classes.problem}>{plan.problem}</p>}
-                  {addButton}
-                </section>
+          <Modal.Overlay
+            backgroundOpacity={0.45}
+            color="#0f1012"
+          />
+          <Modal.Content>
+            <header className={classes.deskHeader}>
+              <div className={classes.titleBlock}>
+                <Modal.Title
+                  component="h1"
+                  className={classes.title}
+                >
+                  {title}
+                </Modal.Title>
+                {plan != null && file != null && (
+                  <p className={classes.soft}>
+                    {linesText(plan, file.isExport ? null : account?.name ?? null, true)}
+                  </p>
+                )}
+              </div>
+              {steps}
+              <button
+                type="button"
+                className={classes.closeButton}
+                aria-label="Cancel import, nothing is saved"
+                onClick={cancel}
+              >
+                <CloseIcon size={20} />
+              </button>
+            </header>
+            <div className={classes.deskBody}>
+              <div className={classes.deskSide}>
+                {!bankChecking && fileCard}
+                {exportNotes}
+                {columnsCard}
+                {reading}
+                {columnsCard == null && counts != null && (
+                  <section className={`${classes.card} ${classes.columns}`}>
+                    {counts}
+                    {plan?.problem != null && <p className={classes.problem}>{plan.problem}</p>}
+                    {addButton}
+                  </section>
+                )}
+              </div>
+              {lines != null && (
+                <div className={classes.deskMain}>
+                  {lookupProblem}
+                  {lines}
+                </div>
               )}
             </div>
-            {lines != null && (
-              <div className={classes.deskMain}>
-                {lookupProblem}
-                {lines}
-              </div>
-            )}
-          </div>
-        </div>
+          </Modal.Content>
+        </Modal.Root>
       </>
     );
   }

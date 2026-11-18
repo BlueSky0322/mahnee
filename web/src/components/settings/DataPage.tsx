@@ -3,7 +3,7 @@ import { Button } from '@mantine/core';
 import { useNetwork } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ExportRange, ExportSummary, ImportRecord } from '@shared/api';
 import type { ColumnMapping } from '@shared/csv-import';
 import { exportFileName } from '@shared/export';
@@ -18,7 +18,7 @@ import { dayText, toDateInput } from '../../utils/date-input';
 import { deliverFile } from '../../utils/deliver-file';
 import { quietly } from '../../utils/quietly';
 import { SettingsFooter } from '../common/Freshness';
-import { handFile } from '../import/handed-file';
+import { handFile, takeFocusBack } from '../import/handed-file';
 import { forgetMapping, rememberedMappings } from '../import/remembered-mapping';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import Skeleton, { Loading } from '../ui/Skeleton';
@@ -147,10 +147,16 @@ function ImportSection({ children }: { children?: ReactNode }) {
 
 /** The file picker, drawn as the board's filled pill */
 function FileButton({ label }: { label: string }) {
+  const input = useRef<HTMLInputElement>(null);
+  // Back from an import left without importing, the keyboard is here again
+  useEffect(() => {
+    if (takeFocusBack()) input.current?.focus({ preventScroll: true });
+  }, []);
   return (
     <label className={classes.fileButton}>
       {label}
       <input
+        ref={input}
         type="file"
         accept=".csv,text/csv"
         aria-label={label}

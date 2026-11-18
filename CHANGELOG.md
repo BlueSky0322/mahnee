@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-18
 
-- Fixed: Fields, small buttons, lists and dialogs match the design's lines, sizes and spacing everywhere [#?]
+- Changed: Fields, small buttons, lists and dialogs match the design's lines, sizes and spacing everywhere [#50]
 - Added: Scheduled shows the next 30 days: what comes in and goes out, and each account's lowest point [#49]
 - Changed: Plan, each category's page and Scheduled match the design [#48]
 - Changed: Activity and Add match the design; Activity leaves out transfers until you ask for them [#47]
@@ -130,3 +130,4 @@ For agents:
 [#47]: https://github.com/BlueSky0322/mahnee/pull/47
 [#48]: https://github.com/BlueSky0322/mahnee/pull/48
 [#49]: https://github.com/BlueSky0322/mahnee/pull/49
+[#50]: https://github.com/BlueSky0322/mahnee/pull/50

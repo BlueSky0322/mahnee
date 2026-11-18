@@ -296,16 +296,34 @@ function Table({
   return (
     <div className={classes.tableWrap}>
       <table
+        // Laid out as a grid, so the table roles are stated: some browsers drop them
+        role="table"
         className={classes.table}
         data-after={after != null || undefined}
         aria-label="Transactions"
       >
-        <thead>
-          <tr>
-            <th scope="col">Date</th>
-            <th scope="col">Payee or transfer</th>
-            <th scope="col">Category</th>
+        <thead role="rowgroup">
+          <tr role="row">
             <th
+              role="columnheader"
+              scope="col"
+            >
+              Date
+            </th>
+            <th
+              role="columnheader"
+              scope="col"
+            >
+              Payee or transfer
+            </th>
+            <th
+              role="columnheader"
+              scope="col"
+            >
+              Category
+            </th>
+            <th
+              role="columnheader"
               scope="col"
               className={classes.right}
             >
@@ -313,6 +331,7 @@ function Table({
             </th>
             {after != null && (
               <th
+                role="columnheader"
                 scope="col"
                 className={classes.right}
               >
@@ -322,7 +341,7 @@ function Table({
             )}
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {transactions.map((t, i) => {
             const { title, subtitle, amount, incoming } = entryRow(
               t,
@@ -331,9 +350,17 @@ function Table({
               categories,
             );
             return (
-              <tr key={t.id}>
-                <td className={classes.muted}>{shortDay(t.date, today)}</td>
-                <td>
+              <tr
+                key={t.id}
+                role="row"
+              >
+                <td
+                  role="cell"
+                  className={classes.muted}
+                >
+                  {shortDay(t.date, today)}
+                </td>
+                <td role="cell">
                   <button
                     type="button"
                     className={classes.payeeButton}
@@ -342,10 +369,14 @@ function Table({
                     {title}
                   </button>
                 </td>
-                <td className={classes.soft}>
+                <td
+                  role="cell"
+                  className={classes.soft}
+                >
                   <span className={classes.clip}>{subtitle}</span>
                 </td>
                 <td
+                  role="cell"
                   className={`${classes.right} ${classes.rowAmount} sf-tabular`}
                   data-incoming={(incoming && t.kind === 'income') || undefined}
                   data-kind={t.kind}
@@ -353,7 +384,10 @@ function Table({
                   {amount}
                 </td>
                 {after != null && (
-                  <td className={`${classes.right} ${classes.soft} sf-tabular`}>
+                  <td
+                    role="cell"
+                    className={`${classes.right} ${classes.soft} sf-tabular`}
+                  >
                     {listBalanceText({ ...account, balanceCents: after[i] })}
                   </td>
                 )}

@@ -11,11 +11,14 @@
 //
 // Each reminder is claimed for the device and the day (daily_on, scheduled_on) just before
 // it is sent, so runs that overlap, or one after a run stopped halfway, never send it
-// twice: at most once, never twice. A device its push service says is gone (404, 410) or
-// won't take from this server (400, 401, 403), or whose keys can't be encrypted to, is let
-// go. One the service can't take now gets its claim back and is tried again 15 minutes on,
-// then 30, 60, at most 120, so it doesn't take the run's places each time. Anything else
-// (a redirect, never followed) isn't tried again that day.
+// twice: at most once, never twice. A run stopped between a claim and its send loses that
+// reminder for the day, by design. A device its push service says is gone (404, 410) or bad
+// (400), or whose keys can't be encrypted to, is let go. One the service can't take now
+// gets its claim back and is tried again 15 minutes on, then 30, 60, at most 120, so it
+// doesn't take the run's places each time; one refused as unauthorised (401, 403) is
+// tried again the same way and let go only at the third refusal in a row, so a broken VAPID
+// setup can't let every device go in one run. Anything else (a redirect, never followed)
+// isn't tried again that day.
 //
 // A run looks at most MAX_DEVICES_PER_RUN devices, the ones waiting longest first, a few
 // at once, and reads at most MAX_NAMED + 1 items a person; the rest wait for the next run.
@@ -51,6 +54,8 @@ export interface PushEnv {
 const MAX_DEVICES_PER_RUN = 50;
 /** How many devices are sent to at once: a Worker keeps six connections open */
 const AT_ONCE = 6;
+/** How many unauthorised refusals in a row let a device go */
+const MAX_DENIED = 3;
 /** How late a reminder may still come, in minutes after its time */
 const LATE_MINUTES = 120;
 /** Waits before trying a device again: 15 minutes, doubling, at most two hours */
@@ -373,7 +378,12 @@ async function remind(
       await letGo();
       return;
     }
-    if (outcome === 'later') {
+    if (outcome === 'denied' && device.failures + 1 >= MAX_DENIED) {
+      console.error(`Push subscription let go: ${status}`);
+      await letGo();
+      return;
+    }
+    if (outcome === 'later' || outcome === 'denied') {
       // The claim goes back, and the device waits a while
       const wait = Math.min(RETRY_MS * 2 ** device.failures, MAX_RETRY_MS);
       await db

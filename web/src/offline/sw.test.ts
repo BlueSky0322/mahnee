@@ -269,19 +269,35 @@ describe('the service worker, with reminders', () => {
     ]);
   });
 
-  test('shows nothing meant for another account than the one signed in here', async () => {
+  /**
+   * What's shown in place of one that isn't for the account signed in here: something must
+   * be, or the browser stops the subscription, so it says nothing of the reminder
+   */
+  const saysNothing = [
+    {
+      title: 'Mahnee',
+      options: {
+        body: 'Open Mahnee to see your reminder.',
+        tag: 'reminder',
+        icon: '/icon-192.png',
+        data: { url: '/' },
+      },
+    },
+  ];
+
+  test('says nothing of a reminder for another account than the one signed in here', async () => {
     await setCacheUser('ann@example.com');
-    expect(await pushToWorker(JSON.stringify(tnb))).toEqual([]);
+    expect(await pushToWorker(JSON.stringify(tnb))).toEqual(saysNothing);
   });
 
-  test('shows nothing once no one is signed in here', async () => {
+  test('says nothing of a reminder once no one is signed in here', async () => {
     await clearCache();
-    expect(await pushToWorker(JSON.stringify(tnb))).toEqual([]);
+    expect(await pushToWorker(JSON.stringify(tnb))).toEqual(saysNothing);
   });
 
-  test('shows nothing for a message naming no account', async () => {
+  test('says nothing of a reminder naming no account', async () => {
     const { account: _none, ...unnamed } = tnb;
-    expect(await pushToWorker(JSON.stringify(unnamed))).toEqual([]);
+    expect(await pushToWorker(JSON.stringify(unnamed))).toEqual(saysNothing);
   });
 
   test.each([

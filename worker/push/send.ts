@@ -22,13 +22,15 @@ export interface ReminderMessage {
 }
 
 /**
- * sent: taken; gone: the device let go of it (404, 410) or the service won't take it from
- * this server (400, 401, 403), so the subscription goes too; broken: it couldn't be
+ * sent: taken; gone: the device let go of it (404, 410) or the subscription is bad (400),
+ * so it goes too; denied: the service won't take it from this server (401, 403), which a
+ * broken VAPID setup would cause for every device, so it is tried again later and goes only
+ * once it keeps happening; broken: it couldn't be
  * encrypted to this device's keys, so it goes too; later: the service can't take it now
  * (no answer, 429, 5xx), so it is tried again after a while; refused: anything else (a
  * redirect, which is never followed), not tried again today
  */
-export type Outcome = 'sent' | 'gone' | 'broken' | 'later' | 'refused';
+export type Outcome = 'sent' | 'gone' | 'denied' | 'broken' | 'later' | 'refused';
 
 /** How long a push service keeps a reminder for a device that is off: four hours */
 const TTL_S = 4 * 60 * 60;
@@ -70,7 +72,8 @@ export async function sendPush(
   await res.body?.cancel();
   const status = res.status;
   if (status >= 200 && status < 300) return { outcome: 'sent', status };
-  if ([400, 401, 403, 404, 410].includes(status)) return { outcome: 'gone', status };
+  if ([400, 404, 410].includes(status)) return { outcome: 'gone', status };
+  if (status === 401 || status === 403) return { outcome: 'denied', status };
   if (status === 429 || status >= 500) return { outcome: 'later', status };
   return { outcome: 'refused', status };
 }

@@ -262,7 +262,7 @@ erDiagram
   key, so one device reminds one account: a device subscribed by someone else moves to
   them. At most 10 per account, the oldest dropped. Let go on signing out
   (`DELETE /api/push/subscription`, the person's own only), when the push service answers
-  400, 401, 403, 404 or 410, and with the profile. `reminded_on` is the person's own day
+  400, 404 or 410 (401 or 403 three times in a row), and with the profile. `reminded_on` is the person's own day
   the cron (`worker/push/reminders.ts`) was last done with it; `daily_on` and
   `scheduled_on` the day each reminder was claimed, just before it was sent, so neither
   goes twice; `failures` and `retry_at` hold it back after its push service couldn't take

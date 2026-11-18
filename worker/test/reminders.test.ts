@@ -485,13 +485,31 @@ describe('the reminder before a scheduled entry', () => {
 describe('what the push service answers', () => {
   const quiet = { scheduledReminderDays: null };
 
-  it.each([400, 401, 403, 404, 410])('a device gone or refused (%i) is let go', async (status) => {
+  it.each([400, 404, 410])('a device gone or refused (%i) is let go', async (status) => {
     const { who } = await someone(KL, quiet);
     const phone = await device(who);
     api.push.answer(phone.path, status);
     await runAt('2025-11-19T13:00:00Z');
     expect(await subscriptions(who)).toEqual([]);
   });
+
+  it.each([401, 403])(
+    'a device refused as unauthorised (%i) is let go only once that happens three times in a row',
+    async (status) => {
+      const { who } = await someone(KL, quiet);
+      const phone = await device(who);
+      api.push.answer(phone.path, status);
+      // Tried at 13:00, 13:15 and 13:45, waiting longer each time
+      await runAt('2025-11-19T13:00:00Z');
+      expect(await subscriptions(who)).toHaveLength(1);
+      await runAt('2025-11-19T13:15:00Z');
+      await runAt('2025-11-19T13:30:00Z');
+      expect(await subscriptions(who)).toHaveLength(1);
+      await runAt('2025-11-19T13:45:00Z');
+      expect(await subscriptions(who)).toEqual([]);
+      expect(api.push.received().filter((r) => r.path === phone.path)).toHaveLength(3);
+    },
+  );
 
   it('a device the service can’t take now is kept and tried at the next run, without holding back others', async () => {
     const ann = await someone(KL, quiet);

@@ -55,8 +55,10 @@ hack-proof, and the limits below are real.
   endpoint is the key, so a device subscribed by someone else moves to them. Signing out
   lets the device go (on the server, scoped by the email, and in the browser); a device
   last subscribed by another account is let go in the browser once someone else is
-  known to be signed in; one the push service says is gone (404, 410) or won't take from
-  this server (400, 401, 403), or whose keys can't be encrypted to, is deleted. Endpoints
+  known to be signed in; one the push service says is gone (404, 410) or bad (400), or
+  whose keys can't be encrypted to, is deleted; one refused as unauthorised (401, 403) is
+  deleted only at the third refusal in a row, so a broken VAPID setup can't delete every
+  device in one run. Endpoints
   are taken only on the browsers' push services (Firebase, Mozilla, Apple, WNS, https, a
   path, no user, port or trailing dot), so the Worker never sends to an address a person
   typed, and a push service's redirect is never followed.
@@ -64,8 +66,9 @@ hack-proof, and the limits below are real.
   a tag for its account (the first 16 hex characters of the SHA-256 of "mahnee-push:" and
   the email), never the email; the service worker shows it only when the account the app
   last said is signed in there has that tag. Signed out (nobody signed in), or someone
-  else signed in, nothing is shown, so one sent before the server learned the device was
-  let go (signing out offline) never reaches the next person.
+  else signed in, only "Mahnee" / "Open Mahnee to see your reminder." is shown (the browser
+  insists on something), so what one sent before the server learned the device was
+  let go (signing out offline) says never reaches the next person.
 - **What a reminder says, and who sees it.** Each message is encrypted to the one device
   (RFC 8291, aes128gcm) and signed as the app (VAPID, RFC 8292, `sub` the app's own
   address), with WebCrypto alone; the browser's push service carries it but can't read it.
@@ -76,7 +79,8 @@ hack-proof, and the limits below are real.
   reminders (`worker/push/reminders.ts`) after it: each person with a device, a time zone
   and a reminder on, at their "Remind me at" time on their own clock (not more than two
   hours late), each reminder at most once a day a device: claimed for that day just before
-  it is sent, so overlapping runs or one stopped halfway never send it twice. It reads only those people's settings, whether they
+  it is sent, so overlapping runs or one stopped halfway never send it twice (a run
+  stopped between the claim and the send loses that reminder for the day, by design). It reads only those people's settings, whether they
   saved an entry that day (not one from Scheduled), and their running items due on the day
   the reminder is for. It is not reachable from the API. No payload, endpoint or
   subscription key is logged; only an error's name and message.

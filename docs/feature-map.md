@@ -230,21 +230,24 @@ limits and the push services taken in [shared/push.ts](../shared/push.ts).
   before each send; the key must be a point on P-256.
 - Each reminder goes to a device at most once a day of the person's: claimed
   (`daily_on`, `scheduled_on`) just before it's sent, so overlapping runs or one stopped
-  halfway never send it twice; a device done with for the day is marked `reminded_on`.
+  halfway never send it twice (one stopped between the claim and the send loses that
+  reminder for the day, by design); a device done with for the day is marked
+  `reminded_on`.
   At or after their time and not more than two hours after it. "Added that day" is an
   entry saved during the person's day as their clock ran it (its real midnight, DST and
   half-hour zones included), not one from Scheduled.
 - Only items that will be added on their own are named: running, not asking first,
   accounts and category not archived, falling on the day the reminder is for.
-- A push service's 400, 401, 403, 404 or 410, or keys that can't be encrypted to, delete
-  the subscription; 429, 5xx or no answer give the claim back and wait 15, 30, 60, then
+- A push service's 400, 404 or 410, or keys that can't be encrypted to, delete the
+  subscription; 401 or 403 delete it only at the third in a row; 429, 5xx or no answer give the claim back and wait 15, 30, 60, then
   120 minutes (`failures`, `retry_at`); a redirect is never followed and marks the day.
 - At most 50 devices a run, waiting longest first, six at once, and each person's first
   four items due with their count; a device's failure doesn't stop the others, and the run
   then fails.
 - Each message carries its account's tag (`accountTag`, a hash of the email, never the
   email); `web/public/sw.js` shows it only while that account is the one signed in there
-  (`mahnee:user`), so nothing shows signed out or for someone else.
+  (`mahnee:user`); signed out or for someone else it shows only "Mahnee" / "Open Mahnee to
+  see your reminder.", as the browser needs something shown.
 - Nothing about a person, no payload, endpoint or key is logged.
 - `web/public/sw.js` shows only a message it can read (otherwise "Mahnee", "Open Mahnee to
   see your reminder.") and opens only the app's own pages, in the window in front, or a new

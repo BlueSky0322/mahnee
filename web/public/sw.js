@@ -467,9 +467,10 @@ async function signedInHere() {
 }
 
 /**
- * The message the server sent (worker/push/send.ts ReminderMessage), or the fallback for
- * one that can't be read; null for one meant for another account than the one signed in
- * here (or with no one signed in), which is never shown
+ * The message the server sent (worker/push/send.ts ReminderMessage); the fallback, saying
+ * nothing of it, for one that can't be read or is meant for another account than the one
+ * signed in here (or with no one signed in). Something is always shown, or the browser
+ * stops the subscription.
  */
 async function readReminder(data) {
   let message = null;
@@ -480,7 +481,7 @@ async function readReminder(data) {
   }
   if (typeof message?.title !== 'string' || message.title === '') return FALLBACK_REMINDER;
   const user = await signedInHere().catch(() => null);
-  if (user == null || message.account !== (await accountTag(user))) return null;
+  if (user == null || message.account !== (await accountTag(user))) return FALLBACK_REMINDER;
   return {
     title: message.title,
     body: typeof message.body === 'string' ? message.body : '',
@@ -489,11 +490,9 @@ async function readReminder(data) {
   };
 }
 
-/** Shows a reminder that came, if it's for the account signed in here */
+/** Shows a reminder that came: as sent if it's for the account signed in here */
 async function showReminder(data) {
-  const reminder = await readReminder(data);
-  if (reminder == null) return;
-  const { title, body, url, tag } = reminder;
+  const { title, body, url, tag } = await readReminder(data);
   await self.registration.showNotification(title, {
     body,
     tag,

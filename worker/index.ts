@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import type { AppEnv, Env } from './app';
 import { fail, isCrossSiteWrite, notFound } from './http';
 import { EXPECTED_ACCOUNT_HEADER } from '../shared/api';
-import { getUserEmail } from './accounts/auth';
+import { getSignIn } from './accounts/auth';
 import { postScheduled } from './ledger/post-scheduled';
 import ledger from './routes/ledger';
 import me from './routes/me';
@@ -17,9 +17,10 @@ api.use('*', async (c, next) => {
   if (isCrossSiteWrite(c.req.raw, new URL(c.req.url))) {
     return fail('Not allowed from another site', 403);
   }
-  const email = await getUserEmail(c.req.raw, c.env);
-  if (email == null) return fail('Not signed in', 401);
-  c.set('email', email);
+  const signIn = await getSignIn(c.req.raw, c.env);
+  if (signIn == null) return fail('Not signed in', 401);
+  c.set('email', signIn.email);
+  c.set('googlePicture', signIn.picture);
   await next();
 });
 

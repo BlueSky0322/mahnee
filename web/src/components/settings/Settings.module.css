@@ -1125,3 +1125,16 @@ section > .cardTitle {
 .paneBody .dataList > .dataNone {
   padding: 0 20px 18px;
 }
+
+/* My account's initial, or picture, is the button that changes it, drawn as before */
+.pictureButton {
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* Profile picture's preview, in the middle above its choices */
+.pictureLarge {
+  align-self: center;
+}

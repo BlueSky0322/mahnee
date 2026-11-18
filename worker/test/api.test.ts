@@ -52,6 +52,196 @@ const DESIGN_DEFAULTS = {
   timeZone: null,
 };
 
+/**
+ * A WebP picture's first bytes as the server reads them (RIFF, WEBP, a VP8 frame with its
+ * size), padded to `length`, each one different by `seed`
+ */
+function webp(side: number, length = 600, seed = 1) {
+  const bytes = new Uint8Array(length).fill(seed);
+  const ascii = (at: number, text: string) =>
+    [...text].forEach((c, i) => (bytes[at + i] = c.charCodeAt(0)));
+  ascii(0, 'RIFF');
+  ascii(8, 'WEBP');
+  ascii(12, 'VP8 ');
+  bytes[26] = side & 0xff;
+  bytes[27] = (side >> 8) & 0x3f;
+  bytes[28] = side & 0xff;
+  bytes[29] = (side >> 8) & 0x3f;
+  return bytes;
+}
+
+/** A JPEG's first bytes, padded */
+const jpeg = (length = 400, seed = 2) => {
+  const bytes = new Uint8Array(length).fill(seed);
+  bytes.set([0xff, 0xd8, 0xff, 0xe0]);
+  return bytes;
+};
+
+describe('the profile picture', () => {
+  const upload = (who: string, bytes: Uint8Array | string, type = 'image/webp') =>
+    api.call(who, 'PUT', '/api/me/picture', bytes, { 'Content-Type': type });
+  const getPicture = (who: string, headers: Record<string, string> = {}) =>
+    api.raw(who, 'GET', '/api/me/picture?v=x', undefined, headers);
+  const me = (who: string, headers: Record<string, string> = {}) =>
+    api.call(who, 'GET', '/api/me', undefined, headers);
+
+  it('keeps a chosen picture and serves it to its own account, privately', async () => {
+    const who = person('pic');
+    const bytes = webp(256);
+    const saved = await upload(who, bytes);
+    expect(saved.status).toBe(200);
+    expect(saved.data).toMatchObject({
+      email: who,
+      picture: { source: 'upload', version: expect.any(Number) },
+      googlePicture: false,
+    });
+    expect((await me(who)).data.picture).toEqual(saved.data.picture);
+
+    const res = await getPicture(who);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('image/webp');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-cache');
+    expect(res.headers.get('X-Image-Viewer')).toBe(who);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+
+    // A browser holding this copy is told it's still good, without the bytes
+    const etag = res.headers.get('ETag')!;
+    expect(etag).toBe(`"upload-${saved.data.picture.version}"`);
+    const again = await getPicture(who, { 'If-None-Match': etag });
+    expect(again.status).toBe(304);
+    expect(await again.text()).toBe('');
+
+    // A new one replaces it, under a new name
+    const next = await upload(who, jpeg(), 'image/jpeg');
+    expect(next.data.picture.version).toBeGreaterThan(saved.data.picture.version);
+    const replaced = await getPicture(who, { 'If-None-Match': etag });
+    expect(replaced.status).toBe(200);
+    expect(replaced.headers.get('Content-Type')).toBe('image/jpeg');
+  });
+
+  it("never shows one account's picture to another, nor lets another change it", async () => {
+    const who = person('pic');
+    const other = person('other');
+    await upload(who, webp(256));
+    const theirs = await getPicture(other);
+    expect(theirs.status).toBe(404);
+    expect(theirs.headers.get('Content-Type')).toBe('application/json');
+    expect((await me(other)).data.picture).toBeNull();
+
+    // A picture sent as someone else than who's signed in changes nothing
+    const refused = await api.call(other, 'PUT', '/api/me/picture', webp(256, 600, 9), {
+      'Content-Type': 'image/webp',
+      'X-Expected-Account': who,
+    });
+    expect(refused).toMatchObject({ status: 409, data: { code: 'account_mismatch' } });
+    expect((await me(other)).data.picture).toBeNull();
+    expect(new Uint8Array(await (await getPicture(who)).arrayBuffer())).toEqual(webp(256));
+  });
+
+  it.each<[string, () => Uint8Array | string, number]>([
+    ['text that is not a picture', () => 'not a picture at all', 415],
+    ['a GIF', () => new TextEncoder().encode('GIF89a' + 'x'.repeat(100)), 415],
+    ['nothing', () => new Uint8Array(), 400],
+    ['a picture over 64 KB', () => webp(256, 64 * 1024 + 1), 413],
+    ['a picture over 512 pixels on a side', () => webp(1024), 413],
+  ])('refuses %s and keeps the picture there was', async (_what, body, status) => {
+    const who = person('pic');
+    await upload(who, webp(256));
+    const res = await upload(who, body());
+    expect(res.status).toBe(status);
+    expect(typeof res.data.error).toBe('string');
+    expect(new Uint8Array(await (await getPicture(who)).arrayBuffer())).toEqual(webp(256));
+  });
+
+  it('lets the chosen picture go, back to the initial', async () => {
+    const who = person('pic');
+    await upload(who, webp(256));
+    const res = await api.call(who, 'PATCH', '/api/me', { picture: 'initial' });
+    expect(res.status).toBe(200);
+    expect(res.data).toMatchObject({ picture: null, googlePicture: false });
+    expect((await getPicture(who)).status).toBe(404);
+    expect((await api.call(who, 'PATCH', '/api/me', { picture: 'sepia' })).status).toBe(400);
+  });
+
+  describe('from Google', () => {
+    let pictures = 0;
+    /** A Google picture of their own, as the sign-in names it (at 96px, as Google does) */
+    const googlePicture = (bytes: Uint8Array, contentType = 'image/jpeg') => {
+      const name = `a/photo${++pictures}`;
+      api.google.set(`${name}=s256-c`, bytes, contentType);
+      return { name, signIn: { 'X-Dev-Picture': `${api.google.base}${name}=s96-c` } };
+    };
+
+    it('shows the Google picture by default, copied once at 256px', async () => {
+      const who = person('google');
+      const bytes = jpeg(800, 7);
+      const { name, signIn } = googlePicture(bytes);
+      const first = await me(who, signIn);
+      expect(first.data).toMatchObject({
+        picture: { source: 'google', version: expect.any(Number) },
+        googlePicture: true,
+      });
+      const res = await getPicture(who);
+      expect(res.headers.get('Content-Type')).toBe('image/jpeg');
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+
+      // Not fetched again while the sign-in names the same picture
+      expect((await me(who, signIn)).data.picture).toEqual(first.data.picture);
+      expect(api.google.asked(`${name}=s256-c`)).toBe(1);
+      expect(api.google.asked(`${name}=s96-c`)).toBe(0);
+    });
+
+    it('a chosen picture shows over it; it comes back, or the initial, when that goes', async () => {
+      const who = person('google');
+      const { signIn } = googlePicture(jpeg(800, 7));
+      await me(who, signIn);
+      await upload(who, webp(256));
+      expect((await me(who, signIn)).data).toMatchObject({
+        picture: { source: 'upload' },
+        googlePicture: true,
+      });
+
+      const initial = await api.call(who, 'PATCH', '/api/me', { picture: 'initial' });
+      expect(initial.data).toMatchObject({ picture: null, googlePicture: true });
+      expect((await me(who, signIn)).data.picture).toBeNull();
+      expect((await getPicture(who)).status).toBe(404);
+
+      const google = await api.call(who, 'PATCH', '/api/me', { picture: 'google' });
+      expect(google.data).toMatchObject({ picture: { source: 'google' }, googlePicture: true });
+      expect(new Uint8Array(await (await getPicture(who)).arrayBuffer())).toEqual(jpeg(800, 7));
+    });
+
+    it('copies it again when the sign-in names a new one', async () => {
+      const who = person('google');
+      await me(who, googlePicture(jpeg(800, 7)).signIn);
+      const before = (await me(who)).data.picture;
+      const next = googlePicture(jpeg(900, 8));
+      const after = (await me(who, next.signIn)).data.picture;
+      expect(after.version).toBeGreaterThan(before.version);
+      expect(new Uint8Array(await (await getPicture(who)).arrayBuffer())).toEqual(jpeg(900, 8));
+    });
+
+    it('takes nothing that is not a picture, nor from anywhere but Google', async () => {
+      const who = person('google');
+      const { signIn } = googlePicture(new TextEncoder().encode('<html>nope</html>'), 'text/html');
+      expect((await me(who, signIn)).data).toMatchObject({ picture: null, googlePicture: false });
+
+      const elsewhere = person('google');
+      const name = `a/photo${++pictures}`;
+      api.google.set(`${name}=s256-c`, jpeg(), 'image/jpeg');
+      const address = `${api.base}/elsewhere/${name}=s96-c`;
+      const answer = await me(elsewhere, { 'X-Dev-Picture': address });
+      expect(answer.status).toBe(200);
+      expect(answer.data).toMatchObject({ picture: null, googlePicture: false });
+
+      // And a Google picture that can't be reached leaves the initial
+      const missing = person('google');
+      const gone = { 'X-Dev-Picture': `${api.google.base}a/missing=s96-c` };
+      expect((await me(missing, gone)).data).toMatchObject({ picture: null });
+    });
+  });
+});
+
 describe('the profile', () => {
   it('starts with the defaults, before anything is saved', async () => {
     const me = person('me');
@@ -61,6 +251,8 @@ describe('the profile', () => {
       email: me,
       displayName: null,
       settings: DESIGN_DEFAULTS,
+      picture: null,
+      googlePicture: false,
     });
   });
 

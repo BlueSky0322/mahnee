@@ -21,6 +21,11 @@ export const LAST_EMAIL_KEY = 'mahnee:lastEmail';
  */
 export const SW_USER_KEY = 'mahnee:user';
 /**
+ * Profile pictures the service worker keeps, one cache per account named with its email
+ * after this prefix (IMAGE_CACHE_PREFIX in public/sw.js; sw.test.ts runs it against this)
+ */
+export const IMAGE_CACHE_PREFIX = 'mahnee-pictures-v1:';
+/**
  * Keys of work not yet on the server: the outbox of changes (OUTBOX_PREFIX in
  * outbox.ts). Kept for their own account when someone else signs in, readable and
  * sendable by nobody else (outbox.test.ts checks these match)
@@ -236,6 +241,13 @@ export async function clearCache(
     localStorage.removeItem(START_SCREEN_KEY);
   });
   await quietlyAsync(() => clearExceptUnsent(keepUnsentOf));
+  // Pictures the service worker kept, so the next person can't see them
+  if ('caches' in window) await quietlyAsync(clearImageCaches);
+}
+
+async function clearImageCaches() {
+  const names = (await caches.keys()).filter((name) => name.startsWith(IMAGE_CACHE_PREFIX));
+  await Promise.all(names.map((name) => caches.delete(name)));
 }
 
 async function clearExceptUnsent(keepUnsentOf: (email: string) => boolean) {

@@ -22,6 +22,7 @@ import type {
   MonthSummary,
   MonthTrend,
   Profile,
+  ProfilePatch,
   Recurring,
   ScheduledInMonth,
   SearchPage,
@@ -32,6 +33,10 @@ import {
   EXPECTED_ACCOUNT_HEADER,
   MAX_CHANGES,
   MAX_FILE_NAME,
+  MAX_PICTURE_BYTES,
+  PICTURE_CHOICES,
+  PICTURE_PATH,
+  PICTURE_TYPES,
   MAX_PAYEE_CATEGORIES,
   MAX_RECENT_IMPORTS,
   PENDING_CHANGES_HEADER,
@@ -207,8 +212,13 @@ export interface FakeServer {
    * general explanation), or with this status and explanation
    */
   failNext: Partial<
-    Record<'profile' | 'changes' | 'payeeCategories', number | { status: number; error: string }>
+    Record<
+      'profile' | 'changes' | 'payeeCategories' | 'picture',
+      number | { status: number; error: string }
+    >
   >;
+  /** Each picture sent to PUT /api/me/picture and kept, as sent */
+  uploads: Blob[];
   /**
    * The next ledger changes are saved, but the answer never reaches the app, as when the
    * connection drops on the way back
@@ -335,14 +345,39 @@ function answerNow(server: FakeServer) {
     if (path === '/api/me' && method === 'PATCH') {
       const failure = failing('profile');
       if (failure) return failure;
-      const patch = body as Partial<Profile>;
+      const patch = body as ProfilePatch;
       const settings = 'settings' in patch ? readSettingsPatch(server, patch.settings) : {};
       if (Array.isArray(settings)) return json({ error: settings[1] }, settings[0]);
+      if ('picture' in patch && !(PICTURE_CHOICES as readonly unknown[]).includes(patch.picture)) {
+        return json({ error: 'Pick the Google picture or the initial' }, 400);
+      }
       server.me = {
         ...server.me,
         ...('displayName' in patch ? { displayName: patch.displayName ?? null } : {}),
         settings: { ...server.me.settings, ...settings },
       };
+      // The chosen picture goes; the Google one shows if asked for and kept, as the real one
+      if (patch.picture != null) {
+        const google = patch.picture === 'google' && server.me.googlePicture;
+        server.me.picture = google ? { source: 'google', version: Date.now() } : null;
+      }
+      return json(server.me);
+    }
+    // The picture as the real one takes it: its bytes alone, of a picture type, small enough
+    if (path === PICTURE_PATH && method === 'PUT') {
+      const failure = failing('picture');
+      if (failure) return failure;
+      const picture = init?.body;
+      if (!(picture instanceof Blob) || picture.size === 0) {
+        return json({ error: 'No picture was sent' }, 400);
+      }
+      if (picture.size > MAX_PICTURE_BYTES)
+        return json({ error: 'That picture is too large' }, 413);
+      if (!(PICTURE_TYPES as readonly string[]).includes(picture.type)) {
+        return json({ error: 'Only JPEG, PNG and WebP pictures' }, 415);
+      }
+      server.uploads.push(picture);
+      server.me = { ...server.me, picture: { source: 'upload', version: Date.now() } };
       return json(server.me);
     }
     // A read of balances or totals names the changes the app may have had saved already;
@@ -1472,6 +1507,8 @@ export function fakeServer(): FakeServer {
       email: EMAIL,
       displayName: 'Ryan',
       settings: { ...DEFAULT_SETTINGS, timeZone: deviceTimeZone() },
+      picture: null,
+      googlePicture: false,
     },
     rates: new Map(),
     accounts: [],
@@ -1483,6 +1520,7 @@ export function fakeServer(): FakeServer {
     importIds: new Map(),
     receipts: new Map(),
     failNext: {},
+    uploads: [],
     loseNext: {},
     pathsDown: new Set(),
     held: [],

@@ -37,6 +37,22 @@ hack-proof, and the limits below are real.
   month starts on) are checked to be the person's own, and foreign keys with the email
   hold the same in the database.
 
+- **The profile picture.** A person's picture (one they chose, or a copy of their
+  Google picture) is served at `/api/me/picture`, which names no account: it answers only
+  the signed-in account's own, so there's no one else's to ask for. It's sent
+  `private, no-cache` with an ETag, so a browser's copy is checked with the server before
+  each showing, and `nosniff` with `default-src 'none'`. The server takes only a JPEG, PNG
+  or WebP by its bytes (not the type it's sent as), at most 64 KB and 512px a side, and
+  refuses anything else (`worker/accounts/pictures.ts`).
+- **Google picture.** When the Access token names the person's Google picture (only once
+  the owner passes Google's `picture` claim on, see Settings outside the repo), the Worker
+  copies it once into the database, from `https://lh3.googleusercontent.com/` only (no
+  redirects followed, 5 seconds at most, checked as an upload is), and again only when the
+  token names a different one. The browser never contacts Google for it, so Google
+  doesn't learn when or where the app is opened. The address it came from is kept beside
+  it, private to the account. Choosing the initial stops it showing; the copy is kept, to
+  go back to.
+
 - **What the server writes on its own (owner decision D8).** A cron trigger runs the
   nightly job every 15 minutes (`worker/ledger/post-scheduled.ts`): it adds each person's
   scheduled entries on their day, through the same checks as the app's own changes
@@ -138,8 +154,13 @@ hack-proof, and the limits below are real.
   by the app or, while it's closed, by the service worker's background sync, which sends
   only the outbox of the account the app last said is signed in. The server refuses one
   sent while someone else is signed in, and it's kept.
-- The service worker keeps the app's own files and web fonts, never anything from the
-  API. It reads the app's IndexedDB only to send the outbox.
+- The service worker keeps the app's own files and web fonts, and from the API only the
+  profile picture: one copy per account, in a cache named with the account's email
+  (`mahnee-pictures-v1:<email>`), kept only when the server said whose it is
+  (`X-Image-Viewer`) and shown from there only offline or while the server fails, and
+  only to the account the app last said is signed in. Online, the server is asked every
+  time. A 404 forgets it, and signing out deletes every account's. It reads the app's
+  IndexedDB only to send the outbox and to know who's signed in.
 - Once an Access session runs out, the app opens with the last account's kept profile
   and offers to sign in. Whoever holds the device can read what was kept until someone
   signs in or signs out: an unlocked shared device is a risk, as with any app that opens
@@ -147,7 +168,7 @@ hack-proof, and the limits below are real.
 - The export file holds the person's whole financial history: every transaction and the
   bills still repeating, with amounts, payees, notes and account names. The app doesn't store it anywhere: the
   Worker writes it as it's asked for, answers it with `Cache-Control: no-store`, and
-  logs none of it; the service worker never keeps anything from `/api`. Once
+  logs none of it; the service worker keeps nothing from `/api` but the picture. Once
   downloaded or shared it is wherever the person saved it, outside the app's care.
 - An imported file is read in the browser and never sent anywhere whole: only the
   changes the person ticks go to the server, as any other change. The column mapping
@@ -216,6 +237,11 @@ These are kept in Cloudflare and GitHub, not here; check them from time to time:
 - Access: who the shared "Anyone with an email" policy lets in (it also guards
   Splitfoolish), and how long a session lasts (24 hours).
 - The Cloudflare API token's permissions: no more than the deploy needs.
+- To show a Google picture by default: in Zero Trust, Integrations, Identity providers,
+  edit Google and add `picture` under OIDC Claims, then Save and Test (the test's
+  `oidc_fields` should show `picture`). Access then puts it in the token's `custom`
+  claims, read on the next sign-in. Without it, everyone starts with the initial and can
+  choose a photo.
 - `REQUIRE_EXPECTED_ACCOUNT=true` on the Worker, once installed apps send the header, so
   writes from apps too old to say whose they are are refused.
 - GitHub: only trusted people can push to `main`, since a push deploys.

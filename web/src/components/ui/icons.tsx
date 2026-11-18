@@ -198,6 +198,9 @@ export const SearchIcon = icon(
     <path d="M16 16l4 4" />
   </>,
 );
+/** Money going out, and coming in (the kinds of category) */
+export const OutIcon = icon(<path d="M7 17L17 7M9 7h8v8" />, 2);
+export const InIcon = icon(<path d="M17 7L7 17M15 17H7V9" />, 2);
 export const PlusIcon = icon(<path d="M12 5v14M5 12h14" />, 2.2);
 export const CheckIcon = icon(<path d="M5 12.5l4.5 4.5L19 7.5" />, 2.2);
 export const CloseIcon = icon(<path d="M6 6l12 12M18 6L6 18" />);

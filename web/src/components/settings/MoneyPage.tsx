@@ -1,6 +1,7 @@
-import { Button, Menu } from '@mantine/core';
+import { Button, Menu, Popover } from '@mantine/core';
 import { DownIcon, ForwardIcon } from '../ui/icons';
-import { useState } from 'react';
+import { useContext, useId, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Category, Recurring, Settings } from '@shared/api';
 import { periodMonthOf, periodOf } from '@shared/period';
 import { LAST_DAY_OF_MONTH, MAX_MONTH_START_DAY } from '@shared/settings';
@@ -10,6 +11,7 @@ import { forgetMonthTotals } from '../../ledger/ledger';
 import { useCategories, useWholeLedger } from '../../ledger/useLedger';
 import { useProfile } from '../../profile/ProfileContext';
 import { toDateInput } from '../../utils/date-input';
+import { DialogHeaderSlot } from '../ui/dialog-header';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { SETTINGS_INDEX } from './settings-search';
 import { ordinal, settingValue } from './settings-text';
@@ -20,8 +22,8 @@ import money from './MoneyPage.module.css';
 
 // Settings › Money (R-Set-Money, R-Desk-Prefs; owner decision D7): the main currency (as it
 // is until a home currency can be chosen), when the month starts and when the week
-// starts. "Month starts on" opens a sheet on phones and a dialog on computers holding a
-// draft: a day of the month (1 to 28, or the last day) or payday, the day a running monthly
+// starts. "Month starts on" opens a sheet on phones (Done in its header) and a panel under
+// its button on computers (Cancel, Done), holding a draft: a day of the month (1 to 28, or the last day) or payday, the day a running monthly
 // pay in Scheduled is due, with this month's days as a preview. Done keeps it; Cancel,
 // Back and Esc keep nothing. Every monthly figure follows it (shared/period.ts), so what
 // was kept for the old days goes with it. The week's start is saved as it's picked.
@@ -111,6 +113,7 @@ function MoneyCard({ settings, pays }: { settings: Settings; pays: Recurring[] }
   const isDesktop = useIsDesktop() === true;
   const found = useSettingInView();
   const [draft, setDraft] = useState<Draft | null>(null);
+  const panelName = useId();
   const row = (key: string) => SETTINGS_INDEX.find((s) => s.key === key)!;
   const rowClass = (key: string) => `${classes.row} ${found === key ? classes.found : ''}`;
 
@@ -164,17 +167,54 @@ function MoneyCard({ settings, pays }: { settings: Settings; pays: Recurring[] }
               </div>
               <div className={classes.detail}>{month.line}</div>
             </div>
-            <Button
-              variant="default"
-              size="xs"
-              aria-label={`${month.name}: ${monthValue}`}
-              aria-haspopup="dialog"
-              aria-expanded={draft != null}
-              rightSection={<DownIcon size={14} />}
-              onClick={() => setDraft(saved)}
+            <Popover
+              opened={draft != null}
+              onChange={(opened) => {
+                if (!opened) close();
+              }}
+              position="bottom-end"
+              offset={6}
+              width={340}
+              trapFocus
+              returnFocus
+              classNames={{ dropdown: money.pop }}
             >
-              {monthValue}
-            </Button>
+              <Popover.Target>
+                <Button
+                  variant="default"
+                  size="xs"
+                  aria-label={`${month.name}: ${monthValue}`}
+                  aria-haspopup="dialog"
+                  aria-expanded={draft != null}
+                  rightSection={<DownIcon size={14} />}
+                  onClick={() => (draft == null ? setDraft(saved) : close())}
+                >
+                  {monthValue}
+                </Button>
+              </Popover.Target>
+              <Popover.Dropdown
+                // Named for what it sets, not for the button it opens from
+                aria-labelledby={panelName}
+              >
+                <h2
+                  id={panelName}
+                  className="sr-only"
+                >
+                  {month.name}
+                </h2>
+                {draft != null && (
+                  <MonthSheet
+                    draft={draft}
+                    pays={pays}
+                    categories={categories ?? []}
+                    isDesktop
+                    onChange={setDraft}
+                    onCancel={close}
+                    onDone={done}
+                  />
+                )}
+              </Popover.Dropdown>
+            </Popover>
           </div>
         ) : (
           <div
@@ -225,25 +265,27 @@ function MoneyCard({ settings, pays }: { settings: Settings; pays: Recurring[] }
         </div>
       </section>
 
-      <ResponsiveDialog
-        opened={draft != null}
-        onClose={close}
-        title={month.name}
-        // Its own Done is at its foot
-        closeLabel={null}
-      >
-        {draft != null && (
-          <MonthSheet
-            draft={draft}
-            pays={pays}
-            categories={categories ?? []}
-            isDesktop={isDesktop}
-            onChange={setDraft}
-            onCancel={close}
-            onDone={done}
-          />
-        )}
-      </ResponsiveDialog>
+      {!isDesktop && (
+        <ResponsiveDialog
+          opened={draft != null}
+          onClose={close}
+          title={month.name}
+          // Its own Done is in its header
+          closeLabel={null}
+        >
+          {draft != null && (
+            <MonthSheet
+              draft={draft}
+              pays={pays}
+              categories={categories ?? []}
+              isDesktop={false}
+              onChange={setDraft}
+              onCancel={close}
+              onDone={done}
+            />
+          )}
+        </ResponsiveDialog>
+      )}
     </>
   );
 }
@@ -282,10 +324,12 @@ function MonthSheet({
       Plan › Scheduled
     </a>
   );
+  // A phone's Done sits in the sheet's header, quiet, where the board draws it
+  const header = useContext(DialogHeaderSlot);
   const doneButton = (
     <Button
-      size={isDesktop ? 'compact-md' : 'md'}
-      fullWidth={!isDesktop}
+      variant={isDesktop ? 'filled' : 'light'}
+      size="xs"
       onClick={onDone}
     >
       Done
@@ -334,7 +378,11 @@ function MonthSheet({
         <div className={money.pay}>
           <p className={money.lands}>Starts when your pay lands</p>
           <span className={money.payHeading}>Your pay</span>
-          <Menu position="bottom-start">
+          <Menu
+            position="bottom-start"
+            // Inside a computer's panel, so picking a pay doesn't count as a click outside it
+            withinPortal={!isDesktop}
+          >
             <Menu.Target>
               <Button
                 variant="default"
@@ -369,8 +417,8 @@ function MonthSheet({
           </b>
         </div>
       )}
-      <div className={money.actions}>
-        {isDesktop && (
+      {isDesktop ? (
+        <div className={money.actions}>
           <Button
             variant="light"
             size="xs"
@@ -378,9 +426,11 @@ function MonthSheet({
           >
             Cancel
           </Button>
-        )}
-        {doneButton}
-      </div>
+          {doneButton}
+        </div>
+      ) : (
+        header != null && createPortal(doneButton, header)
+      )}
     </div>
   );
 }

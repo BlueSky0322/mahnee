@@ -46,13 +46,15 @@
   letter-spacing: -0.03em;
 }
 
+/* A card's edge takes its pixel of room, as the boards' 1px border does */
 .card {
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
   overflow: hidden;
+  border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--surface);
-  box-shadow: var(--shadow-card);
 }
 
 .profile {
@@ -101,6 +103,7 @@
   overflow: hidden;
   color: var(--ink-3);
   font-size: 13px;
+  line-height: 1.35;
   text-overflow: ellipsis;
 }
 
@@ -215,20 +218,41 @@
   display: none;
 }
 
+/* Typing in the box marks it, as R-Set-Search draws it (a computer's sidebar doesn't) */
+.page .search:focus-within {
+  box-shadow:
+    inset 0 0 0 1.5px var(--accent),
+    0 0 0 3px var(--accent-tint);
+}
+
 .clear {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: 0;
-  background: none;
-  color: var(--ink-3);
-  font-size: 20px;
+  border-radius: 999px;
+  background: var(--sunk);
+  color: var(--ink-2);
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
 }
 
+.nav .clear {
+  width: 26px;
+  height: 26px;
+}
+
 .foundCount {
-  margin: 0;
+  margin: 0 0 -8px;
   padding: 0 4px;
   color: var(--ink-3);
   font-size: 13px;
+  font-weight: 600;
 }
 
 .result mark {
@@ -273,9 +297,25 @@
 }
 
 .initialLarge {
-  width: 56px;
-  height: 56px;
-  font-size: 22px;
+  width: 64px;
+  height: 64px;
+  font-size: 26px;
+}
+
+/* A phone's name and email, one under the other */
+.who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.profileCentred .name {
+  font-size: 18px;
+}
+
+.profileCentred .detail {
+  color: var(--ink-3);
+  font-size: 14px;
 }
 
 .profile h2 {
@@ -317,18 +357,27 @@ section > .cardTitle {
   cursor: default;
 }
 
-.fileButton {
+/* The boards' filled pill (Choose a file, Import a file, Download CSV) */
+.fileButton,
+.primaryPill {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 44px;
-  border-radius: 12px;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
+}
+
+.primaryPill:disabled,
+.primaryPill[data-disabled] {
+  opacity: 0.4;
 }
 
 .fileButton:focus-within {
@@ -350,10 +399,11 @@ section > .cardTitle {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 84px;
+  min-height: 88px;
+  margin: 0 20px 4px;
   border: 1.5px dashed var(--line-2);
-  border-radius: 12px;
-  color: var(--ink-3);
+  border-radius: 14px;
+  color: var(--ink-2);
   font-size: 14px;
 }
 
@@ -362,14 +412,14 @@ section > .cardTitle {
   background: var(--accent-tint);
 }
 
-/* Which entries: a segmented choice */
+/* Which entries: a segmented choice, a pill like every other */
 .segmented {
   display: grid;
-  grid-auto-columns: 1fr;
+  grid-auto-columns: minmax(0, 1fr);
   grid-auto-flow: column;
-  gap: 2px;
+  gap: 3px;
   padding: 3px;
-  border-radius: 12px;
+  border-radius: 999px;
   background: var(--sunk);
 }
 
@@ -378,18 +428,18 @@ section > .cardTitle {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 36px;
-  border-radius: 9px;
+  height: 34px;
+  border-radius: 999px;
   color: var(--ink-2);
   font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .segment[data-on] {
   background: var(--surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: 0 1px 2px rgb(20 20 20 / 12%);
   color: var(--ink);
-  font-weight: 500;
 }
 
 .segment:focus-within {
@@ -427,24 +477,163 @@ section > .cardTitle {
   font-size: 14px;
 }
 
+.paneBody .holds {
+  line-height: 1.5;
+}
+
+/* What the file holds on a computer: each label beside its figure */
 .facts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 16px;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
   margin: 0;
   padding: 0;
+  font-size: 14px;
   list-style: none;
 }
 
 .facts li {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.factLabel {
+  color: var(--ink-3);
+}
+
+.factValue {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Import and export's cards (R-Set-Data, R-Desk-Data) */
+.dataCards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.dataCards > :first-child {
+  flex: 3 1 560px;
+  min-width: 0;
+}
+
+.dataCards > :last-child {
+  flex: 2 1 340px;
+  min-width: 0;
+}
+
+.dataCard {
+  gap: 12px;
+  padding: 16px;
+}
+
+.dataCard:focus,
+.importCard:focus {
+  outline: none;
+}
+
+.dataHead {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.factValue {
-  font-size: 15px;
+.dataTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.dataLine {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+/* A computer's Import card: its heading with Import a file beside it, the drop zone, then
+   the imports and the banks it remembers */
+.importHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 20px 16px;
+}
+
+.importHead .fileButton {
+  flex: none;
+}
+
+.dataSub {
+  margin: 0;
+  padding: 18px 20px 8px;
+  color: var(--ink-3);
+  font-size: 12px;
   font-weight: 500;
+}
+
+.eyebrow.spaced {
+  margin-top: 8px;
+}
+
+.dataSub.spaced {
+  padding-top: 28px;
+}
+
+.dataList:last-child {
+  padding-bottom: 6px;
+}
+
+.dataRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  box-sizing: border-box;
+  padding: 8px 16px;
+}
+
+.dataRow + .dataRow {
+  border-top: 1px solid var(--line);
+}
+
+.dataName {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.dataDetail {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.dataCounts {
+  flex: none;
+  color: var(--ink-2);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.dataNone {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* A phone's Recent imports with none yet: a small card of its own */
+.emptyCard {
+  gap: 6px;
+  padding: 16px;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .dialogForm {
@@ -466,7 +655,9 @@ section > .cardTitle {
   gap: 8px;
 }
 
-/* A computer's Settings: the sections down the left, the open one beside them */
+/* A computer's Settings: the sections down the left, the open one beside them
+   (R-Desk-Settings). The sidebar is as wide as the board draws it, sunk, with Sign out and
+   how fresh the figures are at its foot. */
 .desktop {
   display: flex;
   min-height: 100vh;
@@ -474,9 +665,10 @@ section > .cardTitle {
 
 .side {
   flex: none;
-  width: 260px;
+  width: 332px;
+  box-sizing: border-box;
   border-right: 1px solid var(--line);
-  background: var(--surface);
+  background: var(--sunk);
 }
 
 .nav {
@@ -485,58 +677,184 @@ section > .cardTitle {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 20px 12px;
+  height: 100vh;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 32px 16px 20px;
 }
 
 .nav .search {
-  margin-bottom: 10px;
-  background: var(--ground);
+  flex: none;
+  height: 38px;
+  margin-bottom: 12px;
+  padding: 0 6px 0 10px;
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.nav .search input {
+  font-size: 14px;
+}
+
+.searchKey {
+  padding: 2px 5px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: normal;
+  white-space: nowrap;
 }
 
 .navLink {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 10px;
-  min-height: 38px;
+  height: 36px;
   padding: 0 10px;
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--ink-2);
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 500;
   text-decoration: none;
 }
 
+.navLink > span {
+  display: flex;
+  flex: none;
+  color: var(--ink-3);
+}
+
 .navLink:hover {
-  background: var(--sunk);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
 }
 
 .navLink[aria-current='page'] {
-  background: var(--accent-tint);
-  color: var(--accent);
-  font-weight: 500;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  color: var(--ink);
 }
 
-.navGap,
-.navRule {
-  width: 100%;
-  margin: 8px 0;
-  border: 0;
-  border-top: 1px solid var(--line);
+.navLink[aria-current='page'] > span {
+  color: var(--ink);
 }
 
-.navSignOut {
-  min-height: 38px;
-  padding: 0 10px;
+/* The open section's parts, indented under it with a rule down their left */
+.navParts {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  margin: 4px 0 6px 19px;
+  border-left: 1.5px solid var(--line-2);
+}
+
+.navPart {
+  position: relative;
+  height: 32px;
+  padding: 0 0 0 18px;
   border: 0;
-  border-radius: 10px;
   background: none;
-  color: var(--neg);
+  color: var(--ink-3);
   font: inherit;
   font-size: 14px;
   text-align: left;
   cursor: pointer;
 }
 
-.nav p {
+.navPart[aria-current='true'] {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.navPart[aria-current='true']::before {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: -1.5px;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--ink);
+  content: '';
+}
+
+.navGap,
+.navRule {
+  flex: none;
+  margin: 8px 10px;
+  border: 0;
+  border-top: 1px solid var(--line-2);
+}
+
+.navRule {
+  margin: auto 10px 10px;
+}
+
+/* What a search finds, in place of the sections */
+.navFoundCount {
+  margin: 0;
+  padding: 0 10px 6px;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.navResults {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.navResult {
+  display: flex;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.navResult .rowText {
+  gap: 1px;
+}
+
+.navResult .label {
+  font-size: 14px;
+}
+
+.navResult .detail {
+  font-size: 12px;
+  line-height: normal;
+}
+
+.navResult:hover,
+.navResult[aria-current='true'] {
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+.navNone {
+  margin: 0;
+  padding: 0 10px;
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+.navSignOut {
+  flex: none;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--neg);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav p:last-child {
   padding: 8px 10px;
   text-align: left;
 }
@@ -554,22 +872,35 @@ section > .cardTitle {
   right: 32px;
 }
 
+.closeKey {
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .paneBody {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
   width: min(820px, 100%);
   margin: 0 auto;
 }
 
 .paneBody .page {
+  gap: 20px;
   max-width: none;
   margin: 0;
   padding: 0;
 }
 
+.paneBody .titleRow {
+  min-height: 40px;
+}
+
 .paneBody .title {
+  margin: 0;
+  padding: 0;
   font-size: 22px;
+  letter-spacing: -0.02em;
 }
 
 /* A setting with its control under its name (Adding entries, Look and start) */
@@ -596,6 +927,12 @@ section > .cardTitle {
   gap: 8px;
   font-size: 15px;
   font-weight: 500;
+}
+
+/* The boards' New beside a setting's name reads in the line's grey, as they draw it */
+.settingName > span {
+  color: var(--ink-3);
+  font-size: 13px;
 }
 
 /* One of a few: a segmented control */
@@ -693,4 +1030,98 @@ section > .cardTitle {
 
 .option[aria-checked='true'] {
   background: var(--accent-tint);
+}
+
+/* A computer's pane (R-Desk-Settings and the other R-Desk boards): every setting is one row,
+   its name and line at the left and its control at the right, never under it */
+.paneBody .row,
+.paneBody .stacked {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: center;
+  min-height: 0;
+  padding: 16px 20px;
+}
+
+.paneBody .label,
+.paneBody .settingName {
+  font-size: 14px;
+}
+
+.paneBody .detail {
+  line-height: normal;
+}
+
+.paneBody .choice {
+  justify-self: end;
+}
+
+.paneBody .choice button {
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.paneBody .swatches {
+  margin-left: 0;
+}
+
+.paneBody .swatch {
+  width: 40px;
+  height: 40px;
+}
+
+.paneBody .swatch span {
+  width: 26px;
+  height: 26px;
+}
+
+.paneBody .profile {
+  gap: 16px;
+  padding: 20px;
+}
+
+.paneBody .initialLarge {
+  width: 56px;
+  height: 56px;
+  font-size: 22px;
+}
+
+.paneBody .profile .name {
+  font-size: 18px;
+}
+
+.paneBody .profile .detail {
+  font-size: 14px;
+}
+
+.paneBody section > .cardTitle {
+  padding: 18px 20px 4px;
+}
+
+/* Import and export in a computer's pane (R-Desk-Data) */
+.paneBody .dataCard {
+  gap: 16px;
+  padding: 20px;
+}
+
+.paneBody .dataTitle {
+  font-size: 18px;
+}
+
+.paneBody .dataLine {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: normal;
+}
+
+.paneBody .dataRow {
+  gap: 16px;
+  min-height: 60px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.paneBody .dataList > .dataNone {
+  padding: 0 20px 18px;
 }

@@ -40,9 +40,14 @@ Home", "Carry over on · daily at 9:00 PM"), then Your data (Categories, "8 expe
 income"; Import and export, "Last import Nov 2"), Sign out and "Mahnee · Up to date";
 each section is its own page at `?settings=<section>`, going back up to the index. On a
 computer Settings covers the page: the sections down the left (search with Ctrl K, My
-account, the App sections, Categories, Import and export, Sign out, the freshness line)
-and the open one beside them, My account first; moving between them replaces history,
-and Close or Esc goes back to the page it was opened over. My account
+account, the App sections, Categories, Import and export, then Sign out and the freshness
+line at the foot) and the open one beside them, My account first; moving between them
+replaces history, and Close or Esc goes back to the page it was opened over. The open
+Categories or Import and export lists its parts under it (Expenses, Income; Import,
+Export), each bringing its card into view with the keyboard on it. While search is typed on
+a computer, what it finds takes the sections' place in the sidebar, the first marked, and
+the pane shows the first one's section with that setting marked (`PreviewedSetting` in
+`setting-in-view.ts`), the keyboard staying in the search; Enter opens it. My account
 (`?settings=account`) has the name and email with Change name (a dialog; empty goes back
 to the email's first part), "This phone" or "This computer" saying "Saved" with the
 freshness label, and Install the app where the browser can install it (the only place it's
@@ -1439,7 +1444,8 @@ phone).
 
 **What it is.** Bringing in a CSV file. It starts on Settings › Import and export
 (`?settings=data`): "Choose a file" (phones) or "Import a file" and a drop zone, "Or drop
-a CSV here" (computers), which opens the import page (`?import`) with that file
+a CSV here" (computers), which opens the import (`?import`; on a computer a large dialog
+over a dimmed, unreachable Settings › Import and export) with that file
 ([components/import/handed-file.ts](../web/src/components/import/handed-file.ts), taken once, and let go on signing out so it never opens for the next person); the page keeps its own picker for another file.
 Its head shows the steps ("1 File", "2 Columns", "3 Check"; a computer's "✓ File and
 account", "✓ Columns", "3 Check"), the file and account ("maybank-oct.csv into Maybank
@@ -1448,7 +1454,9 @@ to Oct 31" (a computer's "Into Maybank Savings · 42 lines, Oct 1 to Oct 31"), w
 ("38 to add", "4 already saved, left out", "6 going to Other"; a computer's "Ticked, to
 add", "Look already saved, unticked", "Category from last time", "Going to Other"), tabs
 over the lines on a computer ("All 42", "Already saved 4", "Going to Other 6") and "Cancel
-import, nothing is saved" back to Import and export. Pick the account and the file; for a bank's file, say which column
+import, nothing is saved" back to Import and export. Once the lines are being checked, a
+bank file's file and columns are done: a phone shows only the lines (a done step goes back
+to them), a computer the columns beside the lines' table. Pick the account and the file; for a bank's file, say which column
 is the date, the amount (one column, below zero or in brackets for money out) or money in
 and money out, the payee and the note. The mapping is remembered per account on this
 device. Preview shows every row before anything is saved: money out as spending, money in

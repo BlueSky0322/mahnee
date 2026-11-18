@@ -24,7 +24,7 @@ import { isOfflineFailure } from '../../offline/network';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
 import { useProfile } from '../../profile/ProfileContext';
 import { dayText, toDateInput } from '../../utils/date-input';
-import { formatMoney } from '../../utils/money';
+import { formatAmount, formatMoney } from '../../utils/money';
 import { showError } from '../../utils/notify';
 import { KIND_LABELS } from '../accounts/account-text';
 import { categoryName } from '../common/category-name';
@@ -45,6 +45,8 @@ import {
 import { rememberMapping, rememberedMapping } from './remembered-mapping';
 import classes from './Import.module.css';
 import BackButton from '../ui/BackButton';
+import { CloseIcon } from '../ui/icons';
+import Settings from '../settings/SettingsPage';
 
 // The Import page (?import): pick an account and a CSV file, say which column holds what
 // (remembered per account on this device), and look over every row before anything is
@@ -124,7 +126,7 @@ export default function ImportPage() {
   /** Categories used before couldn't be looked up (the server failed) */
   const [filedUnknown, setFiledUnknown] = useState(false);
   const [shown, setShown] = useState(ROWS_AT_A_TIME);
-  const [lines, setLines] = useState<Lines>('all');
+  const [lines_, setLines] = useState<Lines>('all');
   const isDesktop = useIsDesktop() === true;
   // Only the latest preview asked for is shown
   const asked = useRef(0);
@@ -342,6 +344,12 @@ export default function ImportPage() {
   const columnSelect = (label: string, key: keyof ColumnMapping, optional = false) => (
     <NativeSelect
       label={label}
+      // A computer's: the name beside its column (R-Desk-Import)
+      classNames={
+        isDesktop
+          ? { root: classes.map, label: classes.mapLabel, input: classes.mapInput }
+          : undefined
+      }
       value={picked[key]}
       onChange={(e) => {
         const value = e.currentTarget.value;
@@ -356,6 +364,8 @@ export default function ImportPage() {
   );
 
   const step = file == null ? 1 : plan == null ? 2 : 3;
+  // Once the lines are being checked, the file and columns are done: a step taps back to them
+  const checking = plan != null;
   const title =
     file == null
       ? 'Import'
@@ -365,88 +375,114 @@ export default function ImportPage() {
           ? file.name
           : `${file.name} into ${account.name}`;
   const STEPS = isDesktop ? ['File and account', 'Columns', 'Check'] : ['File', 'Columns', 'Check'];
+  const cancel = () => goUp('?settings=data');
 
-  return (
-    <div className={classes.page}>
-      <header className={classes.header}>
-        <div className={classes.headerRow}>
-          <BackButton onClick={() => goUp('?settings=data')}>Import and export</BackButton>
-          {isDesktop && file != null && (
-            <Button
-              variant="default"
-              size="xs"
-              aria-label="Cancel import, nothing is saved"
-              onClick={() => goUp('?settings=data')}
+  const steps = (
+    <ol
+      className={classes.steps}
+      aria-label="Steps"
+    >
+      {STEPS.map((name, i) => {
+        const done = i + 1 < step;
+        const mark = (
+          <>
+            <i
+              className={classes.stepMark}
+              aria-hidden={done && isDesktop ? true : undefined}
             >
-              Cancel
-            </Button>
-          )}
-        </div>
-        <ol
-          className={classes.steps}
-          aria-label="Steps"
-        >
-          {STEPS.map((name, i) => (
-            <li
-              key={name}
-              aria-current={i + 1 === step ? 'step' : undefined}
-              data-done={i + 1 < step || undefined}
-            >
-              {isDesktop && i + 1 < step ? `✓ ${name}` : `${i + 1} ${name}`}
-            </li>
-          ))}
-        </ol>
-        <h1 className={classes.title}>{title}</h1>
-        {plan != null && file != null && (
-          <p className={classes.muted}>
-            {linesText(
-              plan,
-              isDesktop ? (file.isExport ? null : account?.name ?? null) : null,
-              isDesktop,
-            )}
-          </p>
-        )}
-      </header>
-
-      <section className={classes.card}>
-        <p className={classes.muted}>
-          A CSV file from your bank, or one exported from Mahnee. Nothing is saved until you look it
-          over and say Import.
-        </p>
-        <NativeSelect
-          label="Account"
-          value={accountId}
-          onChange={(e) => chooseAccount(e.currentTarget.value)}
-          data={
-            listed.length === 0
-              ? [{ value: '', label: 'No accounts yet' }]
-              : listed.map((a) => ({ value: a.id, label: a.name }))
-          }
-        />
-        <label className={classes.fileButton}>
-          <FileArrowUp size={18} />
-          <span>{file == null ? 'Pick a CSV file' : 'Pick another file'}</span>
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            aria-label="CSV file"
-            className={classes.fileInput}
-            onChange={(e) => {
-              void chooseFile(e.currentTarget.files?.[0]);
-              e.currentTarget.value = '';
-            }}
-          />
-        </label>
-        {fileProblem != null && (
-          <p
-            className={classes.problem}
-            role="alert"
+              {done && isDesktop ? '✓' : i + 1}
+            </i>
+            {name}
+          </>
+        );
+        return (
+          <li
+            key={name}
+            className={classes.step}
+            aria-current={i + 1 === step ? 'step' : undefined}
+            data-done={done || undefined}
           >
-            {fileProblem}
-          </p>
-        )}
-      </section>
+            {done && checking ? (
+              <button
+                type="button"
+                className={classes.stepBack}
+                aria-label={`Back to ${name}`}
+                onClick={startOver}
+              >
+                {mark}
+              </button>
+            ) : (
+              mark
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
 
+  const heading = (
+    <div className={classes.titleBlock}>
+      <h1
+        id="import-title"
+        className={classes.title}
+      >
+        {title}
+      </h1>
+      {plan != null && file != null && (
+        <p className={classes.soft}>
+          {linesText(
+            plan,
+            isDesktop ? (file.isExport ? null : account?.name ?? null) : null,
+            isDesktop,
+          )}
+        </p>
+      )}
+    </div>
+  );
+
+  const fileCard = (
+    <section className={classes.card}>
+      <p className={classes.muted}>
+        A CSV file from your bank, or one exported from Mahnee. Nothing is saved until you look it
+        over and say Import.
+      </p>
+      <NativeSelect
+        label="Account"
+        value={accountId}
+        onChange={(e) => chooseAccount(e.currentTarget.value)}
+        data={
+          listed.length === 0
+            ? [{ value: '', label: 'No accounts yet' }]
+            : listed.map((a) => ({ value: a.id, label: a.name }))
+        }
+      />
+      <label className={classes.fileButton}>
+        <FileArrowUp size={18} />
+        <span>{file == null ? 'Pick a CSV file' : 'Pick another file'}</span>
+        <input
+          type="file"
+          accept=".csv,text/csv"
+          aria-label="CSV file"
+          className={classes.fileInput}
+          onChange={(e) => {
+            void chooseFile(e.currentTarget.files?.[0]);
+            e.currentTarget.value = '';
+          }}
+        />
+      </label>
+      {fileProblem != null && (
+        <p
+          className={classes.problem}
+          role="alert"
+        >
+          {fileProblem}
+        </p>
+      )}
+    </section>
+  );
+
+  const exportNotes = (
+    <>
       {file != null && file.isExport && file.range == null && (
         <p className={classes.muted}>
           This is a Mahnee export: it names its own accounts and categories, so the account above
@@ -458,116 +494,242 @@ export default function ImportPage() {
           {`This file holds ${shortDay(file.range.from)} to ${shortDay(file.range.to)} only, so it adds entries to accounts you have: no accounts, opening balances or repeating items.`}
         </p>
       )}
+    </>
+  );
 
-      {file != null && !file.isExport && (
-        <section className={classes.card}>
-          <h2 className={classes.sectionTitle}>Which column is which</h2>
-          <SegmentedControl
-            fullWidth
-            value={twoColumns ? 'two' : 'one'}
-            onChange={(v) => {
-              setTwoColumns(v === 'two');
-              startOver();
-            }}
-            data={[
-              { value: 'one', label: 'One amount column' },
-              { value: 'two', label: 'Money in and out' },
-            ]}
-          />
-          {columnSelect('Date', 'date')}
-          {twoColumns ? (
-            <>
-              {columnSelect('Money in', 'moneyIn')}
-              {columnSelect('Money out', 'moneyOut')}
-            </>
-          ) : (
-            columnSelect('Amount', 'amount')
-          )}
-          {columnSelect('Payee', 'payee', true)}
-          {columnSelect('Note', 'note', true)}
-          <p className={classes.muted}>
-            {twoColumns
-              ? 'Money in is income, money out is spending.'
-              : 'Amounts below zero, or in brackets, are spending; the rest is income.'}{' '}
-            Dates are read as day, month, year (31/01/2026).
-          </p>
-          <Button
-            onClick={() => void preview(file)}
-            disabled={account == null || mapping == null}
-            loading={preparing}
+  const counts =
+    plan != null && choices != null && categories != null ? (
+      <Counts
+        plan={plan}
+        choices={choices}
+        categories={categories}
+        desktop={isDesktop}
+      />
+    ) : null;
+
+  const addButton =
+    plan != null && choices != null ? (
+      <Button
+        size={isDesktop ? 'sm' : 'md'}
+        fullWidth
+        classNames={{ root: classes.importButton, label: classes.importButtonLabel }}
+        disabled={!canImport}
+        onClick={importNow}
+      >
+        Add {toImport}
+      </Button>
+    ) : null;
+
+  // "Which column is which": on a computer the card down the left, with what's counted and
+  // Add under the columns once the lines are being checked
+  const columnsCard =
+    file != null && !file.isExport ? (
+      <section
+        className={`${classes.card} ${classes.columns}`}
+        aria-labelledby="import-columns"
+      >
+        <div className={classes.columnsHead}>
+          <h2
+            id="import-columns"
+            className={classes.sectionTitle}
           >
-            Preview
-          </Button>
-          {account == null && <p className={classes.muted}>Add an account to import into first.</p>}
-        </section>
-      )}
+            Which column is which
+          </h2>
+          {checking && <span className={classes.small}>Saved for this bank</span>}
+        </div>
+        <SegmentedControl
+          fullWidth
+          size={isDesktop ? 'xs' : 'sm'}
+          value={twoColumns ? 'two' : 'one'}
+          onChange={(v) => {
+            setTwoColumns(v === 'two');
+            startOver();
+          }}
+          data={[
+            { value: 'one', label: 'One amount column' },
+            { value: 'two', label: 'Money in and out' },
+          ]}
+        />
+        {columnSelect('Date', 'date')}
+        {columnSelect('Payee', 'payee', true)}
+        {twoColumns ? (
+          <>
+            {columnSelect('Money in', 'moneyIn')}
+            {columnSelect('Money out', 'moneyOut')}
+          </>
+        ) : (
+          columnSelect('Amount', 'amount')
+        )}
+        {columnSelect('Note', 'note', true)}
+        {!checking && (
+          <>
+            <p className={classes.muted}>
+              {twoColumns
+                ? 'Money in is income, money out is spending.'
+                : 'Amounts below zero, or in brackets, are spending; the rest is income.'}{' '}
+              Dates are read as day, month, year (31/01/2026).
+            </p>
+            <Button
+              onClick={() => void preview(file)}
+              disabled={account == null || mapping == null}
+              loading={preparing}
+            >
+              Preview
+            </Button>
+            {account == null && (
+              <p className={classes.muted}>Add an account to import into first.</p>
+            )}
+          </>
+        )}
+        {isDesktop && counts != null && (
+          <>
+            <hr className={classes.rule} />
+            {counts}
+            {plan?.problem != null && <p className={classes.problem}>{plan.problem}</p>}
+            {addButton}
+          </>
+        )}
+      </section>
+    ) : null;
 
-      {file?.isExport && preparing && plan == null && (
-        <p className={classes.muted}>Reading the file…</p>
-      )}
-
-      {plan != null && filedUnknown && (
-        <p
-          className={classes.problem}
-          role="alert"
-        >
-          Couldn't look up categories you've used before, so these rows are under Other. Change them
-          below or try again.
-        </p>
-      )}
-
-      {plan != null && choices != null && categories != null && (
-        <Counts
+  const lines =
+    plan != null && choices != null && categories != null ? (
+      <section
+        className={isDesktop ? `${classes.card} ${classes.lines}` : classes.section}
+        aria-label="Lines in the file"
+      >
+        {isDesktop && (
+          <LineTabs
+            plan={plan}
+            choices={choices}
+            categories={categories}
+            lines={lines_}
+            onLines={(l) => {
+              setLines(l);
+              setShown(ROWS_AT_A_TIME);
+            }}
+          />
+        )}
+        <Preview
           plan={plan}
+          table={file?.table ?? []}
           choices={choices}
+          update={update}
+          accounts={accounts ?? []}
           categories={categories}
+          shown={shown}
+          showMore={() => setShown((n) => n + ROWS_AT_A_TIME)}
+          only={isDesktop ? lineFilter(lines_, choices, categories) : null}
           desktop={isDesktop}
         />
-      )}
+      </section>
+    ) : null;
 
-      {plan != null && choices != null && categories != null && (
-        <section
-          className={classes.section}
-          aria-label="Lines in the file"
+  const lookupProblem = plan != null && filedUnknown && (
+    <p
+      className={classes.problem}
+      role="alert"
+    >
+      Couldn't look up categories you've used before, so these rows are under Other. Change them
+      below or{' '}
+      <button
+        type="button"
+        className={classes.inlineLink}
+        onClick={() => file != null && void preview(file)}
+      >
+        Try again
+      </button>
+    </p>
+  );
+  const reading = file?.isExport && preparing && plan == null && (
+    <p className={classes.muted}>Reading the file…</p>
+  );
+
+  const bankChecking = columnsCard != null && checking;
+  if (isDesktop) {
+    // A computer's import is a large dialog over Settings › Import and export (R-Desk-Import)
+    return (
+      <>
+        <div
+          className={classes.behind}
+          aria-hidden
+          // Seen, not reached: the keyboard and clicks stay in the import
+          {...{ inert: '' }}
         >
-          {isDesktop && (
-            <LineTabs
-              plan={plan}
-              choices={choices}
-              categories={categories}
-              lines={lines}
-              onLines={(l) => {
-                setLines(l);
-                setShown(ROWS_AT_A_TIME);
-              }}
-            />
-          )}
-          <Preview
-            plan={plan}
-            table={file?.table ?? []}
-            choices={choices}
-            update={update}
-            accounts={accounts ?? []}
-            categories={categories}
-            shown={shown}
-            showMore={() => setShown((n) => n + ROWS_AT_A_TIME)}
-            only={isDesktop ? lineFilter(lines, choices, categories) : null}
-          />
-        </section>
-      )}
+          <Settings section="data" />
+        </div>
+        <div className={classes.scrim} />
+        <div
+          className={classes.dialog}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="import-title"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && !e.defaultPrevented) cancel();
+          }}
+        >
+          <header className={classes.deskHeader}>
+            {heading}
+            {steps}
+            <button
+              type="button"
+              className={classes.closeButton}
+              aria-label="Cancel import, nothing is saved"
+              onClick={cancel}
+            >
+              <CloseIcon size={20} />
+            </button>
+          </header>
+          <div className={classes.deskBody}>
+            <div className={classes.deskSide}>
+              {!bankChecking && fileCard}
+              {exportNotes}
+              {columnsCard}
+              {reading}
+              {columnsCard == null && counts != null && (
+                <section className={`${classes.card} ${classes.columns}`}>
+                  {counts}
+                  {plan?.problem != null && <p className={classes.problem}>{plan.problem}</p>}
+                  {addButton}
+                </section>
+              )}
+            </div>
+            {lines != null && (
+              <div className={classes.deskMain}>
+                {lookupProblem}
+                {lines}
+              </div>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  }
 
-      {plan != null && choices != null && (
+  return (
+    <div className={classes.page}>
+      <header className={classes.header}>
+        <div className={classes.headerRow}>
+          <BackButton onClick={cancel}>Import and export</BackButton>
+        </div>
+        {steps}
+        {heading}
+      </header>
+
+      {/* Checking a bank's lines, its file and columns are done (the steps go back to them);
+          Mahnee's own export has no columns, so its file stays, to pick another */}
+      {!bankChecking && fileCard}
+      {exportNotes}
+      {!checking && columnsCard}
+      {reading}
+      {lookupProblem}
+      {counts}
+      {lines}
+
+      {addButton != null && (
         <div className={classes.importBar}>
-          {plan.problem != null && <p className={classes.problem}>{plan.problem}</p>}
-          <Button
-            size="md"
-            fullWidth
-            classNames={{ root: classes.importButton, label: classes.importButtonLabel }}
-            disabled={!canImport}
-            onClick={importNow}
-          >
-            Add {toImport}
-          </Button>
+          {plan?.problem != null && <p className={classes.problem}>{plan.problem}</p>}
+          {addButton}
         </div>
       )}
     </div>
@@ -586,6 +748,8 @@ interface PreviewProps {
   showMore: () => void;
   /** Only the rows a tab picks; null for every row */
   only: ((r: PlannedRow) => boolean) | null;
+  /** A computer's table, rather than a phone's list */
+  desktop: boolean;
 }
 
 /** Every row, ticked or not, with what's said about it; new accounts and openings first */
@@ -599,6 +763,7 @@ function Preview({
   shown,
   showMore,
   only,
+  desktop,
 }: PreviewProps) {
   const rows = only == null ? plan.rows : plan.rows.filter(only);
   const saved = plan.rows.filter((r) => r.looksSaved).length;
@@ -665,12 +830,24 @@ function Preview({
       )}
 
       <section className={classes.section}>
-        <h2 className={classes.sectionTitle}>
+        <h2 className="sr-only">
           {plan.rows.length.toLocaleString('en')} rows
           {saved > 0 && `, ${saved.toLocaleString('en')} look already saved`}
           {unreadable > 0 && `, ${unreadable.toLocaleString('en')} can't be imported`}
         </h2>
-        <ul className={classes.list}>
+        {desktop && (
+          <div
+            className={`${classes.tableRow} ${classes.tableHead}`}
+            aria-hidden
+          >
+            <span />
+            <span>Date</span>
+            <span>Payee, as the bank wrote it</span>
+            <span>Category</span>
+            <span className={classes.right}>Amount</span>
+          </div>
+        )}
+        <ul className={desktop ? classes.table : classes.list}>
           {rows.slice(0, shown).map((r) => (
             <PreviewRow
               key={r.row}
@@ -678,9 +855,11 @@ function Preview({
               cells={table[r.row - 1] ?? []}
               ticked={choices.ticked.has(r.row)}
               categoryId={choices.categoryOf.get(r.row) ?? r.transaction?.categoryId ?? null}
+              picked={choices.categoryOf.has(r.row)}
               categories={categories}
               currency={currency}
               fromBank={plan.source === 'bank'}
+              desktop={desktop}
               onTick={(on) => update((c) => (on ? c.ticked.add(r.row) : c.ticked.delete(r.row)))}
               onCategory={(id) => update((c) => c.categoryOf.set(r.row, id))}
             />
@@ -688,7 +867,8 @@ function Preview({
         </ul>
         {rows.length > shown && (
           <Button
-            variant="default"
+            variant="subtle"
+            className={classes.showMore}
             onClick={showMore}
           >
             Show more ({(rows.length - shown).toLocaleString('en')} left)
@@ -778,11 +958,15 @@ function Counts({
       ];
   return (
     <ul
-      className={classes.counts}
+      className={desktop ? classes.facts : classes.counts}
       aria-label="Counts"
     >
-      {items.map(([first, second]) => (
-        <li key={desktop ? first : second}>
+      {items.map(([first, second], i) => (
+        <li
+          key={desktop ? first : second}
+          // What looks already saved, in amber as the boards draw it
+          data-saved={i === 1 || undefined}
+        >
           <span className={desktop ? classes.countLabel : classes.countNumber}>{first}</span>
           <span className={desktop ? classes.countNumber : classes.countLabel}>{second}</span>
         </li>
@@ -853,88 +1037,156 @@ interface RowProps {
   cells: string[];
   ticked: boolean;
   categoryId: string | null;
+  /** The person picked its category here, rather than it coming from last time */
+  picked: boolean;
   categories: Category[];
   currency: string;
   fromBank: boolean;
+  desktop: boolean;
   onTick: (on: boolean) => void;
   onCategory: (id: string) => void;
 }
 
+/**
+ * A line of the file: ticked to add or not, its payee, day, category and amount, and what's
+ * said about it. A phone's reads as a list item (R-Import), a computer's as a table row
+ * (R-Desk-Import). A bank line's category is picked in place: in the accent while it's going
+ * to Other, else said as it came ("Groceries, as last time").
+ */
 function PreviewRow({
   planned,
   cells,
   ticked,
   categoryId,
+  picked,
   categories,
   currency,
   fromBank,
+  desktop,
   onTick,
   onCategory,
 }: RowProps) {
   const t = planned.transaction ?? planned.recurring ?? null;
   const repeats = planned.recurring;
-  return (
-    <li className={classes.row}>
-      <input
-        type="checkbox"
-        className={`sf-tick ${classes.tick}`}
-        aria-label={`Import row ${planned.row}`}
-        checked={ticked}
-        disabled={t == null}
-        onChange={(e) => onTick(e.currentTarget.checked)}
+  const other = otherIds(categories).has(categoryId ?? '');
+  const day =
+    repeats != null
+      ? `Repeating: ${scheduleText(repeats)}, next due ${dayText(repeats.nextDue)}`
+      : planned.transaction != null
+        ? shortDay(planned.transaction.date)
+        : null;
+  // What a line says beyond its day: the accounts it's in, its category (an export's), its note
+  const more = [
+    planned.names == null
+      ? null
+      : `${planned.names.account}${
+          planned.names.toAccount != null ? ` to ${planned.names.toAccount}` : ''
+        }`,
+    fromBank || t == null || t.categoryId == null
+      ? null
+      : // A category the import adds isn't saved yet: named as the file names it
+        categories.some((c) => c.id === t.categoryId)
+        ? categoryName(categories, t.categoryId)
+        : planned.names?.category ?? null,
+    planned.transaction?.note ?? null,
+  ].filter((part): part is string => part != null && part !== '');
+  const tick = (
+    <input
+      type="checkbox"
+      className={`sf-tick ${classes.tick}`}
+      aria-label={`Import row ${planned.row}`}
+      checked={ticked}
+      disabled={t == null}
+      onChange={(e) => onTick(e.currentTarget.checked)}
+    />
+  );
+  const select =
+    fromBank && t != null && t.categoryId != null ? (
+      <NativeSelect
+        size="xs"
+        aria-label="Category"
+        classNames={{
+          root: desktop ? classes.categoryPick : classes.inlinePick,
+          input: desktop ? classes.categoryButton : classes.inlineSelect,
+          section: classes.inlineArrow,
+        }}
+        data-other={other || undefined}
+        value={categoryId ?? ''}
+        onChange={(e) => onCategory(e.currentTarget.value)}
+        data={categoryOptions(categories, t.kind === 'income' ? 'income' : 'expense')}
       />
-      <div className={classes.rowBody}>
-        {t == null ? (
-          <span className={classes.rowText}>
-            Row {planned.row}: {cells.join(', ')}
+    ) : null;
+  const amount =
+    t == null ? null : (
+      <span className={classes.amount}>
+        {t.kind === 'income' ? '+' : t.kind === 'expense' ? '−' : ''}
+        {/* In the account's own currency, so said without its symbol, as the boards do */}
+        {formatAmount(t.amountCents, currency)}
+      </span>
+    );
+  const said = (
+    <>
+      {planned.problem != null && <span className={classes.problem}>{planned.problem}</span>}
+      {planned.shortened.includes('payee') && (
+        <span className={classes.note}>Payee shortened to {MAX_PAYEE} characters</span>
+      )}
+      {planned.shortened.includes('note') && (
+        <span className={classes.note}>Note shortened to {MAX_NOTE} characters</span>
+      )}
+    </>
+  );
+  const flag = planned.looksSaved && <span className={classes.flag}>Looks already saved</span>;
+  const payee = t == null ? `Row ${planned.row}: ${cells.join(', ')}` : t.payee ?? 'No payee';
+
+  if (desktop) {
+    return (
+      <li
+        className={classes.tableRow}
+        data-saved={planned.looksSaved || undefined}
+        data-income={t?.kind === 'income' || undefined}
+      >
+        <span>{tick}</span>
+        <span className={classes.date}>{repeats == null ? day : null}</span>
+        <span className={classes.payeeCell}>
+          <span className={classes.payee}>{payee}</span>
+          {flag}
+          {(repeats != null || more.length > 0) && (
+            <span className={classes.note}>
+              {[repeats != null ? day : null, ...more].filter(Boolean).join(' · ')}
+            </span>
+          )}
+          {said}
+        </span>
+        <span className={classes.categoryCell}>{select}</span>
+        <span className={classes.right}>{amount}</span>
+      </li>
+    );
+  }
+
+  return (
+    <li
+      className={classes.item}
+      data-income={t?.kind === 'income' || undefined}
+    >
+      {tick}
+      <div className={classes.main}>
+        <span className={classes.payee}>{payee}</span>
+        {t != null && (
+          <span className={classes.line}>
+            {[day, ...more].filter(Boolean).join(' · ')}
+            {flag != null && flag !== false && <> · {flag}</>}
+            {select != null && !planned.looksSaved && (
+              <>
+                {' · '}
+                {select}
+                {!other && !picked && <span>, as last time</span>}
+              </>
+            )}
           </span>
-        ) : (
-          <>
-            <span className={classes.rowLine}>
-              <span className={classes.rowText}>{t.payee ?? 'No payee'}</span>
-              <span className={classes.amount}>
-                {t.kind === 'income' ? '+' : t.kind === 'expense' ? '−' : ''}
-                {formatMoney(t.amountCents, currency)}
-              </span>
-            </span>
-            <span className={classes.detail}>
-              {repeats != null
-                ? `Repeating: ${scheduleText(repeats)}, next due ${dayText(repeats.nextDue)}`
-                : dayText(planned.transaction!.date)}
-              {planned.names != null &&
-                ` · ${planned.names.account}${
-                  planned.names.toAccount != null ? ` to ${planned.names.toAccount}` : ''
-                }`}
-              {fromBank || t.categoryId == null
-                ? ''
-                : ` · ${
-                    // A category the import adds isn't saved yet: named as the file names it
-                    categories.some((c) => c.id === t.categoryId)
-                      ? categoryName(categories, t.categoryId)
-                      : planned.names?.category ?? ''
-                  }`}
-              {planned.transaction?.note != null && ` · ${planned.transaction.note}`}
-            </span>
-          </>
         )}
-        {planned.problem != null && <span className={classes.problem}>{planned.problem}</span>}
-        {planned.looksSaved && <span className={classes.flag}>Looks already saved</span>}
-        {planned.shortened.includes('payee') && (
-          <span className={classes.flag}>Payee shortened to {MAX_PAYEE} characters</span>
-        )}
-        {planned.shortened.includes('note') && (
-          <span className={classes.flag}>Note shortened to {MAX_NOTE} characters</span>
-        )}
-        {fromBank && t != null && t.categoryId != null && (
-          <NativeSelect
-            size="xs"
-            label="Category"
-            value={categoryId ?? ''}
-            onChange={(e) => onCategory(e.currentTarget.value)}
-            data={categoryOptions(categories, t.kind === 'income' ? 'income' : 'expense')}
-          />
-        )}
+        {said}
       </div>
+      {amount}
     </li>
   );
 }

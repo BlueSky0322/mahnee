@@ -79,7 +79,10 @@ describe('N', () => {
     await user.keyboard('n');
     await user.keyboard('/');
     await settle();
-    expect(screen.queryByRole('dialog')).toBeNull();
+    // A computer's import is itself a dialog (R-Desk-Import): no other opens over it
+    expect(screen.getAllByRole('dialog').map((d) => d.getAttribute('aria-labelledby'))).toEqual([
+      'import-title',
+    ]);
     expect(window.location.search).toBe('?import');
   });
 

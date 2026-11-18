@@ -1,9 +1,9 @@
 import { useThisMonth } from '../../ledger/month-start';
 import { Button } from '@mantine/core';
 import { useNetwork } from '@mantine/hooks';
-import { DownloadSimple, UploadSimple } from '@phosphor-icons/react';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { ExportRange, ExportSummary, ImportRecord } from '@shared/api';
 import type { ColumnMapping } from '@shared/csv-import';
 import { exportFileName } from '@shared/export';
@@ -26,22 +26,36 @@ import { dayOf, importLine } from './settings-text';
 import { SectionHeader } from './SettingsPage';
 import classes from './Settings.module.css';
 
-// Import and export (?settings=data; R-Set-Data, R-Desk-Data): choosing a file to import
-// (or dropping one, on a computer), the imports recorded on the server with Undo for each,
-// the bank layouts this device remembers with Forget, and the export: everything (the
-// default), this calendar year or picked dates. A file of some dates says it holds only
-// those, and can't restore balances on its own.
+// Import and export (?settings=data; R-Set-Data, R-Empty-Data, R-Desk-Data): choosing a
+// file to import (or dropping one, on a computer), the imports recorded on the server with
+// Undo for each, the bank layouts this device remembers with Forget, and the export:
+// everything (the default), this calendar year or picked dates. A file of some dates says it
+// holds only those, and can't restore balances on its own. On a phone the export comes
+// second once there are imports to list under it, and before the short "No imports yet"
+// otherwise; on a computer the imports and banks are listed inside the Import card.
 export default function DataPage() {
   // The person's month (shared/period.ts)
   const month = useThisMonth();
   const isDesktop = useIsDesktop();
+  const { imports } = useImports();
+  const listed = imports != null && imports.length > 0;
   return (
     <div className={classes.page}>
       <SectionHeader title="Import and export" />
-      <ImportSection />
-      <RecentImports />
-      <RememberedLayouts />
-      <ExportSection />
+      {isDesktop ? (
+        <div className={classes.dataCards}>
+          <ImportSection>
+            <RecentImports />
+            <RememberedLayouts />
+          </ImportSection>
+          <ExportSection />
+        </div>
+      ) : (
+        // Moved, not drawn afresh, as the imports arrive
+        (listed ? PHONE_LISTED : PHONE_NONE).map((card) => (
+          <Fragment key={card}>{PHONE_CARDS[card]}</Fragment>
+        ))
+      )}
       {!isDesktop && (
         <SettingsFooter
           month={month}
@@ -52,6 +66,29 @@ export default function DataPage() {
   );
 }
 
+const PHONE_CARDS = {
+  import: <ImportSection />,
+  recent: <RecentImports />,
+  banks: <RememberedLayouts />,
+  export: <ExportSection />,
+};
+type PhoneCard = keyof typeof PHONE_CARDS;
+const PHONE_LISTED: PhoneCard[] = ['import', 'export', 'recent', 'banks'];
+const PHONE_NONE: PhoneCard[] = ['import', 'recent', 'banks', 'export'];
+
+/** A list's heading over it: an eyebrow over its card on a phone, a line in a computer's card */
+function ListHeading({ children, spaced = false }: { children: string; spaced?: boolean }) {
+  const isDesktop = useIsDesktop();
+  return (
+    <p
+      className={`${isDesktop ? classes.dataSub : classes.eyebrow} ${spaced ? classes.spaced : ''}`}
+      aria-hidden
+    >
+      {children}
+    </p>
+  );
+}
+
 /** Opens the import with `file` */
 function importFile(file: File | undefined) {
   if (file == null) return;
@@ -59,59 +96,68 @@ function importFile(file: File | undefined) {
   navigate('?import');
 }
 
-/** "Import": a bank's CSV or a Mahnee export, chosen (or dropped on a computer) */
-function ImportSection() {
+/**
+ * "Import": a bank's CSV or a Mahnee export, chosen (or dropped on a computer); a computer's
+ * card holds the lists of imports and banks too (`children`)
+ */
+function ImportSection({ children }: { children?: ReactNode }) {
   const isDesktop = useIsDesktop();
   const [over, setOver] = useState(false);
   const label = isDesktop ? 'Import a file' : 'Choose a file';
   return (
     <section
-      className={classes.card}
+      className={`${classes.card} ${isDesktop ? classes.importCard : classes.dataCard}`}
       aria-labelledby="data-import"
+      tabIndex={-1}
     >
-      <div className={classes.cardHead}>
-        <h2
-          id="data-import"
-          className={classes.cardTitle}
-        >
-          Import
-        </h2>
-        <p className={classes.detail}>A bank's CSV or a Mahnee export</p>
-      </div>
-      <div className={classes.cardBody}>
-        <label className={classes.fileButton}>
-          <UploadSimple
-            size={18}
-            aria-hidden
-          />
-          {label}
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            aria-label={label}
-            className={classes.fileInput}
-            onChange={(e) => importFile(e.currentTarget.files?.[0])}
-          />
-        </label>
-        {isDesktop && (
-          <div
-            className={`${classes.dropZone} ${over ? classes.dropOver : ''}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setOver(true);
-            }}
-            onDragLeave={() => setOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setOver(false);
-              importFile(e.dataTransfer?.files?.[0]);
-            }}
+      <div className={isDesktop ? classes.importHead : undefined}>
+        <div className={classes.dataHead}>
+          <h2
+            id="data-import"
+            className={classes.dataTitle}
           >
-            Or drop a CSV here
-          </div>
-        )}
+            Import
+          </h2>
+          <p className={classes.dataLine}>A bank's CSV or a Mahnee export</p>
+        </div>
+        {isDesktop && <FileButton label={label} />}
       </div>
+      {!isDesktop && <FileButton label={label} />}
+      {isDesktop && (
+        <div
+          className={`${classes.dropZone} ${over ? classes.dropOver : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setOver(true);
+          }}
+          onDragLeave={() => setOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setOver(false);
+            importFile(e.dataTransfer?.files?.[0]);
+          }}
+        >
+          Or drop a CSV here
+        </div>
+      )}
+      {children}
     </section>
+  );
+}
+
+/** The file picker, drawn as the board's filled pill */
+function FileButton({ label }: { label: string }) {
+  return (
+    <label className={classes.fileButton}>
+      {label}
+      <input
+        type="file"
+        accept=".csv,text/csv"
+        aria-label={label}
+        className={classes.fileInput}
+        onChange={(e) => importFile(e.currentTarget.files?.[0])}
+      />
+    </label>
   );
 }
 
@@ -124,10 +170,11 @@ function RecentImports() {
   const nameOf = (id: string | null) =>
     id == null ? null : accounts?.find((a) => a.id === id)?.name ?? null;
 
-  let body;
+  const listed = imports != null && imports.length > 0;
+  let said = null;
   if (imports == null) {
-    body = failed ? (
-      <p className={classes.muted}>Couldn't load recent imports.</p>
+    said = failed ? (
+      <p className={classes.dataNone}>Couldn't load recent imports.</p>
     ) : (
       <Loading label="Loading recent imports">
         <Skeleton
@@ -136,57 +183,60 @@ function RecentImports() {
         />
       </Loading>
     );
-  } else if (imports.length === 0) {
-    body = <p className={classes.muted}>No imports yet</p>;
-  } else {
-    body = (
-      <ul className={classes.list}>
-        {imports.map((record) => {
-          const line = importLine(record, nameOf(record.accountId));
-          return (
-            <li
-              key={record.id}
-              className={classes.row}
-            >
-              <div className={classes.rowText}>
-                <div className={classes.label}>{record.fileName}</div>
-                {isDesktop ? (
-                  <>
-                    <div className={classes.detail}>{line.where}</div>
-                    <div className={classes.detail}>{line.counts}</div>
-                  </>
-                ) : (
-                  <div className={classes.detail}>{line.line}</div>
-                )}
-              </div>
-              <Button
-                variant="light"
-                size="xs"
-                onClick={() => setUndoing(record)}
-              >
-                {isDesktop ? 'Undo import' : 'Undo'}
-              </Button>
-            </li>
-          );
-        })}
-      </ul>
-    );
-  }
+  } else if (!listed) said = <p className={classes.dataNone}>No imports yet</p>;
 
   return (
-    <section
-      className={classes.card}
-      aria-label="Recent imports"
-    >
-      <div className={classes.cardHead}>
-        <h2 className={classes.cardTitle}>Recent imports</h2>
-      </div>
-      {body}
+    <>
+      {/* With none yet, a phone's is a small card of its own, named inside it */}
+      {(listed || isDesktop) && <ListHeading>Recent imports</ListHeading>}
+      <section
+        className={
+          isDesktop ? classes.dataList : `${classes.card} ${listed ? '' : classes.emptyCard}`
+        }
+        aria-label="Recent imports"
+      >
+        {!listed && !isDesktop && (
+          <h2
+            className={classes.emptyTitle}
+            aria-hidden
+          >
+            Recent imports
+          </h2>
+        )}
+        {listed ? (
+          <ul className={classes.list}>
+            {imports.map((record) => {
+              const line = importLine(record, nameOf(record.accountId));
+              return (
+                <li
+                  key={record.id}
+                  className={classes.dataRow}
+                >
+                  <div className={classes.rowText}>
+                    <div className={classes.dataName}>{record.fileName}</div>
+                    <div className={classes.dataDetail}>{isDesktop ? line.where : line.line}</div>
+                  </div>
+                  {isDesktop && <span className={classes.dataCounts}>{line.counts}</span>}
+                  <Button
+                    variant="light"
+                    size="xs"
+                    onClick={() => setUndoing(record)}
+                  >
+                    {isDesktop ? 'Undo import' : 'Undo'}
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          said
+        )}
+      </section>
       <UndoImport
         record={undoing}
         onClose={() => setUndoing(null)}
       />
-    </section>
+    </>
   );
 }
 
@@ -253,37 +303,42 @@ function RememberedLayouts() {
   });
   if (layouts.length === 0) return null;
   return (
-    <section
-      className={classes.card}
-      aria-label={isDesktop ? 'Remembered column layouts' : 'Banks it remembers'}
-    >
-      <div className={classes.cardHead}>
-        <h2 className={classes.cardTitle}>Banks it remembers</h2>
-      </div>
-      <ul className={classes.list}>
-        {layouts.map(({ account, mapping }) => (
-          <li
-            key={account.id}
-            className={classes.row}
-          >
-            <div className={classes.rowText}>
-              <div className={classes.label}>{account.name}</div>
-              <div className={classes.detail}>{columnsOf(mapping)}</div>
-            </div>
-            <Button
-              variant="light"
-              size="xs"
-              onClick={() => {
-                forgetMapping(email, account.id);
-                setForgotten((n) => n + 1);
-              }}
+    <>
+      <ListHeading
+        // A line's room further from Recent imports, as the boards leave it
+        spaced
+      >
+        Banks it remembers
+      </ListHeading>
+      <section
+        className={isDesktop ? classes.dataList : classes.card}
+        aria-label={isDesktop ? 'Remembered column layouts' : 'Banks it remembers'}
+      >
+        <ul className={classes.list}>
+          {layouts.map(({ account, mapping }) => (
+            <li
+              key={account.id}
+              className={classes.dataRow}
             >
-              Forget
-            </Button>
-          </li>
-        ))}
-      </ul>
-    </section>
+              <div className={classes.rowText}>
+                <div className={classes.dataName}>{account.name}</div>
+                <div className={classes.dataDetail}>{columnsOf(mapping)}</div>
+              </div>
+              <Button
+                variant="light"
+                size="xs"
+                onClick={() => {
+                  forgetMapping(email, account.id);
+                  setForgotten((n) => n + 1);
+                }}
+              >
+                Forget
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </>
   );
 }
 
@@ -381,107 +436,106 @@ function ExportSection() {
   const empty = data != null && data.transactions === 0;
   return (
     <section
-      className={classes.card}
+      className={`${classes.card} ${classes.dataCard}`}
       aria-labelledby="data-export"
+      tabIndex={-1}
     >
-      <div className={classes.cardHead}>
+      <div className={classes.dataHead}>
         <h2
           id="data-export"
-          className={classes.cardTitle}
+          className={classes.dataTitle}
         >
           Export
         </h2>
-        <p className={classes.detail}>CSV for Excel, Numbers or Google Sheets</p>
+        <p className={classes.dataLine}>CSV for Excel, Numbers or Google Sheets</p>
       </div>
-      <div className={classes.cardBody}>
-        <div
-          role="radiogroup"
-          aria-label="Which entries"
-          className={classes.segmented}
-        >
-          {WHICH.map((w) => (
-            <label
-              key={w.value}
-              className={classes.segment}
-              data-on={which === w.value || undefined}
-            >
-              <input
-                type="radio"
-                name="which-entries"
-                aria-label={w.label}
-                className={classes.fileInput}
-                checked={which === w.value}
-                onChange={() => setWhich(w.value)}
-              />
-              {w.label}
-            </label>
-          ))}
+      <div
+        role="radiogroup"
+        aria-label="Which entries"
+        className={classes.segmented}
+      >
+        {WHICH.map((w) => (
+          <label
+            key={w.value}
+            className={classes.segment}
+            data-on={which === w.value || undefined}
+          >
+            <input
+              type="radio"
+              name="which-entries"
+              aria-label={w.label}
+              className={classes.fileInput}
+              checked={which === w.value}
+              onChange={() => setWhich(w.value)}
+            />
+            {w.label}
+          </label>
+        ))}
+      </div>
+      {which === 'pick' && (
+        <div className={classes.days}>
+          <label className={classes.dayField}>
+            From
+            <input
+              type="date"
+              value={from}
+              min="2000-01-01"
+              onChange={(e) => setFrom(e.currentTarget.value)}
+            />
+          </label>
+          <label className={classes.dayField}>
+            To
+            <input
+              type="date"
+              value={to}
+              min="2000-01-01"
+              onChange={(e) => setTo(e.currentTarget.value)}
+            />
+          </label>
         </div>
-        {which === 'pick' && (
-          <div className={classes.days}>
-            <label className={classes.dayField}>
-              From
-              <input
-                type="date"
-                value={from}
-                min="2000-01-01"
-                onChange={(e) => setFrom(e.currentTarget.value)}
-              />
-            </label>
-            <label className={classes.dayField}>
-              To
-              <input
-                type="date"
-                value={to}
-                min="2000-01-01"
-                onChange={(e) => setTo(e.currentTarget.value)}
-              />
-            </label>
-          </div>
-        )}
-        {!ready ? (
-          <p
-            className={classes.problem}
-            role="alert"
-          >
-            Pick a From day on or before the To day
-          </p>
-        ) : (
-          <Holds
-            data={data ?? null}
-            failed={isError}
-            online={online}
-            ranged={range != null}
-          />
-        )}
-        {waiting > 0 && (
-          <p
-            className={classes.detail}
-            role="status"
-          >
-            {count(waiting, 'change', 'changes')} still being saved won't be in the file yet.
-          </p>
-        )}
-        <Button
-          leftSection={<DownloadSimple size={18} />}
-          disabled={!online || !ready || empty || data == null}
-          loading={busy}
-          onClick={() => void download()}
+      )}
+      {!ready ? (
+        <p
+          className={classes.problem}
+          role="alert"
         >
-          {online ? 'Download CSV' : 'Connect to download'}
-        </Button>
-        {isDesktop && downloaded != null && (
-          <p className={classes.detail}>Last downloaded {dayOf(Number(downloaded.at))}</p>
-        )}
-        {error && (
-          <p
-            className={classes.problem}
-            role="alert"
-          >
-            {error}
-          </p>
-        )}
-      </div>
+          Pick a From day on or before the To day
+        </p>
+      ) : (
+        <Holds
+          data={data ?? null}
+          failed={isError}
+          online={online}
+          ranged={range != null}
+        />
+      )}
+      {waiting > 0 && (
+        <p
+          className={classes.detail}
+          role="status"
+        >
+          {count(waiting, 'change', 'changes')} still being saved won't be in the file yet.
+        </p>
+      )}
+      <Button
+        className={classes.primaryPill}
+        disabled={!online || !ready || empty || data == null}
+        loading={busy}
+        onClick={() => void download()}
+      >
+        {online ? 'Download CSV' : 'Connect to download'}
+      </Button>
+      {isDesktop && downloaded != null && (
+        <p className={classes.detail}>Last downloaded {dayOf(Number(downloaded.at))}</p>
+      )}
+      {error && (
+        <p
+          className={classes.problem}
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
     </section>
   );
 }
@@ -500,7 +554,7 @@ function Holds({
 }) {
   const isDesktop = useIsDesktop();
   if (data == null) {
-    if (failed) return <p className={classes.muted}>Couldn't count what's in it.</p>;
+    if (failed) return <p className={classes.holds}>Couldn't count what's in it.</p>;
     if (!online) return null;
     return (
       <Loading label="Counting what's in it">
@@ -513,7 +567,7 @@ function Holds({
   }
   if (data.transactions === 0 || data.firstDate == null || data.lastDate == null) {
     return (
-      <p className={classes.muted}>
+      <p className={classes.holds}>
         {ranged ? 'Nothing to export on these days' : 'Nothing to export yet'}
       </p>
     );
@@ -543,7 +597,7 @@ function Holds({
     >
       {facts.map(([label, value]) => (
         <li key={label}>
-          <span className={classes.detail}>{label}</span>
+          <span className={classes.factLabel}>{label}</span>
           <span className={classes.factValue}>{value}</span>
         </li>
       ))}

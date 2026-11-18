@@ -1,4 +1,4 @@
-import type { Ledger, Recurring } from '@shared/api';
+import type { Account, Ledger, Recurring } from '@shared/api';
 import { monthEnd, nextAfter, onOrAfter } from '@shared/recurring';
 
 // What's expected at the end of this month, and what's due now (items that ask first),
@@ -92,10 +92,10 @@ export interface Upcoming {
   date: string;
 }
 
-/** The day after a calendar day (2026-11-30 -> 2026-12-01), worked from its digits */
-function dayAfter(date: string) {
+/** The day `days` after a calendar day (2026-11-30 + 1 -> 2026-12-01), worked from its digits */
+function dayAfter(date: string, days = 1) {
   const [y, m, d] = date.split('-').map(Number);
-  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  const next = new Date(Date.UTC(y, m - 1, d + days));
   return next.toISOString().slice(0, 10);
 }
 
@@ -141,4 +141,78 @@ export function nextPay(ledger: Ledger): DueNow | null {
       .map((recurring) => ({ recurring, date: recurring.nextDue })),
   )[0];
   return pay == null ? null : { recurring: pay.recurring, due: pay.date };
+}
+
+/** An account at its lowest over the next 30 days */
+export interface Lowest {
+  account: Account;
+  /** Its lowest balance at the end of a day, in cents; below zero when overdrawn or owed */
+  cents: number;
+  /** The first day it's at that balance; today when nothing ahead takes it lower */
+  date: string;
+}
+
+export interface NextDays {
+  /** The window's last day, 30 days after today */
+  until: string;
+  /** What scheduled income brings in, in total (0 or more) */
+  inCents: number;
+  /** What scheduled bills take out, in total (0 or more) */
+  outCents: number;
+  /** Each listed account a scheduled item in the window touches, in the person's order */
+  lowest: Lowest[];
+}
+
+/**
+ * The next 30 days on Scheduled (owner decision D12): from today's balances and what's
+ * scheduled, today through the day 30 days on (as the card notes count them), what income
+ * brings in and bills take out, and each account at its lowest at the end of a day, with the
+ * first day it gets there. A transfer moves both of its accounts and neither total. An
+ * occurrence overdue (waiting on Home, or before the server's next run) counts as today's.
+ * Spending that isn't scheduled isn't counted.
+ *
+ * Every figure is exact: an account holds under 1e14 cents (MAX_TRANSACTIONS_PER_ACCOUNT of
+ * at most MAX_TRANSACTION_CENTS), and the occurrences add at most what monthEndForecast's do.
+ */
+export function nextThirtyDays(ledger: Ledger, today: string): NextDays {
+  const until = dayAfter(today, 30);
+  let inCents = 0;
+  let outCents = 0;
+  // What each account gains or loses on each day, by account then day
+  const moves = new Map<string, Map<string, number>>();
+  const move = (accountId: string, date: string, cents: number) => {
+    const days = moves.get(accountId) ?? new Map<string, number>();
+    days.set(date, (days.get(date) ?? 0) + cents);
+    moves.set(accountId, days);
+  };
+  for (const r of ledger.recurring ?? []) {
+    if (!active(ledger, r)) continue;
+    for (let at = r.nextDue; at <= until; at = nextAfter(r.schedule, r.day, at)) {
+      const date = at < today ? today : at;
+      if (r.kind === 'income') {
+        inCents += r.amountCents;
+        move(r.accountId, date, r.amountCents);
+      } else if (r.kind === 'expense') {
+        outCents += r.amountCents;
+        move(r.accountId, date, -r.amountCents);
+      } else {
+        move(r.accountId, date, -r.amountCents);
+        if (r.toAccountId != null) move(r.toAccountId, date, r.amountCents);
+      }
+    }
+  }
+  const lowest = ledger.accounts
+    .filter((a) => !a.archived && moves.has(a.id))
+    .sort((a, b) => a.position - b.position)
+    .map((account) => {
+      let cents = account.balanceCents;
+      const low = { account, cents, date: today };
+      const days = [...moves.get(account.id)!].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+      for (const [date, change] of days) {
+        cents += change;
+        if (cents < low.cents) Object.assign(low, { cents, date });
+      }
+      return low;
+    });
+  return { until, inCents, outCents, lowest };
 }

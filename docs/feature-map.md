@@ -1251,6 +1251,16 @@ changing it (its first due date the next one after the person's own today).
   category letter in its colour (a transfer's arrows), as Activity's. A phone's header has
   Schedule once something is (the month while nothing is); a computer's always has
   Schedule something.
+- **Next 30 days** (owner decision D12; not drawn, its wording proposed for the owner to
+  change), under what's drawn (a computer's in the column beside the card): "to Dec 10"
+  (today through the day 30 days on, as the card notes count them), "Coming in" (scheduled
+  income) and "Going out" (scheduled bills), then under "Lowest point" each listed account a
+  scheduled item in those days touches, in the person's order, at its lowest balance at the
+  end of a day and the first day it gets there ("Maybank RM 3,299.60 on Nov 23", "Visa RM
+  879.80 owed on Dec 3", "Wallet RM 80.00 today"), from today's balances and the items
+  alone: "From today's balances and what's scheduled. Spending that isn't scheduled isn't
+  counted." A transfer moves both its accounts and neither total; an occurrence overdue
+  counts as today's. With none in those days: "Nothing scheduled in these 30 days."
 - **The sheet** (named after the item, the name typed over in the title to rename it; "New
   schedule" for a new one, with a Name row): Cancel, the title and Save at its head, then
   one card of rows: Amount ("last time" when it changes, always with its cents), Each time,
@@ -1279,7 +1289,9 @@ log into its transaction and the move to the next date (`oneByOne`), and a confi
 into an entry with nothing to check. [ledger/summary.ts](../web/src/ledger/summary.ts)
 counts entries from Scheduled on top of the month's totals (`fromScheduled`).
 [ledger/forecast.ts](../web/src/ledger/forecast.ts) works out the total
-(`monthEndForecast`) and what's due now (`dueNow`: asking first only). **Boundary
+(`monthEndForecast`), what's due now (`dueNow`: asking first only) and the next 30 days
+(`nextThirtyDays`), each from the one copy of the ledger, so offline they come from the
+device's copy and a change shows in them at once. **Boundary
 exception, owner decision D8:** the nightly job writes entries on the server, outside the
 app's owner, through the same `applyChanges` path and checks as the app's changes; the app
 sees them on its next read.
@@ -1287,6 +1299,7 @@ sees them on its next read.
 **Parts.**
 
 - UI: [components/plan/ScheduledView.tsx](../web/src/components/plan/ScheduledView.tsx),
+  [NextDays.tsx](../web/src/components/plan/NextDays.tsx),
   [ScheduleSheet.tsx](../web/src/components/plan/ScheduleSheet.tsx) and
   [scheduled-text.ts](../web/src/components/plan/scheduled-text.ts) on
   [PlanPage.tsx](../web/src/components/plan/PlanPage.tsx);
@@ -1338,6 +1351,8 @@ sees them on its next read.
 - At most `MAX_RECURRING` (200) per person, stopped ones included. The total stays exact:
   at most 200 items due at most weekly since 2000 at most `MAX_TRANSACTION_CENTS` add about
   2.8e14 to balances of at most 5e15.
+  The next 30 days stay exact too: one account holds under 1e14 cents, and its occurrences
+  in those days add no more than that bound.
 - Someone else's item, account or category is answered as one that doesn't exist (404).
 
 **Tests.** [worker/test/scheduled.test.ts](../worker/test/scheduled.test.ts) (the job fired
@@ -1347,11 +1362,13 @@ runs, 31 and 200 a run, refused items taking none of it, no zone, stopped and ar
 asking first, amounts to check, the month's entries from the 25th, the search filter, and
 the cron entry), [worker/test/migrations.test.ts](../worker/test/migrations.test.ts) (0009),
 [shared/scheduled.test.ts](../shared/scheduled.test.ts),
-[forecast.test.ts](../web/src/ledger/forecast.test.ts),
+[forecast.test.ts](../web/src/ledger/forecast.test.ts) (with the next 30 days: a dip and
+its recovery, across month end, transfers, nothing scheduled, overdue as today, at the
+limits),
 [scheduled-summary.test.ts](../web/src/ledger/scheduled-summary.test.ts),
 [Scheduled.test.tsx](../web/src/components/plan/Scheduled.test.tsx) (groups and totals, the
 person's month, card notes, added this month, empty and common ones, the sheet, new ones
-weekly, offline and refused, stop with Undo),
+weekly, offline and refused, stop with Undo, the next 30 days),
 [scheduled-home.test.tsx](../web/src/components/home/scheduled-home.test.tsx),
 [from-scheduled.test.tsx](../web/src/components/activity/from-scheduled.test.tsx),
 [Recurring.test.tsx](../web/src/components/home/Recurring.test.tsx) (Log it, Skip and Undo

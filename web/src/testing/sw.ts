@@ -65,6 +65,7 @@ export function load(globals: object, self: object = {}): Handlers {
     TextEncoder,
     URL,
     URLSearchParams,
+    crypto,
     // Through the test's own, so fake timers reach the service worker too
     setTimeout: (run: () => void, ms: number) => setTimeout(run, ms),
     ...globals,
@@ -260,12 +261,21 @@ export async function pushToWorker(text: string | null): Promise<Shown[]> {
 }
 
 /** A window of the app the browser has open, as the service worker sees it */
-export function appWindow(url: string) {
+export function appWindow(
+  url: string,
+  { focused = false, navigates = true }: { focused?: boolean; navigates?: boolean } = {},
+) {
   const client = {
     url,
     type: 'window',
+    focused,
     focus: vi.fn(() => Promise.resolve(client)),
-    navigate: vi.fn((to: string) => Promise.resolve({ ...client, url: to })),
+    // A window the service worker doesn't control can't be navigated: the browser refuses
+    navigate: vi.fn((to: string) =>
+      navigates
+        ? Promise.resolve({ ...client, url: to })
+        : Promise.reject(new TypeError('Not controlled')),
+    ),
   };
   return client;
 }

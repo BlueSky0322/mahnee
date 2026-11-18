@@ -228,28 +228,41 @@ limits and the push services taken in [shared/push.ts](../shared/push.ts).
   most `MAX_PUSH_DEVICES` (10) an account, the oldest dropped.
 - Endpoints only on the browsers' push services (`isPushService`), checked when kept and
   before each send; the key must be a point on P-256.
-- A device is reminded once a day of the person's (`reminded_on`), at or after their time
-  and not more than two hours after it. "Added that day" is an entry saved during the
-  person's day (`created_at`, in their zone), not one from Scheduled.
+- Each reminder goes to a device at most once a day of the person's: claimed
+  (`daily_on`, `scheduled_on`) just before it's sent, so overlapping runs or one stopped
+  halfway never send it twice; a device done with for the day is marked `reminded_on`.
+  At or after their time and not more than two hours after it. "Added that day" is an
+  entry saved during the person's day as their clock ran it (its real midnight, DST and
+  half-hour zones included), not one from Scheduled.
 - Only items that will be added on their own are named: running, not asking first,
   accounts and category not archived, falling on the day the reminder is for.
-- A push service's 404 or 410 deletes the subscription; 429, 5xx or no answer leaves it
-  for the next run (the day not marked); anything else marks the day.
-- At most 50 devices a run, waiting longest first, and 200 items read; a person's failure
-  doesn't stop the others, and the run then fails.
+- A push service's 400, 401, 403, 404 or 410, or keys that can't be encrypted to, delete
+  the subscription; 429, 5xx or no answer give the claim back and wait 15, 30, 60, then
+  120 minutes (`failures`, `retry_at`); a redirect is never followed and marks the day.
+- At most 50 devices a run, waiting longest first, six at once, and each person's first
+  four items due with their count; a device's failure doesn't stop the others, and the run
+  then fails.
+- Each message carries its account's tag (`accountTag`, a hash of the email, never the
+  email); `web/public/sw.js` shows it only while that account is the one signed in there
+  (`mahnee:user`), so nothing shows signed out or for someone else.
 - Nothing about a person, no payload, endpoint or key is logged.
 - `web/public/sw.js` shows only a message it can read (otherwise "Mahnee", "Open Mahnee to
-  see your reminder.") and opens only the app's own pages.
+  see your reminder.") and opens only the app's own pages, in the window in front, or a new
+  one when that can't be brought there.
 
 **Tests.** [worker/test/reminders.test.ts](../worker/test/reminders.test.ts) (subscribing,
 its refusals, another account's write, moving a device, ten devices, letting go; the
 daily reminder at 9:00 PM in Kuala Lumpur and Kathmandu with a pinned clock, between runs
-and too late, something added that day, Scheduled's entries, off, no zone; the day before
-and days before, several due, asking first and stopped; both together; 404, 410, 503 and
-50 a run, each message decrypted as the browser would and its VAPID token checked),
+and too late, something added that day, DST days in London and Lord Howe, Scheduled's
+entries, off, no zone; the day before and days before, several due, asking first and
+stopped, one person's 200 items beside another's; both together; two runs at once, one
+message taken and the next waiting, a broken key, a redirect, 400 to 410, 503 and its
+back-off, 50 a run; each message decrypted as the browser would, its account tag and
+VAPID token checked),
 [worker/push/encrypt.test.ts](../worker/push/encrypt.test.ts) (RFC 8291's example byte for
 byte, fresh keys, 4096 bytes, the VAPID claims),
-[offline/sw.test.ts](../web/src/offline/sw.test.ts) (`push` and `notificationclick`) and
+[offline/sw.test.ts](../web/src/offline/sw.test.ts) (`push` for the account signed in
+only, and `notificationclick`) and
 [settings/BudgetsPage.test.tsx](../web/src/components/settings/BudgetsPage.test.tsx) (the
 rows on phones and computers, time and days before saved, allowing, already allowed, the
 browser refusing, blocked, the server refusing, no notifications, an iPhone, signing out).

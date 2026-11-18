@@ -13,27 +13,40 @@ export interface ReminderMessage {
   /** The app's own page a tap opens */
   url: string;
   /** One of a kind replaces the last on the device: daily, scheduled */
-  tag: string;
+  tag: 'daily' | 'scheduled';
+  /**
+   * Which account it is for, as a tag worked out from the email (accountTag), so the
+   * device shows it only while that account is signed in there
+   */
+  account: string;
 }
 
 /**
- * sent: taken; gone: the device let go of it (404, 410), so the subscription goes too;
- * later: the service can't take it now (no answer, 429, 5xx), so it is tried again at the
- * next run; refused: anything else, not tried again today
+ * sent: taken; gone: the device let go of it (404, 410) or the service won't take it from
+ * this server (400, 401, 403), so the subscription goes too; broken: it couldn't be
+ * encrypted to this device's keys, so it goes too; later: the service can't take it now
+ * (no answer, 429, 5xx), so it is tried again after a while; refused: anything else (a
+ * redirect, which is never followed), not tried again today
  */
-export type Outcome = 'sent' | 'gone' | 'later' | 'refused';
+export type Outcome = 'sent' | 'gone' | 'broken' | 'later' | 'refused';
 
 /** How long a push service keeps a reminder for a device that is off: four hours */
 const TTL_S = 4 * 60 * 60;
 /** How long a push service gets to answer */
 const TIMEOUT_MS = 5000;
 
+/** What became of a message, with the push service's status when it answered */
 export async function sendPush(
   to: { endpoint: string; p256dh: string; auth: string },
   message: ReminderMessage,
   keys: VapidKeys,
-): Promise<Outcome> {
-  const body = await encryptPush(JSON.stringify(message), to);
+): Promise<{ outcome: Outcome; status: number | null }> {
+  let body: Uint8Array;
+  try {
+    body = await encryptPush(JSON.stringify(message), to);
+  } catch {
+    return { outcome: 'broken', status: null };
+  }
   let res: Response;
   try {
     res = await fetch(to.endpoint, {
@@ -46,15 +59,18 @@ export async function sendPush(
         'Urgency': 'normal',
       },
       body,
+      // A push service sending it elsewhere is a failure: the message never follows
+      redirect: 'manual',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch {
-    return 'later';
+    return { outcome: 'later', status: null };
   }
   // Nothing in the answer is wanted
   await res.body?.cancel();
-  if (res.ok) return 'sent';
-  if (res.status === 404 || res.status === 410) return 'gone';
-  if (res.status === 429 || res.status >= 500) return 'later';
-  return 'refused';
+  const status = res.status;
+  if (status >= 200 && status < 300) return { outcome: 'sent', status };
+  if ([400, 401, 403, 404, 410].includes(status)) return { outcome: 'gone', status };
+  if (status === 429 || status >= 500) return { outcome: 'later', status };
+  return { outcome: 'refused', status };
 }

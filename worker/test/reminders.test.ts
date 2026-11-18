@@ -9,6 +9,7 @@
 // Runs are fired at fixed instants in 2025; "added that day" is worked out from when an
 // entry was saved, so entries are moved to the day under test in the database.
 
+import { createHash } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_CATEGORIES } from '../../shared/categories';
 import type { LocalWorker } from './local-worker';
@@ -59,8 +60,8 @@ async function send(who: string, changes: unknown[]) {
 }
 
 /** A person with a wallet, their time zone and reminder settings saved */
-async function someone(zone: string | null, settings: Record<string, unknown> = {}) {
-  const who = person('me');
+async function someone(zone: string | null, settings: Record<string, unknown> = {}, name = 'me') {
+  const who = person(name);
   const wallet = rowId();
   await send(who, [
     { op: 'addAccount', account: { id: wallet, name: 'Wallet', kind: 'cash', openingCents: 0 } },
@@ -83,15 +84,32 @@ async function device(who: string) {
     ...browser,
     path,
     /** What reached this device, each message read */
+    /**
+     * What reached this device, each message read, once it's checked to name the account
+     * it is for (by its tag, not the email)
+     */
     messages: async () =>
       Promise.all(
         api.push
           .received()
           .filter((r) => r.path === path)
-          .map(async (r) => JSON.parse(await browser.read(r.body)) as unknown),
+          .map(async (r) => {
+            const { account, ...message } = JSON.parse(await browser.read(r.body)) as {
+              account?: string;
+            };
+            expect(account).toBe(accountTag(who));
+            return message;
+          }),
       ),
   };
 }
+
+/**
+ * The tag a message carries for the account it is for: the first 16 hex characters of the
+ * SHA-256 of "mahnee-push:" and the email in small letters (accountTag in web/public/sw.js)
+ */
+const accountTag = (email: string) =>
+  createHash('sha256').update(`mahnee-push:${email.toLowerCase()}`).digest('hex').slice(0, 16);
 
 const DAILY = {
   title: 'Nothing added today',
@@ -204,6 +222,10 @@ describe('a device subscribing', () => {
       'https://example.com/push/1',
       'http://fcm.googleapis.com/fcm/send/1',
       'https://fcm.googleapis.com.example.com/fcm/send/1',
+      'https://someone@fcm.googleapis.com/fcm/send/1',
+      'https://fcm.googleapis.com:8443/fcm/send/1',
+      'https://fcm.googleapis.com./fcm/send/1',
+      'https://fcm.googleapis.com',
     ]) {
       const browser = await newBrowser(endpoint);
       const res = await api.call(who, 'PUT', '/api/push/subscription', browser.subscription);
@@ -222,12 +244,13 @@ describe('a device subscribing', () => {
       'https://updates.push.services.mozilla.com/wpush/v2/abc',
       'https://web.push.apple.com/QabcDEF',
       'https://wns2-par02p.notify.windows.com/w/?token=abc',
+      'https://FCM.GoogleAPIs.com/fcm/send/upper',
     ]) {
       const browser = await newBrowser(endpoint);
       const res = await api.call(who, 'PUT', '/api/push/subscription', browser.subscription);
       expect({ endpoint, ...res }).toEqual({ endpoint, status: 200, data: { ok: true } });
     }
-    expect(await subscriptions(who)).toHaveLength(4);
+    expect(await subscriptions(who)).toHaveLength(5);
   });
 
   it('is refused, keeping nothing, when made as another account than the one signed in', async () => {
@@ -462,7 +485,7 @@ describe('the reminder before a scheduled entry', () => {
 describe('what the push service answers', () => {
   const quiet = { scheduledReminderDays: null };
 
-  it.each([404, 410])('a device gone (%i) is let go', async (status) => {
+  it.each([400, 401, 403, 404, 410])('a device gone or refused (%i) is let go', async (status) => {
     const { who } = await someone(KL, quiet);
     const phone = await device(who);
     api.push.answer(phone.path, status);
@@ -484,7 +507,10 @@ describe('what the push service answers', () => {
     await runAt('2025-11-19T13:15:00Z');
     const tries = api.push.received().filter((r) => r.path === busy.path);
     expect(tries).toHaveLength(2);
-    expect(JSON.parse(await busy.read(tries[1].body))).toEqual(DAILY);
+    expect(JSON.parse(await busy.read(tries[1].body))).toEqual({
+      ...DAILY,
+      account: accountTag(ann.who),
+    });
     // Ben's once only
     expect(await fine.messages()).toEqual([DAILY]);
   });
@@ -523,5 +549,158 @@ describe('what the push service answers', () => {
     const paths = api.push.received().map((r) => r.path);
     expect(paths).toHaveLength(55);
     expect(new Set(paths).size).toBe(55);
+  });
+});
+
+describe('a day on the person’s own clock', () => {
+  const quiet = { scheduledReminderDays: null };
+
+  it.each<[string, string, string, string, boolean]>([
+    // London springs forward on March 30, 2025: the day begins at 00:00 GMT and lasts 23 hours
+    [
+      'London, the day clocks go forward',
+      'Europe/London',
+      '2025-03-29T23:30:00Z',
+      '2025-03-30T20:00:00Z',
+      true,
+    ],
+    [
+      'London, the day clocks go forward, saved that day',
+      'Europe/London',
+      '2025-03-30T00:30:00Z',
+      '2025-03-30T20:00:00Z',
+      false,
+    ],
+    // ...and falls back on October 26: the day begins at 23:00 GMT the day before, 25 hours
+    [
+      'London, the day clocks go back',
+      'Europe/London',
+      '2025-10-25T23:30:00Z',
+      '2025-10-26T21:00:00Z',
+      false,
+    ],
+    [
+      'London, the day clocks go back, saved the day before',
+      'Europe/London',
+      '2025-10-25T22:30:00Z',
+      '2025-10-26T21:00:00Z',
+      true,
+    ],
+    // Lord Howe Island moves half an hour on October 5: the day begins at 13:30 UTC on the 4th
+    [
+      'Lord Howe, the day clocks move half an hour',
+      'Australia/Lord_Howe',
+      '2025-10-04T13:15:00Z',
+      '2025-10-05T10:00:00Z',
+      true,
+    ],
+    [
+      'Lord Howe, saved just after its midnight',
+      'Australia/Lord_Howe',
+      '2025-10-04T13:45:00Z',
+      '2025-10-05T10:00:00Z',
+      false,
+    ],
+  ])(
+    '%s: an entry saved then counts for the right day',
+    async (_name, zone, saved, nine, reminded) => {
+      const { who, wallet } = await someone(zone, quiet);
+      const phone = await device(who);
+      await addedAt(who, wallet, saved);
+      await runAt(nine);
+      expect(await phone.messages()).toEqual(reminded ? [DAILY] : []);
+    },
+  );
+});
+
+describe('never twice, whatever happens on the way', () => {
+  const quiet = { scheduledReminderDays: null };
+
+  it('two runs at once remind a device once', async () => {
+    const { who } = await someone(KL, quiet);
+    const phone = await device(who);
+    await Promise.all([runAt('2025-11-19T13:00:00Z'), runAt('2025-11-19T13:00:00Z')]);
+    await runAt('2025-11-19T13:15:00Z');
+    expect(await phone.messages()).toEqual([DAILY]);
+  });
+
+  it('a reminder the service took is not sent again when the next one waits', async () => {
+    const { who, wallet } = await someone(KL);
+    const phone = await device(who);
+    await setUp(who, [item(wallet)]);
+    // The daily one is taken, the one before TNB is not, this time
+    api.push.answerNext(phone.path, 201, 503);
+    await runAt('2025-11-19T13:00:00Z');
+    await runAt('2025-11-19T13:15:00Z');
+    const tries = api.push.received().filter((r) => r.path === phone.path);
+    expect(tries).toHaveLength(3);
+    expect(await phone.messages()).toEqual([
+      DAILY,
+      scheduled('TNB RM 189.00 is added tomorrow'),
+      scheduled('TNB RM 189.00 is added tomorrow'),
+    ]);
+  });
+
+  it('a device that can’t be encrypted to is let go, and the person’s others still get theirs', async () => {
+    const { who } = await someone(KL, quiet);
+    const phone = await device(who);
+    const broken = `${api.push.base}/push/broken-${++devices}`;
+    // Shaped as a key, but not a point on the curve: kept from before keys were checked
+    await api.sql(
+      `INSERT INTO push_subscriptions (email, endpoint, p256dh, auth, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      who,
+      broken,
+      `B${'A'.repeat(86)}`,
+      'A'.repeat(22),
+      Date.now() + 1,
+    );
+    await runAt('2025-11-19T13:00:00Z');
+    expect(await phone.messages()).toEqual([DAILY]);
+    expect(api.push.received().filter((r) => r.path === new URL(broken).pathname)).toEqual([]);
+    expect(await subscriptions(who)).toEqual([{ endpoint: phone.subscription.endpoint }]);
+  });
+
+  it('never follows a push service sending it elsewhere', async () => {
+    const { who } = await someone(KL, quiet);
+    const phone = await device(who);
+    api.push.answer(phone.path, 307);
+    await runAt('2025-11-19T13:00:00Z');
+    expect(api.push.received().map((r) => r.path)).toEqual([phone.path]);
+  });
+
+  it('a device the service keeps turning away is tried less and less often', async () => {
+    const { who } = await someone(KL, quiet);
+    const phone = await device(who);
+    api.push.answer(phone.path, 503);
+    for (const at of ['13:00', '13:15', '13:30', '13:45']) {
+      await runAt(`2025-11-19T${at}:00Z`);
+    }
+    // At 13:00, again 15 minutes later, then after 30
+    expect(api.push.received().filter((r) => r.path === phone.path)).toHaveLength(3);
+  });
+});
+
+describe('reading scheduled items', () => {
+  it('one person with many items due doesn’t keep another’s reminder out', async () => {
+    // Sorted first, by email
+    const many = await someone(KL, { dailyReminder: false }, 'aaa');
+    const manyPhone = await device(many.who);
+    const items = Array.from({ length: 200 }, (_, i) =>
+      item(many.wallet, { payee: `Bill ${i + 1}`, amountCents: 100 }),
+    );
+    await setUp(many.who, items);
+    const other = await someone(KL, { dailyReminder: false }, 'zzz');
+    const otherPhone = await device(other.who);
+    await setUp(other.who, [item(other.wallet)]);
+
+    await runAt('2025-11-19T13:00:00Z');
+    expect(await manyPhone.messages()).toEqual([
+      scheduled(
+        'Bill 1 RM 1.00 and 199 more are added tomorrow',
+        'Also Bill 2 RM 1.00, Bill 3 RM 1.00, Bill 4 RM 1.00, and 196 more. Tap to check them.',
+      ),
+    ]);
+    expect(await otherPhone.messages()).toEqual([scheduled('TNB RM 189.00 is added tomorrow')]);
   });
 });

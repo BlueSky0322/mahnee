@@ -55,9 +55,17 @@ hack-proof, and the limits below are real.
   endpoint is the key, so a device subscribed by someone else moves to them. Signing out
   lets the device go (on the server, scoped by the email, and in the browser); a device
   last subscribed by another account is let go in the browser once someone else is
-  known to be signed in; one the push service says is gone (404, 410) is deleted.
-  Endpoints are taken only on the browsers' push services (Firebase, Mozilla, Apple, WNS,
-  https, no port), so the Worker never sends to an address a person typed.
+  known to be signed in; one the push service says is gone (404, 410) or won't take from
+  this server (400, 401, 403), or whose keys can't be encrypted to, is deleted. Endpoints
+  are taken only on the browsers' push services (Firebase, Mozilla, Apple, WNS, https, a
+  path, no user, port or trailing dot), so the Worker never sends to an address a person
+  typed, and a push service's redirect is never followed.
+- **A reminder shows only for the account signed in on the device.** Each message carries
+  a tag for its account (the first 16 hex characters of the SHA-256 of "mahnee-push:" and
+  the email), never the email; the service worker shows it only when the account the app
+  last said is signed in there has that tag. Signed out (nobody signed in), or someone
+  else signed in, nothing is shown, so one sent before the server learned the device was
+  let go (signing out offline) never reaches the next person.
 - **What a reminder says, and who sees it.** Each message is encrypted to the one device
   (RFC 8291, aes128gcm) and signed as the app (VAPID, RFC 8292, `sub` the app's own
   address), with WebCrypto alone; the browser's push service carries it but can't read it.
@@ -67,7 +75,8 @@ hack-proof, and the limits below are real.
 - **What the server sends on its own.** The same cron trigger as the nightly job runs the
   reminders (`worker/push/reminders.ts`) after it: each person with a device, a time zone
   and a reminder on, at their "Remind me at" time on their own clock (not more than two
-  hours late), once a day a device. It reads only those people's settings, whether they
+  hours late), each reminder at most once a day a device: claimed for that day just before
+  it is sent, so overlapping runs or one stopped halfway never send it twice. It reads only those people's settings, whether they
   saved an entry that day (not one from Scheduled), and their running items due on the day
   the reminder is for. It is not reachable from the API. No payload, endpoint or
   subscription key is logged; only an error's name and message.
@@ -87,10 +96,11 @@ hack-proof, and the limits below are real.
   oldest due first, and takes part of each run until it's changed: about seven such weekly
   items could fill a run. Checked by hand, not by the job.
 
-- Reminders: at most 10 devices an account, at most 50 devices reminded a run (two pushes
-  each at most) and 200 scheduled items read; the rest wait for the next run. A push
-  service gets 5 seconds; one that can't take a message now is tried at the next run, and
-  a person whose reminders fail outright doesn't stop the others. A message is at most
+- Reminders: at most 10 devices an account, at most 50 devices looked at a run (two pushes
+  each at most, six at once) and the first four scheduled items due a person with how many
+  in all; the rest wait for the next run. A push service gets 5 seconds; one that can't
+  take a message now is tried again after 15 minutes, then 30, 60, at most 120, and a
+  device whose reminders fail outright doesn't stop the others. A message is at most
   4096 bytes, as push services take; a subscription request is a JSON body like any other.
 
 - Changes: 60 a minute per account (`API_LIMITER`), counted per Cloudflare location.

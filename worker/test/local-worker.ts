@@ -143,8 +143,13 @@ export interface FakePush {
   base: string;
   /** Every request handed to it, in order */
   received: () => PushRequest[];
-  /** Answers requests for `path` with `status` from now on (201 unless said) */
+  /**
+   * Answers requests for `path` with `status` from now on (201 unless said); a redirect
+   * (3xx) points at `${base}/push/redirected`
+   */
   answer: (path: string, status: number) => void;
+  /** Answers the next requests for `path` with these, one each, before the lasting answer */
+  answerNext: (path: string, ...statuses: number[]) => void;
   /** Forgets what it was handed and how it answers */
   reset: () => void;
 }
@@ -153,6 +158,8 @@ export interface FakePush {
 async function startFakePush(): Promise<FakePush & { close: () => void }> {
   let received: PushRequest[] = [];
   const answers = new Map<string, number>();
+  const queued = new Map<string, number[]>();
+  let base = '';
   const server = createHttpServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
@@ -161,7 +168,11 @@ async function startFakePush(): Promise<FakePush & { close: () => void }> {
       const headers: Record<string, string | undefined> = {};
       for (const [k, v] of Object.entries(req.headers)) headers[k] = [v].flat().join(', ');
       received.push({ path, headers, body: new Uint8Array(Buffer.concat(chunks)) });
-      res.writeHead(answers.get(path) ?? 201);
+      const status = queued.get(path)?.shift() ?? answers.get(path) ?? 201;
+      res.writeHead(
+        status,
+        status >= 300 && status < 400 ? { Location: `${base}/push/redirected` } : {},
+      );
       res.end();
     });
   });
@@ -170,13 +181,16 @@ async function startFakePush(): Promise<FakePush & { close: () => void }> {
     server.listen(0, '127.0.0.1', done);
   });
   const { port } = server.address() as { port: number };
+  base = `http://127.0.0.1:${port}`;
   return {
-    base: `http://127.0.0.1:${port}`,
+    base,
     received: () => [...received],
     answer: (path, status) => void answers.set(path, status),
+    answerNext: (path, ...statuses) => void queued.set(path, statuses),
     reset: () => {
       received = [];
       answers.clear();
+      queued.clear();
     },
     close: () => server.close(),
   };

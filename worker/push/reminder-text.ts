@@ -3,16 +3,33 @@
 
 import type { ReminderMessage } from './send';
 
+/**
+ * Which account a message is for, without naming it: the first 16 hex characters of the
+ * SHA-256 of "mahnee-push:" and the email in small letters. web/public/sw.js works out the
+ * same from the account signed in there (accountTag, sw.test.ts checks both).
+ */
+export async function accountTag(email: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`mahnee-push:${email.toLowerCase()}`),
+  );
+  return [...new Uint8Array(digest)]
+    .slice(0, 8)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 /** The daily reminder, on a day with nothing added */
-export const DAILY_REMINDER: ReminderMessage = {
+export const dailyReminder = (account: string): ReminderMessage => ({
   title: 'Nothing added today',
   body: 'Anything spent today? Add it before you forget.',
   url: '/',
   tag: 'daily',
-};
+  account,
+});
 
 /** How many of the others due that day the message names, after the first */
-const MAX_NAMED = 3;
+export const MAX_NAMED = 3;
 
 /** "RM 189.00": the currency's symbol, a space, the amount, as the app shows money */
 export function moneyText(cents: number, currency: string): string {
@@ -45,21 +62,28 @@ export interface DueItem {
 
 /**
  * "TNB RM 189.00 is added tomorrow" (or "in 3 days"); with others due that day, "TNB RM
- * 189.00 and 2 more are added tomorrow", the others named after it
+ * 189.00 and 2 more are added tomorrow", up to MAX_NAMED of the others named after it.
+ * `items` are the first few, in Scheduled's order; `count` how many are due in all.
  */
-export function scheduledReminder(items: DueItem[], days: number): ReminderMessage {
+export function scheduledReminder(
+  items: DueItem[],
+  count: number,
+  days: number,
+  account: string,
+): ReminderMessage {
   const [first, ...others] = items;
+  const more = count - 1;
   const when = days === 1 ? 'tomorrow' : `in ${days} days`;
   const named = (i: DueItem) => `${i.name} ${moneyText(i.amountCents, i.currency)}`;
   const title =
-    others.length === 0
+    more === 0
       ? `${named(first)} is added ${when}`
-      : `${named(first)} and ${others.length} more are added ${when}`;
+      : `${named(first)} and ${more} more are added ${when}`;
   const shown = others.slice(0, MAX_NAMED).map(named).join(', ');
-  const rest = others.length - MAX_NAMED;
+  const rest = more - Math.min(others.length, MAX_NAMED);
   const body =
-    others.length === 0
+    more === 0
       ? 'From Scheduled. Tap to check it.'
       : `Also ${shown}${rest > 0 ? `, and ${rest} more` : ''}. Tap to check them.`;
-  return { title, body, url: '/?plan=scheduled', tag: 'scheduled' };
+  return { title, body, url: '/?plan=scheduled', tag: 'scheduled', account };
 }

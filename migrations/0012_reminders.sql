@@ -13,9 +13,19 @@ CREATE TABLE push_subscriptions (
   p256dh TEXT NOT NULL CHECK (length(p256dh) = 87),
   auth TEXT NOT NULL CHECK (length(auth) = 22),
   created_at INTEGER NOT NULL,
-  -- The person's own day it was last reminded on (2026-11-18), so it is reminded once a day
+  -- The person's own day (2026-11-18) it was last done with: reminded, or nothing to say
   reminded_on TEXT
     CHECK (reminded_on IS NULL OR reminded_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+  -- The day each reminder was last claimed for it, just before it was sent, so a run that
+  -- overlaps another, or follows one stopped halfway, never sends it twice
+  daily_on TEXT
+    CHECK (daily_on IS NULL OR daily_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+  scheduled_on TEXT
+    CHECK (scheduled_on IS NULL OR scheduled_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+  -- How many times in a row its push service couldn't take one now, and when (ms) to try
+  -- again: 15 minutes after the first, then 30, 60, at most 120
+  failures INTEGER NOT NULL DEFAULT 0 CHECK (failures BETWEEN 0 AND 1000),
+  retry_at INTEGER,
   -- When its push service last took a message (ms)
   last_ok_at INTEGER
 );

@@ -33,8 +33,11 @@ const PUSH_HOSTS = [
 ];
 const PUSH_HOST_ENDINGS = ['.notify.windows.com', '.push.apple.com'];
 
-/** An https address: its host (letters, digits, dots and hyphens; no port or user) */
-const HTTPS_ADDRESS = /^https:\/\/([a-z0-9-]+(?:\.[a-z0-9-]+)+)(?:[/?#]\S*)?$/i;
+/**
+ * An https address with a path: its host (letters, digits, dots and hyphens; no port, user
+ * or trailing dot)
+ */
+const HTTPS_ADDRESS = /^https:\/\/([a-z0-9-]+(?:\.[a-z0-9-]+)+)\/\S+$/i;
 
 /** A web address of any scheme, without spaces */
 const ADDRESS = /^[a-z][a-z0-9+.-]*:\/\/\S+$/i;

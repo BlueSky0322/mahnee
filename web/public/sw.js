@@ -439,8 +439,39 @@ const FALLBACK_REMINDER = {
 const ownPage = (url) =>
   typeof url === 'string' && url.startsWith('/') && !url.startsWith('//') ? url : '/';
 
-/** The message the server sent (worker/push/send.ts ReminderMessage), or the fallback */
-function readReminder(data) {
+/**
+ * accountTag in worker/push/reminder-text.ts: which account a reminder is for, without
+ * naming it (the first 16 hex characters of the SHA-256 of "mahnee-push:" and the email in
+ * small letters)
+ */
+async function accountTag(email) {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    utf8.encode(`mahnee-push:${email.toLowerCase()}`),
+  );
+  return [...new Uint8Array(digest)]
+    .slice(0, 8)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/** Who the app last said is signed in here, or null */
+async function signedInHere() {
+  const db = await openDb();
+  try {
+    const user = await idb(db, 'readonly', (s) => s.get(USER_KEY));
+    return typeof user === 'string' ? user : null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * The message the server sent (worker/push/send.ts ReminderMessage), or the fallback for
+ * one that can't be read; null for one meant for another account than the one signed in
+ * here (or with no one signed in), which is never shown
+ */
+async function readReminder(data) {
   let message = null;
   try {
     message = data?.json();
@@ -448,6 +479,8 @@ function readReminder(data) {
     message = null;
   }
   if (typeof message?.title !== 'string' || message.title === '') return FALLBACK_REMINDER;
+  const user = await signedInHere().catch(() => null);
+  if (user == null || message.account !== (await accountTag(user))) return null;
   return {
     title: message.title,
     body: typeof message.body === 'string' ? message.body : '',
@@ -456,25 +489,40 @@ function readReminder(data) {
   };
 }
 
+/** Shows a reminder that came, if it's for the account signed in here */
+async function showReminder(data) {
+  const reminder = await readReminder(data);
+  if (reminder == null) return;
+  const { title, body, url, tag } = reminder;
+  await self.registration.showNotification(title, {
+    body,
+    tag,
+    icon: '/icon-192.png',
+    data: { url },
+  });
+}
+
 self.addEventListener('push', (event) => {
-  const { title, body, url, tag } = readReminder(event.data);
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      tag,
-      icon: '/icon-192.png',
-      data: { url },
-    }),
-  );
+  event.waitUntil(showReminder(event.data));
 });
 
-/** Brings a window of the app already open to the page, or opens one */
+/**
+ * Brings a window of the app already open (the one in front, if any) to the page, or
+ * opens one when there's none or it can't be brought there
+ */
 async function openAt(url) {
   const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
-  if (open == null) return self.clients.openWindow(url);
-  const shown = (await open.navigate(url)) ?? open;
-  return shown.focus();
+  const ours = windows.filter((w) => new URL(w.url).origin === self.location.origin);
+  const open = ours.find((w) => w.focused) ?? ours[0];
+  if (open != null) {
+    try {
+      const shown = (await open.navigate(url)) ?? open;
+      return await shown.focus();
+    } catch {
+      // Not one this service worker controls: a new window instead
+    }
+  }
+  return self.clients.openWindow(url);
 }
 
 self.addEventListener('notificationclick', (event) => {

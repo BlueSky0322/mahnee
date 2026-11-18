@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { LedgerChange } from '@shared/api';
 import { MAX_CHANGES, MAX_CHANGES_BYTES } from '@shared/api';
@@ -233,16 +234,26 @@ describe('reading the answer to sending changes', () => {
 
 // Reminders (owner decision D6): the server's push message is shown as a notification, its
 // text as sent (it names the item and amount, visible on a locked phone, as the owner
-// chose), and tapping it opens the app where the message points, in a window already open
-// when there is one. Only the app's own pages are ever opened.
+// chose), only while the account it is for is the one signed in here (it carries a tag
+// worked out from the email, not the email), and tapping it opens the app where the
+// message points, in a window already open when there is one. Only the app's own pages
+// are ever opened.
 describe('the service worker, with reminders', () => {
   const ORIGIN = 'https://mahnee.test';
+  const RYAN = 'ryan@example.com';
+  /** accountTag in worker/push/reminder-text.ts: SHA-256 of "mahnee-push:" and the email */
+  const tag = (email: string) =>
+    createHash('sha256').update(`mahnee-push:${email.toLowerCase()}`).digest('hex').slice(0, 16);
   const tnb = {
     title: 'TNB RM 189.00 is added tomorrow',
     body: 'From Scheduled. Tap to check it.',
     url: '/?plan=scheduled',
     tag: 'scheduled',
+    account: tag(RYAN),
   };
+
+  beforeEach(() => setCacheUser(RYAN));
+  afterEach(() => clearCache());
 
   test('shows the message as sent, kept under its tag, to open where it points', async () => {
     expect(await pushToWorker(JSON.stringify(tnb))).toEqual([
@@ -258,11 +269,26 @@ describe('the service worker, with reminders', () => {
     ]);
   });
 
+  test('shows nothing meant for another account than the one signed in here', async () => {
+    await setCacheUser('ann@example.com');
+    expect(await pushToWorker(JSON.stringify(tnb))).toEqual([]);
+  });
+
+  test('shows nothing once no one is signed in here', async () => {
+    await clearCache();
+    expect(await pushToWorker(JSON.stringify(tnb))).toEqual([]);
+  });
+
+  test('shows nothing for a message naming no account', async () => {
+    const { account: _none, ...unnamed } = tnb;
+    expect(await pushToWorker(JSON.stringify(unnamed))).toEqual([]);
+  });
+
   test.each([
     ['no data', null],
     ['data that is not JSON', 'not json'],
     ['JSON without a title', '{"body":"x"}'],
-  ])('still shows a notification for a message with %s', async (_name, text) => {
+  ])('still shows a notification for a message with %s, saying nothing', async (_name, text) => {
     expect(await pushToWorker(text)).toEqual([
       {
         title: 'Mahnee',
@@ -291,6 +317,20 @@ describe('the service worker, with reminders', () => {
     expect(open.navigate).toHaveBeenCalledWith(`${ORIGIN}/?plan=scheduled`);
     expect(open.focus).toHaveBeenCalled();
     expect(openWindow).not.toHaveBeenCalled();
+  });
+
+  test('a tap uses the window in front, when several are open', async () => {
+    const behind = appWindow(`${ORIGIN}/?activity`);
+    const front = appWindow(`${ORIGIN}/?plan`, { focused: true });
+    await clickNotification({ url: '/' }, [behind, front]);
+    expect(front.navigate).toHaveBeenCalledWith(`${ORIGIN}/`);
+    expect(behind.navigate).not.toHaveBeenCalled();
+  });
+
+  test('a window that can’t be brought to the page leaves a new one to open', async () => {
+    const stuck = appWindow(`${ORIGIN}/?activity`, { navigates: false });
+    const { openWindow } = await clickNotification({ url: '/?plan=scheduled' }, [stuck]);
+    expect(openWindow).toHaveBeenCalledWith(`${ORIGIN}/?plan=scheduled`);
   });
 
   test('a tap with no window open opens the app at the page', async () => {

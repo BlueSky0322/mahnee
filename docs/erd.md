@@ -141,7 +141,11 @@ erDiagram
     TEXT p256dh "the browser's public key, base64url"
     TEXT auth "its auth secret, base64url"
     INTEGER created_at "ms"
-    TEXT reminded_on "the person's day last reminded, or null"
+    TEXT reminded_on "the person's day last done with, or null"
+    TEXT daily_on "the day the daily reminder was last claimed"
+    TEXT scheduled_on "the day the one before was last claimed"
+    INTEGER failures "times in a row it couldn't be taken now"
+    INTEGER retry_at "ms, or null"
     INTEGER last_ok_at "ms, or null"
   }
   change_receipts {
@@ -258,8 +262,11 @@ erDiagram
   key, so one device reminds one account: a device subscribed by someone else moves to
   them. At most 10 per account, the oldest dropped. Let go on signing out
   (`DELETE /api/push/subscription`, the person's own only), when the push service answers
-  404 or 410, and with the profile. `reminded_on` is the person's own day it was last
-  reminded, so the cron (`worker/push/reminders.ts`) reminds it once a day; the endpoint
+  400, 401, 403, 404 or 410, and with the profile. `reminded_on` is the person's own day
+  the cron (`worker/push/reminders.ts`) was last done with it; `daily_on` and
+  `scheduled_on` the day each reminder was claimed, just before it was sent, so neither
+  goes twice; `failures` and `retry_at` hold it back after its push service couldn't take
+  one (15 minutes, doubling, at most 120); the endpoint
   is checked to be a browser's push service before it's kept and before each send.
   Migration 0012 also indexes `transactions (email, created_at)`, for whether anything was
   added during a person's day.

@@ -159,15 +159,15 @@ export const SETTINGS_INDEX: SettingEntry[] = [
     key: 'remindAt',
     section: 'budgets',
     name: 'Remind me at',
-    line: 'Only on days with nothing added',
+    line: 'When reminders come, each day',
     words: ['reminder time'],
   },
   {
     key: 'beforeScheduled',
     section: 'budgets',
-    name: 'Before one is added',
-    line: 'The day before a scheduled entry',
-    words: ['bills', 'scheduled reminder'],
+    name: 'Heads-up before scheduled entries',
+    line: 'A notification before a scheduled bill or income is added',
+    words: ['bills', 'scheduled reminder', 'before one is added', 'warn'],
   },
 ];
 

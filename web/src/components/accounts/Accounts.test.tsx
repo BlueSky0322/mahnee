@@ -57,6 +57,19 @@ const saves = () =>
     .mocked(fetch)
     .mock.calls.filter(([path, init]) => path === '/api/changes' && init?.method === 'POST').length;
 
+/** The connection drops: the browser says so, and nothing reaches the server */
+function goOffline(server: FakeServer) {
+  server.health = 'unreachable';
+  const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  act(() => void window.dispatchEvent(new Event('offline')));
+  onTestFinished(() => onLine.mockRestore());
+  return () => {
+    server.health = 'up';
+    onLine.mockReturnValue(true);
+    act(() => void window.dispatchEvent(new Event('online')));
+  };
+}
+
 /** Waits for an account's row on Accounts to show this kind and balance, read out and drawn */
 async function shows(name: string, kind: string, balance: string) {
   const found = await screen.findByRole('link', { name: `${name}, ${kind}, ${balance}` });
@@ -154,8 +167,8 @@ describe('accounts', () => {
 
     const form = await edit('Wallet');
     expect(form.getByLabelText('Opening balance')).toHaveProperty('value', '20');
-    // The kind is fixed once added
-    expect(form.queryByRole('radio')).toBeNull();
+    // Its kind as it is, ready to change
+    expect(form.getByRole('radio', { name: 'Cash' })).toHaveProperty('checked', true);
     await user.clear(form.getByLabelText('Name'));
     await user.type(form.getByLabelText('Name'), 'Purse');
     await user.clear(form.getByLabelText('Opening balance'));
@@ -172,6 +185,87 @@ describe('accounts', () => {
     await waitFor(() =>
       expect(server.accounts[0]).toMatchObject({ name: 'Purse', openingCents: 3_520 }),
     );
+  });
+
+  test.each(SIZES)(
+    'changes a card to a bank account, showing the balance it will have first (%s)',
+    async (size) => {
+      const server = fakeServer();
+      seed(server, { id: 'a'.repeat(16), name: 'Visa', kind: 'card', openingCents: -50_000 });
+      renderApp(server, '/?accounts', { size });
+      const user = userEvent.setup();
+
+      const form = await edit('Visa');
+      expect(form.getByRole('radio', { name: 'Card' })).toHaveProperty('checked', true);
+      expect(form.queryByText(/will read/)).toBeNull();
+      await user.click(form.getByRole('radio', { name: 'Bank' }));
+      // The same cents kept: what was owed reads below zero on a bank account
+      expect(form.getByLabelText('Opening balance')).toHaveProperty('value', '-500');
+      expect(form.getByText('RM 500.00 owed will read −RM 500.00 as a bank account')).toBeTruthy();
+      // Corrected in the same save
+      await user.clear(form.getByLabelText('Opening balance'));
+      await user.type(form.getByLabelText('Opening balance'), '500');
+      expect(form.getByText('RM 500.00 owed will read RM 500.00 as a bank account')).toBeTruthy();
+      await user.click(form.getByRole('button', { name: 'Save' }));
+
+      expect(
+        await screen.findByRole('heading', { name: 'Visa', level: size === 'phone' ? 1 : 2 }),
+      ).toBeTruthy();
+      expect(screen.getByLabelText('Balance RM 500.00')).toBeTruthy();
+      await backToAccounts();
+      await shows('Visa', 'Bank', '500.00');
+      expect(await listed('Cash, banks and e-wallets')).toEqual(['Visa, Bank, 500.00']);
+      expect(screen.queryByRole('region', { name: 'Cards' })).toBeNull();
+      await waitFor(() =>
+        expect(server.accounts[0]).toMatchObject({ kind: 'bank', openingCents: 50_000 }),
+      );
+    },
+  );
+
+  test('keeps the opening balance as it was when only the kind changes, and Undo puts both back', async () => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Visa', kind: 'card', openingCents: -50_000 });
+    renderApp(server, '/?accounts');
+    const user = userEvent.setup();
+
+    const form = await edit('Visa');
+    await user.click(form.getByRole('radio', { name: 'Bank' }));
+    await user.click(form.getByRole('button', { name: 'Save' }));
+    await shows('Visa', 'Bank', '−500.00');
+    await waitFor(() =>
+      expect(server.accounts[0]).toMatchObject({ kind: 'bank', openingCents: -50_000 }),
+    );
+
+    expect(await screen.findByText('Visa is now a bank account')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await shows('Visa', 'Card', '500.00 owed');
+    await waitFor(() =>
+      expect(server.accounts[0]).toMatchObject({ kind: 'card', openingCents: -50_000 }),
+    );
+  });
+
+  test('changes the kind offline, and saves it once back online', async () => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Visa', kind: 'card', openingCents: -50_000 });
+    renderApp(server, '/?accounts', { size: 'phone' });
+    const user = userEvent.setup();
+    await row('Visa');
+
+    const back = goOffline(server);
+    const form = await edit('Visa');
+    await user.click(form.getByRole('radio', { name: 'E-wallet' }));
+    expect(form.getByText('RM 500.00 owed will read −RM 500.00 as an e-wallet')).toBeTruthy();
+    await user.click(form.getByRole('button', { name: 'Save' }));
+    await backToAccounts();
+    // Shown at once, kept on the phone
+    await shows('Visa', 'E-wallet', '−500.00');
+    expect(server.accounts[0].kind).toBe('card');
+
+    back();
+    await waitFor(() => expect(server.accounts[0]).toMatchObject({ kind: 'ewallet' }), {
+      timeout: 8000,
+    });
+    await shows('Visa', 'E-wallet', '−500.00');
   });
 
   test('says what is wrong with a name or amount, and saves nothing', async () => {

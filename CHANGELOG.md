@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-19
+
+- Changed: An account's kind can be changed in Edit, a card to a bank account and back, with its balance shown as it will read [#?]
+
 ## 2026-11-18
 
 - Added: Your picture in place of the initial: your Google picture once set up, or a photo chosen in My account [#51]

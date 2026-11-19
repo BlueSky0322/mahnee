@@ -369,7 +369,7 @@ function changeStatements(
       ];
     }
     case 'updateAccount': {
-      onlyFields(change, ['op', 'id', 'name', 'openingCents']);
+      onlyFields(change, ['op', 'id', 'name', 'kind', 'openingCents']);
       const account = isRowId(change.id) ? model.accounts.get(change.id) : undefined;
       if (account == null) throw new Refused(404, NOT_FOUND);
       const sets: string[] = [];
@@ -378,6 +378,12 @@ function changeStatements(
         account.name = readName(change.name);
         sets.push('name = ?');
         values.push(account.name);
+      }
+      // A new kind keeps the opening balance's cents as they were, unless it comes with one
+      if ('kind' in change) {
+        if (!isAccountKind(change.kind)) throw new Refused(400, 'Unknown kind of account');
+        sets.push('kind = ?');
+        values.push(change.kind);
       }
       if ('openingCents' in change) {
         sets.push('opening_cents = ?');

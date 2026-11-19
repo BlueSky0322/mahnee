@@ -837,6 +837,41 @@ describe('accounts', () => {
     });
   });
 
+  // A card added by mistake becomes a bank account: the cents kept stay as they were, so
+  // what was owed now reads below zero until the person corrects the opening balance
+  it("changes an account's kind, keeping its opening balance unless told", async () => {
+    const me = person('me');
+    const id = rowId();
+    await send(me, [add(id, 'Visa', 'card', -50_000)]);
+    expect(await send(me, [{ op: 'updateAccount', id, kind: 'bank' }])).toEqual({
+      status: 200,
+      data: { ok: true },
+    });
+    expect((await list(me))[0]).toMatchObject({
+      name: 'Visa',
+      kind: 'bank',
+      openingCents: -50_000,
+      balanceCents: -50_000,
+    });
+    // Made as someone else signed in: refused, the kind left as it was
+    const asOther = await api.call(
+      me,
+      'POST',
+      '/api/changes',
+      { changes: [{ op: 'updateAccount', id, kind: 'cash' }], ids: [rowId()] },
+      { 'X-Expected-Account': person('other') },
+    );
+    expect(asOther).toMatchObject({ status: 409, data: { code: 'account_mismatch' } });
+    expect((await list(me))[0]).toMatchObject({ kind: 'bank' });
+    // The kind and the opening balance in one save
+    await send(me, [{ op: 'updateAccount', id, kind: 'ewallet', openingCents: 50_000 }]);
+    expect((await list(me))[0]).toMatchObject({
+      kind: 'ewallet',
+      openingCents: 50_000,
+      balanceCents: 50_000,
+    });
+  });
+
   it('archives an account and brings it back, listed all along', async () => {
     const me = person('me');
     const id = rowId();
@@ -947,13 +982,14 @@ describe('accounts', () => {
     expect(missing).toEqual({ status: 404, data: { error: 'Account not found' } });
     for (const change of [
       { op: 'updateAccount', id: theirs, name: 'Mine' },
+      { op: 'updateAccount', id: theirs, kind: 'card' },
       { op: 'archiveAccount', id: theirs, archived: true },
     ]) {
       expect(await send(me, [change])).toEqual(missing);
     }
     expect(await list(me)).toEqual([]);
     expect(await list(other)).toEqual([
-      expect.objectContaining({ id: theirs, name: 'Savings', archived: false }),
+      expect.objectContaining({ id: theirs, name: 'Savings', kind: 'bank', archived: false }),
     ]);
     // The same id added as one of mine is a different account, theirs untouched
     expect((await send(me, [add(theirs, 'Mine')])).status).toBe(200);
@@ -978,7 +1014,12 @@ describe('accounts', () => {
     ['an opening balance under the limit', () => add(rowId(), 'Poor', 'bank', -1_000_000_001), 400],
     ['an opening balance in part cents', () => add(rowId(), 'Odd', 'bank', 10.5), 400],
     ['a field it does not know', () => ({ ...add(rowId(), 'x'), extra: 1 }), 400],
-    ['changing the kind', (id) => ({ op: 'updateAccount', id, kind: 'cash' }), 400],
+    [
+      'a change to a kind that does not exist',
+      (id) => ({ op: 'updateAccount', id, kind: 'gold' }),
+      400,
+    ],
+    ['a change to a kind that is not text', (id) => ({ op: 'updateAccount', id, kind: 7 }), 400],
     ['a rename to nothing', (id) => ({ op: 'updateAccount', id, name: '' }), 400],
     ['an update that changes nothing', (id) => ({ op: 'updateAccount', id }), 400],
     [

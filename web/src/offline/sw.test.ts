@@ -282,6 +282,11 @@ const answers: [string, Answer, 'sent' | 'retry' | 'refused'][] = [
   ['no connection', { networkError: true }, 'retry'],
   ['401', { status: 401, body: '{"error":"Not signed in"}' }, 'retry'],
   ['429', { status: 429, body: '{"error":"Too many"}' }, 'retry'],
+  [
+    'amounts converting',
+    { status: 503, body: '{"error":"Converting your amounts","code":"converting"}' },
+    'retry',
+  ],
   ['500', { status: 500, body: '{"error":"Oops"}' }, 'retry'],
   [
     '503, an app too old to say whose a change is',

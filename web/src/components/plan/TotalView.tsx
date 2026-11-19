@@ -1,12 +1,11 @@
 import { Button } from '@mantine/core';
+import { useMoney } from '../../hooks/useMoney';
 import { useId } from 'react';
 import type { MonthTrend } from '@shared/api';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
 import { againstAverage } from '@shared/trend';
 import { goUp } from '../../hooks/useRoute';
 import { useMonthSummary, useMonthTrend } from '../../ledger/useLedger';
 import { monthHeading } from '../../utils/date-input';
-import { formatMoney } from '../../utils/money';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import classes from './Plan.module.css';
 import type { MonthAmount } from './CategoryView';
@@ -14,8 +13,6 @@ import { Shell, UsualLine, YearBars } from './CategoryView';
 import type { PlanMonth } from './plan-month';
 import { yearComparison } from './plan-text';
 import BackButton from '../ui/BackButton';
-
-const money = (cents: number) => formatMoney(cents, DEFAULT_CURRENCY);
 
 /** Every expense, or all income, in each of the 12 months ending at the month shown */
 const yearOf = (trend: MonthTrend, income: boolean): MonthAmount[] =>
@@ -35,6 +32,7 @@ export default function TotalView({
   shown: PlanMonth;
   variant: 'page' | 'pane';
 }) {
+  const { money } = useMoney();
   const { summary, failed, retry } = useMonthSummary(shown.month);
   const trend = useMonthTrend(shown.month);
   const titleId = useId();

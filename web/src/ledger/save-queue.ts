@@ -53,8 +53,11 @@ export interface QueueState {
 }
 
 export interface SaveQueue {
-  /** Queues changes to send after any already waiting, keeping them on the device first */
-  add: (changes: LedgerChange[]) => void;
+  /**
+   * Queues changes to send after any already waiting, keeping them on the device first,
+   * with the currency their amounts were typed in
+   */
+  add: (changes: LedgerChange[], currency?: string) => void;
   /** Changes made but not yet saved, being sent or waiting, in order */
   pending: () => LedgerChange[];
   /** The same, each with the id it's sent with */
@@ -227,8 +230,10 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
   }
 
   return {
-    add: (changes) => {
-      queued.push(...changes.map((change) => ({ cid: newId(), change })));
+    add: (changes, currency) => {
+      queued.push(
+        ...changes.map((change) => ({ cid: newId(), change, ...(currency && { currency }) })),
+      );
       changed();
       keepAndSend();
     },

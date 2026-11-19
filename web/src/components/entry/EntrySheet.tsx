@@ -15,19 +15,13 @@ import { useState } from 'react';
 import type { LedgerChange, Transaction } from '@shared/api';
 import type { CategoryKind } from '@shared/categories';
 import type { TransactionKind } from '@shared/ledger';
-import {
-  DEFAULT_CURRENCY,
-  MAX_NOTE,
-  MAX_PAYEE,
-  categoryKindFor,
-  readOptionalText,
-} from '@shared/ledger';
+import { MAX_NOTE, MAX_PAYEE, categoryKindFor, readOptionalText } from '@shared/ledger';
 import type { Schedule } from '@shared/recurring';
 import { dayFor, isSchedule, nextAfter } from '@shared/recurring';
 import { navigate } from '../../hooks/useRoute';
 import { change } from '../../ledger/ledger';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
-import { useProfile } from '../../profile/ProfileContext';
+import { useProfile, useCurrency } from '../../profile/ProfileContext';
 import { isPastDay, toDateInput } from '../../utils/date-input';
 import { newId } from '../../utils/id';
 import { currencySymbol, formatMoney } from '../../utils/money';
@@ -87,6 +81,7 @@ const PAYEE_LABELS: Record<TransactionKind, string> = {
 const NO_DESTINATION = 'Add another account to move money to';
 
 function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
+  const homeCurrency = useCurrency();
   const { accounts } = useAccounts();
   const { categories, tree } = useCategories();
   const editing = open.transaction;
@@ -133,7 +128,7 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
   const top = nodes.find(
     (n) => n.id === categoryId || n.subcategories.some((s) => s.id === categoryId),
   );
-  const currency = account?.currency ?? DEFAULT_CURRENCY;
+  const currency = account?.currency ?? homeCurrency;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();

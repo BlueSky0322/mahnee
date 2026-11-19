@@ -1,9 +1,10 @@
 import { Button, TextInput } from '@mantine/core';
+import { useCurrency } from '../../profile/ProfileContext';
 import { CheckIcon, SearchIcon } from '../ui/icons';
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
 import type { Category, LedgerChange, Transaction } from '@shared/api';
-import { DEFAULT_CURRENCY, categoryKindFor } from '@shared/ledger';
+import { categoryKindFor } from '@shared/ledger';
 import { foldCase } from '@shared/search';
 import { budgetLines } from '../../ledger/budgets';
 import { change } from '../../ledger/ledger';
@@ -125,7 +126,7 @@ function Moving({
   const kind = categoryKindFor(chosen[0].kind) ?? 'expense';
   const name = (id: string | null) => categoryName(all, id);
   const today = toDateInput(new Date());
-  const currency = DEFAULT_CURRENCY;
+  const currency = useCurrency();
 
   const words = foldCase(find.trim());
   // Where they all are already isn't offered: moving there would change nothing

@@ -3,17 +3,11 @@ import type { FormEvent } from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { LedgerChange, Transaction } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
-import {
-  DEFAULT_CURRENCY,
-  MAX_NOTE,
-  MAX_PAYEE,
-  categoryKindFor,
-  readOptionalText,
-} from '@shared/ledger';
+import { MAX_NOTE, MAX_PAYEE, categoryKindFor, readOptionalText } from '@shared/ledger';
 import { nextAfter } from '@shared/recurring';
 import { change } from '../../ledger/ledger';
 import { useAccounts, useCategories, useWholeLedger } from '../../ledger/useLedger';
-import { useProfile } from '../../profile/ProfileContext';
+import { useProfile, useCurrency } from '../../profile/ProfileContext';
 import { clockText, isPastDay, toDateInput } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
 import { showUndo } from '../common/undo-toast';
@@ -54,6 +48,7 @@ export default function EntryEditor({
   onDeleted: () => void;
   onSaved?: () => void;
 }) {
+  const homeCurrency = useCurrency();
   const { accounts } = useAccounts();
   const { categories, tree } = useCategories();
   const { data: ledger } = useWholeLedger();
@@ -100,7 +95,7 @@ export default function EntryEditor({
     ...node.subcategories.map((c) => ({ value: c.id, label: `${node.name} › ${c.name}` })),
   ]);
   const categoryId = categoryKind == null ? null : picked[kind] ?? '';
-  const currency = account?.currency ?? DEFAULT_CURRENCY;
+  const currency = account?.currency ?? homeCurrency;
   // Beside the register: its payee, day and amount typed where they're shown, each refusal
   // said aloud and tied to its field
   const inline = title != null;

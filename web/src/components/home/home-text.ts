@@ -2,17 +2,16 @@ import type { WeekStart } from '@shared/api';
 import type { BudgetPace } from '@shared/budgets';
 import type { PeriodDay } from '@shared/period';
 import { budgetPace } from '@shared/budgets';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
 import type { BudgetLine } from '../../ledger/budgets';
 import type { DaySpent } from '../../ledger/day-by-day';
 import { formatAmount, formatMoney } from '../../utils/money';
 
 // Home's words: the line under the month-end figure, the two cards' lines, Tidy up, each
 // calendar day's name, the weekdays, and each budget's figures. Money is whole cents,
-// shown in the one currency accounts are kept in for now.
+// shown in the currency amounts are in (useMoney).
 
 /** "RM 248.00", or "−RM 25.00" below zero */
-export const signedMoney = (cents: number, currency = DEFAULT_CURRENCY) =>
+export const signedMoney = (cents: number, currency: string) =>
   `${cents < 0 ? '−' : ''}${formatMoney(cents, currency)}`;
 
 /** A day as "Nov 25" */
@@ -107,10 +106,10 @@ export function tidyText(entries: number, from: string, otherName: string) {
  * A calendar day's name: what was spent against the middle day so far, then what's due on
  * it ("November 10, spent RM 9.00, more than the middle day, TNB electricity due")
  */
-export function dayLabel(day: DaySpent, due: readonly string[]) {
+export function dayLabel(day: DaySpent, due: readonly string[], currency: string) {
   let label = longDate(day.date);
   if (day.against != null) {
-    label += `, spent ${formatMoney(day.cents, DEFAULT_CURRENCY)}, ${day.against} than the middle day`;
+    label += `, spent ${formatMoney(day.cents, currency)}, ${day.against} than the middle day`;
   }
   if (due.length > 0) label += `, ${namesText(due)} due`;
   return label;
@@ -145,14 +144,18 @@ const percentOf = (part: number, whole: number) =>
  * how that goes against the month, and the bar's name. On a computer (`short`) the
  * symbol goes from what's left and what's spent, as drawn.
  */
-export function budgetText(line: BudgetLine, at: PeriodDay, { short }: { short: boolean }) {
+export function budgetText(
+  line: BudgetLine,
+  at: PeriodDay,
+  { short, currency }: { short: boolean; currency: string },
+) {
   const pace = budgetPace(line.spentCents, line.availableCents, at);
   const amount = (cents: number) =>
-    short ? formatAmount(cents, DEFAULT_CURRENCY) : formatMoney(cents, DEFAULT_CURRENCY);
-  const of = `of ${signedMoney(line.availableCents)}`;
+    short ? formatAmount(cents, currency) : formatMoney(cents, currency);
+  const of = `of ${signedMoney(line.availableCents, currency)}`;
   return {
     left: line.leftCents < 0 ? `${amount(-line.leftCents)} over` : `${amount(line.leftCents)} left`,
-    meta: `${short ? of : `${formatMoney(line.spentCents, DEFAULT_CURRENCY)} ${of}`} · ${PACE_WORDS[pace]}`,
+    meta: `${short ? of : `${formatMoney(line.spentCents, currency)} ${of}`} · ${PACE_WORDS[pace]}`,
     pace,
     label: `${line.name}: ${percentOf(line.spentCents, line.availableCents)}% of budget spent, ${percentOf(at.day, at.days)}% of the month gone`,
   };

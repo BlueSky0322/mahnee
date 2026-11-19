@@ -1,16 +1,11 @@
 import { Button, Input, SegmentedControl, TextInput } from '@mantine/core';
+import { useCurrency } from '../../profile/ProfileContext';
 import { Archive } from '@phosphor-icons/react';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
 import type { Account, LedgerChange } from '@shared/api';
 import type { AccountKind } from '@shared/ledger';
-import {
-  ACCOUNT_KINDS,
-  DEFAULT_CURRENCY,
-  MAX_ACCOUNTS,
-  MAX_ACCOUNT_NAME,
-  readAccountName,
-} from '@shared/ledger';
+import { ACCOUNT_KINDS, MAX_ACCOUNTS, MAX_ACCOUNT_NAME, readAccountName } from '@shared/ledger';
 import { change } from '../../ledger/ledger';
 import { newId } from '../../utils/id';
 import { currencySymbol } from '../../utils/money';
@@ -64,12 +59,13 @@ function Fields({
   count: number;
   onDone: () => void;
 }) {
+  const homeCurrency = useCurrency();
   const [name, setName] = useState(account?.name ?? '');
   const [kind, setKind] = useState<AccountKind>(account?.kind ?? startKind ?? 'cash');
   const [amount, setAmount] = useState(account ? openingText(account.openingCents, kind) : '');
   const [nameError, setNameError] = useState<string | null>(null);
   const [amountError, setAmountError] = useState<string | null>(null);
-  const symbol = currencySymbol(account?.currency ?? DEFAULT_CURRENCY);
+  const symbol = currencySymbol(account?.currency ?? homeCurrency);
 
   // A kept account's new kind keeps its cents: the amount typed is shown again as the new
   // kind reads it (a card's 500 owed is -500 in a bank), for the person to correct if need be

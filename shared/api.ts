@@ -42,6 +42,11 @@ export const MAX_DISPLAY_NAME = 32;
  * shared/settings.ts.
  */
 export interface Settings {
+  /**
+   * The home currency every amount is kept and shown in (one of HOME_CURRENCIES in
+   * shared/rates.ts). Changing it converts every amount on the server (Profile.conversion).
+   */
+  currency: string;
   theme: ThemeSetting;
   accent: Accent;
   ratePreference: RatePreference;
@@ -77,6 +82,7 @@ export interface Settings {
 
 /** Settings before anyone changes them: as the redesign's settings pages draw them */
 export const DEFAULT_SETTINGS: Settings = {
+  currency: 'MYR',
   theme: 'auto',
   accent: 'cobalt',
   ratePreference: 'wise',
@@ -97,6 +103,33 @@ export const DEFAULT_SETTINGS: Settings = {
   scheduledReminderDays: 1,
   timeZone: null,
 };
+
+/**
+ * The limit that refused a change of currency: an entry's amount, an opening balance
+ * (either way), a budget or a scheduled item's amount would have gone past
+ * MAX_TRANSACTION in the new currency
+ */
+export const CONVERSION_LIMITS = ['amount', 'opening', 'budget', 'scheduled'] as const;
+export type ConversionLimit = (typeof CONVERSION_LIMITS)[number];
+
+/**
+ * Why a change of currency was refused: a limit, or `rates` when it couldn't be finished
+ * (the rate services stayed down through every try), so the person got their currency back
+ */
+export const CONVERSION_REFUSALS = [...CONVERSION_LIMITS, 'rates'] as const;
+export type ConversionRefusal = (typeof CONVERSION_REFUSALS)[number];
+
+/**
+ * The latest change of home currency, while its amounts are converted (refused null), or
+ * once it was refused, naming the limit, until the currency is changed again
+ */
+export interface Conversion {
+  from: string;
+  to: string;
+  /** When the currency was changed, in ms */
+  since: number;
+  refused: ConversionRefusal | null;
+}
 
 /** Where the picture shown in place of the initial came from */
 export const PICTURE_SOURCES = ['upload', 'google'] as const;
@@ -140,11 +173,24 @@ export interface Profile {
   email: string;
   displayName: string | null;
   settings: Settings;
+  /** Converting into a new home currency, or the last change refused; null otherwise */
+  conversion: Conversion | null;
   /** What shows in place of the initial; null for the initial */
   picture: ProfilePicture | null;
   /** A copy of their Google picture is kept, to go back to */
   googlePicture: boolean;
 }
+
+/** Whether a profile's amounts are being converted into a new home currency */
+export const isConverting = (profile: Pick<Profile, 'conversion'>) =>
+  profile.conversion != null && profile.conversion.refused == null;
+
+/**
+ * The currency amounts are in now, as shown and as changes are typed in: until a
+ * conversion is done they are still in the currency it's from
+ */
+export const currencyNow = (profile: Pick<Profile, 'conversion' | 'settings'>) =>
+  isConverting(profile) ? profile.conversion!.from : profile.settings.currency;
 
 export interface ProfilePatch {
   displayName?: string | null;
@@ -683,6 +729,13 @@ export interface ChangesBody {
    * is refused
    */
   ids: string[];
+  /**
+   * The home currency each change was typed in, one each in order (currencyNow when it was
+   * made), null for one that doesn't say (kept from before): an amount typed before the
+   * currency changed is converted from it on saving; one that doesn't say is taken as typed
+   * in the home currency
+   */
+  currencies?: (string | null)[];
 }
 
 /**
@@ -751,6 +804,8 @@ export interface ApiErrorBody {
 /**
  * account_mismatch: the write was made for another account than the one signed in now,
  * so it's kept (not sent again) until that account is back. client_update_required: an
- * app too old to say whose a write is; kept until it updates.
+ * app too old to say whose a write is; kept until it updates. converting: the person's
+ * amounts are being converted into a new home currency (503), so the write is kept and sent
+ * again once that's done.
  */
-export type ErrorCode = 'account_mismatch' | 'client_update_required';
+export type ErrorCode = 'account_mismatch' | 'client_update_required' | 'converting';

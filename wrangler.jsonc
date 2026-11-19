@@ -32,6 +32,22 @@
   "ratelimits": [
     { "name": "API_LIMITER", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
   ],
+  // Converting every amount after the home currency changes, a step at a time
+  // (worker/currency/convert-queue.ts). Both queues must exist before a deploy with this
+  // config (a deploy doesn't make them): mahnee-reconvert and mahnee-reconvert-dlq.
+  "queues": {
+    "producers": [{ "binding": "CONVERT_QUEUE", "queue": "mahnee-reconvert" }],
+    "consumers": [
+      {
+        "queue": "mahnee-reconvert",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 8,
+        "dead_letter_queue": "mahnee-reconvert-dlq",
+      },
+      { "queue": "mahnee-reconvert-dlq", "max_batch_size": 10, "max_retries": 0 },
+    ],
+  },
   "d1_databases": [
     {
       "binding": "DB",

@@ -3,12 +3,13 @@ import type {
   ImportRecord,
   Ledger,
   LedgerChange,
+  Profile,
   MonthSummary,
   MonthTrend,
   Transaction,
   TransactionPage,
 } from '@shared/api';
-import { MAX_CHANGES, MAX_RECENT_IMPORTS } from '@shared/api';
+import { MAX_CHANGES, MAX_RECENT_IMPORTS, currencyNow, isConverting } from '@shared/api';
 import { categoriesOrDefaults } from '@shared/categories';
 import { isOnAccount } from '@shared/ledger';
 import type { SearchQuery } from '@shared/search';
@@ -27,7 +28,7 @@ import {
 import type { Queued } from '../offline/outbox';
 import { readOutbox } from '../offline/outbox';
 import { isOfflineFailure } from '../offline/network';
-import { queryClient } from '../query-client';
+import { ME_KEY, queryClient } from '../query-client';
 import { showError } from '../utils/notify';
 import {
   apply,
@@ -738,8 +739,30 @@ export function change(...changes: LedgerChange[]) {
     LEDGER_KEY,
     (old) => old && apply(old, changes, shownTransaction),
   );
-  queue.add(changes);
+  // Typed in the currency amounts are shown in now, which the server converts from if the
+  // home currency has changed by the time they're saved
+  const profile = queryClient.getQueryData<Profile>(ME_KEY);
+  queue.add(changes, profile == null ? undefined : currencyNow(profile));
 }
+
+/**
+ * Once the profile says amounts have been converted into a new home currency: every
+ * month's totals kept are dropped, everything shown is fetched again, and the changes kept
+ * meanwhile are sent
+ */
+let wasConverting = false;
+queryClient.getQueryCache().subscribe(({ query }) => {
+  if ((query.queryKey as readonly unknown[])[0] !== ME_KEY[0]) return;
+  const profile = query.state.data as Profile | undefined;
+  const converting = profile != null && isConverting(profile);
+  if (wasConverting && !converting) {
+    void forgetMonthTotals();
+    void queryClient.invalidateQueries({ queryKey: LEDGER_KEY });
+    void queryClient.invalidateQueries({ queryKey: TRANSACTIONS_KEY });
+    queue.resume();
+  }
+  wasConverting = converting;
+});
 
 const isImportChange = (change: LedgerChange) =>
   change.op === 'addImport' || change.op === 'undoImport';

@@ -16,6 +16,8 @@ import { reportKept } from './storage-health';
 export interface Queued {
   cid: string;
   change: LedgerChange;
+  /** The home currency its amounts were typed in; kept from older builds without one */
+  currency?: string;
 }
 
 // The keys, lock and tag below are also used by public/sw.js, which can't import them: a
@@ -45,13 +47,17 @@ export function withOutbox<T>(email: string, fn: () => Promise<T>): Promise<T> {
 }
 
 const utf8 = new TextEncoder();
-/** The request body's size around its changes and ids */
-const WRAPPER_BYTES = utf8.encode('{"changes":[],"ids":[]}').length;
+/** The request body's size around its changes, ids and currencies */
+const WRAPPER_BYTES = utf8.encode('{"changes":[],"ids":[],"currencies":[]}').length;
 
-/** What's sent for these changes: each with its id (sw.js sends the same) */
+/**
+ * What's sent for these changes: each with its id and the currency it was typed in, null
+ * for one kept from before changes said (sw.js sends the same)
+ */
 export const changesBody = (batch: Queued[]): ChangesBody => ({
   changes: batch.map((q) => q.change),
   ids: batch.map((q) => q.cid),
+  currencies: batch.map((q) => q.currency ?? null),
 });
 
 /**
@@ -62,11 +68,13 @@ export function nextBatch(queued: Queued[]): Queued[] {
   let bytes = WRAPPER_BYTES;
   let count = 0;
   for (const q of queued.slice(0, MAX_CHANGES)) {
-    // The change and its id, and a comma in each list for every change after the first
+    // The change, its id and its currency, and a comma in each list for every change after
+    // the first
     bytes +=
       utf8.encode(JSON.stringify(q.change)).length +
       utf8.encode(JSON.stringify(q.cid)).length +
-      (count > 0 ? 2 : 0);
+      utf8.encode(JSON.stringify(q.currency ?? null)).length +
+      (count > 0 ? 3 : 0);
     if (count > 0 && bytes > MAX_CHANGES_BYTES) break;
     count++;
   }

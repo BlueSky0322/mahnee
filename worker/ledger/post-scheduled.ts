@@ -96,6 +96,10 @@ export async function postScheduled(db: D1Database, scheduledTime: number): Prom
        LEFT JOIN accounts b ON b.email = r.email AND b.id = r.to_account_id
        LEFT JOIN categories c ON c.email = r.email AND c.id = r.category_id
        WHERE r.archived = 0 AND r.ask_first = 0 AND r.next_due <= z.value
+         -- Not while the person's amounts convert into a new currency: the next run adds it
+         AND NOT EXISTS (
+           SELECT 1 FROM conversions cv WHERE cv.email = r.email AND cv.phase = 'converting'
+         )
          AND a.archived = 0
          AND (r.to_account_id IS NULL OR b.archived = 0)
          AND (c.archived IS NULL OR c.archived = 0)

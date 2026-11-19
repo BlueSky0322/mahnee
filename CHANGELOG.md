@@ -18,6 +18,7 @@ For agents:
 
 ## 2026-11-18
 
+- Added: pick your home currency in Settings › Money; every amount converts at its own day's rate, and changing back restores them exactly [#52]
 - Added: Your picture in place of the initial: your Google picture once set up, or a photo chosen in My account [#51]
 - Changed: Fields, small buttons, lists and dialogs match the design's lines, sizes and spacing everywhere [#50]
 - Added: Scheduled shows the next 30 days: what comes in and goes out, and each account's lowest point [#49]
@@ -137,3 +138,4 @@ For agents:
 [#49]: https://github.com/BlueSky0322/mahnee/pull/49
 [#50]: https://github.com/BlueSky0322/mahnee/pull/50
 [#51]: https://github.com/BlueSky0322/mahnee/pull/51
+[#52]: https://github.com/BlueSky0322/mahnee/pull/52

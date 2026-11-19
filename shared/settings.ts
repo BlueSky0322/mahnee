@@ -15,6 +15,7 @@ import {
   type Settings,
   isRowId,
 } from './api';
+import { isHomeCurrency } from './rates';
 
 /** monthStartDay for "Last day": each month starts on its last day (Feb 28, Apr 30) */
 export const LAST_DAY_OF_MONTH = 31;
@@ -61,6 +62,8 @@ export function isTimeZone(v: unknown): v is string {
 
 /** Each setting's check */
 export const SETTING_CHECKS: { [K in keyof Settings]: (v: unknown) => v is Settings[K] } = {
+  // Saved with the conversion it starts (worker/currency/convert.ts); 0011 holds the list
+  currency: isHomeCurrency,
   theme: oneOf(THEMES),
   accent: oneOf(ACCENTS),
   ratePreference: oneOf(RATE_PREFERENCES),

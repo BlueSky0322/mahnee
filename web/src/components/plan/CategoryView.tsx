@@ -1,10 +1,10 @@
 import { Button, Switch, TextInput } from '@mantine/core';
+import { useMoney } from '../../hooks/useMoney';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { Category, MonthBudget, MonthTrend } from '@shared/api';
 import type { AgainstAverage } from '@shared/trend';
 import { categoriesOrDefaults } from '@shared/categories';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
 import { againstAverage } from '@shared/trend';
 import { goUp } from '../../hooks/useRoute';
 import type { BudgetLine } from '../../ledger/budgets';
@@ -12,10 +12,9 @@ import { budgetLines } from '../../ledger/budgets';
 import { change } from '../../ledger/ledger';
 import { rollUp, rollUpEntries } from '../../ledger/derive';
 import { useMonthSummary, useMonthTrend, useWholeLedger } from '../../ledger/useLedger';
-import { useProfile } from '../../profile/ProfileContext';
+import { useProfile, useCurrency } from '../../profile/ProfileContext';
 import { categoryColour } from '../../utils/category-colour';
 import { monthHeading, monthLabel } from '../../utils/date-input';
-import { formatAmount, formatMoney } from '../../utils/money';
 import { budgetText, readBudget } from '../categories/category-text';
 import PageLink from '../home/PageLink';
 import Skeleton, { Loading } from '../ui/Skeleton';
@@ -25,9 +24,6 @@ import { activityAddress, planAddress } from './plan-address';
 import type { PlanMonth } from './plan-month';
 import { entriesText, usualParts, usualText, yearComparison } from './plan-text';
 import BackButton from '../ui/BackButton';
-
-const money = (cents: number) => formatMoney(cents, DEFAULT_CURRENCY);
-const amount = (cents: number) => formatAmount(cents, DEFAULT_CURRENCY);
 
 /** One of the 12 months: what was spent or received in it */
 export interface MonthAmount {
@@ -67,6 +63,7 @@ export default function CategoryView({
   /** Puts the cursor in the budget field once, when "Set a budget" opened the pane */
   focusBudget?: { id: string } | null;
 }) {
+  const { money, amount } = useMoney();
   const { data: ledger, failed: ledgerFailed } = useWholeLedger();
   const { summary, failed, retry } = useMonthSummary(shown.month);
   const trend = useMonthTrend(shown.month);
@@ -340,9 +337,10 @@ export default function CategoryView({
  * far off it is standing out; in a pane on its own
  */
 export function UsualLine({ against, lead }: { against: AgainstAverage; lead?: string }) {
+  const { currency } = useMoney();
   if (lead == null)
-    return <p className={`${classes.soft} ${classes.usual}`}>{usualText(against)}</p>;
-  const { by, rest } = usualParts(against);
+    return <p className={`${classes.soft} ${classes.usual}`}>{usualText(against, currency)}</p>;
+  const { by, rest } = usualParts(against, currency);
   return (
     <p className={`${classes.soft} ${classes.usual}`}>
       {`${lead} · `}
@@ -392,6 +390,7 @@ export function YearBars({
   /** A page names the average on its line; a pane's line under the figure already does */
   labelled: boolean;
 }) {
+  const { money, amount } = useMoney();
   const largest = Math.max(0, ...months.map((m) => m.cents));
   const { averageCents } = againstAverage(months.map((m) => m.cents));
   // Heights for drawing only: the amounts stay in cents
@@ -463,13 +462,14 @@ function BudgetField({
   budget: MonthBudget | null;
   focus: { id: string } | null;
 }) {
+  const homeCurrency = useCurrency();
   const [typed, setTyped] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const hintId = useId();
   // A budget set where there was none carries over as "Carry over, for new budgets" says
   const carryForNew = useProfile().profile?.settings.carryOverDefault ?? false;
-  const shownText = typed ?? (budget == null ? '' : budgetText(budget.amountCents));
+  const shownText = typed ?? (budget == null ? '' : budgetText(budget.amountCents, homeCurrency));
 
   useEffect(() => {
     if (focus != null) input.current?.focus();

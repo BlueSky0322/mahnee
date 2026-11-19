@@ -7,6 +7,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { HOME_CURRENCIES } from '../../shared/rates';
 
 const DIR = resolve(__dirname, '../../migrations');
 const files = readdirSync(DIR)
@@ -715,5 +716,112 @@ describe('0010, profile pictures', () => {
     expect(takes(db, 'UPDATE profiles SET google_picture = 0 WHERE email = ?', ME)).toBe(true);
     expect(takes(db, 'UPDATE profiles SET google_picture = 2 WHERE email = ?', ME)).toBe(false);
     expect(takes(db, "UPDATE profiles SET google_picture = 'yes' WHERE email = ?", ME)).toBe(false);
+  });
+});
+
+describe('0011, the home currency', () => {
+  const CURRENCY_MIGRATION = '0011_currency.sql';
+  const OWNER = 'teal@example.com';
+
+  /** Today's rows, every migration before 0011, then 0011 */
+  const migrated = () => {
+    const db = database(before0007);
+    seedToday(db);
+    for (const file of files.filter((f) => f >= '0007')) {
+      db.exec(readFileSync(join(DIR, file), 'utf8'));
+    }
+    return db;
+  };
+
+  it('is the next migration after the profile pictures', () => {
+    expect(files.indexOf(CURRENCY_MIGRATION)).toBe(files.indexOf('0010_profile_pictures.sql') + 1);
+  });
+
+  it('keeps everyone in MYR, every amount as typed and nothing converting', () => {
+    const db = migrated();
+    expect(all(db, 'SELECT DISTINCT currency FROM user_settings')).toEqual([{ currency: 'MYR' }]);
+    expect(
+      all(db, 'SELECT amount_cents, original_currency, original_cents, rate FROM transactions'),
+    ).toEqual(
+      [1234, 2468, 3702].map((cents) => ({
+        amount_cents: cents,
+        original_currency: null,
+        original_cents: null,
+        rate: null,
+      })),
+    );
+    expect(all(db, 'SELECT * FROM conversions')).toEqual([]);
+  });
+
+  it('takes as the home currency only those the app offers', () => {
+    const db = migrated();
+    const setting = (value: string | null) =>
+      takes(db, 'UPDATE user_settings SET currency = ? WHERE email = ?', value, OWNER);
+    expect(HOME_CURRENCIES.filter((c) => !setting(c))).toEqual([]);
+    expect(['XYZ', 'myr', 'TWD', '', null].filter((c) => setting(c))).toEqual([]);
+  });
+
+  it('keeps what an amount was typed as whole, or not at all', () => {
+    const db = migrated();
+    const typed = (...values: (string | number | null)[]) =>
+      takes(
+        db,
+        `UPDATE transactions SET original_currency = ?, original_cents = ?, rate = ?,
+           rate_source = ?, rate_at = ? WHERE email = ? AND id = 'b000000000000001'`,
+        ...values,
+        OWNER,
+      );
+    expect(typed('MYR', 1234, 0.25, 'frankfurter', T)).toBe(true);
+    expect(typed(null, null, null, null, null)).toBe(true);
+    expect(typed('MYR', null, 0.25, 'frankfurter', T)).toBe(false);
+    expect(typed('MYR', 1234, null, 'frankfurter', T)).toBe(false);
+    expect(typed('MYR', 1234, 0.25, 'xe', T)).toBe(false);
+    expect(typed('MYR', 1234, 0, 'wise', T)).toBe(false);
+    expect(typed('myr', 1234, 0.25, 'wise', T)).toBe(false);
+  });
+
+  it('lets go of what an amount was typed as once it is changed, but not while converting', () => {
+    const db = migrated();
+    const typedAs = () =>
+      all(
+        db,
+        `SELECT amount_cents, original_currency, original_cents FROM transactions
+         WHERE id = 'b000000000000001'`,
+      )[0];
+    // Converting: the conversion is what changes it
+    db.prepare(
+      `INSERT INTO conversions (email, from_currency, to_currency, since, phase, touched_at)
+       VALUES (?, 'USD', 'SGD', ?, 'converting', ?)`,
+    ).run(OWNER, T, T);
+    db.prepare(
+      `UPDATE transactions SET amount_cents = 309, original_currency = 'MYR', original_cents = 1234,
+         rate = 0.25, rate_source = 'wise', rate_at = ? WHERE id = 'b000000000000001'`,
+    ).run(T);
+    db.prepare("UPDATE transactions SET amount_cents = 420 WHERE id = 'b000000000000001'").run();
+    expect(typedAs()).toEqual({
+      amount_cents: 420,
+      original_currency: 'MYR',
+      original_cents: 1234,
+    });
+    // Done: a change the person makes is typed in the home currency
+    db.prepare('DELETE FROM conversions').run();
+    db.prepare("UPDATE transactions SET note = 'x' WHERE id = 'b000000000000001'").run();
+    expect(typedAs()).toMatchObject({ original_currency: 'MYR' });
+    db.prepare("UPDATE transactions SET amount_cents = 500 WHERE id = 'b000000000000001'").run();
+    expect(typedAs()).toEqual({ amount_cents: 500, original_currency: null, original_cents: null });
+  });
+
+  it('deletes a profile with its conversion and what was worked out', () => {
+    const db = migrated();
+    db.prepare(
+      `INSERT INTO conversions (email, from_currency, to_currency, since, phase, touched_at)
+       VALUES (?, 'MYR', 'USD', ?, 'converting', ?)`,
+    ).run(OWNER, T, T);
+    db.prepare(
+      `INSERT INTO conversion_staged (email, kind, key, cents) VALUES (?, 'transaction', 'x', 1)`,
+    ).run(OWNER);
+    db.prepare('DELETE FROM profiles WHERE email = ?').run(OWNER);
+    expect(all(db, 'SELECT email FROM conversions')).toEqual([]);
+    expect(all(db, 'SELECT email FROM conversion_staged')).toEqual([]);
   });
 });

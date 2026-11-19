@@ -270,7 +270,8 @@ function applyToAccounts(accounts: Account[], change: LedgerChange): Account[] {
           id,
           name,
           kind,
-          currency: DEFAULT_CURRENCY,
+          // Every account is in the home currency, which the server gives a new one
+          currency: accounts[0]?.currency ?? DEFAULT_CURRENCY,
           openingCents,
           balanceCents: openingCents,
           position,

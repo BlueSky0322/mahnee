@@ -88,6 +88,20 @@ describe('the label', () => {
       false,
     ],
     ['offline, nothing waiting, figures fetched before', { online: false }, 'Offline', false],
+    // Amounts converting into a new home currency: changes wait until it's done
+    ['converting', { convertingTo: 'USD' }, 'Converting to USD…', false],
+    [
+      'converting, changes waiting',
+      { convertingTo: 'USD', waiting: 2 },
+      'Converting to USD…',
+      false,
+    ],
+    [
+      'converting, offline with changes',
+      { convertingTo: 'USD', online: false, waiting: 1 },
+      'Offline · 1 change waiting to save',
+      false,
+    ],
   ])('%s', (_, state, text, fresh) => {
     expect(freshnessText({ ...base, ...state })).toEqual({ text, fresh });
   });

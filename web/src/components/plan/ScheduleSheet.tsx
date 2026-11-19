@@ -1,9 +1,10 @@
 import { Button, SegmentedControl } from '@mantine/core';
+import { useCurrency } from '../../profile/ProfileContext';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import { useId, useState } from 'react';
 import type { LedgerChange, Recurring } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
-import { DEFAULT_CURRENCY, MAX_PAYEE, categoryKindFor, readOptionalText } from '@shared/ledger';
+import { MAX_PAYEE, categoryKindFor, readOptionalText } from '@shared/ledger';
 import { fallsOn, nextAfter, onOrAfter } from '@shared/recurring';
 import { change } from '../../ledger/ledger';
 import { categoryColour } from '../../utils/category-colour';
@@ -187,6 +188,7 @@ function Fields({
   title: string;
   onDone: () => void;
 }) {
+  const homeCurrency = useCurrency();
   const { accounts } = useAccounts();
   const { tree, categories } = useCategories();
   const ids = { amount: useId(), name: useId(), firstOn: useId() };
@@ -227,7 +229,7 @@ function Fields({
   const to = transfer
     ? destinations.find((a) => a.id === toAccountId) ?? destinations[0] ?? null
     : null;
-  const currency = listed.find((a) => a.id === accountId)?.currency ?? DEFAULT_CURRENCY;
+  const currency = listed.find((a) => a.id === accountId)?.currency ?? homeCurrency;
   const typedCents = (() => {
     const typed = readAmount(amount);
     return 'error' in typed ? item?.amountCents ?? 0 : typed.cents;
@@ -458,6 +460,7 @@ function Fields({
               { ...item, amountCents: typedCents, amountVaries: varies },
               accounts ?? [],
               today,
+              currency,
             )}
           </p>
         </div>

@@ -86,23 +86,28 @@ const utf8 = new TextEncoder();
 
 /** The next request's changes, as nextBatch in web/src/offline/outbox.ts picks them */
 function nextBatch(queued) {
-  let bytes = utf8.encode('{"changes":[],"ids":[]}').length;
+  let bytes = utf8.encode('{"changes":[],"ids":[],"currencies":[]}').length;
   let count = 0;
   for (const q of queued.slice(0, MAX_CHANGES)) {
     bytes +=
       utf8.encode(JSON.stringify(q.change)).length +
       utf8.encode(JSON.stringify(q.cid)).length +
-      (count > 0 ? 2 : 0);
+      utf8.encode(JSON.stringify(q.currency ?? null)).length +
+      (count > 0 ? 3 : 0);
     if (count > 0 && bytes > MAX_CHANGES_BYTES) break;
     count++;
   }
   return queued.slice(0, count);
 }
 
-/** What's sent for these changes, as changesBody in web/src/offline/outbox.ts makes it */
+/**
+ * What's sent for these changes, as changesBody in web/src/offline/outbox.ts makes it: each
+ * with its id and the currency it was typed in, null for one kept from before
+ */
 const changesBody = (batch) => ({
   changes: batch.map((q) => q.change),
   ids: batch.map((q) => q.cid),
+  currencies: batch.map((q) => (q.currency == null ? null : q.currency)),
 });
 
 const isFont = (url) =>

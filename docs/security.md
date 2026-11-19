@@ -63,6 +63,17 @@ hack-proof, and the limits below are real.
   first, and never twice (fixed ids per item and day, receipts, the next-due guard). It is
   not reachable from the API: only the trigger runs it. It logs only an error's name and
   message, never an amount, payee, account or email.
+- **Converting a new home currency (owner decision D2).** Changing it queues the person's
+  email and the time it changed on the `mahnee-reconvert` queue; each step reads and writes
+  only that person's rows, checked against that change (a step for an older one does
+  nothing). Its writes go through no change of the person's, so the person's own writes
+  wait (503) until it's done. A step that fails is tried again 8 times; then
+  `mahnee-reconvert-dlq` gives the person their currency back, nothing converted, so they
+  are never left unable to write. One that stalls is started again when the person reads
+  their profile, at most 3 times, then given back the same way. It
+  logs an error's name and message, or the name of the limit that refused a change, never
+  a job (it names the person), an amount or a rate. Both queues are made in Cloudflare
+  before the first deploy that names them; a deploy doesn't make them.
 
 ## Limits that bound abuse
 
@@ -124,6 +135,8 @@ hack-proof, and the limits below are real.
   answered as one that doesn't exist.
 - Exchange rates are fetched by the Worker, never the browser, from Wise and Frankfurter,
   with a 4-second time limit; the request names only the two currencies and the day.
+  Converting a person's amounts asks for one rate per currency and day of theirs, never
+  their amounts, and a step asks at most 200 days' rates.
 
 ## On the device
 

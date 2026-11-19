@@ -13,6 +13,14 @@ import {
   type Settings,
 } from '../../shared/api';
 import { readSettingChanges } from '../../shared/settings';
+import {
+  type ConversionRow,
+  type ConvertJob,
+  SELECT_CONVERSION,
+  conversionOf,
+  readConversionRow,
+  startStatements,
+} from '../currency/convert';
 import { type Unchecked, json, fail } from '../http';
 import {
   type PictureRow,
@@ -26,6 +34,7 @@ import {
 
 /** Each setting's column; yes-or-no settings are kept as 1 or 0 */
 const SETTINGS = {
+  currency: 'currency',
   theme: 'theme',
   accent: 'accent',
   ratePreference: 'rate_preference',
@@ -82,7 +91,8 @@ export const ensureProfileStatement = (db: D1Database, email: string) =>
     .bind(email, Date.now());
 
 export async function getProfile(db: D1Database, email: string): Promise<Profile> {
-  const [profile, settings, pictures] = await db.batch([
+  // Read together, so a currency and the conversion that changed it always agree
+  const [profile, settings, pictures, conversion] = await db.batch([
     db
       .prepare(
         'SELECT display_name AS displayName, google_picture AS google FROM profiles WHERE email = ?',
@@ -90,6 +100,7 @@ export async function getProfile(db: D1Database, email: string): Promise<Profile
       .bind(email),
     db.prepare(SELECT_SETTINGS).bind(email),
     pictureRowsStatement(db, email),
+    db.prepare(SELECT_CONVERSION).bind(email),
   ]);
   const row = settings.results[0] as Record<string, unknown> | undefined;
   const saved = profile.results[0] as { displayName: string | null; google: number } | undefined;
@@ -97,6 +108,7 @@ export async function getProfile(db: D1Database, email: string): Promise<Profile
     email,
     displayName: saved?.displayName ?? null,
     settings: row ? fromRow(row) : { ...DEFAULT_SETTINGS },
+    conversion: conversionOf((conversion.results[0] as ConversionRow | undefined) ?? null),
     // The Google picture shows until they ask for the initial
     ...shownPicture(pictures.results as unknown as PictureRow[], saved?.google !== 0),
   };
@@ -204,9 +216,19 @@ async function readSettings(
   return changes;
 }
 
-/** PATCH /api/me: { displayName?, settings?, picture? } */
-export async function patchProfile(db: D1Database, email: string, body: Unchecked<ProfilePatch>) {
+/**
+ * PATCH /api/me: { displayName?, settings?, picture? }. A new home currency is saved at
+ * once and starts converting every amount into it (currency/convert.ts): `convert` queues
+ * the first step once it's saved. Refused while a conversion is still under way.
+ */
+export async function patchProfile(
+  db: D1Database,
+  email: string,
+  body: Unchecked<ProfilePatch>,
+  convert: (job: ConvertJob) => Promise<void>,
+) {
   const statements: D1PreparedStatement[] = [];
+  let converting: ConvertJob | null = null;
 
   if ('displayName' in body) {
     const raw = body.displayName;
@@ -236,10 +258,32 @@ export async function patchProfile(db: D1Database, email: string, body: Unchecke
   if ('settings' in body) {
     const changes = await readSettings(db, email, body.settings);
     if (changes instanceof Response) return changes;
-    statements.push(...settingsStatements(db, email, changes));
+    if (changes.currency != null) {
+      const [saved, conversion] = await Promise.all([
+        db
+          .prepare('SELECT currency FROM user_settings WHERE email = ?')
+          .bind(email)
+          .first<{ currency: string }>(),
+        readConversionRow(db, email),
+      ]);
+      const from = saved?.currency ?? DEFAULT_SETTINGS.currency;
+      if (conversion?.phase === 'converting') {
+        return fail(`Wait until your amounts are in ${conversion.to}`, 409);
+      }
+      if (changes.currency === from) delete changes.currency;
+      else {
+        converting = { email, since: Date.now() };
+        statements.push(
+          ...settingsStatements(db, email, changes),
+          ...startStatements(db, email, from, changes.currency, converting.since),
+        );
+      }
+    }
+    if (converting == null) statements.push(...settingsStatements(db, email, changes));
   }
 
   if (statements.length > 0) await db.batch(statements);
+  if (converting != null) await convert(converting);
   return json<Profile>(await getProfile(db, email));
 }
 

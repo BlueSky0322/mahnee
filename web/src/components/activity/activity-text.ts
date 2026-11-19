@@ -13,7 +13,8 @@ import { scheduledNote } from '../common/scheduled-note';
 
 // ---------- Amounts ----------
 
-const SIGNS: Record<TransactionKind, string> = { expense: '−', income: '+', transfer: '' };
+/** How a list signs each kind */
+export const SIGNS: Record<TransactionKind, string> = { expense: '−', income: '+', transfer: '' };
 
 /** In a list, without the currency: "−7.25", "+3,250.00", a transfer's "75.00" */
 export const listAmount = (t: Transaction, currency: string) =>

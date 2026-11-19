@@ -205,92 +205,45 @@
   font-size: 14px;
 }
 
-/* The currency picker (R-Set-Money-Cur, R-Desk-Set-Money-Cur): a search, then each group's
-   currencies, code, name and symbol, the one in use ticked */
-.currencies {
+/* Other currencies: a chip for each, in order, then Add (R-Set-Money's .sc chips) */
+.chips {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
 }
 
-.currencySearch {
-  display: flex;
+.chipList {
+  display: contents;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip,
+.addChip {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 12px;
-  border-radius: 10px;
+  height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
   background: var(--sunk);
-  color: var(--ink-3);
-}
-
-.currencySearch input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: none;
   color: var(--ink);
   font: inherit;
-}
-
-.currencyScroll {
-  max-height: min(24rem, 55vh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.currencyGroup {
-  margin: 4px 4px 6px;
-  color: var(--ink-3);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.currencyList {
-  display: flex;
-  flex-direction: column;
-}
-
-.currencyOption {
-  display: grid;
-  grid-template-columns: 3.5rem 1fr auto 18px;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  color: var(--ink);
-  font: inherit;
-  text-align: left;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 
-.currencyOption:hover,
-.currencyOption[data-on] {
-  background: var(--accent-tint);
-}
-
-.currencyCode {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.currencyName {
-  overflow: hidden;
-  color: var(--ink-2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.currencySign {
-  color: var(--ink-3);
-}
-
-.currencyTick {
+.addChip {
+  background: none;
   color: var(--accent);
+  font-weight: 500;
+}
+
+.addChip:disabled {
+  color: var(--ink-3);
+  cursor: default;
 }

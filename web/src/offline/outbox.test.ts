@@ -143,6 +143,49 @@ describe('the service worker and the app', () => {
     expect(body).toMatchObject({ currencies: ['MYR', null, 'MYR'] });
   });
 
+  test('a change typed in another currency is sent as typed by both, never as it is shown', async () => {
+    const transaction = {
+      id: 'b'.repeat(16),
+      kind: 'expense' as const,
+      accountId: 'a'.repeat(16),
+      toAccountId: null,
+      amountCents: 12_000,
+      categoryId: null,
+      payee: null,
+      note: null,
+      date: '2026-11-19',
+    };
+    const typed: Queued[] = [
+      {
+        cid: 'c'.repeat(16),
+        change: { op: 'addTransaction', transaction },
+        currency: 'THB',
+        // What this device draws until it's saved: never sent
+        shown: {
+          op: 'addTransaction',
+          transaction: {
+            ...transaction,
+            amountCents: 1_530,
+            original: { currency: 'THB', cents: 12_000, rate: 0.1275, source: 'wise', at: 1 },
+          } as typeof transaction,
+        },
+      },
+    ];
+    const sent = {
+      changes: [{ op: 'addTransaction', transaction }],
+      ids: ['c'.repeat(16)],
+      currencies: ['THB'],
+    };
+    expect(changesBody(typed)).toEqual(sent);
+    await writeOutbox('ryan@example.com', typed);
+    const { outcome, fetch } = await backgroundSync(ok);
+    expect(outcome).toBe('done');
+    const body = fetch.mock.calls[0][1].body as string;
+    expect(JSON.parse(body)).toEqual(sent);
+    expect(body).not.toContain('original');
+    expect(body).not.toContain('shown');
+  });
+
   test('the service worker sends what the app kept, as whoever the app says is signed in', async () => {
     await writeOutbox('ryan@example.com', queued(2));
     const { outcome, fetch, batches } = await backgroundSync(ok);

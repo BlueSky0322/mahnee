@@ -91,9 +91,13 @@ function evaluate(expr: string): bigint {
 /** What the sum comes to, in whole cents (below zero when more is taken away) */
 export const totalCents = (expr: string): number => Number(evaluate(expr));
 
-const withinLimit = (expr: string) => {
+/**
+ * Whether the sum stays within `limit` cents either way: MAX_TRANSACTION_CENTS, or for an
+ * amount typed in another currency than the home one MAX_TYPED_CENTS (shared/rates.ts)
+ */
+const withinLimit = (expr: string, limit: number) => {
   const total = evaluate(expr);
-  return total <= BigInt(MAX_TRANSACTION_CENTS) && total >= -BigInt(MAX_TRANSACTION_CENTS);
+  return total <= BigInt(limit) && total >= -BigInt(limit);
 };
 
 /** A total in cents written by its digits: "14.67", "10", "0.05", "−3" */
@@ -107,7 +111,7 @@ function writeCents(cents: bigint): string {
 }
 
 /** The keypad after `key` is pressed */
-export function press(state: Keypad, key: KeypadKey): Keypad {
+export function press(state: Keypad, key: KeypadKey, limit = MAX_TRANSACTION_CENTS): Keypad {
   const { expr, fresh } = state;
   const kept: Keypad = { expr, fresh, tooMuch: false };
   if (key === 'clear') return EMPTY_KEYPAD;
@@ -144,7 +148,7 @@ export function press(state: Keypad, key: KeypadKey): Keypad {
       return { expr: before, fresh: false, tooMuch: false };
     next = current === '0' ? before.slice(0, -1) + key : before + key;
     // The largest amount is checked first, so it's the one said when both would refuse
-    if (!withinLimit(next)) return { ...state, tooMuch: true };
+    if (!withinLimit(next, limit)) return { ...state, tooMuch: true };
     if (current.replace('.', '').length >= MAX_DIGITS) {
       return { expr: before, fresh: false, tooMuch: false };
     }
@@ -156,7 +160,11 @@ export function press(state: Keypad, key: KeypadKey): Keypad {
  * The keys a computer's keyboard typed, from `from`: digits, the point, + and -, * or x
  * for ×, and =; anything else (thousands separators, spaces, letters) passes by
  */
-export function typeKeys(text: string, from: Keypad = EMPTY_KEYPAD): Keypad {
+export function typeKeys(
+  text: string,
+  from: Keypad = EMPTY_KEYPAD,
+  limit = MAX_TRANSACTION_CENTS,
+): Keypad {
   let state = from;
   for (const c of text) {
     const key: KeypadKey | null = isDigit(c)
@@ -168,7 +176,7 @@ export function typeKeys(text: string, from: Keypad = EMPTY_KEYPAD): Keypad {
           : c === '*' || c === 'x' || c === 'X'
             ? '×'
             : null;
-    if (key != null) state = press(state, key);
+    if (key != null) state = press(state, key, limit);
   }
   return state;
 }
@@ -176,13 +184,14 @@ export function typeKeys(text: string, from: Keypad = EMPTY_KEYPAD): Keypad {
 const NUMBER = /^\d+(\.\d{0,2})?$/;
 
 /** Whether `expr` is a sum the keypad could have typed: kept drafts are checked with it */
-export function isKeypadSum(expr: string): boolean {
+export function isKeypadSum(expr: string, limit = MAX_TRANSACTION_CENTS): boolean {
   if (expr === '') return true;
   const { numbers } = split(expr);
   const last = numbers.at(-1);
   const all = last === '' && numbers.length > 1 ? numbers.slice(0, -1) : numbers;
   return (
-    all.every((n) => NUMBER.test(n) && n.replace('.', '').length <= MAX_DIGITS) && withinLimit(expr)
+    all.every((n) => NUMBER.test(n) && n.replace('.', '').length <= MAX_DIGITS) &&
+    withinLimit(expr, limit)
   );
 }
 
@@ -211,7 +220,8 @@ export function readTypedSum(text: string): { cents: number } | { error: 'notASu
   if (!all.every((n) => TYPED_NUMBER.test(n))) return { error: 'notASum' };
   // The keypad checks the largest amount at every digit, before the nine digits
   for (let i = 1; i <= expr.length; i++) {
-    if (isDigit(expr[i - 1]) && !withinLimit(expr.slice(0, i))) return { error: 'tooMuch' };
+    if (isDigit(expr[i - 1]) && !withinLimit(expr.slice(0, i), MAX_TRANSACTION_CENTS))
+      return { error: 'tooMuch' };
   }
   if (all.some((n) => keptDigits(n).length > MAX_DIGITS)) return { error: 'notASum' };
   return { cents: totalCents(expr) };

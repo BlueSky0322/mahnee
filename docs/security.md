@@ -165,6 +165,11 @@ hack-proof, and the limits below are real.
   out (another account signing in clears it too). Close, Back, Esc and Cancel all keep it;
   an Add with nothing typed keeps none. Like the rest of what's kept, whoever holds an
   unlocked device can read it.
+- Travel sense keeps, per account in `localStorage` (`mahnee:travel:<email>`), today's
+  date, the currency Add opens in today and the currencies of the last two entries added
+  today: codes alone, no amounts or names; cleared on signing out. The device's time zone
+  is read on the device and never sent for it. The last exchange rate seen for each pair
+  is kept with the account's other copies, so offline Add can still estimate.
 - Unsaved changes are sent only as the account they were made as (`X-Expected-Account`),
   by the app or, while it's closed, by the service worker's background sync, which sends
   only the outbox of the account the app last said is signed in. The server refuses one

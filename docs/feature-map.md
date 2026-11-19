@@ -24,6 +24,7 @@ in [AGENTS.md](../AGENTS.md).
 | [Import](#import)                                               | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Exchange rates](#exchange-rates)                               | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
 | [Home currency](#home-currency)                                 | `profile/ProfileContext.tsx` | `currency/`, `routes/me.ts`    |
+| [Other currencies](#other-currencies)                           | `ledger/ledger.ts`, profile  | `currency/`, `ledger/`         |
 | [Offline start and installing](#offline-start-and-installing)   | `offline/`, `pwa/`           | (none; the API is the same)    |
 | [Pages, layouts and Back](#pages-layouts-and-back)              | `hooks/useRoute.ts`          | (none)                         |
 
@@ -68,7 +69,7 @@ with that setting in view and the keyboard on it. Money
 ([settings/MoneyPage.tsx](../web/src/components/settings/MoneyPage.tsx)) sets when the
 month starts (see Month view, The month start day) and when the week starts (Home's
 calendar); its Main currency picks the home currency (see Home currency), and Other
-currencies is hidden (owner decision D4). Adding entries
+currencies keeps the list Add offers (see Other currencies). Adding entries
 (`?settings=adding`): Start with (Amount or Category, what Add opens on), Account to use
 ("Last used", or one of the accounts in use, picked from a list; one archived since reads
 as Last used), Suggest as you type (Add's payee field offers the payees used before, from
@@ -1643,11 +1644,12 @@ the same id for two people, Undo exactly and once).
 ## Exchange rates
 
 **What it is.** Today's rate from one currency into another, or the rate on an earlier
-day, for previews. Nothing on screen asks for one yet; `useRate` is there for the first
-feature that converts.
+day, for previews: Add's "about RM 15.30 at today's rate", and an entry's editor.
 
 **Owner.** [hooks/useRate.ts](../web/src/hooks/useRate.ts) fetches and shares a rate
-through the query cache, keyed by the pair, the account's rate source and the day.
+through the query cache, keyed by the pair, the account's rate source and the day. Today's
+is kept on the device (tagged with the account) as it comes, and offline the last one kept
+is shown, marked `fromDevice`.
 
 **Parts.**
 
@@ -1666,7 +1668,10 @@ through the query cache, keyed by the pair, the account's rate source and the da
 - An amount asked about is at most `MAX_AMOUNT`; a rate outside `MIN_RATE` to `MAX_RATE`
   is never used.
 - An earlier day's rate is the ECB's for that day (the working day before, on a
-  weekend), else Wise's; a service that is down is an error, never quietly today's rate.
+  weekend), else Wise's (its history covers TWD and VND), else the closest earlier day
+  either has within `MAX_EARLIER_DAYS` (7), else today's. Its time (`rate_at`) is always on
+  the day it is really from. A service that is down is an error, never quietly another
+  day's rate.
 
 **Tests.** [worker/currency/exchange-rates.test.ts](../worker/currency/exchange-rates.test.ts)
 (sources, fallbacks, caching, earlier days) and the rate cases in
@@ -1739,6 +1744,63 @@ refusals), the 0011 cases in [worker/test/migrations.test.ts](../worker/test/mig
 [settings/HomeCurrency.test.tsx](../web/src/components/settings/HomeCurrency.test.tsx)
 (the picker, converting on Home, changes held then converted, each refusal, offline) and
 the `currencies` cases in [offline/outbox.test.ts](../web/src/offline/outbox.test.ts).
+
+## Other currencies
+
+**What it is.** Settings › Money › Other currencies (R-Set-Money, R-Desk-Prefs; owner
+request 2026-11-19): chips in the person's order and "Add" (every currency not in use yet,
+searchable); a chip opens Move earlier, Move later and Remove THB; at most 8 ("Up to 8
+other currencies"). In Add the figure's currency is a pill before it: a tap goes to the next
+of the home currency and the list, a long press, right-click or Alt+Down opens every
+currency ("Yours", "All currencies") for a one-off. In another currency the figure reads
+"THB 120.00", Save "Save THB 120.00", and under it "about RM 15.30 at today's rate" ("at the
+last rate known" offline), whose tap shows "1 THB = 0.1275 MYR, from Wise". Entries show
+"−THB 120.00" with "RM 15.30" beside it in ink-3 on Activity, the register, an account's
+page and the entry's editor, whose Currency select changes it. Totals stay in the home
+currency. Travel sense ("Follow where I am", on unless turned off; shown with a list): Add
+opens in the currency of the device's time zone's country, or of the last two entries
+added today, when it's in the list, for the rest of that day, saying "In THB today. Tap to
+change."
+
+**Owner.** The list and the switch are settings (the profile, `rememberSettings`). Entries
+change through the ledger: `changeTyped(currency, changes, shown)` in
+[ledger/ledger.ts](../web/src/ledger/ledger.ts) queues each change with the currency it was
+typed in and, for the device only, `shown` (the amount at the device's rate, with
+`original`), which is what the screens and totals draw until it's saved; `addAgain` puts
+deleted entries back as they were typed. Travel sense is
+[entry/travel-sense.ts](../web/src/components/entry/travel-sense.ts), on the device alone.
+
+**Data flow.**
+
+- `PATCH /api/me` with `settings.otherCurrencies` / `travelSense`, checked by
+  `shared/settings.ts` (400 "Keep up to 8 other currencies", "Invalid otherCurrencies").
+- `POST /api/changes` with `currencies[i]` another than the home one: the change's amounts
+  are converted by [worker/currency/typed-in.ts](../worker/currency/typed-in.ts) (an entry
+  at its day's rate) and saved with `original_*`; a typed currency outside
+  `ENTRY_CURRENCIES` refuses the batch (400). An entry's amount sent in the home currency
+  clears `original_*`. `GET /api/transactions` and search answer `original`.
+- `web/public/sw.js` sends `change` and `currency` as before; `shown` never leaves the
+  device.
+
+**Invariants.**
+
+- One conversion path: the server converts on saving; the app's figure is a preview.
+- What was typed is kept (currency, cents, rate, source, when), and an entry converted past
+  `MAX_TRANSACTION_CENTS` is refused; Add says "Comes to more than 10,000,000 MYR" first.
+  Typed in another currency, the figure may go past `MAX_TRANSACTION` (an IDR 15,000,000
+  bill) up to `MAX_TYPED_CENTS` (`MAX_AMOUNT` units; refused past it with "An amount typed
+  in IDR can be up to 1,000,000,000"), as long as what it comes to fits; totals only ever
+  sum converted amounts, so they stay exact.
+- Travel sense never picks a currency outside the person's list.
+- The main currency is never in the list: refused when saved ("MYR is your main
+  currency"), and dropped in the swap of a home-currency change that makes it the main one.
+- An entry's details say the rate and the day it's from ("1 VND = 0.00018 MYR, rate of
+  Nov 12, from Wise"); Add says a backdated entry is "saved at the rate of Nov 12".
+
+**Tests.** [worker/test/other-currencies.test.ts](../worker/test/other-currencies.test.ts),
+the 0012 cases in [worker/test/migrations.test.ts](../worker/test/migrations.test.ts), and
+[entry/other-currencies.test.tsx](../web/src/components/entry/other-currencies.test.tsx)
+(settings list, pill, long press, hint, offline, entry display, editing, travel sense).
 
 ## Offline start and installing
 

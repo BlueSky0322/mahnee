@@ -64,6 +64,8 @@ erDiagram
     TEXT reminder_time "the person's clock, 00:00 to 23:59"
     INTEGER scheduled_reminder_days "null for none, or 1 to 7"
     TEXT time_zone "null until the app sends it, as Asia/Kuala_Lumpur"
+    TEXT other_currencies "JSON list, at most 8, Add's order"
+    INTEGER travel_sense "1 or 0, Add follows where the device is"
     INTEGER updated_at "ms"
   }
   accounts {
@@ -334,3 +336,16 @@ erDiagram
 - Times are whole milliseconds since 1970 (`*_at`).
 - Money is whole cents in `*_cents` columns (see Money in `AGENTS.md`).
 - Every row belongs to one account, and every query is scoped by it.
+
+## Other currencies
+
+`user_settings.other_currencies` (0012) is the person's list of other currencies, a JSON
+array in their order, at most `MAX_OTHER_CURRENCIES` (8), each one of `ENTRY_CURRENCIES`
+(`shared/rates.ts`: the home currencies, TWD and VND), never the home currency, checked by
+the Worker; a home-currency change drops the new one from it when it's done. An entry typed
+in one of them (or a one-off) is sent with that currency as its change's own (`currencies`
+in `POST /api/changes`), converted into the home currency at its own day's rate and saved
+with what was typed in the transaction's `original_currency`, `original_cents`, `rate`,
+`rate_source` and `rate_at` (0011), as Splitfoolish's items keep theirs. An amount typed in
+the home currency later lets go of them. `travel_sense` (default 1) says whether Add follows
+where the device is; what it decided today stays on the device.

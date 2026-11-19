@@ -12,7 +12,7 @@ import {
   type RatePreference,
   type Settings,
 } from '../../shared/api';
-import { readSettingChanges } from '../../shared/settings';
+import { readSettingChanges, whyNotOtherCurrencies } from '../../shared/settings';
 import {
   type ConversionRow,
   type ConvertJob,
@@ -54,6 +54,8 @@ const SETTINGS = {
   reminderTime: 'reminder_time',
   scheduledReminderDays: 'scheduled_reminder_days',
   timeZone: 'time_zone',
+  otherCurrencies: 'other_currencies',
+  travelSense: 'travel_sense',
 } as const satisfies Record<keyof Settings, string>;
 
 type SettingKey = keyof typeof SETTINGS;
@@ -65,10 +67,20 @@ const FLAGS = new Set<SettingKey>([
   'askForTime',
   'carryOverDefault',
   'dailyReminder',
+  'travelSense',
 ]);
 
+/** The settings that are lists, kept as JSON */
+const LISTS = new Set<SettingKey>(['otherCurrencies']);
+
 const toColumn = (key: SettingKey, value: Settings[SettingKey]) =>
-  FLAGS.has(key) ? (value ? 1 : 0) : (value as string | number | null);
+  FLAGS.has(key)
+    ? value
+      ? 1
+      : 0
+    : LISTS.has(key)
+      ? JSON.stringify(value)
+      : (value as string | number | null);
 
 /** The settings as one row of user_settings holds them */
 const SELECT_SETTINGS = `SELECT ${KEYS.map((k) => `${SETTINGS[k]} AS ${k}`).join(', ')}
@@ -77,6 +89,9 @@ const SELECT_SETTINGS = `SELECT ${KEYS.map((k) => `${SETTINGS[k]} AS ${k}`).join
 function fromRow(row: Record<string, unknown>): Settings {
   const settings = { ...row };
   for (const key of FLAGS) settings[key] = row[key] === 1;
+  for (const key of LISTS) {
+    settings[key] = typeof row[key] === 'string' ? (JSON.parse(row[key]) as unknown) : [];
+  }
   return settings as unknown as Settings;
 }
 
@@ -177,6 +192,17 @@ async function readSettings(
 ): Promise<Partial<Settings> | Response> {
   const changes = readSettingChanges(raw);
   if ('error' in changes) return fail(changes.error, 400);
+
+  // The main currency, saved or sent with them, is never one of the others
+  if (changes.otherCurrencies != null) {
+    const saved = await db
+      .prepare('SELECT currency FROM user_settings WHERE email = ?')
+      .bind(email)
+      .first<string>('currency');
+    const home = changes.currency ?? saved ?? DEFAULT_SETTINGS.currency;
+    const why = whyNotOtherCurrencies(changes.otherCurrencies, home);
+    if (why != null) return fail(why, 400);
+  }
 
   if (changes.defaultAccountId != null) {
     const account = await db

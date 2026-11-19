@@ -6,6 +6,7 @@ import type {
   Profile,
   MonthSummary,
   MonthTrend,
+  NewTransaction,
   Transaction,
   TransactionPage,
 } from '@shared/api';
@@ -26,7 +27,7 @@ import {
   writeCache,
 } from '../offline/cache';
 import type { Queued } from '../offline/outbox';
-import { readOutbox } from '../offline/outbox';
+import { readOutbox, shownOf } from '../offline/outbox';
 import { isOfflineFailure } from '../offline/network';
 import { ME_KEY, queryClient } from '../query-client';
 import { showError } from '../utils/notify';
@@ -220,7 +221,7 @@ const waitingBut = (holds: ReadonlySet<string>) =>
   queue
     .pendingWithIds()
     .filter((q) => !holds.has(q.cid))
-    .map((q) => q.change);
+    .map(shownOf);
 
 /** Which of the changes waiting may have been sent already, for a read to answer */
 const maybeSent = () =>
@@ -661,7 +662,7 @@ export async function fetchSummary(month: string): Promise<MonthSummary> {
  */
 export function shownSummary(summary: MonthSummary, pending: Queued[]) {
   const holds = new Set(summary.alreadySaved);
-  const waiting = pending.filter((q) => !holds.has(q.cid)).map((q) => q.change);
+  const waiting = pending.filter((q) => !holds.has(q.cid)).map(shownOf);
   return applyToSummary(summary, waiting, savedTransaction);
 }
 
@@ -696,7 +697,7 @@ export async function fetchTrend(month: string): Promise<MonthTrend> {
  */
 export function shownTrend(trend: MonthTrend, pending: Queued[]) {
   const holds = new Set(trend.alreadySaved);
-  const waiting = pending.filter((q) => !holds.has(q.cid)).map((q) => q.change);
+  const waiting = pending.filter((q) => !holds.has(q.cid)).map(shownOf);
   return applyToTrend(trend, waiting, savedTransaction);
 }
 
@@ -743,6 +744,34 @@ export function change(...changes: LedgerChange[]) {
   // home currency has changed by the time they're saved
   const profile = queryClient.getQueryData<Profile>(ME_KEY);
   queue.add(changes, profile == null ? undefined : currencyNow(profile));
+}
+
+/**
+ * change(), for changes whose amounts were typed in `currency`, another than the one
+ * amounts are in now (an entry in THB): sent as typed, and converted by the server at the
+ * entry's own day's rate, keeping what was typed. Until then each is shown as `shown`
+ * (one each): its amount at the rate this device has, saying what was typed.
+ */
+export function changeTyped(currency: string, changes: LedgerChange[], shown: LedgerChange[]) {
+  queryClient.setQueryData<Ledger>(LEDGER_KEY, (old) => old && apply(old, shown, shownTransaction));
+  queue.add(changes, currency, shown);
+}
+
+/**
+ * Adds deleted entries again (Undo), each with its own id, as they were: one typed in
+ * another currency is sent as typed, and shown as it was until it's saved
+ */
+export function addAgain(...transactions: Transaction[]) {
+  for (const { createdAt: _at, original, ...t } of transactions) {
+    if (original == null) change({ op: 'addTransaction', transaction: t });
+    else {
+      changeTyped(
+        original.currency,
+        [{ op: 'addTransaction', transaction: { ...t, amountCents: original.cents } }],
+        [{ op: 'addTransaction', transaction: { ...t, original } as NewTransaction }],
+      );
+    }
+  }
 }
 
 /**

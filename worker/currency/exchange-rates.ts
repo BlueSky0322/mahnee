@@ -190,8 +190,17 @@ export const rateOrNull = (env: RatesEnv, from: string, to: string, options?: Ra
  */
 const noRateFor = (status: number) => status === 400 || status === 404 || status === 422;
 
+/** A rate found for a day, and the day it is really from (on or before the one asked) */
+type DayRate = { rate: number; day: string } | null;
+
 /** The ECB's rate on a day, or on the working day before it when it publishes none */
-async function frankfurterOn(env: RatesEnv, from: string, to: string, day: string, deps: Deps) {
+async function frankfurterOn(
+  env: RatesEnv,
+  from: string,
+  to: string,
+  day: string,
+  deps: Deps,
+): Promise<DayRate> {
   const base = env.FRANKFURTER_BASE ?? 'https://api.frankfurter.dev';
   const res = await deps.fetch(`${base}/v1/${day}?base=${from}&symbols=${to}`, {
     signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -200,16 +209,22 @@ async function frankfurterOn(env: RatesEnv, from: string, to: string, day: strin
   if (!res.ok) throw new Error(`Frankfurter: ${res.status}`);
   const body = await res.json<{ date?: unknown; rates?: Record<string, unknown> }>();
   const rate = body.rates?.[to];
-  // A rate for a later day isn't that day's
-  const forDay = typeof body.date === 'string' && body.date <= day;
-  return forDay && isValidRate(rate) ? rate : null;
+  // A rate for a later day isn't that day's; one for an earlier day says so
+  const forDay = typeof body.date === 'string' && DAY.test(body.date) && body.date <= day;
+  return forDay && isValidRate(rate) ? { rate, day: body.date as string } : null;
 }
 
 /**
  * Wise's rate at noon UTC on a day. Used only if Wise says the rate is from that day,
  * so an answer with today's rate instead is no answer.
  */
-async function wiseOn(env: RatesEnv, from: string, to: string, day: string, deps: Deps) {
+async function wiseOn(
+  env: RatesEnv,
+  from: string,
+  to: string,
+  day: string,
+  deps: Deps,
+): Promise<DayRate> {
   if (!env.WISE_TOKEN) return null;
   const base = env.WISE_BASE ?? 'https://api.wise.com';
   const res = await deps.fetch(
@@ -226,7 +241,7 @@ async function wiseOn(env: RatesEnv, from: string, to: string, day: string, deps
   // Wise writes the offset as +0000, which not every date parser reads
   const at =
     typeof time === 'string' ? Date.parse(time.replace(/([+-]\d{2})(\d{2})$/, '$1:$2')) : NaN;
-  return Number.isFinite(at) && rateDay(at) === day && isValidRate(rate) ? rate : null;
+  return Number.isFinite(at) && rateDay(at) === day && isValidRate(rate) ? { rate, day } : null;
 }
 
 const DAY_FETCHERS: [FetchedRateSource, typeof frankfurterOn][] = [
@@ -234,12 +249,23 @@ const DAY_FETCHERS: [FetchedRateSource, typeof frankfurterOn][] = [
   ['wise', wiseOn],
 ];
 
+/** How many days before an entry's own a rate may come from, when no service has its day's */
+export const MAX_EARLIER_DAYS = 7;
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The day `days` before `day` (2026-11-12) */
+const daysBefore = (day: string, days: number) =>
+  rateDay(Date.parse(`${day}T12:00:00Z`) - days * 24 * 60 * 60 * 1000);
+
 /**
  * The rate to convert an amount spent at `at`: the live rate (getRate) for one spent today,
- * and for an earlier day the ECB's rate on it, else Wise's. When neither has that day's
- * rate for these currencies (the ECB doesn't publish them all), it's today's rate, which
- * then says so by its date. A service that is down throws RatesUnavailable instead, so
- * the change is tried again rather than settling for today's rate.
+ * and for an earlier day the ECB's rate on it, else Wise's (with its history, for the
+ * currencies the ECB doesn't publish, as VND). When neither has that day's, it's the
+ * closest earlier day either has, up to MAX_EARLIER_DAYS before, then today's rate. The
+ * rate's time (`fetchedAt`) is always on the day it's really from, so what's kept never
+ * claims a day it didn't use. A service that is down throws RatesUnavailable instead, so
+ * the change is tried again rather than settling for another day's rate.
  */
 export async function getRateOn(
   env: RatesEnv,
@@ -255,21 +281,30 @@ export async function getRateOn(
   const saved = await readKept(deps.cache, key);
   if (saved) return saved;
 
-  let down = false;
-  for (const [source, fetcher] of DAY_FETCHERS) {
-    let rate: number | null;
-    try {
-      rate = await fetcher(env, from, to, day, deps);
-    } catch (err) {
-      console.error(err);
-      down = true;
-      continue;
+  for (let earlier = 0; earlier <= MAX_EARLIER_DAYS; earlier++) {
+    const asked = daysBefore(day, earlier);
+    let down = false;
+    for (const [source, fetcher] of DAY_FETCHERS) {
+      let found: DayRate;
+      try {
+        found = await fetcher(env, from, to, asked, deps);
+      } catch (err) {
+        console.error(err);
+        down = true;
+        continue;
+      }
+      // An answer from further back than the days allowed isn't close enough
+      if (found == null || found.day < daysBefore(day, MAX_EARLIER_DAYS)) continue;
+      const rate: Rate = {
+        rate: found.rate,
+        source,
+        fetchedAt: Date.parse(`${found.day}T12:00:00Z`),
+      };
+      await keep(deps.cache, key, rate, KEEP_DAY_SECONDS);
+      return rate;
     }
-    if (rate == null) continue;
-    const found: Rate = { rate, source, fetchedAt: Date.parse(`${day}T12:00:00Z`) };
-    await keep(deps.cache, key, found, KEEP_DAY_SECONDS);
-    return found;
+    // A service that's down may have this day: tried again later, never settled past
+    if (down) throw new RatesUnavailable(`No rate for ${from} to ${to} on ${asked} right now`);
   }
-  if (down) throw new RatesUnavailable(`No rate for ${from} to ${to} on ${day} right now`);
   return getRate(env, from, to, { prefer, deps });
 }

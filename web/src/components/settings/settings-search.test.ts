@@ -63,7 +63,12 @@ describe('searching settings', () => {
     expect(searchSettings('zebra')).toEqual([]);
   });
 
-  test('leaves out other currencies, which this version does not offer', () => {
-    expect(searchSettings('other currencies')).toEqual([]);
+  test('finds other currencies and travel sense in Money', () => {
+    expect(searchSettings('other currencies').map((r) => [r.key, r.section])).toEqual([
+      ['otherCurrencies', 'money'],
+    ]);
+    expect(searchSettings('abroad').map((r) => [r.key, r.section])).toEqual([
+      ['travelSense', 'money'],
+    ]);
   });
 });

@@ -1,0 +1,9 @@
+/* What an entry typed in another currency came to in the home currency, beside it, in ink-3 */
+.main {
+  margin-left: 6px;
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

@@ -74,10 +74,10 @@ import { listCategories } from './read';
 import { readMonthStart } from './month-start';
 import { changeFingerprint, receiptStatements, savedReceipts } from './receipts';
 import { DEFAULT_SETTINGS } from '../../shared/api';
-import { isCurrency } from '../../shared/rates';
+import { isEntryCurrency } from '../../shared/rates';
 import type { Rate } from '../currency/exchange-rates';
 import { RatesUnavailable } from '../currency/exchange-rates';
-import { type Typed, typedIn, typedStatements } from '../currency/typed-in';
+import { type Typed, TypedTooLarge, typedIn, typedStatements } from '../currency/typed-in';
 
 /** A change that can't be saved, with the status and reason the API answers with */
 class Refused extends Error {
@@ -1225,6 +1225,13 @@ async function readHome(db: D1Database, email: string) {
   };
 }
 
+/** An entry's new amount, sent as typed in the home currency */
+const typedInHome = (change: unknown) =>
+  isObject(change) &&
+  change.op === 'updateTransaction' &&
+  typeof change.id === 'string' &&
+  typeof change.amountCents === 'number';
+
 /** Writes wait while amounts convert: the app keeps them and sends them again */
 const converting = (to: string) =>
   fail(
@@ -1271,7 +1278,7 @@ export async function applyChanges(
     currencies !== undefined &&
     (!Array.isArray(currencies) ||
       currencies.length !== changes.length ||
-      !currencies.every((c: unknown) => c === null || isCurrency(c)))
+      !currencies.every((c: unknown) => c === null || isEntryCurrency(c)))
   ) {
     return fail('Send the currency each change was typed in, one each', 400);
   }
@@ -1416,7 +1423,8 @@ export async function applyChanges(
   const statements: D1PreparedStatement[] =
     savedCategories.length === 0 ? [defaultCategoriesStatement(db, email, now)] : [];
   for (const i of fresh) {
-    // Typed in a home currency since left: converted, keeping what was typed
+    // Typed in another currency (one of the person's others, or a home currency since
+    // left): converted, keeping what was typed
     let change: unknown = changes[i];
     let typed: Typed[] = [];
     const typedCurrency = currencies?.[i];
@@ -1433,6 +1441,7 @@ export async function applyChanges(
         }));
       } catch (err) {
         if (err instanceof RatesUnavailable) return fail(err.message, 503);
+        if (err instanceof TypedTooLarge) return fail(err.message, 400);
         throw err;
       }
     }
@@ -1443,6 +1452,19 @@ export async function applyChanges(
       throw err;
     }
     statements.push(...typedStatements(db, email, typed));
+    // An entry's amount typed in the home currency is what it is: what it was typed as
+    // before goes, even when the figure comes out the same (the trigger only sees a change)
+    if (typed.length === 0 && typedInHome(change)) {
+      statements.push(
+        db
+          .prepare(
+            `UPDATE transactions SET original_currency = NULL, original_cents = NULL,
+               rate = NULL, rate_source = NULL, rate_at = NULL
+             WHERE email = ? AND id = ?`,
+          )
+          .bind(email, (change as { id: string }).id),
+      );
+    }
   }
 
   try {

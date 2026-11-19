@@ -132,8 +132,8 @@ describe('Settings › Money', () => {
           .map((r) => r.textContent),
       ).toEqual(['Monday', 'Sunday']);
       expect(checked(week)).toEqual(['Sunday']);
-      // Entries in other currencies come later (owner decision D4)
-      expect(within(card).queryByText('Other currencies')).toBeNull();
+      // Other currencies, under the main one (other-currencies.test.tsx)
+      expect(within(card).getByText('Other currencies')).toBeTruthy();
       // Still found by a search, with the row in view
       expect(card.querySelector('[data-setting="monthStart"]')).not.toBeNull();
       expect(card.querySelector('[data-setting="weekStart"]')).not.toBeNull();

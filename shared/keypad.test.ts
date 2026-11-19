@@ -4,12 +4,14 @@ import {
   EMPTY_KEYPAD,
   amountShown,
   expressionLine,
+  isKeypadSum,
   press,
   readTypedSum,
   totalCents,
   typeKeys,
 } from './keypad';
 import { MAX_TRANSACTION_CENTS } from './ledger';
+import { MAX_TYPED_CENTS } from './rates';
 
 // Add's calculator (design R-Add, digest 4.7): numbers joined by + − ×, × before + and −,
 // each number in whole cents first, × rounding to a cent, at most 2 decimals and 9 digits
@@ -291,5 +293,16 @@ describe('what the display shows', () => {
     expect(amountShown(chars('6+1='))).toBe('7.00');
     expect(amountShown(chars('2−5'))).toBe('−3.00');
     expect(amountShown(chars('1000000×2'))).toBe('2,000,000.00');
+  });
+});
+
+describe('a limit of its own, for another currency', () => {
+  test('takes a figure past MAX_TRANSACTION up to the limit given, and no further', () => {
+    const typed = typeKeys('15000000', undefined, MAX_TYPED_CENTS);
+    expect(typed).toMatchObject({ expr: '15000000', tooMuch: false });
+    expect(typeKeys('15000000').tooMuch).toBe(true);
+    expect(typeKeys('999999999+2', undefined, MAX_TYPED_CENTS).tooMuch).toBe(true);
+    expect(isKeypadSum('15000000', MAX_TYPED_CENTS)).toBe(true);
+    expect(isKeypadSum('15000000')).toBe(false);
   });
 });

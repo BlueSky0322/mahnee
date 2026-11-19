@@ -52,6 +52,19 @@ export const HOME_CURRENCIES = [
 export const isHomeCurrency = (v: unknown): v is string =>
   (HOME_CURRENCIES as readonly unknown[]).includes(v);
 
+/**
+ * The currencies an entry can be typed in (the person's other currencies, or a one-off):
+ * every home currency, and those Wise has rates for that people here often spend in. An
+ * entry in one is converted into the home currency at its day's rate on saving.
+ */
+export const ENTRY_CURRENCIES = [...HOME_CURRENCIES, 'TWD', 'VND'].sort();
+
+export const isEntryCurrency = (v: unknown): v is string =>
+  (ENTRY_CURRENCIES as readonly unknown[]).includes(v);
+
+/** The most other currencies a person keeps (Settings › Money), offered in Add in their order */
+export const MAX_OTHER_CURRENCIES = 8;
+
 /** Offered first in currency pickers: the currencies people here travel and spend in */
 export const COMMON_CURRENCIES = [
   'MYR',
@@ -93,6 +106,14 @@ export const convertSignedCents = (cents: number, rate: number) =>
 
 /** The largest amount anyone can type, in currency units, whatever its currency */
 export const MAX_AMOUNT = 1_000_000_000;
+
+/**
+ * The most an amount typed in another currency than the home one can be, in its cents:
+ * MAX_AMOUNT units (an IDR 15,000,000 hotel bill fits), well within what a number holds
+ * exactly. What it converts to is still held to its own limit (MAX_TRANSACTION_CENTS for
+ * an entry), so every total, which sums converted amounts, stays exact.
+ */
+export const MAX_TYPED_CENTS = MAX_AMOUNT * 100;
 
 /**
  * The most an amount can come to in cents once converted. A typed amount (MAX_AMOUNT) at

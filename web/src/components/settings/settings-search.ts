@@ -51,6 +51,20 @@ export const SETTINGS_INDEX: SettingEntry[] = [
     words: ['the month end', 'home currency', 'ringgit'],
   },
   {
+    key: 'otherCurrencies',
+    section: 'money',
+    name: 'Other currencies',
+    line: 'Each entry keeps its rate',
+    words: ['foreign currency', 'travel', 'exchange rate'],
+  },
+  {
+    key: 'travelSense',
+    section: 'money',
+    name: 'Follow where I am',
+    line: 'Add opens in the local currency for the day',
+    words: ['travel', 'abroad', 'time zone'],
+  },
+  {
     key: 'monthStart',
     section: 'money',
     name: 'Month starts on',

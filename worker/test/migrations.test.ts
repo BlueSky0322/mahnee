@@ -825,3 +825,36 @@ describe('0011, the home currency', () => {
     expect(all(db, 'SELECT email FROM conversion_staged')).toEqual([]);
   });
 });
+
+describe('0012, other currencies', () => {
+  const OWNER = 'teal@example.com';
+
+  /** Today's rows, then every migration from 0007 on */
+  const migrated = () => {
+    const db = database(before0007);
+    seedToday(db);
+    for (const file of files.filter((f) => f >= '0007')) {
+      db.exec(readFileSync(join(DIR, file), 'utf8'));
+    }
+    return db;
+  };
+
+  it('starts everyone with none, and travel sense on', () => {
+    const db = migrated();
+    expect(all(db, 'SELECT DISTINCT other_currencies, travel_sense FROM user_settings')).toEqual([
+      { other_currencies: '[]', travel_sense: 1 },
+    ]);
+  });
+
+  it('takes a list of up to 8, and travel sense on or off', () => {
+    const db = migrated();
+    const list = (value: string) =>
+      takes(db, 'UPDATE user_settings SET other_currencies = ? WHERE email = ?', value, OWNER);
+    const codes = (n: number) => JSON.stringify(Array.from({ length: n }, (_, i) => `C${i}X`));
+    expect([list(codes(0)), list(codes(8)), list(codes(9))]).toEqual([true, true, false]);
+    expect([list('THB'), list('{"a":1}'), list('[')]).toEqual([false, false, false]);
+    const travel = (value: number | string) =>
+      takes(db, 'UPDATE user_settings SET travel_sense = ? WHERE email = ?', value, OWNER);
+    expect([travel(0), travel(1), travel(2), travel('yes')]).toEqual([true, true, false, false]);
+  });
+});

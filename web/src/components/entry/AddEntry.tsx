@@ -2,7 +2,7 @@ import { Modal } from '@mantine/core';
 import { CalendarIcon, CloseIcon, ForwardIcon, RepeatIcon } from '../ui/icons';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
-import type { LedgerChange } from '@shared/api';
+import type { LedgerChange, Original } from '@shared/api';
 import type { CategoryKind } from '@shared/categories';
 import type { Keypad, KeypadKey } from '@shared/keypad';
 import {
@@ -15,12 +15,20 @@ import {
   typeKeys,
 } from '@shared/keypad';
 import type { TransactionKind } from '@shared/ledger';
-import { MAX_PAYEE, categoryKindFor, readOptionalText } from '@shared/ledger';
+import {
+  MAX_PAYEE,
+  MAX_TRANSACTION,
+  MAX_TRANSACTION_CENTS,
+  categoryKindFor,
+  readOptionalText,
+} from '@shared/ledger';
+import { ENTRY_CURRENCIES, MAX_TYPED_CENTS, convertCents } from '@shared/rates';
 import type { Schedule } from '@shared/recurring';
 import { dayFor, nextAfter } from '@shared/recurring';
 import { useBackDismiss } from '../../hooks/useBackDismiss';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
-import { change } from '../../ledger/ledger';
+import { useRate } from '../../hooks/useRate';
+import { change, changeTyped } from '../../ledger/ledger';
 import { lastUsed, recentCategoryIds, rememberUsed } from '../../ledger/last-used';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
 import { useProfile, useCurrency } from '../../profile/ProfileContext';
@@ -28,7 +36,9 @@ import { categoryColour } from '../../utils/category-colour';
 import { api } from '../../api';
 import { clockText, dayHeading, isPastDay, toDateInput, toTimeInput } from '../../utils/date-input';
 import { newId } from '../../utils/id';
-import { currencySymbol } from '../../utils/money';
+import { currencySymbol, formatMoney } from '../../utils/money';
+import CurrencyList from '../common/CurrencyList';
+import { SOURCE_NAMES, shortDate } from '../common/typed-amount';
 import { balanceText } from '../accounts/account-text';
 import BackButton from '../ui/BackButton';
 import Key from '../ui/Key';
@@ -37,6 +47,7 @@ import type { AddDraft } from './add-draft';
 import { dropDraft, keepDraft, readDraft } from './add-draft';
 import {
   LIMIT_TEXT,
+  limitText,
   listedCategories,
   recentCategories,
   saveLabel,
@@ -44,6 +55,7 @@ import {
 } from './add-text';
 import type { NewCategory } from './CategoryPicker';
 import CategoryPicker from './CategoryPicker';
+import { noteEntryCurrency, pickTodaysCurrency, travelCurrency } from './travel-sense';
 import classes from './AddEntry.module.css';
 
 // Add (R-Add, R-Desk-Add): a new transaction. On phones and tablets it covers the screen,
@@ -56,7 +68,11 @@ import classes from './AddEntry.module.css';
 // can't yet. What's typed is kept as a draft on this device when Add is closed any way but
 // Save. It opens on the amount, or on the categories when the person chose to start with
 // the category (D9). Saving is one change() through the ledger and its outbox, a new
-// category first.
+// category first. The figure's currency is a pill before it: a tap goes to the next of the
+// home currency and the person's other currencies, a long press (a right-click, or Alt+Down)
+// opens every currency for a one-off. In another currency it says what that comes to at
+// today's rate, and the entry is sent as typed (changeTyped) for the server to convert at
+// its own day's rate. Travel sense (travel-sense.ts) may open it in the day's currency.
 
 /** What Add was opened for: a new entry, on `accountId` when it's that account's page */
 export interface AddRequest {
@@ -167,7 +183,11 @@ const REPEATS: { value: Schedule | ''; label: string }[] = [
   { value: 'weekly', label: 'Weekly' },
 ];
 
-type Picking = 'from' | 'to' | 'category' | null;
+/** How long the currency pill is held to open every currency */
+const PILL_HOLD_MS = 500;
+
+/** What's open over or under the entry; `today` is the day's currency, from travel sense */
+type Picking = 'from' | 'to' | 'category' | 'currency' | 'today' | null;
 
 function AddForm({
   request,
@@ -208,6 +228,19 @@ function AddForm({
   const [time, setTime] = useState(() => toTimeInput(new Date()));
   const [timeTyped, setTimeTyped] = useState(time);
   const [repeat, setRepeat] = useState<Schedule | ''>(draft?.repeat ?? '');
+  // The currency it's typed in: the draft's, else the day's (travel sense), else the home one
+  const others = (settings?.otherCurrencies ?? []).filter((c) => c !== homeCurrency);
+  const [travel, setTravel] = useState(() =>
+    travelCurrency({
+      email,
+      home: homeCurrency,
+      others,
+      on: settings?.travelSense !== false,
+      today: toDateInput(new Date()),
+    }),
+  );
+  const [typedIn, setTypedIn] = useState(draft?.currency ?? travel ?? homeCurrency);
+  const [showRate, setShowRate] = useState(false);
   const [picking, setPicking] = useState<Picking>(
     draft == null && settings?.startWith === 'category' ? 'category' : null,
   );
@@ -240,6 +273,9 @@ function AddForm({
     destinations.find((a) => a.id === remembered.toAccountId) ??
     destinations[0];
   const currency = account?.currency ?? homeCurrency;
+  const elsewhere = typedIn !== currency;
+  const rate = useRate(typedIn, currency, { enabled: elsewhere });
+  const quote = elsewhere ? rate.data ?? null : null;
   const suggestions = useSuggestions(
     settings?.suggestAsYouType === true ? account?.id ?? null : null,
   );
@@ -268,12 +304,33 @@ function AddForm({
   const day = date ?? today;
   const dayOk = isPastDay(day);
   const total = totalCents(keypad.expr);
-  const reason = keypad.tooMuch ? LIMIT_TEXT : total <= 0 ? null : !dayOk ? BAD_DAY : null;
-  const label = reason ?? saveLabel(kind, keypad, currency);
+  // In another currency: what it comes to in the home one, at the rate this device has
+  const estimate =
+    !elsewhere || total <= 0
+      ? null
+      : quote == null
+        ? null
+        : Math.max(1, convertCents(total, quote.rate));
+  const rateReason =
+    !elsewhere || total <= 0
+      ? null
+      : quote == null
+        ? `Needs a rate for ${typedIn}`
+        : estimate! > MAX_TRANSACTION_CENTS
+          ? `Comes to more than ${MAX_TRANSACTION.toLocaleString('en')} ${currency}`
+          : null;
+  // Typed in another currency it may go past the home one's limit, up to its own; switched
+  // back, a figure past the home one's is too much
+  const typedLimit = elsewhere ? MAX_TYPED_CENTS : MAX_TRANSACTION_CENTS;
+  const tooMuchText = elsewhere ? limitText(MAX_TYPED_CENTS) : LIMIT_TEXT;
+  const tooMuch = keypad.tooMuch || Math.abs(total) > typedLimit;
+  const reason = tooMuch ? tooMuchText : total <= 0 ? null : !dayOk ? BAD_DAY : rateReason;
+  const label = reason ?? saveLabel(kind, keypad, typedIn, currency);
   const savable =
-    !keypad.tooMuch &&
+    !tooMuch &&
     total > 0 &&
     dayOk &&
+    rateReason == null &&
     account != null &&
     (transfer ? toAccount != null : categoryId != null);
 
@@ -281,6 +338,7 @@ function AddForm({
   // nothing typed in it keeps none, so what was used last still decides next time
   const typedSomething =
     keypad.expr !== '' || payee.trim() !== '' || made != null || date != null || repeat !== '';
+  // A currency picked alone isn't kept: next time opens as it would
   const kept: AddDraft = {
     kind,
     expr: keypad.expr,
@@ -291,6 +349,7 @@ function AddForm({
     payee,
     date: dayOk ? date : null,
     repeat,
+    ...(typedIn !== homeCurrency && { currency: typedIn }),
   };
   const keptText = JSON.stringify(kept);
   const saved = useRef(false);
@@ -357,7 +416,35 @@ function AddForm({
         },
       });
     }
-    change(...changes);
+    if (!elsewhere) change(...changes);
+    else {
+      // Sent as typed; shown until saved at the rate this device has, saying what was typed
+      const original: Original = {
+        currency: typedIn,
+        cents: total,
+        rate: quote!.rate,
+        source: quote!.source,
+        at: quote!.fetchedAt,
+      };
+      const shown = changes.map((c): LedgerChange => {
+        if (c.op === 'addTransaction') {
+          return {
+            ...c,
+            transaction: {
+              ...c.transaction,
+              amountCents: estimate!,
+              original,
+            } as typeof c.transaction,
+          };
+        }
+        if (c.op === 'addRecurring') {
+          return { ...c, recurring: { ...c.recurring, amountCents: estimate! } };
+        }
+        return c;
+      });
+      changeTyped(typedIn, changes, shown);
+    }
+    noteEntryCurrency(email, today, typedIn);
     if (fields.toAccountId != null) rememberUsed(email, { toAccountId: fields.toAccountId });
     else if (categoryKind != null && fields.categoryId != null) {
       rememberUsed(email, {
@@ -446,8 +533,41 @@ function AddForm({
         onBack={() => setPicking(null)}
       />
     );
+  // Every currency, the person's own first; picking one for the day (travel sense) keeps it
+  const cycle = [currency, ...others];
+  const pickCurrency = (code: string) => {
+    if (picking === 'today') {
+      pickTodaysCurrency(email, today, code);
+      setTravel(code === currency ? null : code);
+    }
+    setTypedIn(code);
+    setShowRate(false);
+    setPicking(null);
+  };
+  const currencyPicker = (
+    <Picker
+      page={!desktop}
+      title={picking === 'today' ? 'Today’s currency' : 'Currency'}
+      onBack={() => setPicking(null)}
+    >
+      <CurrencyList
+        groups={[
+          ['Yours', cycle],
+          ['All currencies', ENTRY_CURRENCIES.filter((c) => !cycle.includes(c))],
+        ]}
+        current={typedIn}
+        onPick={pickCurrency}
+      />
+    </Picker>
+  );
   const pickerShown =
-    picking === 'category' ? categoryPicker : picking == null ? null : accountPicker(picking);
+    picking === 'category'
+      ? categoryPicker
+      : picking === 'currency' || picking === 'today'
+        ? currencyPicker
+        : picking == null
+          ? null
+          : accountPicker(picking);
 
   const rows = transfer ? (
     <>
@@ -508,21 +628,87 @@ function AddForm({
     </>
   );
 
+  const shownCurrency = elsewhere ? typedIn : currencySymbol(currency);
+  const pill = (
+    <CurrencyPill
+      label={`${kind === 'income' ? '+ ' : ''}${shownCurrency}`}
+      code={typedIn}
+      next={cycle[(cycle.indexOf(typedIn) + 1) % cycle.length]}
+      onNext={() => {
+        // A one-off goes back to the home currency
+        const at = cycle.indexOf(typedIn);
+        setTypedIn(at < 0 ? currency : cycle[(at + 1) % cycle.length]);
+        setShowRate(false);
+      }}
+      onAll={() => setPicking('currency')}
+      listOpen={picking === 'currency' || picking === 'today'}
+    />
+  );
+
+  // Under the figure: what an amount in another currency comes to, or the day's currency
+  const quoteDay = quote == null ? '' : shortDate(quote.fetchedAt);
+  // An earlier day's entry is saved at that day's rate, which may differ
+  const savedAt =
+    day === today ? '' : `, saved at the rate of ${shortDate(Date.parse(`${day}T12:00:00`))}`;
+  const lines =
+    elsewhere && total > 0 ? (
+      <div className={classes.rateLines}>
+        {quote == null ? (
+          !rate.isPending && (
+            <span className={classes.rateHint}>
+              {`No rate for ${typedIn} yet. Connect to fetch one.`}
+            </span>
+          )
+        ) : (
+          <button
+            type="button"
+            className={classes.rateHint}
+            aria-expanded={showRate}
+            onClick={() => setShowRate((shown) => !shown)}
+          >
+            {`about ${formatMoney(estimate!, currency)} at ${
+              quote.fromDevice ? 'the last rate known' : "today's rate"
+            }${savedAt}`}
+          </button>
+        )}
+        {showRate && quote != null && (
+          <span className={classes.rateDetail}>
+            {`1 ${typedIn} = ${Number(quote.rate.toPrecision(6))} ${currency}, from ${
+              SOURCE_NAMES[quote.source]
+            }${quote.fromDevice ? ` on ${quoteDay}` : ''}`}
+          </span>
+        )}
+      </div>
+    ) : travel != null && typedIn === travel && keypad.expr === '' ? (
+      <div className={classes.rateLines}>
+        <button
+          type="button"
+          className={classes.rateHint}
+          onClick={() => setPicking('today')}
+        >
+          {`In ${travel} today. Tap to change.`}
+        </button>
+      </div>
+    ) : null;
+
   const status = (
     <div
       role="status"
       aria-live="polite"
-      aria-label={`Amount, ${currencySymbol(currency)} ${centsShown(total)}${
-        keypad.tooMuch ? `. ${LIMIT_TEXT}` : ''
+      aria-label={`Amount, ${shownCurrency} ${centsShown(total)}${
+        tooMuch ? `. ${tooMuchText}` : ''
       }`}
       className={desktop ? classes.deskStatus : classes.amount}
     >
       <span className={classes.expression}>{expressionLine(keypad.expr)}</span>
       <span className={classes.figure}>
-        <span className={classes.currency}>
-          {kind === 'income' ? '+ ' : ''}
-          {currencySymbol(currency)}
-        </span>
+        {/* A computer's pill sits beside the field, outside its label; the figure still says
+            its currency */}
+        {desktop ? (
+          <span className="sr-only">{`${kind === 'income' ? '+ ' : ''}${shownCurrency}`}</span>
+        ) : (
+          pill
+        )}
         <span
           data-amount
           className={classes.number}
@@ -534,7 +720,7 @@ function AddForm({
         </span>
       </span>
       {/* A refused key is said as well as shown on Save: the live region speaks its content */}
-      {keypad.tooMuch && <span className="sr-only">{LIMIT_TEXT}</span>}
+      {tooMuch && <span className="sr-only">{tooMuchText}</span>}
     </div>
   );
 
@@ -736,24 +922,29 @@ function AddForm({
         <div className={classes.deskTop}>
           {way}
           {/* The figure is the field: what's typed is worked out as it's shown */}
-          <label className={classes.deskAmount}>
-            <input
-              className={classes.amountField}
-              aria-label="Amount"
-              aria-describedby={ids.hint}
-              inputMode="decimal"
-              autoComplete="off"
-              value={keypad.expr}
-              data-autofocus={picking == null ? true : undefined}
-              onFocus={(e) => {
-                const end = e.currentTarget.value.length;
-                e.currentTarget.setSelectionRange(end, end);
-              }}
-              onChange={(e) => setKeypad(typeKeys(e.currentTarget.value))}
-            />
-            {status}
-          </label>
+          <div className={classes.deskFigure}>
+            {pill}
+            <label className={classes.deskAmount}>
+              <input
+                className={classes.amountField}
+                aria-label="Amount"
+                aria-describedby={ids.hint}
+                inputMode="decimal"
+                autoComplete="off"
+                value={keypad.expr}
+                data-autofocus={picking == null ? true : undefined}
+                onFocus={(e) => {
+                  const end = e.currentTarget.value.length;
+                  e.currentTarget.setSelectionRange(end, end);
+                }}
+                onChange={(e) => setKeypad(typeKeys(e.currentTarget.value, undefined, typedLimit))}
+              />
+              {status}
+            </label>
+          </div>
         </div>
+        {lines}
+        {(picking === 'currency' || picking === 'today') && pickerShown}
         <div className={classes.fields}>
           {rows}
           {note}
@@ -802,6 +993,7 @@ function AddForm({
           <span className={classes.headerSpace} />
         </div>
         {status}
+        {lines}
         <div className={classes.fields}>
           {rows}
           {note}
@@ -809,7 +1001,7 @@ function AddForm({
         {chips}
         {options}
         <div className={classes.bottom}>
-          <KeypadKeys onPress={(key) => setKeypad((state) => press(state, key))} />
+          <KeypadKeys onPress={(key) => setKeypad((state) => press(state, key, typedLimit))} />
           {save}
         </div>
       </form>
@@ -824,6 +1016,91 @@ function AddForm({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The figure's currency: a tap goes to the next one, a long press (a right-click, or
+ * Alt+Down from the keyboard) opens every currency
+ */
+function CurrencyPill({
+  label,
+  code,
+  next,
+  onNext,
+  onAll,
+  listOpen,
+}: {
+  label: string;
+  code: string;
+  next: string;
+  onNext: () => void;
+  onAll: () => void;
+  /** Every currency is open, from this pill or elsewhere */
+  listOpen: boolean;
+}) {
+  const holding = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const held = useRef(false);
+  const hint = useId();
+  const stop = () => {
+    if (holding.current != null) clearTimeout(holding.current);
+    holding.current = null;
+  };
+  useEffect(() => stop, []);
+  // The list closed: the press that opened it is over (its release may have landed on the
+  // list), so the next tap is a tap
+  useEffect(() => {
+    if (!listOpen) held.current = false;
+  }, [listOpen]);
+  return (
+    <>
+      <button
+        type="button"
+        className={classes.pill}
+        // Named by what it shows first, so a voice saying it finds it
+        aria-label={`${label}, currency`}
+        aria-describedby={hint}
+        aria-keyshortcuts="Alt+ArrowDown"
+        onPointerDown={() => {
+          held.current = false;
+          stop();
+          holding.current = setTimeout(() => {
+            held.current = true;
+            onAll();
+          }, PILL_HOLD_MS);
+        }}
+        onPointerUp={stop}
+        onPointerLeave={stop}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          stop();
+          held.current = true;
+          onAll();
+        }}
+        onKeyDown={(e) => {
+          if (e.altKey && e.key === 'ArrowDown') {
+            e.preventDefault();
+            onAll();
+          }
+        }}
+        onClick={() => {
+          // The press that opened the list isn't also a tap
+          if (held.current) {
+            held.current = false;
+            return;
+          }
+          onNext();
+        }}
+      >
+        {label}
+      </button>
+      <span
+        id={hint}
+        className="sr-only"
+      >
+        {`${code}. Tap for ${next}. Hold, or press Alt+Down, for every currency.`}
+      </span>
+    </>
   );
 }
 

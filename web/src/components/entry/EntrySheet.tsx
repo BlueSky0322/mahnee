@@ -18,13 +18,16 @@ import type { TransactionKind } from '@shared/ledger';
 import { MAX_NOTE, MAX_PAYEE, categoryKindFor, readOptionalText } from '@shared/ledger';
 import type { Schedule } from '@shared/recurring';
 import { dayFor, isSchedule, nextAfter } from '@shared/recurring';
+import { MAX_TYPED_CENTS, convertCents } from '@shared/rates';
 import { navigate } from '../../hooks/useRoute';
-import { change } from '../../ledger/ledger';
+import { addAgain, change } from '../../ledger/ledger';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
 import { useProfile, useCurrency } from '../../profile/ProfileContext';
 import { isPastDay, toDateInput } from '../../utils/date-input';
 import { newId } from '../../utils/id';
 import { currencySymbol, formatMoney } from '../../utils/money';
+import { sendEdit, sendsAmount, useEntryCurrency } from '../common/entry-currency';
+import { rateLine } from '../common/typed-amount';
 import { showUndo } from '../common/undo-toast';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { amountText, readAmount, transactionSummary } from './entry-text';
@@ -86,7 +89,16 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
   const { categories, tree } = useCategories();
   const editing = open.transaction;
 
-  const [amount, setAmount] = useState(amountText(editing.amountCents));
+  // In the currency it was typed in, which can be changed
+  const {
+    home,
+    typedIn,
+    setTypedIn,
+    options: currencies,
+    quote,
+    typedCents,
+  } = useEntryCurrency(editing);
+  const [amount, setAmount] = useState(amountText(typedCents));
   const [kind, setKind] = useState<TransactionKind>(editing.kind);
   const [accountId, setAccountId] = useState<string | null>(editing.accountId);
   const [toAccountId, setToAccountId] = useState<string | null>(editing.toAccountId);
@@ -132,7 +144,7 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const typed = readAmount(amount);
+    const typed = readAmount(amount, typedIn === home ? undefined : MAX_TYPED_CENTS);
     setAmountError('error' in typed ? typed.error : null);
     const dayOk = isPastDay(date);
     setDateError(dayOk ? null : 'Pick a day from 2000 up to today');
@@ -143,7 +155,6 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
       kind,
       accountId: account.id,
       toAccountId: transfer ? toAccount?.id ?? null : null,
-      amountCents: typed.cents,
       categoryId: transfer ? null : categoryId ?? null,
       payee: readOptionalText(payee, MAX_PAYEE) ?? null,
       note: readOptionalText(note, MAX_NOTE) ?? null,
@@ -165,7 +176,7 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
                 kind: fields.kind,
                 accountId: fields.accountId,
                 toAccountId: fields.toAccountId,
-                amountCents: fields.amountCents,
+                amountCents: typed.cents,
                 categoryId: fields.categoryId,
                 payee: fields.payee,
                 schedule: repeat,
@@ -187,20 +198,35 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
         Object.assign(update, { [key]: fields[key] });
       }
     }
+    if (sendsAmount(editing, typed.cents, typedIn, home, date !== editing.date)) {
+      update.amountCents = typed.cents;
+    }
     // An amount Scheduled added for the person to check is confirmed by saving it
     if (editing.scheduled?.toCheck === true && !('amountCents' in update)) update.toCheck = false;
-    const changes = Object.keys(update).length > 2 ? [update, ...repeating] : repeating;
-    if (changes.length > 0) change(...changes);
+    // A repeat set up from an entry in another currency repeats what it comes to today
+    const comesTo =
+      quote == null ? editing.amountCents : Math.max(1, convertCents(typed.cents, quote.rate));
+    const more =
+      typedIn === home
+        ? repeating
+        : repeating.map((r) =>
+            r.op === 'addRecurring'
+              ? { ...r, recurring: { ...r.recurring, amountCents: comesTo } }
+              : r,
+          );
+    if (!sendEdit(update, more, { typedIn, home, quote })) {
+      setAmountError(`Needs a rate for ${typedIn}. Connect to fetch one.`);
+      return;
+    }
     onDone();
   };
 
   const remove = () => {
     change({ op: 'removeTransaction', id: editing.id });
     onDone();
-    const { createdAt: _createdAt, ...again } = editing;
     showUndo(
       `Deleted ${formatMoney(editing.amountCents, currency)}, ${transactionSummary(editing, accounts ?? [], categories ?? [])}`,
-      () => change({ op: 'addTransaction', transaction: again }),
+      () => addAgain(editing),
     );
   };
 
@@ -215,13 +241,29 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
         placeholder="0.00"
         inputMode="decimal"
         size="lg"
-        leftSection={<span className={classes.symbol}>{currencySymbol(currency)}</span>}
+        leftSection={
+          <span className={classes.symbol}>
+            {typedIn === home ? currencySymbol(currency) : typedIn}
+          </span>
+        }
         value={amount}
         onChange={(e) => setAmount(e.currentTarget.value)}
         error={amountError}
         data-autofocus
         autoComplete="off"
       />
+      {editing.original != null && (
+        <p className={classes.rateLine}>{rateLine(editing, homeCurrency)}</p>
+      )}
+      {currencies.length > 1 && (
+        <NativeSelect
+          label="Currency"
+          value={typedIn}
+          onChange={(e) => setTypedIn(e.currentTarget.value)}
+          data={currencies}
+          rightSection={<DownIcon size={16} />}
+        />
+      )}
       <SegmentedControl
         aria-label="Which way"
         fullWidth

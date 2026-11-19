@@ -43,6 +43,16 @@ export function formatMoney(cents: number, currency: string) {
   return `${currencySymbol(currency)} ${formatAmount(cents, currency)}`;
 }
 
+/**
+ * An amount in the currency it was typed in: "RM 248.00" in the home currency, "THB 120.00"
+ * in another, whose own symbol could be mistaken for the home one's ($ for USD and SGD)
+ */
+export function typedMoney(cents: number, currency: string, home: string) {
+  return currency === home
+    ? formatMoney(cents, currency)
+    : `${currency} ${formatAmount(cents, currency)}`;
+}
+
 /** "+53.50" or "−102.50", for balances shown without a symbol */
 export function formatSigned(cents: number) {
   const amount = (Math.abs(cents) / 100).toLocaleString(undefined, {

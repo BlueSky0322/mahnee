@@ -310,16 +310,17 @@ describe('getRateOn', () => {
     expect(rate).toEqual({ rate: 4.2, source: 'wise', fetchedAt: now });
   });
 
-  it("takes the ECB's rate for an earlier day, the working day before on a weekend, said to be from that day", async () => {
+  it("takes the ECB's rate for an earlier day, the working day before on a weekend, said to be from the day it is", async () => {
     const s = services(wiseRate(4.2), ecbOn('2026-10-09', 4.08));
     const cache = memoryCache();
     const rate = await getRateOn({ WISE_TOKEN: 't' }, 'USD', 'MYR', sunday, {
       deps: deps(s, cache),
     });
+    // The Friday's rate, so it says the Friday, never the Sunday it didn't use
     expect(rate).toEqual({
       rate: 4.08,
       source: 'frankfurter',
-      fetchedAt: Date.parse('2026-10-11T12:00:00Z'),
+      fetchedAt: Date.parse('2026-10-09T12:00:00Z'),
     });
     expect(s.requests[0].url).toContain('/v1/2026-10-11?base=USD&symbols=MYR');
     expect(s.calls.wise).toBe(0);
@@ -366,5 +367,63 @@ describe('getRateOn', () => {
         getRateOn({ WISE_TOKEN: 't' }, 'USD', 'MYR', sunday, { deps: deps(s) }),
       ).rejects.toBeInstanceOf(RatesUnavailable);
     }
+  });
+
+  describe('for a currency the ECB does not publish (VND)', () => {
+    /** Wise answers only for the days given, by the day its time asks; the ECB has none */
+    const wiseDays = (rates: Record<string, number>, today = 0.00019) => {
+      const requests: string[] = [];
+      const answer = (url: string) => {
+        requests.push(url);
+        if (!url.includes('/v1/rates')) return new Response('', { status: 404 });
+        const day = /time=(\d{4}-\d{2}-\d{2})/.exec(url)?.[1];
+        if (day == null) return ok([{ rate: today, source: 'VND', target: 'MYR' }]);
+        const rate = rates[day];
+        // Wise asked about a day it has nothing for answers with today's time
+        return ok([
+          rate == null
+            ? { rate: today, time: '2026-10-17T08:00:00+0000' }
+            : { rate, time: `${day}T12:00:00+0000` },
+        ]);
+      };
+      const fetchImpl = (input: RequestInfo | URL) =>
+        Promise.resolve(answer(input instanceof Request ? input.url : input.toString()));
+      return { requests, deps: { fetch: fetchImpl, cache: null, now: () => now } };
+    };
+    const spent = Date.parse('2026-10-12T05:00:00Z');
+
+    it("uses Wise's history for the entry's own day", async () => {
+      const { deps: d } = wiseDays({ '2026-10-12': 0.00018 });
+      expect(await getRateOn({ WISE_TOKEN: 't' }, 'VND', 'MYR', spent, { deps: d })).toEqual({
+        rate: 0.00018,
+        source: 'wise',
+        fetchedAt: Date.parse('2026-10-12T12:00:00Z'),
+      });
+    });
+
+    it('uses the closest earlier day either has, saying which day', async () => {
+      const { deps: d, requests } = wiseDays({ '2026-10-09': 0.000175, '2026-10-07': 0.00017 });
+      expect(await getRateOn({ WISE_TOKEN: 't' }, 'VND', 'MYR', spent, { deps: d })).toEqual({
+        rate: 0.000175,
+        source: 'wise',
+        fetchedAt: Date.parse('2026-10-09T12:00:00Z'),
+      });
+      // The day itself first, then each day before it
+      expect(requests.filter((u) => u.includes('time=')).map((u) => u.slice(-19, -9))).toEqual([
+        '2026-10-12',
+        '2026-10-11',
+        '2026-10-10',
+        '2026-10-09',
+      ]);
+    });
+
+    it("falls back to today's rate, said to be today's, when no day in the week before has one", async () => {
+      const { deps: d } = wiseDays({ '2026-10-01': 0.00016 });
+      expect(await getRateOn({ WISE_TOKEN: 't' }, 'VND', 'MYR', spent, { deps: d })).toEqual({
+        rate: 0.00019,
+        source: 'wise',
+        fetchedAt: now,
+      });
+    });
   });
 });

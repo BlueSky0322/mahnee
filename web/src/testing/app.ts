@@ -10,7 +10,12 @@ import { notifications } from '@mantine/notifications';
 import { onlineManager } from '@tanstack/react-query';
 import { createElement } from 'react';
 import { afterEach, beforeEach, expect, onTestFinished, vi } from 'vitest';
-import { isTimeOfDay, isTimeZone, readSettingChanges } from '@shared/settings';
+import {
+  isTimeOfDay,
+  isTimeZone,
+  readSettingChanges,
+  whyNotOtherCurrencies,
+} from '@shared/settings';
 import type {
   Settings,
   Account,
@@ -21,6 +26,7 @@ import type {
   LedgerChange,
   MonthSummary,
   MonthTrend,
+  Original,
   Profile,
   ProfilePatch,
   Recurring,
@@ -99,7 +105,7 @@ import {
   monthBudgets,
   whyNoBudget,
 } from '@shared/budgets';
-import { convertCents, rateDay } from '@shared/rates';
+import { MAX_AMOUNT, MAX_TYPED_CENTS, convertCents, isEntryCurrency, rateDay } from '@shared/rates';
 import {
   MAX_RECURRING,
   fallsOn,
@@ -176,7 +182,8 @@ export interface FakeServer {
   me: Profile;
   /**
    * 1 `from` is `rate` `to`: today's by `${from}${to}`, an earlier day's by
-   * `${from}${to}@2026-10-12`. Asked about a day with none, it's today's, as the real one does.
+   * `${from}${to}@2026-10-12`. Asked about a day with none, it's the closest of the 7 days
+   * before it, else today's, as the real one does.
    */
   rates: Map<string, number>;
   /**
@@ -263,13 +270,18 @@ const json = (body: unknown, status = 200) =>
 
 /**
  * The rate from `from` into `to` at `at`, as the real server finds it: that day's when
- * there's one (from the ECB), else today's (from Wise); null when there's none
+ * there's one (from the ECB), else the closest earlier day's within a week, else today's
+ * (from Wise); null when there's none
  */
 function rateOn(server: FakeServer, from: string, to: string, at?: number) {
   const day = at == null ? null : rateDay(at);
-  const onDay = day == null ? null : server.rates.get(`${from}${to}@${day}`);
-  if (onDay != null) {
-    return { rate: onDay, source: 'frankfurter' as const, at: Date.parse(`${day}T12:00:00Z`) };
+  // That day's, else the closest of the 7 before it, said to be from the day it is
+  for (let earlier = 0; day != null && earlier <= 7; earlier++) {
+    const asked = rateDay(Date.parse(`${day}T12:00:00Z`) - earlier * 24 * 60 * 60 * 1000);
+    const onDay = server.rates.get(`${from}${to}@${asked}`);
+    if (onDay != null) {
+      return { rate: onDay, source: 'frankfurter' as const, at: Date.parse(`${asked}T12:00:00Z`) };
+    }
   }
   const rate = server.rates.get(`${from}${to}`);
   return rate == null ? null : { rate, source: 'wise' as const, at: Date.now() };
@@ -501,10 +513,30 @@ function answerNow(server: FakeServer) {
           503,
         );
       }
-      const typed = typedInHome(server, body as Partial<ChangesBody>);
+      // A typed currency is one the app can convert, as the real one checks
+      const { currencies } = body as Partial<ChangesBody>;
+      if (
+        currencies !== undefined &&
+        (!Array.isArray(currencies) || !currencies.every((c) => c === null || isEntryCurrency(c)))
+      ) {
+        return json({ error: 'Send the currency each change was typed in, one each' }, 400);
+      }
+      let typed: ReturnType<typeof typedInHome>;
+      try {
+        typed = typedInHome(server, body as Partial<ChangesBody>);
+      } catch (err) {
+        if (err instanceof TypedTooLarge) return json({ error: err.message }, 400);
+        throw err;
+      }
       if (typed == null) return json({ error: 'No rate right now' }, 503);
-      const refusal = saveChanges(server, typed);
+      const refusal = saveChanges(server, typed.body);
       if (refusal != null) return json({ error: refusal[1] }, refusal[0]);
+      for (const [id, original] of typed.originals) {
+        const saved = server.transactions.find((t) => t.id === id);
+        if (saved == null) continue;
+        if (original == null) delete saved.original;
+        else saved.original = original;
+      }
       if (server.loseNext.changes) {
         server.loseNext.changes = false;
         return Promise.reject(new TypeError('Failed to fetch'));
@@ -1135,6 +1167,13 @@ function settingsAfterChanges(server: FakeServer) {
 function readSettingsPatch(server: FakeServer, raw: unknown): Partial<Settings> | [number, string] {
   const changes = readSettingChanges(raw);
   if ('error' in changes) return [400, changes.error];
+  if (changes.otherCurrencies != null) {
+    const why = whyNotOtherCurrencies(
+      changes.otherCurrencies,
+      changes.currency ?? server.me.settings.currency,
+    );
+    if (why != null) return [400, why];
+  }
   if (changes.defaultAccountId != null) {
     const account = server.accounts.find((a) => a.id === changes.defaultAccountId);
     if (account == null) return [404, 'Account not found'];
@@ -1249,6 +1288,8 @@ function saveTransactionChange(
     ? { op: '', toCheck: undefined, ...change.transaction }
     : change;
   if (Object.keys(given).length === 1 && toCheck === undefined) return [400, 'Nothing to change'];
+  // What it was typed as is the server's to keep, never sent
+  if ('original' in given) return [400, 'Unknown field original'];
   if (toCheck !== undefined && toCheck !== false) {
     return [400, 'An amount is checked, never unchecked'];
   }
@@ -1535,32 +1576,55 @@ const deviceTimeZone = () => {
   return isTimeZone(zone) ? zone : null;
 };
 
+/** An amount typed in another currency past MAX_TYPED_CENTS, refused as the real one does */
+class TypedTooLarge extends Error {
+  constructor(currency: string) {
+    super(`An amount typed in ${currency} can be up to ${MAX_AMOUNT.toLocaleString('en')}`);
+  }
+}
+
 /**
  * Changes typed in a home currency the person has since left, with their amounts converted
  * into the home currency at their rate, as the real one does (worker/currency/typed-in.ts):
  * an entry's on its day, anything else today's. Null when a rate can't be had.
  */
-function typedInHome(server: FakeServer, body: Partial<ChangesBody>): Partial<ChangesBody> | null {
+function typedInHome(
+  server: FakeServer,
+  body: Partial<ChangesBody>,
+): { body: Partial<ChangesBody>; originals: Map<string, Original | null> } | null {
   const { changes, currencies } = body;
-  if (!Array.isArray(changes) || !Array.isArray(currencies)) return body;
+  // What each entry saved was typed as: null for one whose amount was typed in the home
+  // currency, which lets go of what it was before
+  const originals = new Map<string, Original | null>();
+  if (!Array.isArray(changes)) return { body, originals };
   const home = server.me.settings.currency;
   const converted: LedgerChange[] = [];
   for (const [i, change] of changes.entries()) {
-    const from = currencies[i];
+    const from = Array.isArray(currencies) ? currencies[i] : null;
     if (from == null || from === home) {
+      if (change.op === 'updateTransaction' && change.amountCents != null) {
+        originals.set(change.id, null);
+      }
       converted.push(change);
       continue;
     }
     const at = (day?: string) => (day == null ? undefined : Date.parse(`${day}T12:00:00Z`));
+    let used: { rate: number; source: 'wise' | 'frankfurter'; at: number } | null = null;
     const convert = (cents: number, day?: string) => {
+      if (Math.abs(cents) > MAX_TYPED_CENTS) throw new TypedTooLarge(from);
       const found = rateOn(server, from, home, at(day));
       if (found == null) return null;
+      used = found;
       const out = cents < 0 ? -convertCents(-cents, found.rate) : convertCents(cents, found.rate);
       return cents > 0 ? Math.max(1, out) : out;
+    };
+    const typed = (id: string, cents: number) => {
+      if (used != null) originals.set(id, { currency: from, cents, ...used });
     };
     let next: LedgerChange | null = change;
     if (change.op === 'addTransaction' || change.op === 'logRecurring') {
       const cents = convert(change.transaction.amountCents, change.transaction.date);
+      typed(change.transaction.id, change.transaction.amountCents);
       next =
         cents == null
           ? null
@@ -1568,6 +1632,7 @@ function typedInHome(server: FakeServer, body: Partial<ChangesBody>): Partial<Ch
     } else if (change.op === 'updateTransaction' && change.amountCents != null) {
       const day = change.date ?? server.transactions.find((t) => t.id === change.id)?.date;
       const cents = convert(change.amountCents, day);
+      typed(change.id, change.amountCents);
       next = cents == null ? null : { ...change, amountCents: cents };
     } else if (change.op === 'addAccount') {
       const cents = convert(change.account.openingCents);
@@ -1590,7 +1655,7 @@ function typedInHome(server: FakeServer, body: Partial<ChangesBody>): Partial<Ch
     if (next == null) return null;
     converted.push(next);
   }
-  return { ...body, changes: converted };
+  return { body: { ...body, changes: converted }, originals };
 }
 
 /**
@@ -1615,7 +1680,13 @@ export function finishConversion(server: FakeServer) {
   for (const r of server.recurring) r.amountCents = up(r.amountCents, rate());
   for (const b of server.budgets)
     if (b.amountCents != null) b.amountCents = up(b.amountCents, rate());
-  server.me = { ...server.me, conversion: null };
+  // The new main currency is no longer one of the others, as the real swap does
+  const others = server.me.settings.otherCurrencies.filter((c) => c !== to);
+  server.me = {
+    ...server.me,
+    settings: { ...server.me.settings, otherCurrencies: others },
+    conversion: null,
+  };
 }
 
 /** A fresh server with the signed-in account */

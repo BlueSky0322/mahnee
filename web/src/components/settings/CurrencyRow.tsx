@@ -7,9 +7,10 @@ import { MAX_TRANSACTION } from '@shared/ledger';
 import { HOME_CURRENCIES } from '@shared/rates';
 import { api } from '../../api';
 import { useProfile } from '../../profile/ProfileContext';
-import { currencyName, currencySign } from '../../utils/currencies';
+import { currencySign } from '../../utils/currencies';
 import { showError } from '../../utils/notify';
-import { CheckIcon, DownIcon, ForwardIcon, SearchIcon } from '../ui/icons';
+import CurrencyList from '../common/CurrencyList';
+import { DownIcon, ForwardIcon } from '../ui/icons';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import classes from './Settings.module.css';
 import money from './MoneyPage.module.css';
@@ -189,78 +190,14 @@ export default function CurrencyRow({
 }
 
 /** The search, then the one in use and every other, each with its name and symbol */
-function Picker({ current, onPick }: { current: string; onPick: (code: string) => void }) {
-  const [words, setWords] = useState('');
-  const wanted = words.trim().toLowerCase();
-  const matches = (code: string) =>
-    wanted === '' ||
-    code.toLowerCase().includes(wanted) ||
-    currencyName(code).toLowerCase().includes(wanted);
-  const groups: [string, string[]][] = [
-    ['You use', [current]],
-    ['All currencies', HOME_CURRENCIES.filter((c) => c !== current)],
-  ];
-  const shown = groups
-    .map(([title, codes]) => [title, codes.filter(matches)] as const)
-    .filter(([, codes]) => codes.length > 0);
-
-  return (
-    <div className={money.currencies}>
-      <label className={money.currencySearch}>
-        <SearchIcon
-          size={16}
-          aria-hidden
-        />
-        <input
-          type="search"
-          placeholder="Search by name or code"
-          aria-label="Search currencies"
-          value={words}
-          onChange={(e) => setWords(e.currentTarget.value)}
-        />
-      </label>
-      <div className={money.currencyScroll}>
-        {shown.map(([title, codes]) => (
-          <div key={title}>
-            <p className={money.currencyGroup}>{title}</p>
-            <div
-              role="listbox"
-              aria-label={title}
-              className={money.currencyList}
-            >
-              {codes.map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  role="option"
-                  aria-selected={code === current}
-                  className={money.currencyOption}
-                  data-on={code === current || undefined}
-                  onClick={() => onPick(code)}
-                >
-                  <span className={money.currencyCode}>{code}</span>
-                  <span className={money.currencyName}>{currencyName(code)}</span>
-                  <span className={money.currencySign}>{currencySign(code)}</span>
-                  <span className={money.currencyTick}>
-                    {code === current && (
-                      <CheckIcon
-                        size={16}
-                        aria-hidden
-                      />
-                    )}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-      {shown.length === 0 && (
-        <p className={money.note}>No currency matches &ldquo;{words.trim()}&rdquo;</p>
-      )}
-      <p className={money.note}>
-        Every amount is converted at the rate on its own day. Changing back restores them exactly.
-      </p>
-    </div>
-  );
-}
+const Picker = ({ current, onPick }: { current: string; onPick: (code: string) => void }) => (
+  <CurrencyList
+    groups={[
+      ['You use', [current]],
+      ['All currencies', HOME_CURRENCIES.filter((c) => c !== current)],
+    ]}
+    current={current}
+    onPick={onPick}
+    note="Every amount is converted at the rate on its own day. Changing back restores them exactly."
+  />
+);

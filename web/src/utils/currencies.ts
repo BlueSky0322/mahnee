@@ -1,4 +1,4 @@
-// The home currencies' names and symbols as the currency picker shows them (R-Set-Money-Cur:
+// The currencies' names and symbols as the currency picker shows them (R-Set-Money-Cur:
 // "MYR", "Malaysian ringgit", "RM"), written out rather than asked of the browser, whose
 // names and symbols differ between browsers and languages ("US Dollar", "$" for SGD)
 
@@ -31,7 +31,9 @@ const CURRENCIES: Record<string, [name: string, sign: string]> = {
   SGD: ['Singapore dollar', 'S$'],
   THB: ['Thai baht', '฿'],
   TRY: ['Turkish lira', '₺'],
+  TWD: ['New Taiwan dollar', 'NT$'],
   USD: ['US dollar', '$'],
+  VND: ['Vietnamese dong', '₫'],
   ZAR: ['South African rand', 'R'],
 };
 

@@ -4,7 +4,7 @@
 // typed. An entry's amount at the rate on its own day, anything else at today's.
 
 import { MAX_TRANSACTION_CENTS } from '../../shared/ledger';
-import { convertCents, convertSignedCents } from '../../shared/rates';
+import { MAX_AMOUNT, MAX_TYPED_CENTS, convertCents, convertSignedCents } from '../../shared/rates';
 import type { Rate } from './exchange-rates';
 
 /** The rate from one currency into another for a day (2026-11-05) */
@@ -18,6 +18,13 @@ export interface Typed {
   currency: string;
   cents: number;
   rate: Rate;
+}
+
+/** An amount typed in another currency past MAX_TYPED_CENTS: the change is refused */
+export class TypedTooLarge extends Error {
+  constructor(currency: string) {
+    super(`An amount typed in ${currency} can be up to ${MAX_AMOUNT.toLocaleString('en')}`);
+  }
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -60,6 +67,7 @@ export async function typedIn(
   ) => {
     const cents = holder[field];
     if (!isCents(cents)) return holder;
+    if (Math.abs(cents) > MAX_TYPED_CENTS) throw new TypedTooLarge(from);
     const rate = await fetchRate(from, to, DAY.test(day) ? day : today);
     const converted = signed
       ? convertSignedCents(cents, rate.rate)

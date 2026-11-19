@@ -244,6 +244,98 @@ describe('accounts', () => {
     );
   });
 
+  test('Undo puts back the name and opening balance changed with the kind', async () => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Visa', kind: 'card', openingCents: -50_000 });
+    renderApp(server, '/?accounts');
+    const user = userEvent.setup();
+
+    const form = await edit('Visa');
+    await user.clear(form.getByLabelText('Name'));
+    await user.type(form.getByLabelText('Name'), 'Maybank');
+    await user.click(form.getByRole('radio', { name: 'Bank' }));
+    await user.clear(form.getByLabelText('Opening balance'));
+    await user.type(form.getByLabelText('Opening balance'), '500');
+    await user.click(form.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(server.accounts[0]).toMatchObject({
+        name: 'Maybank',
+        kind: 'bank',
+        openingCents: 50_000,
+      }),
+    );
+
+    expect(await screen.findByText('Maybank is now a bank account')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await shows('Visa', 'Card', '500.00 owed');
+    await waitFor(() =>
+      expect(server.accounts[0]).toMatchObject({
+        name: 'Visa',
+        kind: 'card',
+        openingCents: -50_000,
+      }),
+    );
+  });
+
+  test('a kind changed and changed back sends nothing and says nothing', async () => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Visa', kind: 'card', openingCents: -50_000 });
+    renderApp(server, '/?accounts');
+    const user = userEvent.setup();
+
+    const form = await edit('Visa');
+    await user.click(form.getByRole('radio', { name: 'Bank' }));
+    await user.click(form.getByRole('radio', { name: 'Card' }));
+    expect(form.getByLabelText('Amount owed')).toHaveProperty('value', '500');
+    expect(form.queryByText(/will read/)).toBeNull();
+    await user.click(form.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // Long enough for a save to have gone out
+    await act(() => new Promise((r) => setTimeout(r, 100)));
+    expect(saves()).toBe(0);
+    expect(screen.queryByText(/is now/)).toBeNull();
+    expect(server.accounts[0]).toMatchObject({ kind: 'card', openingCents: -50_000 });
+  });
+
+  test('a kind changed offline and undone reaches the server in order', async () => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Visa', kind: 'card', openingCents: -50_000 });
+    renderApp(server, '/?accounts', { size: 'phone' });
+    const user = userEvent.setup();
+    await row('Visa');
+
+    const back = goOffline(server);
+    const form = await edit('Visa');
+    await user.click(form.getByRole('radio', { name: 'Bank' }));
+    await user.click(form.getByRole('button', { name: 'Save' }));
+    await user.click(await screen.findByRole('button', { name: 'Undo' }));
+    await backToAccounts();
+    await shows('Visa', 'Card', '500.00 owed');
+
+    back();
+    // Each change sent once, the kind first and Undo after it
+    await waitFor(
+      () => {
+        const sent = new Map<string, string | undefined>();
+        for (const [path, init] of vi.mocked(fetch).mock.calls) {
+          if (path !== '/api/changes' || init?.method !== 'POST') continue;
+          const body = JSON.parse(init.body as string) as {
+            changes: { kind?: string }[];
+            ids: string[];
+          };
+          body.ids.forEach((cid, i) => sent.set(cid, body.changes[i].kind));
+        }
+        expect([...sent.values()]).toEqual(['bank', 'card']);
+      },
+      { timeout: 8000 },
+    );
+    await waitFor(() =>
+      expect(server.accounts[0]).toMatchObject({ kind: 'card', openingCents: -50_000 }),
+    );
+    await shows('Visa', 'Card', '500.00 owed');
+  });
+
   test('changes the kind offline, and saves it once back online', async () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Visa', kind: 'card', openingCents: -50_000 });

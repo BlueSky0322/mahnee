@@ -1051,7 +1051,7 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
       }
       continue;
     }
-    if (change.name == null && change.kind == null && change.openingCents == null) {
+    if (change.name == null && !('kind' in change) && change.openingCents == null) {
       return [400, 'Nothing to change'];
     }
     if (change.name != null) {

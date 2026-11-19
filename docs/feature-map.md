@@ -244,9 +244,14 @@ shown through the loaded rows, newest first, so it's left out while searching or
 to some days. Picking an account there takes the page's place in history. "Show 50 more"
 loads the next page. Add here and Transfer open Add with this account in From (Transfer on
 Transfer), over a kept draft's account, the rest of the draft kept. Add one from the list;
-rename it, change its opening balance, or archive it (with Undo) from Edit; Unarchive brings
-it back in one tap, with nothing to undo. A card's balance is what's owed on it. Its kind is
-fixed once added. Worker folder `accounts/` is sign-in, not these: the ledger is `ledger/`.
+rename it, change its kind or opening balance, or archive it (with Undo) from Edit; Unarchive
+brings it back in one tap, with nothing to undo. A card's balance is what's owed on it. A new
+kind keeps the opening balance's cents as they were (a card's RM 500.00 owed is −RM 500.00
+in a bank): Edit shows the amount as the new kind reads it and "RM 500.00 owed will read
+−RM 500.00 as a bank account" before Save, for the opening balance to be corrected in the
+same save, and the save says "Visa is now a bank account" with Undo (the old kind, and the
+name and opening balance if they changed too). Everything that depends on the kind (the
+groups and totals on Accounts, "owed", Scheduled's cards to pay) reads it as it is now. Worker folder `accounts/` is sign-in, not these: the ledger is `ledger/`.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts) keeps the ledger (accounts,
 categories and repeating items, one request) in the query cache (`LEDGER_KEY`), with a device copy

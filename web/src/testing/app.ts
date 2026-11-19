@@ -1082,11 +1082,17 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
       }
       continue;
     }
-    if (change.name == null && change.openingCents == null) return [400, 'Nothing to change'];
+    if (change.name == null && !('kind' in change) && change.openingCents == null) {
+      return [400, 'Nothing to change'];
+    }
     if (change.name != null) {
       const checked = readAccountName(change.name);
       if (checked == null) return [400, nameError];
       account.name = checked;
+    }
+    if ('kind' in change) {
+      if (!isAccountKind(change.kind)) return [400, 'Unknown kind of account'];
+      account.kind = change.kind;
     }
     if (change.openingCents != null) {
       if (!fitsOpeningCents(change.openingCents)) return [400, openingError];

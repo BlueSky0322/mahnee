@@ -17,6 +17,12 @@
   font-size: 14px;
 }
 
+.preview {
+  margin: -8px 0 0;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
 .actions {
   display: flex;
   align-items: center;

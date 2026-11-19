@@ -19,6 +19,14 @@ export const KIND_LABELS: Record<AccountKind, string> = {
   ewallet: 'E-wallet',
 };
 
+/** An account as each kind, in a sentence: "Visa is now a bank account" */
+export const KIND_AS: Record<AccountKind, string> = {
+  cash: 'cash',
+  bank: 'a bank account',
+  card: 'a card',
+  ewallet: 'an e-wallet',
+};
+
 /** "RM 1,200.00", "−RM 50.00" overdrawn, or on a card "RM 120.00 owed" */
 export function balanceText({ kind, balanceCents, currency }: Account) {
   if (kind === 'card') {

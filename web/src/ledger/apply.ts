@@ -289,6 +289,7 @@ function applyToAccounts(accounts: Account[], change: LedgerChange): Account[] {
         return {
           ...a,
           name: change.name ?? a.name,
+          kind: change.kind ?? a.kind,
           openingCents,
           // What came in and went out since stays as it was
           balanceCents: a.balanceCents + openingCents - a.openingCents,

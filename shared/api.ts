@@ -649,15 +649,19 @@ export interface Ledger {
 }
 
 /**
- * One change to the ledger, as the app makes it and POST /api/changes saves it. An
- * account's or category's kind is fixed once it's added.
+ * One change to the ledger, as the app makes it and POST /api/changes saves it. A
+ * category's kind is fixed once it's added; an account's can change.
  */
 export type LedgerChange =
   | {
       op: 'addAccount';
       account: { id: string; name: string; kind: AccountKind; openingCents: number };
     }
-  | { op: 'updateAccount'; id: string; name?: string; openingCents?: number }
+  /**
+   * A new kind keeps openingCents as kept (below zero is owed on a card, overdrawn on the
+   * others) unless the change names a new one too
+   */
+  | { op: 'updateAccount'; id: string; name?: string; kind?: AccountKind; openingCents?: number }
   /** archived: true takes it out of the list, false brings it back */
   | { op: 'archiveAccount'; id: string; archived: boolean }
   /** parentId: the top-level category it goes under, of the same kind; null for top level */

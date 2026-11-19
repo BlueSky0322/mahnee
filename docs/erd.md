@@ -7,6 +7,7 @@ Each schema change is a numbered file in `migrations/`.
 ```mermaid
 erDiagram
   profiles ||--o| user_settings : "has"
+  profiles ||--o{ profile_pictures : "has"
   profiles ||--o{ accounts : "has"
   profiles ||--o{ categories : "has"
   categories ||--o{ categories : "has subcategories"
@@ -27,8 +28,17 @@ erDiagram
   profiles {
     TEXT email PK
     TEXT display_name "null, or 1 to 32 characters"
+    INTEGER google_picture "1 shows the Google picture, 0 the initial"
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
+  }
+  profile_pictures {
+    TEXT email PK "and FK to profiles"
+    TEXT source PK "upload or google"
+    TEXT content_type "image/jpeg, image/png or image/webp"
+    BLOB data "1 byte to 64 KB"
+    INTEGER version "ms, after the one it replaced"
+    TEXT google_url "where a Google picture was copied from; null for upload"
   }
   user_settings {
     TEXT email PK "and FK to profiles"
@@ -146,7 +156,18 @@ erDiagram
 
 - **`profiles`**: one row per account, made the first time it saves anything. Until
   then the API answers with the defaults, so an account that has only signed in has no
-  rows at all.
+  rows at all (unless its sign-in brought a Google picture, copied at once).
+  `google_picture` says what shows when there's no chosen picture: the Google picture (1,
+  the default) or the initial (0).
+- **`profile_pictures`**: the picture shown in place of the initial (migration 0010). At most one per source: `upload`, the one
+  the person chose, and `google`, a copy of the Google picture their sign-in names, with
+  the address it came from (`google_url`), so it's copied again only when that changes.
+  The chosen one shows, else the Google one while `google_picture` is 1, else the
+  initial; choosing either of those deletes the chosen one. Each is a JPEG, PNG or WebP
+  of at most 64 KB and 512px a side (the server checks the bytes; the table holds the
+  type and size), kept in D1 rather than file storage since it's this small. `version` is
+  when it was saved, always after the one it replaced, and names the copy browsers keep.
+  Deleting a profile deletes them.
 - **`user_settings`**: the account's private preferences, which follow it between
   devices. A first row is written with every setting, the changed ones and the defaults
   from `DEFAULT_SETTINGS` in `shared/api.ts` for the rest, so the defaults live in one

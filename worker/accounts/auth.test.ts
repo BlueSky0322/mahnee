@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, onTestFinished, test, vi } from 'vitest';
-import { getUserEmail } from './auth';
+import { getSignIn, getUserEmail } from './auth';
 import worker from '../index';
 import type { Env } from '../app';
 
@@ -280,6 +280,43 @@ describe('getUserEmail configuration', () => {
     ).toBeNull();
     expect(await getUserEmail(requestWith(), halfSet)).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('the Google picture a sign-in names', () => {
+  const PICTURE = 'https://lh3.googleusercontent.com/a/photo=s96-c';
+
+  test("reads it from the token's custom claims, where Access puts the IdP's picture claim", async () => {
+    const token = await sign({ ...validClaims(), custom: { picture: PICTURE } });
+    expect(await getSignIn(requestWith(token), env)).toEqual({
+      email: 'ryan@example.com',
+      picture: PICTURE,
+    });
+  });
+
+  test.each([
+    ['no custom claims', {}],
+    ['custom claims without a picture', { custom: { groups: ['x'] } }],
+    ['a picture that is not text', { custom: { picture: 42 } }],
+    ['custom claims that are not an object', { custom: 'picture' }],
+  ])('names none with %s', async (_what, extra) => {
+    const token = await sign({ ...validClaims(), ...extra });
+    expect(await getSignIn(requestWith(token), env)).toEqual({
+      email: 'ryan@example.com',
+      picture: null,
+    });
+  });
+
+  test('ignores the local-dev X-Dev-Picture under Access, and takes it locally', async () => {
+    const token = await sign(validClaims());
+    expect(
+      (await getSignIn(requestWith(token, { 'X-Dev-Picture': PICTURE }), env))?.picture,
+    ).toBeNull();
+    const devEnv = { DEV_USER_EMAIL: 'dev@example.com' };
+    expect(await getSignIn(requestWith(undefined, { 'X-Dev-Picture': PICTURE }), devEnv)).toEqual({
+      email: 'dev@example.com',
+      picture: PICTURE,
+    });
   });
 });
 

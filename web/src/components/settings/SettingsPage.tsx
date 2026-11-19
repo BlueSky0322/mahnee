@@ -22,6 +22,7 @@ import { useCategories, useImports } from '../../ledger/useLedger';
 import { useProfile } from '../../profile/ProfileContext';
 import { SettingsFooter } from '../common/Freshness';
 import { useConfirmSignOut } from '../common/useConfirmSignOut';
+import YouPicture from '../common/YouPicture';
 import { useYou } from '../common/you';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import CategoriesPage from '../categories/CategoriesPage';
@@ -162,7 +163,10 @@ function SettingsIndex() {
                 className={classes.initial}
                 aria-hidden
               >
-                {you.initial}
+                <YouPicture
+                  initial={you.initial}
+                  picture={you.picture}
+                />
               </span>
               <div className={classes.rowText}>
                 <div className={classes.name}>{you.name}</div>

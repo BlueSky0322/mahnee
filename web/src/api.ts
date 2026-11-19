@@ -1,4 +1,9 @@
-import { CLIENT_ID_HEADER, EXPECTED_ACCOUNT_HEADER, PENDING_CHANGES_HEADER } from '@shared/api';
+import {
+  CLIENT_ID_HEADER,
+  EXPECTED_ACCOUNT_HEADER,
+  PENDING_CHANGES_HEADER,
+  PICTURE_PATH,
+} from '@shared/api';
 import type {
   ApiErrorBody,
   ChangesBody,
@@ -20,7 +25,10 @@ import type {
 import { newId } from './utils/id';
 
 /** The signed-in account, as this device holds it */
-export type Profile = ApiProfile;
+export type Profile = ApiProfile & {
+  /** A picture still being saved, shown from this device meanwhile (an object URL) */
+  picturePreview?: string | null;
+};
 
 export class ApiError extends Error {
   constructor(
@@ -116,6 +124,12 @@ export const api = {
   /** The person's imports not undone, newest first */
   getImports: () => request<RecentImports>('GET', '/api/imports'),
   updateMe: (patch: ProfilePatch) => request<Profile>('PATCH', '/api/me', patch),
+  /** Keeps a picture (made small on the device) as the one shown in place of the initial */
+  putPicture: (picture: Blob) =>
+    request<Profile>('PUT', PICTURE_PATH, undefined, {
+      body: picture,
+      headers: { 'Content-Type': picture.type },
+    }),
   /**
    * The person's accounts and categories, and which of the `pending` change ids (at most
    * MAX_CHANGES) the balances hold already

@@ -1,0 +1,8 @@
+/* The picture fills the initial's circle, cropped to it */
+.picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}

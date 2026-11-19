@@ -1142,3 +1142,22 @@ section > .cardTitle {
 .paneBody .dataList > .dataNone {
   padding: 0 20px 18px;
 }
+
+/* My account's initial, or picture, also opens Profile picture when tapped */
+.pictureButton {
+  cursor: pointer;
+}
+
+/* Change name and Change picture, side by side */
+.profileActions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Profile picture's preview, in the middle above its choices */
+.pictureLarge {
+  align-self: center;
+}

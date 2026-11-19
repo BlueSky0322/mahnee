@@ -639,3 +639,81 @@ describe('0009, Scheduled', () => {
     expect(add('b000000000000012', null, null, 0)).toBe(true);
   });
 });
+
+describe('0010, profile pictures', () => {
+  const PICTURES_MIGRATION = '0010_profile_pictures.sql';
+  const ME = 'teal@example.com';
+  const migrated = () => {
+    const db = database(before0007);
+    seedToday(db);
+    for (const file of files.filter((f) => f >= '0007')) {
+      db.exec(readFileSync(join(DIR, file), 'utf8'));
+    }
+    return db;
+  };
+  const picture = (
+    db: DatabaseSync,
+    source: string,
+    type: string,
+    data: Uint8Array | string,
+    url: string | null,
+    email = ME,
+  ) => {
+    try {
+      db.prepare(
+        `INSERT INTO profile_pictures (email, source, content_type, data, version, google_url)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(email, source, type, data, T, url);
+      return true;
+    } catch (err) {
+      const code = (err as { errcode?: unknown }).errcode;
+      if (typeof code === 'number' && (code & 0xff) === SQLITE_CONSTRAINT) return false;
+      throw err;
+    }
+  };
+
+  it('is the next migration after Scheduled', () => {
+    expect(files.indexOf(PICTURES_MIGRATION)).toBe(files.indexOf('0009_scheduled.sql') + 1);
+  });
+
+  it('keeps every profile, each showing its Google picture until told otherwise', () => {
+    const db = migrated();
+    expect(all(db, 'SELECT DISTINCT google_picture FROM profiles')).toEqual([
+      { google_picture: 1 },
+    ]);
+    expect(all(db, 'SELECT count(*) AS n FROM profiles')).toEqual([{ n: 7 }]);
+  });
+
+  it('takes a small image of a known type, one of each source, from an account that exists', () => {
+    const db = migrated();
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 1]);
+    expect(picture(db, 'upload', 'image/webp', bytes, null)).toBe(true);
+    expect(
+      picture(db, 'google', 'image/jpeg', bytes, 'https://lh3.googleusercontent.com/a/x'),
+    ).toBe(true);
+    // One of each
+    expect(picture(db, 'upload', 'image/webp', bytes, null)).toBe(false);
+    // Only these sources and types, as bytes, and not too large
+    expect(picture(db, 'gravatar', 'image/webp', bytes, null)).toBe(false);
+    expect(picture(db, 'upload', 'image/gif', bytes, null, 'blue@example.com')).toBe(false);
+    expect(picture(db, 'upload', 'image/webp', 'text', null, 'blue@example.com')).toBe(false);
+    expect(
+      picture(db, 'upload', 'image/webp', new Uint8Array(65537), null, 'blue@example.com'),
+    ).toBe(false);
+    // A Google picture says where it came from; a chosen one doesn't
+    expect(picture(db, 'google', 'image/jpeg', bytes, null, 'blue@example.com')).toBe(false);
+    expect(picture(db, 'upload', 'image/jpeg', bytes, 'https://x', 'blue@example.com')).toBe(false);
+    // Only for someone with a profile
+    expect(picture(db, 'upload', 'image/webp', bytes, null, 'nobody@example.com')).toBe(false);
+    // And it goes with the profile
+    db.prepare('DELETE FROM profiles WHERE email = ?').run(ME);
+    expect(all(db, 'SELECT count(*) AS n FROM profile_pictures')).toEqual([{ n: 0 }]);
+  });
+
+  it('shows the Google picture or the initial, and nothing else', () => {
+    const db = migrated();
+    expect(takes(db, 'UPDATE profiles SET google_picture = 0 WHERE email = ?', ME)).toBe(true);
+    expect(takes(db, 'UPDATE profiles SET google_picture = 2 WHERE email = ?', ME)).toBe(false);
+    expect(takes(db, "UPDATE profiles SET google_picture = 'yes' WHERE email = ?", ME)).toBe(false);
+  });
+});

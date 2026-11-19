@@ -3,6 +3,7 @@ import { AccountsIcon, ActivityIcon, HomeIcon, PlanIcon, SettingsIcon } from '..
 import type { Place } from '../../hooks/useRoute';
 import { navigate } from '../../hooks/useRoute';
 import Freshness from '../common/Freshness';
+import YouPicture from '../common/YouPicture';
 import { useYou } from '../common/you';
 import Key from '../ui/Key';
 import { PLACES, goToPlace, hrefOf } from './places';
@@ -81,7 +82,12 @@ export default function Sidebar({
           className={classes.initial}
           aria-hidden
         >
-          {you?.initial}
+          {you != null && (
+            <YouPicture
+              initial={you.initial}
+              picture={you.picture}
+            />
+          )}
         </span>
         <span className={classes.settingsText}>
           <span className={classes.settingsTitle}>Settings</span>

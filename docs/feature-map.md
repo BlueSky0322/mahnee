@@ -49,7 +49,15 @@ a computer, what it finds takes the sections' place in the sidebar, the first ma
 the pane shows the first one's section with that setting marked (`PreviewedSetting` in
 `setting-in-view.ts`), the keyboard staying in the search; Enter opens it. My account
 (`?settings=account`) has the name and email with Change name (a dialog; empty goes back
-to the email's first part), "This phone" or "This computer" saying "Saved" with the
+to the email's first part), and the round initial, or the person's picture in its place
+(the same size and shape wherever the initial is drawn: My account, Settings' profile
+card, the sidebar, Home's header); Change picture beside Change name (or tapping the
+circle) opens Profile picture:
+Choose a photo (the middle square, made 256px WebP or JPEG on the device, under 64 KB),
+Use Google picture (when a copy is kept and not showing) and Use initial (when a picture
+shows). The Google picture shows by default when the sign-in names one (see
+docs/security.md for the Access setting it needs), copied after `/api/me` has answered,
+so it shows from the next start; "This phone" or "This computer" saying "Saved" with the
 freshness label, and Install the app where the browser can install it (the only place it's
 offered; Home no longer has a card). Search (`components/settings/settings-search.ts`, a
 static index; no server) finds a setting by its name, its line, or words not on it
@@ -79,7 +87,8 @@ piece 16 lands.
 
 **Owner.** [profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx) loads
 the profile, keeps a device copy, and owns every change through
-`useProfile().change(show, save)`, which shows the change at once and undoes it if
+`useProfile().change(show, save)` (the picture through `changePicture`, which shows a
+chosen photo from the device until the server has kept it), which shows the change at once and undoes it if
 `save` fails (the caller says what went wrong). `rememberSettings` does the same for a
 preference and explains a failure itself.
 
@@ -87,7 +96,10 @@ preference and explains a failure itself.
 
 - UI: [components/settings/SettingsPage.tsx](../web/src/components/settings/SettingsPage.tsx)
   (the index, a computer's layout, `SectionHeader`),
-  [MyAccount.tsx](../web/src/components/settings/MyAccount.tsx),
+  [MyAccount.tsx](../web/src/components/settings/MyAccount.tsx) (with Profile picture),
+  [common/YouPicture.tsx](../web/src/components/common/YouPicture.tsx) (the picture in the
+  initial's circle, the initial when it can't load),
+  [utils/picture.ts](../web/src/utils/picture.ts) (a photo made a small square),
   [SectionPage.tsx](../web/src/components/settings/SectionPage.tsx) (the read-only
   sections), [SettingsSearch.tsx](../web/src/components/settings/SettingsSearch.tsx) with
   [settings-search.ts](../web/src/components/settings/settings-search.ts) (the index) and
@@ -104,9 +116,11 @@ preference and explains a failure itself.
   marks the accent and the colour of spending on the page (`data-accent`,
   `data-expenses`) and gives Mantine the accent.
 - API: [worker/accounts/auth.ts](../worker/accounts/auth.ts) checks the Access token (or
-  the local dev user), [worker/routes/me.ts](../worker/routes/me.ts) serves `/api/me`,
-  and [worker/accounts/profiles.ts](../worker/accounts/profiles.ts) stores the profile
-  and settings.
+  the local dev user) and reads the Google picture it names,
+  [worker/routes/me.ts](../worker/routes/me.ts) serves `/api/me` and `/api/me/picture`,
+  [worker/accounts/profiles.ts](../worker/accounts/profiles.ts) stores the profile
+  and settings, and [worker/accounts/pictures.ts](../worker/accounts/pictures.ts) checks,
+  keeps and serves the picture and copies the Google one.
 - Shared: `Settings`, `DEFAULT_SETTINGS` and the profile shapes in
   [shared/api.ts](../shared/api.ts); what each setting takes in
   [shared/settings.ts](../shared/settings.ts), read by the Worker and the test stand-in;
@@ -116,6 +130,13 @@ preference and explains a failure itself.
 
 **Invariants.**
 
+- The picture shown is the chosen one, else the Google copy unless the person chose the
+  initial, else none (`shownPicture` in `accounts/pictures.ts`). `/api/me/picture` serves
+  only the signed-in account's, `private, no-cache` with an ETag and `X-Image-Viewer`;
+  the service worker keeps one copy per account and shows it only to that account
+  (`web/public/sw.js` keeps copies of `IMAGE_CACHE_PREFIX`, `IMAGE_VIEWER_HEADER` and
+  `PICTURE_PATH`; `offline/sw.test.ts` runs it against the app's). The server takes a
+  JPEG, PNG or WebP by its bytes, at most `MAX_PICTURE_BYTES` and `MAX_PICTURE_SIDE`.
 - Without both Access values set, the API refuses everyone, unless both are blank and a
   local dev user is set (`getUserEmail` in `accounts/auth.ts`).
 - A new settings row takes every value from `DEFAULT_SETTINGS`, so defaults change in
@@ -175,10 +196,22 @@ Home shows and Open the app on saved, no theme switch on Home),
 (the index and its summaries, each section and back, My account with Change name and a
 refusal, saved and waiting offline, install where offered and never on Home, a computer's
 layout, Close and moving between sections, search, clear, nothing found, Ctrl K and
-Enter), [settings-search.test.ts](../web/src/components/settings/settings-search.test.ts),
+Enter), [settings/ProfilePicture.test.tsx](../web/src/components/settings/ProfilePicture.test.tsx)
+(the initial, the Google picture everywhere the initial is, one that can't load, a photo
+cropped, made small and saved, too large, unreadable or refused, going back to the Google
+picture or the initial on a phone, a failed save put back),
+[offline/sw.test.ts](../web/src/offline/sw.test.ts) (the picture kept per account, shown
+offline only to it, forgotten on 404 for that account alone and on signing out),
+[settings-search.test.ts](../web/src/components/settings/settings-search.test.ts),
 [settings-text.test.ts](../web/src/components/settings/settings-text.test.ts),
 [worker/accounts/auth.test.ts](../worker/accounts/auth.test.ts) (tokens,
-keys, configuration, 401 versus 500), [App.test.tsx](../web/src/App.test.tsx) (who's
+keys, configuration, 401 versus 500, the Google picture claim),
+[worker/test/api.test.ts](../worker/test/api.test.ts) (the picture: kept, served privately
+with an ETag, never to another account, refused types and sizes, let go, the Google copy
+made once after the answer, never holding it up, not asked again for an hour after
+failing, again only when it changes, nothing from elsewhere),
+[worker/accounts/pictures.test.ts](../worker/accounts/pictures.test.ts) (Google's real
+host only: no lookalike, sign-in, port or redirect; the size cut off as it streams), [App.test.tsx](../web/src/App.test.tsx) (who's
 signed in, signed out, unreachable, saving the theme and undoing a failed save),
 [profile/time-zone.test.tsx](../web/src/profile/time-zone.test.tsx) (the time zone sent
 at start), the profile cases in [worker/test/api.test.ts](../worker/test/api.test.ts), and

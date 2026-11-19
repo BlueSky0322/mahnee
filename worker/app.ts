@@ -4,7 +4,8 @@
 // folders, which export handlers (taking the database, the account and the request or
 // its body, and answering with a Response) and loaders (returning data shaped as in
 // shared/api.ts, for the route to send with json<T>()). The feature folders:
-//   - accounts/: who's signed in (auth.ts), and their profile and settings (profiles.ts);
+//   - accounts/: who's signed in (auth.ts), their profile and settings (profiles.ts), and
+//     their profile picture (pictures.ts);
 //   - currency/: exchange rates;
 //   - ledger/: the money a person tracks: their cash, bank, card and e-wallet accounts
 //     with balances, their categories, and their transactions a page at a time
@@ -25,10 +26,15 @@ export interface Env extends AuthEnv, RatesEnv {
   API_LIMITER: RateLimit;
   /** "true": writes must say whose they are (EXPECTED_ACCOUNT_HEADER); older apps are told to update */
   REQUIRE_EXPECTED_ACCOUNT?: string;
+  /**
+   * Where a Google picture may be copied from; the only address a sign-in's picture is
+   * fetched at. Google's own unless tests stand in for it.
+   */
+  GOOGLE_PICTURE_BASE?: string;
 }
 
 export type AppEnv = {
   Bindings: Env;
-  /** email: the signed-in account */
-  Variables: { email: string };
+  /** email: the signed-in account; googlePicture: the Google picture its sign-in names */
+  Variables: { email: string; googlePicture: string | null };
 };

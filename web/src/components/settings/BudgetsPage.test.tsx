@@ -81,7 +81,7 @@ describe.each(SIZES)('Budgets and reminders (%s)', (size) => {
     expect(page.getByText('Each budget can override')).toBeTruthy();
     // The reminder rows say what's set, until reminders come
     expect(page.getByText('Daily reminder to log')).toBeTruthy();
-    expect(page.getByText('Before one is added')).toBeTruthy();
+    expect(page.getByText('Heads-up before scheduled entries')).toBeTruthy();
   });
 
   test('off: saved, and a new budget starts without carry over', async () => {
@@ -173,7 +173,7 @@ const controls = (size: (typeof SIZES)[number]) =>
     : {
         daily: 'Daily reminder to log',
         time: (value: string) => new RegExp(`^Remind me at .*${value}$`),
-        before: (value: string) => new RegExp(`^Before one is added .*${value}$`),
+        before: (value: string) => new RegExp(`^Heads-up before scheduled entries .*${value}$`),
       };
 
 /** What the device row is named on this size: this phone, or this computer */
@@ -190,7 +190,11 @@ describe.each(SIZES)('Reminders (%s)', (size) => {
     expect(page.getByRole('button', { name: named.time('9:00 PM') })).toBeTruthy();
     expect(page.getByRole('button', { name: named.before('1 day before') })).toBeTruthy();
     expect(page.getByText("If nothing's added that day")).toBeTruthy();
-    expect(page.getByText('The day before a scheduled entry')).toBeTruthy();
+    // On a computer the time sits beside the daily switch, with no line of its own
+    if (size === 'phone') expect(page.getByText('When reminders come, each day')).toBeTruthy();
+    expect(
+      page.getByText('A notification before a scheduled bill or income is added'),
+    ).toBeTruthy();
   });
 
   test('the daily reminder off is saved', async () => {
@@ -224,7 +228,9 @@ describe.each(SIZES)('Reminders (%s)', (size) => {
     const page = await openBudgets(server, size);
     const user = userEvent.setup();
     await user.click(page.getByRole('button', { name: named.before('1 day before') }));
-    let sheet = within(await screen.findByRole('dialog', { name: 'Before one is added' }));
+    let sheet = within(
+      await screen.findByRole('dialog', { name: 'Heads-up before scheduled entries' }),
+    );
     expect(sheet.getByRole('radio', { name: '1 day before' })).toHaveProperty('checked', true);
     expect(sheet.getAllByRole('radio').map((r) => r.closest('label')?.textContent)).toEqual([
       'Off',
@@ -241,7 +247,9 @@ describe.each(SIZES)('Reminders (%s)', (size) => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
     await user.click(page.getByRole('button', { name: named.before('3 days before') }));
-    sheet = within(await screen.findByRole('dialog', { name: 'Before one is added' }));
+    sheet = within(
+      await screen.findByRole('dialog', { name: 'Heads-up before scheduled entries' }),
+    );
     await user.click(sheet.getByRole('radio', { name: 'Off' }));
     await waitFor(() => expect(server.me.settings.scheduledReminderDays).toBeNull());
     expect(await page.findByRole('button', { name: named.before('Off') })).toBeTruthy();

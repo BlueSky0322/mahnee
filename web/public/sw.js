@@ -11,8 +11,12 @@
 //   load what it needs; older ones go.
 // - Built files and web fonts never change once made (built files have content hashes
 //   in their names), so they're served from here once kept.
-// - /api always goes to the network, through Cloudflare Access: nothing the account
-//   holds is kept here.
+// - The profile picture is private: online it always comes from the server, which
+//   checks who's asking (the browser's own copy answers when the server says it's
+//   unchanged). It's kept for the account it was shown to, and shown from here only
+//   offline, or while the server is failing, and only to that account.
+// - The rest of /api always goes to the network, through Cloudflare Access: nothing else
+//   the account holds is kept here.
 // - Changes made offline are kept by the app (in IndexedDB, web/src/offline/outbox.ts);
 //   background sync sends them here when the connection is back, even if the app is
 //   closed.
@@ -22,6 +26,15 @@ const SHELL = 'mahnee-shell-v1';
 const ASSETS = 'mahnee-assets-v1';
 const FONTS = 'mahnee-fonts-v1';
 const KEEP = [SHELL, ASSETS, FONTS];
+/**
+ * IMAGE_CACHE_PREFIX in web/src/offline/cache.ts, which clears them on sign-out: one
+ * cache per account, named with its email
+ */
+const IMAGE_CACHE_PREFIX = 'mahnee-pictures-v1:';
+/** IMAGE_VIEWER_HEADER in shared/api.ts: whose a picture is, as the server sent it */
+const IMAGE_VIEWER_HEADER = 'X-Image-Viewer';
+/** PICTURE_PATH in shared/api.ts: the profile picture, always asked for with ?v= */
+const PICTURE_PATH = '/api/me/picture';
 
 /** Every built file the app needs offline, written by the build (web/build/precache.ts) */
 const PRECACHE_LIST = '/precache.json';
@@ -75,23 +88,28 @@ const utf8 = new TextEncoder();
 
 /** The next request's changes, as nextBatch in web/src/offline/outbox.ts picks them */
 function nextBatch(queued) {
-  let bytes = utf8.encode('{"changes":[],"ids":[]}').length;
+  let bytes = utf8.encode('{"changes":[],"ids":[],"currencies":[]}').length;
   let count = 0;
   for (const q of queued.slice(0, MAX_CHANGES)) {
     bytes +=
       utf8.encode(JSON.stringify(q.change)).length +
       utf8.encode(JSON.stringify(q.cid)).length +
-      (count > 0 ? 2 : 0);
+      utf8.encode(JSON.stringify(q.currency ?? null)).length +
+      (count > 0 ? 3 : 0);
     if (count > 0 && bytes > MAX_CHANGES_BYTES) break;
     count++;
   }
   return queued.slice(0, count);
 }
 
-/** What's sent for these changes, as changesBody in web/src/offline/outbox.ts makes it */
+/**
+ * What's sent for these changes, as changesBody in web/src/offline/outbox.ts makes it: each
+ * with its id and the currency it was typed in, null for one kept from before
+ */
 const changesBody = (batch) => ({
   changes: batch.map((q) => q.change),
   ids: batch.map((q) => q.cid),
+  currencies: batch.map((q) => (q.currency == null ? null : q.currency)),
 });
 
 const isFont = (url) =>
@@ -228,7 +246,11 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((keys) =>
-        Promise.all(keys.filter((k) => !KEEP.includes(k)).map((k) => caches.delete(k))),
+        Promise.all(
+          keys
+            .filter((k) => !KEEP.includes(k) && !k.startsWith(IMAGE_CACHE_PREFIX))
+            .map((k) => caches.delete(k)),
+        ),
       )
       .then(() => self.clients.claim()),
   );
@@ -300,6 +322,76 @@ async function pageOrKept(network) {
   return answer != null && !isBroken(answer) ? answer : fromDevice(kept);
 }
 
+/** The profile picture, as the app asks for it (with ?v=) */
+const isPicture = (url) => url.pathname === PICTURE_PATH && url.searchParams.has('v');
+
+/** Who the app last said is signed in (USER_KEY), or null */
+async function signedInAccount() {
+  const db = await openDb();
+  try {
+    const user = await idb(db, 'readonly', (s) => s.get(USER_KEY));
+    return typeof user === 'string' ? user : null;
+  } finally {
+    db.close();
+  }
+}
+
+/** This account's copy of the picture, if it was shown one */
+async function keptPicture(request) {
+  const account = await signedInAccount().catch(() => null);
+  const name = account == null ? null : `${IMAGE_CACHE_PREFIX}${account}`;
+  if (name == null || !(await caches.has(name))) return undefined;
+  return (await caches.open(name)).match(new URL(request.url).pathname);
+}
+
+/**
+ * Forgets the signed-in account's copy of a picture the server no longer shows it (the
+ * 404 names no account: it's for whoever is signed in). Other accounts' copies stay.
+ */
+async function forgetPicture(request) {
+  const account = await signedInAccount().catch(() => null);
+  if (account == null) return;
+  const name = `${IMAGE_CACHE_PREFIX}${account}`;
+  if (!(await caches.has(name))) return;
+  await (await caches.open(name)).delete(new URL(request.url).pathname);
+}
+
+/**
+ * The picture from the server, so a change, or another account signed in, is checked
+ * each time; the kept copy only when the server can't be reached or is failing, and only
+ * the signed-in account's. A sign-in page in its place shows nothing. One copy is kept per
+ * account, whatever its version, so the newest shown is the one shown offline.
+ */
+async function picture(event) {
+  const { request } = event;
+  let response;
+  try {
+    // Checked with the server even when the browser holds a copy
+    response = await fetch(request, { cache: 'no-cache' });
+  } catch (err) {
+    const kept = await keptPicture(request);
+    if (kept) return kept;
+    throw err;
+  }
+  if (response.status >= 500) return (await keptPicture(request)) ?? response;
+  const viewer = response.headers.get(IMAGE_VIEWER_HEADER);
+  if (
+    response.ok &&
+    response.type === 'basic' &&
+    !response.redirected &&
+    viewer != null &&
+    (response.headers.get('Content-Type') ?? '').startsWith('image/')
+  ) {
+    const copy = response.clone();
+    const path = new URL(request.url).pathname;
+    event.waitUntil(caches.open(`${IMAGE_CACHE_PREFIX}${viewer}`).then((c) => c.put(path, copy)));
+  } else if (response.status === 404) {
+    // Gone back to the initial
+    event.waitUntil(forgetPicture(request));
+  }
+  return response;
+}
+
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET') return;
@@ -320,6 +412,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(page(event));
   } else if (INSTALL_FILES.includes(url.pathname)) {
     event.respondWith(installFile(event));
+  } else if (isPicture(url)) {
+    event.respondWith(picture(event));
   } else if (url.pathname.startsWith('/assets/')) {
     event.respondWith(cacheFirst(ASSETS, event.request, (r) => r.type === 'basic'));
   }

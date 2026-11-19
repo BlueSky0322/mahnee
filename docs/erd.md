@@ -7,6 +7,7 @@ Each schema change is a numbered file in `migrations/`.
 ```mermaid
 erDiagram
   profiles ||--o| user_settings : "has"
+  profiles ||--o{ profile_pictures : "has"
   profiles ||--o{ accounts : "has"
   profiles ||--o{ categories : "has"
   categories ||--o{ categories : "has subcategories"
@@ -25,14 +26,26 @@ erDiagram
   accounts ||--o{ recurring : "repeats on"
   categories ||--o{ recurring : "sorts"
   recurring |o--o{ transactions : "added"
+  profiles ||--o| conversions : "converting"
+  profiles ||--o{ conversion_staged : "worked out"
   profiles {
     TEXT email PK
     TEXT display_name "null, or 1 to 32 characters"
+    INTEGER google_picture "1 shows the Google picture, 0 the initial"
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
+  profile_pictures {
+    TEXT email PK "and FK to profiles"
+    TEXT source PK "upload or google"
+    TEXT content_type "image/jpeg, image/png or image/webp"
+    BLOB data "1 byte to 64 KB"
+    INTEGER version "ms, after the one it replaced"
+    TEXT google_url "where a Google picture was copied from; null for upload"
+  }
   user_settings {
     TEXT email PK "and FK to profiles"
+    TEXT currency "the home currency, one of HOME_CURRENCIES"
     TEXT theme "dark, light or auto"
     TEXT accent "cobalt, green, plum, rust or graphite"
     TEXT rate_preference "wise or ecb"
@@ -52,6 +65,8 @@ erDiagram
     TEXT reminder_time "the person's clock, 00:00 to 23:59"
     INTEGER scheduled_reminder_days "null for none, or 1 to 7"
     TEXT time_zone "null until the app sends it, as Asia/Kuala_Lumpur"
+    TEXT other_currencies "JSON list, at most 8, Add's order"
+    INTEGER travel_sense "1 or 0, Add follows where the device is"
     INTEGER updated_at "ms"
   }
   accounts {
@@ -59,8 +74,13 @@ erDiagram
     TEXT id PK "16 hex characters, made by the app"
     TEXT name "1 to 40 characters"
     TEXT kind "cash, bank, card or ewallet"
-    TEXT currency "MYR for now"
+    TEXT currency "the home currency"
     INTEGER opening_cents "within 1,000,000,000 either way"
+    TEXT original_currency "null, or the currency it was typed in"
+    INTEGER original_cents "what was typed, with original_currency"
+    REAL rate "into the home currency, with original_currency"
+    TEXT rate_source "wise or frankfurter, with original_currency"
+    INTEGER rate_at "ms: the rate's day or time, with original_currency"
     INTEGER position "first at 0"
     INTEGER archived "0 or 1"
     INTEGER archived_at "ms, or null"
@@ -94,6 +114,11 @@ erDiagram
     TEXT recurring_id "null, or one of the person's scheduled items"
     TEXT recurring_due "the day its occurrence was due; with recurring_id"
     INTEGER to_check "0 or 1: its amount is for the person to check"
+    TEXT original_currency "null, or the currency it was typed in"
+    INTEGER original_cents "what was typed, with original_currency"
+    REAL rate "into the home currency, with original_currency"
+    TEXT rate_source "wise or frankfurter, with original_currency"
+    INTEGER rate_at "ms: the rate's day or time, with original_currency"
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
@@ -113,6 +138,11 @@ erDiagram
     TEXT from_month PK "the month it applies from, as 2026-11"
     INTEGER amount_cents "null for none from this month, or 1 to 1,000,000,000"
     INTEGER carry_over "0 or 1"
+    TEXT original_currency "null, or the currency it was typed in"
+    INTEGER original_cents "what was typed, with original_currency"
+    REAL rate "into the home currency, with original_currency"
+    TEXT rate_source "wise or frankfurter, with original_currency"
+    INTEGER rate_at "ms: the rate's day or time, with original_currency"
     INTEGER updated_at "ms"
   }
   recurring {
@@ -132,6 +162,11 @@ erDiagram
     INTEGER archived "0 or 1: stopped repeating"
     INTEGER amount_varies "0 or 1: it changes, added to check"
     INTEGER ask_first "0 or 1: waits for Log it or Skip"
+    TEXT original_currency "null, or the currency it was typed in"
+    INTEGER original_cents "what was typed, with original_currency"
+    REAL rate "into the home currency, with original_currency"
+    TEXT rate_source "wise or frankfurter, with original_currency"
+    INTEGER rate_at "ms: the rate's day or time, with original_currency"
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
@@ -148,6 +183,25 @@ erDiagram
     INTEGER retry_at "ms, or null"
     INTEGER last_ok_at "ms, or null"
   }
+  conversions {
+    TEXT email PK "and FK to profiles"
+    TEXT from_currency "the home currency before"
+    TEXT to_currency "the new one"
+    INTEGER since "ms: when it changed"
+    TEXT phase "converting or refused"
+    TEXT after_date "how far through the transactions"
+    TEXT after_id "with after_date"
+    INTEGER touched_at "ms: when it last moved on, or its next try is due"
+    INTEGER restarts "times started again: stalled, or found incomplete"
+    TEXT refused "amount, opening, budget, scheduled or rates; when refused"
+  }
+  conversion_staged {
+    TEXT email PK "and FK to profiles"
+    TEXT kind PK "transaction, account, budget or recurring"
+    TEXT key PK "its id, or a budget's category/month"
+    INTEGER cents "in the new currency"
+    TEXT original_currency "and the rest as on its row"
+  }
   change_receipts {
     TEXT email PK "and FK to profiles"
     TEXT change_id PK "the app's id for the change"
@@ -160,7 +214,18 @@ erDiagram
 
 - **`profiles`**: one row per account, made the first time it saves anything. Until
   then the API answers with the defaults, so an account that has only signed in has no
-  rows at all.
+  rows at all (unless its sign-in brought a Google picture, copied at once).
+  `google_picture` says what shows when there's no chosen picture: the Google picture (1,
+  the default) or the initial (0).
+- **`profile_pictures`**: the picture shown in place of the initial (migration 0010). At most one per source: `upload`, the one
+  the person chose, and `google`, a copy of the Google picture their sign-in names, with
+  the address it came from (`google_url`), so it's copied again only when that changes.
+  The chosen one shows, else the Google one while `google_picture` is 1, else the
+  initial; choosing either of those deletes the chosen one. Each is a JPEG, PNG or WebP
+  of at most 64 KB and 512px a side (the server checks the bytes; the table holds the
+  type and size), kept in D1 rather than file storage since it's this small. `version` is
+  when it was saved, always after the one it replaced, and names the copy browsers keep.
+  Deleting a profile deletes them.
 - **`user_settings`**: the account's private preferences, which follow it between
   devices. A first row is written with every setting, the changed ones and the defaults
   from `DEFAULT_SETTINGS` in `shared/api.ts` for the rest, so the defaults live in one
@@ -268,8 +333,27 @@ erDiagram
   goes twice; `failures` and `retry_at` hold it back after its push service couldn't take
   one (15 minutes, doubling, at most 120); the endpoint
   is checked to be a browser's push service before it's kept and before each send.
-  Migration 0012 also indexes `transactions (email, created_at)`, for whether anything was
+  Migration 0013 also indexes `transactions (email, created_at)`, for whether anything was
   added during a person's day.
+- **`conversions`** and **`conversion_staged`**: changing the home currency
+  (`user_settings.currency`, saved at once) writes a `conversions` row, phase `converting`,
+  and the person's amounts are converted in the background (`worker/currency/convert.ts`,
+  from the `mahnee-reconvert` queue): a page of transactions at a time, by day then id
+  (`after_date`, `after_id`), each worked out into `conversion_staged` and checked against
+  its limit, then the opening balances, budgets and scheduled items, and all of them
+  swapped into their rows in one batch, the accounts' `currency` with them, before both go.
+  Meanwhile the person's writes wait (the API answers 503) and the nightly job skips them,
+  so what's worked out stays true. One amount past its limit refuses the whole change: the
+  currency goes back, nothing is swapped, and the row stays as `refused`, naming the limit,
+  until the next change; so does one the queue gave up on, or that stalled more than 3
+  times (`rates`).
+- **What an amount was typed as.** `transactions.amount_cents`, `accounts.opening_cents`,
+  `budgets.amount_cents` and `recurring.amount_cents` each have `original_currency`,
+  `original_cents`, `rate`, `rate_source` and `rate_at` (0011), all null for an amount typed
+  in the home currency. A converted one is converted again from what it was typed as, and
+  one typed in the new currency is plain again, so changing back restores it exactly.
+  Changing the amount outside a conversion (no `converting` row) makes it typed in the home
+  currency: triggers let go of what it was.
 - **`change_receipts`**: one per change the app saved through `POST /api/changes`, by
   the id the app gave it, with the change's fingerprint, saved in the same batch as the
   change. A change sent again counts once; the same id with a different change is
@@ -280,3 +364,16 @@ erDiagram
 - Times are whole milliseconds since 1970 (`*_at`).
 - Money is whole cents in `*_cents` columns (see Money in `AGENTS.md`).
 - Every row belongs to one account, and every query is scoped by it.
+
+## Other currencies
+
+`user_settings.other_currencies` (0012) is the person's list of other currencies, a JSON
+array in their order, at most `MAX_OTHER_CURRENCIES` (8), each one of `ENTRY_CURRENCIES`
+(`shared/rates.ts`: the home currencies, TWD and VND), never the home currency, checked by
+the Worker; a home-currency change drops the new one from it when it's done. An entry typed
+in one of them (or a one-off) is sent with that currency as its change's own (`currencies`
+in `POST /api/changes`), converted into the home currency at its own day's rate and saved
+with what was typed in the transaction's `original_currency`, `original_cents`, `rate`,
+`rate_source` and `rate_at` (0011), as Splitfoolish's items keep theirs. An amount typed in
+the home currency later lets go of them. `travel_sense` (default 1) says whether Add follows
+where the device is; what it decided today stays on the device.

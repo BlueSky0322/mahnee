@@ -204,3 +204,46 @@
   height: 36px;
   font-size: 14px;
 }
+
+/* Other currencies: a chip for each, in order, then Add (R-Set-Money's .sc chips) */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.chipList {
+  display: contents;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip,
+.addChip {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--sunk);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.addChip {
+  background: none;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.addChip:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}

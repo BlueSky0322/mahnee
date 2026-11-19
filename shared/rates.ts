@@ -11,6 +11,60 @@ const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 export const isCurrency = (v: unknown): v is string =>
   typeof v === 'string' && CURRENCY_PATTERN.test(v);
 
+/**
+ * The currencies a person's home currency can be: the ones the ECB publishes (through
+ * Frankfurter), so every amount can be converted at its own day's rate without Wise.
+ * migrations/0011_currency.sql holds the same list in its CHECK.
+ */
+export const HOME_CURRENCIES = [
+  'AUD',
+  'BRL',
+  'CAD',
+  'CHF',
+  'CNY',
+  'CZK',
+  'DKK',
+  'EUR',
+  'GBP',
+  'HKD',
+  'HUF',
+  'IDR',
+  'ILS',
+  'INR',
+  'ISK',
+  'JPY',
+  'KRW',
+  'MXN',
+  'MYR',
+  'NOK',
+  'NZD',
+  'PHP',
+  'PLN',
+  'RON',
+  'SEK',
+  'SGD',
+  'THB',
+  'TRY',
+  'USD',
+  'ZAR',
+] as const;
+
+export const isHomeCurrency = (v: unknown): v is string =>
+  (HOME_CURRENCIES as readonly unknown[]).includes(v);
+
+/**
+ * The currencies an entry can be typed in (the person's other currencies, or a one-off):
+ * every home currency, and those Wise has rates for that people here often spend in. An
+ * entry in one is converted into the home currency at its day's rate on saving.
+ */
+export const ENTRY_CURRENCIES = [...HOME_CURRENCIES, 'TWD', 'VND'].sort();
+
+export const isEntryCurrency = (v: unknown): v is string =>
+  (ENTRY_CURRENCIES as readonly unknown[]).includes(v);
+
+/** The most other currencies a person keeps (Settings › Money), offered in Add in their order */
+export const MAX_OTHER_CURRENCIES = 8;
+
 /** Offered first in currency pickers: the currencies people here travel and spend in */
 export const COMMON_CURRENCIES = [
   'MYR',
@@ -43,8 +97,23 @@ export const toCents = (amount: number) => Math.round(amount * 100);
 /** `cents` in one currency, at `rate` units of the other per unit, in the other's cents */
 export const convertCents = (cents: number, rate: number) => Math.round(cents * rate);
 
+/**
+ * The same for an amount that may be below zero (an opening balance): the size is
+ * converted and the sign kept, so a balance and its opposite convert to opposites
+ */
+export const convertSignedCents = (cents: number, rate: number) =>
+  cents < 0 ? -convertCents(-cents, rate) : convertCents(cents, rate);
+
 /** The largest amount anyone can type, in currency units, whatever its currency */
 export const MAX_AMOUNT = 1_000_000_000;
+
+/**
+ * The most an amount typed in another currency than the home one can be, in its cents:
+ * MAX_AMOUNT units (an IDR 15,000,000 hotel bill fits), well within what a number holds
+ * exactly. What it converts to is still held to its own limit (MAX_TRANSACTION_CENTS for
+ * an entry), so every total, which sums converted amounts, stays exact.
+ */
+export const MAX_TYPED_CENTS = MAX_AMOUNT * 100;
 
 /**
  * The most an amount can come to in cents once converted. A typed amount (MAX_AMOUNT) at

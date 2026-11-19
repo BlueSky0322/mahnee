@@ -13,7 +13,7 @@ import { fakeServer, renderApp, settle, setupAppTests } from '../../testing/app'
 // keeps the choice; Back keeps nothing) and a panel beside its row on computers (Cancel,
 // Done): "A date" (1 to 28, or "Last day of the month") or "Payday" (the scheduled pay's
 // day), with a preview of this month's days. The row reads "The 1st", "The 25th", "Last
-// day" or "Payday". Main currency stays as it is until the home currency piece; "Other
+// day" or "Payday". Main currency is in HomeCurrency.test.tsx; "Other
 // currencies" is hidden (D4).
 
 const TZ_BEFORE = process.env.TZ;
@@ -132,8 +132,8 @@ describe('Settings › Money', () => {
           .map((r) => r.textContent),
       ).toEqual(['Monday', 'Sunday']);
       expect(checked(week)).toEqual(['Sunday']);
-      // Entries in other currencies come later (owner decision D4)
-      expect(within(card).queryByText('Other currencies')).toBeNull();
+      // Other currencies, under the main one (other-currencies.test.tsx)
+      expect(within(card).getByText('Other currencies')).toBeTruthy();
       // Still found by a search, with the row in view
       expect(card.querySelector('[data-setting="monthStart"]')).not.toBeNull();
       expect(card.querySelector('[data-setting="weekStart"]')).not.toBeNull();

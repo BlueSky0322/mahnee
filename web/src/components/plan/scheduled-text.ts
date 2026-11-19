@@ -1,5 +1,4 @@
 import type { Account, Category, Ledger, Recurring } from '@shared/api';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
 import { nextAfter } from '@shared/recurring';
 import { formatAmount, formatMoney } from '../../utils/money';
 import { shortDate } from '../home/home-text';
@@ -85,8 +84,8 @@ export const nextText = (r: Recurring, today: string) =>
   `${waiting(r, today) ? 'Was due' : 'Next'} ${shortDate(r.nextDue)}`;
 
 /** Its amount, signed by which way it goes: "−1,350.00", "+5,200.00", a transfer "80.00" */
-export function signedAmount(r: Pick<Recurring, 'kind' | 'amountCents'>) {
-  const amount = formatAmount(r.amountCents, DEFAULT_CURRENCY);
+export function signedAmount(r: Pick<Recurring, 'kind' | 'amountCents'>, currency: string) {
+  const amount = formatAmount(r.amountCents, currency);
   return r.kind === 'expense' ? `−${amount}` : r.kind === 'income' ? `+${amount}` : amount;
 }
 
@@ -98,6 +97,7 @@ export function nextLine(
   >,
   accounts: readonly Account[],
   today: string,
+  currency: string,
 ) {
   const day = shortDate(r.nextDue);
   const from = accountName(accounts, r.accountId);
@@ -105,7 +105,7 @@ export function nextLine(
     return `${day} · waiting for you on Home: Log it or Skip`;
   }
   if (r.amountVaries === true) {
-    return `${day} · added at ${formatMoney(r.amountCents, DEFAULT_CURRENCY)}, for you to check`;
+    return `${day} · added at ${formatMoney(r.amountCents, currency)}, for you to check`;
   }
   if (r.kind === 'transfer') {
     return `${day} · moved automatically from ${from} to ${accountName(accounts, r.toAccountId)}`;

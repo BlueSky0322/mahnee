@@ -3,12 +3,14 @@ import type {
   ImportRecord,
   Ledger,
   LedgerChange,
+  Profile,
   MonthSummary,
   MonthTrend,
+  NewTransaction,
   Transaction,
   TransactionPage,
 } from '@shared/api';
-import { MAX_CHANGES, MAX_RECENT_IMPORTS } from '@shared/api';
+import { MAX_CHANGES, MAX_RECENT_IMPORTS, currencyNow, isConverting } from '@shared/api';
 import { categoriesOrDefaults } from '@shared/categories';
 import { isOnAccount } from '@shared/ledger';
 import type { SearchQuery } from '@shared/search';
@@ -25,9 +27,9 @@ import {
   writeCache,
 } from '../offline/cache';
 import type { Queued } from '../offline/outbox';
-import { readOutbox } from '../offline/outbox';
+import { readOutbox, shownOf } from '../offline/outbox';
 import { isOfflineFailure } from '../offline/network';
-import { queryClient } from '../query-client';
+import { ME_KEY, queryClient } from '../query-client';
 import { showError } from '../utils/notify';
 import {
   apply,
@@ -219,7 +221,7 @@ const waitingBut = (holds: ReadonlySet<string>) =>
   queue
     .pendingWithIds()
     .filter((q) => !holds.has(q.cid))
-    .map((q) => q.change);
+    .map(shownOf);
 
 /** Which of the changes waiting may have been sent already, for a read to answer */
 const maybeSent = () =>
@@ -660,7 +662,7 @@ export async function fetchSummary(month: string): Promise<MonthSummary> {
  */
 export function shownSummary(summary: MonthSummary, pending: Queued[]) {
   const holds = new Set(summary.alreadySaved);
-  const waiting = pending.filter((q) => !holds.has(q.cid)).map((q) => q.change);
+  const waiting = pending.filter((q) => !holds.has(q.cid)).map(shownOf);
   return applyToSummary(summary, waiting, savedTransaction);
 }
 
@@ -695,7 +697,7 @@ export async function fetchTrend(month: string): Promise<MonthTrend> {
  */
 export function shownTrend(trend: MonthTrend, pending: Queued[]) {
   const holds = new Set(trend.alreadySaved);
-  const waiting = pending.filter((q) => !holds.has(q.cid)).map((q) => q.change);
+  const waiting = pending.filter((q) => !holds.has(q.cid)).map(shownOf);
   return applyToTrend(trend, waiting, savedTransaction);
 }
 
@@ -738,8 +740,58 @@ export function change(...changes: LedgerChange[]) {
     LEDGER_KEY,
     (old) => old && apply(old, changes, shownTransaction),
   );
-  queue.add(changes);
+  // Typed in the currency amounts are shown in now, which the server converts from if the
+  // home currency has changed by the time they're saved
+  const profile = queryClient.getQueryData<Profile>(ME_KEY);
+  queue.add(changes, profile == null ? undefined : currencyNow(profile));
 }
+
+/**
+ * change(), for changes whose amounts were typed in `currency`, another than the one
+ * amounts are in now (an entry in THB): sent as typed, and converted by the server at the
+ * entry's own day's rate, keeping what was typed. Until then each is shown as `shown`
+ * (one each): its amount at the rate this device has, saying what was typed.
+ */
+export function changeTyped(currency: string, changes: LedgerChange[], shown: LedgerChange[]) {
+  queryClient.setQueryData<Ledger>(LEDGER_KEY, (old) => old && apply(old, shown, shownTransaction));
+  queue.add(changes, currency, shown);
+}
+
+/**
+ * Adds deleted entries again (Undo), each with its own id, as they were: one typed in
+ * another currency is sent as typed, and shown as it was until it's saved
+ */
+export function addAgain(...transactions: Transaction[]) {
+  for (const { createdAt: _at, original, ...t } of transactions) {
+    if (original == null) change({ op: 'addTransaction', transaction: t });
+    else {
+      changeTyped(
+        original.currency,
+        [{ op: 'addTransaction', transaction: { ...t, amountCents: original.cents } }],
+        [{ op: 'addTransaction', transaction: { ...t, original } as NewTransaction }],
+      );
+    }
+  }
+}
+
+/**
+ * Once the profile says amounts have been converted into a new home currency: every
+ * month's totals kept are dropped, everything shown is fetched again, and the changes kept
+ * meanwhile are sent
+ */
+let wasConverting = false;
+queryClient.getQueryCache().subscribe(({ query }) => {
+  if ((query.queryKey as readonly unknown[])[0] !== ME_KEY[0]) return;
+  const profile = query.state.data as Profile | undefined;
+  const converting = profile != null && isConverting(profile);
+  if (wasConverting && !converting) {
+    void forgetMonthTotals();
+    void queryClient.invalidateQueries({ queryKey: LEDGER_KEY });
+    void queryClient.invalidateQueries({ queryKey: TRANSACTIONS_KEY });
+    queue.resume();
+  }
+  wasConverting = converting;
+});
 
 const isImportChange = (change: LedgerChange) =>
   change.op === 'addImport' || change.op === 'undoImport';

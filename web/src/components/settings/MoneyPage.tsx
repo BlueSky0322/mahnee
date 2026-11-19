@@ -14,15 +14,16 @@ import { toDateInput } from '../../utils/date-input';
 import { DialogHeaderSlot } from '../ui/dialog-header';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { SETTINGS_INDEX } from './settings-search';
-import { ordinal, settingValue } from './settings-text';
+import CurrencyRow from './CurrencyRow';
+import OtherCurrencies from './OtherCurrencies';
+import { ordinal } from './settings-text';
 import { useSettingInView } from './setting-in-view';
 import { SectionHeader } from './SettingsPage';
 import classes from './Settings.module.css';
 import money from './MoneyPage.module.css';
 
-// Settings › Money (R-Set-Money, R-Desk-Prefs; owner decision D7): the main currency (as it
-// is until a home currency can be chosen), when the month starts and when the week
-// starts. "Month starts on" opens a sheet on phones (Done in its header) and a panel under
+// Settings › Money (R-Set-Money, R-Desk-Prefs; owner decisions D2 and D7): the main currency
+// (CurrencyRow.tsx), the other currencies Add offers (OtherCurrencies.tsx), when the month starts and when the week starts. "Month starts on" opens a sheet on phones (Done in its header) and a panel under
 // its button on computers (Cancel, Done), holding a draft: a day of the month (1 to 28, or the last day) or payday, the day a running monthly
 // pay in Scheduled is due, with this month's days as a preview. Done keeps it; Cancel,
 // Back and Esc keep nothing. Every monthly figure follows it (shared/period.ts), so what
@@ -133,6 +134,8 @@ function MoneyCard({ settings, pays }: { settings: Settings; pays: Recurring[] }
 
   const saved = draftOf(settings, pays);
   const currency = row('currency');
+  const others = row('otherCurrencies');
+  const travel = row('travelSense');
   const month = row('monthStart');
   const week = row('weekStart');
   const monthValue = valueOf(saved);
@@ -143,17 +146,23 @@ function MoneyCard({ settings, pays }: { settings: Settings; pays: Recurring[] }
         className={classes.card}
         aria-label="Money"
       >
-        <div
-          className={rowClass(currency.key)}
-          data-setting={currency.key}
-          tabIndex={-1}
-        >
-          <div className={classes.rowText}>
-            <div className={classes.label}>{currency.name}</div>
-            <div className={classes.detail}>{currency.line}</div>
-          </div>
-          <span className={classes.value}>{settingValue(currency.key, settings)}</span>
-        </div>
+        <CurrencyRow
+          settings={settings}
+          isDesktop={isDesktop}
+          rowClass={rowClass(currency.key)}
+          name={currency.name}
+          line={currency.line}
+          settingKey={currency.key}
+        />
+        <OtherCurrencies
+          settings={settings}
+          rowClass={rowClass(others.key)}
+          name={others.name}
+          line={others.line}
+          settingKey={others.key}
+          travelClass={rowClass(travel.key)}
+          travel={travel}
+        />
 
         {isDesktop ? (
           <div

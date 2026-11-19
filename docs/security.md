@@ -37,6 +37,24 @@ hack-proof, and the limits below are real.
   month starts on) are checked to be the person's own, and foreign keys with the email
   hold the same in the database.
 
+- **The profile picture.** A person's picture (one they chose, or a copy of their
+  Google picture) is served at `/api/me/picture`, which names no account: it answers only
+  the signed-in account's own, so there's no one else's to ask for. It's sent
+  `private, no-cache` with an ETag, so a browser's copy is checked with the server before
+  each showing, and `nosniff` with `default-src 'none'`. The server takes only a JPEG, PNG
+  or WebP by its bytes (not the type it's sent as), at most 64 KB and 512px a side, and
+  refuses anything else (`worker/accounts/pictures.ts`).
+- **Google picture.** When the Access token names the person's Google picture (only once
+  the owner passes Google's `picture` claim on, see Settings outside the repo), the Worker
+  copies it once into the database, after `/api/me` has answered, from
+  `https://lh3.googleusercontent.com/` only (the address parsed, so no lookalike host,
+  sign-in, port or scheme; no redirects followed; 5 seconds at most; read only up to
+  64 KB; checked as an upload is), and again only when the token names a different one.
+  One that can't be had isn't asked for again for an hour (per Worker instance). The browser never contacts Google for it, so Google
+  doesn't learn when or where the app is opened. The address it came from is kept beside
+  it, private to the account. Choosing the initial stops it showing; the copy is kept, to
+  go back to.
+
 - **What the server writes on its own (owner decision D8).** A cron trigger runs the
   nightly job every 15 minutes (`worker/ledger/post-scheduled.ts`): it adds each person's
   scheduled entries on their day, through the same checks as the app's own changes
@@ -45,6 +63,17 @@ hack-proof, and the limits below are real.
   first, and never twice (fixed ids per item and day, receipts, the next-due guard). It is
   not reachable from the API: only the trigger runs it. It logs only an error's name and
   message, never an amount, payee, account or email.
+- **Converting a new home currency (owner decision D2).** Changing it queues the person's
+  email and the time it changed on the `mahnee-reconvert` queue; each step reads and writes
+  only that person's rows, checked against that change (a step for an older one does
+  nothing). Its writes go through no change of the person's, so the person's own writes
+  wait (503) until it's done. A step that fails is tried again 8 times; then
+  `mahnee-reconvert-dlq` gives the person their currency back, nothing converted, so they
+  are never left unable to write. One that stalls is started again when the person reads
+  their profile, at most 3 times, then given back the same way. It
+  logs an error's name and message, or the name of the limit that refused a change, never
+  a job (it names the person), an amount or a rate. Both queues are made in Cloudflare
+  before the first deploy that names them; a deploy doesn't make them.
 
 - **Reminders by web push (owner decision D6, "Push with details").** A device gets
   reminders only after the person taps Allow notifications and the browser grants it;
@@ -157,6 +186,8 @@ hack-proof, and the limits below are real.
   answered as one that doesn't exist.
 - Exchange rates are fetched by the Worker, never the browser, from Wise and Frankfurter,
   with a 4-second time limit; the request names only the two currencies and the day.
+  Converting a person's amounts asks for one rate per currency and day of theirs, never
+  their amounts, and a step asks at most 200 days' rates.
 
 ## On the device
 
@@ -185,13 +216,25 @@ hack-proof, and the limits below are real.
   out (another account signing in clears it too). Close, Back, Esc and Cancel all keep it;
   an Add with nothing typed keeps none. Like the rest of what's kept, whoever holds an
   unlocked device can read it.
+- Travel sense keeps, per account in `localStorage` (`mahnee:travel:<email>`), today's
+  date, the currency Add opens in today and the currencies of the last two entries added
+  today: codes alone, no amounts or names; cleared on signing out. The device's time zone
+  is read on the device and never sent for it. The last exchange rate seen for each pair
+  is kept with the account's other copies, so offline Add can still estimate.
 - Unsaved changes are sent only as the account they were made as (`X-Expected-Account`),
   by the app or, while it's closed, by the service worker's background sync, which sends
   only the outbox of the account the app last said is signed in. The server refuses one
   sent while someone else is signed in, and it's kept.
-- The service worker keeps the app's own files and web fonts, never anything from the
-  API. It reads the app's IndexedDB only to send the outbox. It shows a reminder as it
-  comes and keeps nothing of it; a tap opens only the app's own pages.
+- The service worker keeps the app's own files and web fonts, and from the API only the
+  profile picture: one copy per account, in a cache named with the account's email
+  (`mahnee-pictures-v1:<email>`), kept only when the server said whose it is
+  (`X-Image-Viewer`) and shown from there only offline or while the server fails, and
+  only to the account the app last said is signed in. Online, the server is asked every
+  time. A 404 forgets the signed-in account's copy alone, and signing out deletes every
+  account's. It reads the app's
+  IndexedDB only to send the outbox and to know who's signed in.
+  It shows a reminder as it comes and keeps nothing of it; a tap opens only the app's own
+  pages.
 - Which account this device was last subscribed for reminders is kept in `localStorage`
   (`mahnee:pushOwner`, an email), to let the device go when someone else signs in here;
   removed on signing out.
@@ -202,7 +245,7 @@ hack-proof, and the limits below are real.
 - The export file holds the person's whole financial history: every transaction and the
   bills still repeating, with amounts, payees, notes and account names. The app doesn't store it anywhere: the
   Worker writes it as it's asked for, answers it with `Cache-Control: no-store`, and
-  logs none of it; the service worker never keeps anything from `/api`. Once
+  logs none of it; the service worker keeps nothing from `/api` but the picture. Once
   downloaded or shared it is wherever the person saved it, outside the app's care.
 - An imported file is read in the browser and never sent anywhere whole: only the
   changes the person ticks go to the server, as any other change. The column mapping
@@ -277,6 +320,11 @@ These are kept in Cloudflare and GitHub, not here; check them from time to time:
 - Access: who the shared "Anyone with an email" policy lets in (it also guards
   Splitfoolish), and how long a session lasts (24 hours).
 - The Cloudflare API token's permissions: no more than the deploy needs.
+- To show a Google picture by default: in Zero Trust, Integrations, Identity providers,
+  edit Google and add `picture` under OIDC Claims, then Save and Test (the test's
+  `oidc_fields` should show `picture`). Access then puts it in the token's `custom`
+  claims, read on the next sign-in. Without it, everyone starts with the initial and can
+  choose a photo.
 - `REQUIRE_EXPECTED_ACCOUNT=true` on the Worker, once installed apps send the header, so
   writes from apps too old to say whose they are are refused.
 - GitHub: only trusted people can push to `main`, since a push deploys.

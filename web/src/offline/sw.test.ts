@@ -2,7 +2,8 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { LedgerChange } from '@shared/api';
-import { MAX_CHANGES, MAX_CHANGES_BYTES } from '@shared/api';
+import { IMAGE_VIEWER_HEADER, MAX_CHANGES, MAX_CHANGES_BYTES, PICTURE_PATH } from '@shared/api';
+import { clear, set } from 'idb-keyval';
 import { api } from '../api';
 import type { Answer } from '../testing/sw';
 import {
@@ -12,11 +13,12 @@ import {
   fakeCaches,
   fetchThroughWorker,
   keptPaths,
+  keptText,
   ok,
   pushToWorker,
   respond,
 } from '../testing/sw';
-import { clearCache, setCacheUser } from './cache';
+import { IMAGE_CACHE_PREFIX, SW_USER_KEY, clearCache, setCacheUser } from './cache';
 import type { Queued } from './outbox';
 import { changesBody, classifySaveFailure, nextBatch, readOutbox, writeOutbox } from './outbox';
 
@@ -65,6 +67,113 @@ describe('the service worker, with the API', () => {
       ),
     ).rejects.toThrow('left /api/me to the browser');
     expect(caches.stores.size).toBe(0);
+  });
+});
+
+describe('the service worker, with the profile picture', () => {
+  const PICTURE = `${PICTURE_PATH}?v=upload-1700000000000`;
+  // The app's names for these, so sw.js's copies can't drift from them
+  const IMAGES = IMAGE_CACHE_PREFIX;
+  const pictureFor = (viewer: string, body = 'picture bytes') => ({
+    status: 200,
+    body,
+    contentType: 'image/webp',
+    headers: { [IMAGE_VIEWER_HEADER]: viewer },
+  });
+  const RYAN = 'ryan@example.com';
+
+  beforeEach(async () => {
+    await set(SW_USER_KEY, RYAN);
+  });
+  afterEach(() => clear());
+
+  test('asks the server every time while online, and keeps a copy for whoever it was shown to', async () => {
+    const caches = fakeCaches();
+    await fetchThroughWorker(PICTURE, pictureFor(RYAN, 'first'), caches);
+    expect(keptPaths(caches, `${IMAGES}${RYAN}`)).toEqual([PICTURE_PATH]);
+
+    const next = await fetchThroughWorker(PICTURE, pictureFor(RYAN, 'fresh'), caches);
+    expect(next.fetch).toHaveBeenCalledWith(expect.anything(), { cache: 'no-cache' });
+    expect(await next.response?.text()).toBe('fresh');
+  });
+
+  test('offline, shows the signed-in account its own copy, and nobody else theirs', async () => {
+    const caches = fakeCaches();
+    await fetchThroughWorker(PICTURE, pictureFor(RYAN), caches);
+    const offline = await fetchThroughWorker(PICTURE, { networkError: true }, caches);
+    expect(await offline.response?.text()).toBe('picture bytes');
+
+    // Someone else signs in on this browser: Ryan's picture isn't theirs to see
+    await set(SW_USER_KEY, 'sam@example.com');
+    expect((await fetchThroughWorker(PICTURE, { networkError: true }, caches)).response).toBeNull();
+    // Nor while the server is failing
+    const failing = await fetchThroughWorker(PICTURE, { status: 503 }, caches);
+    expect(failing.response?.status).toBe(503);
+
+    // And with nobody signed in, nobody's
+    await clear();
+    expect((await fetchThroughWorker(PICTURE, { networkError: true }, caches)).response).toBeNull();
+  });
+
+  test('shows the kept copy while the server is failing', async () => {
+    const caches = fakeCaches();
+    await fetchThroughWorker(PICTURE, pictureFor(RYAN), caches);
+    const failing = await fetchThroughWorker(PICTURE, { status: 503 }, caches);
+    expect(await failing.response?.text()).toBe('picture bytes');
+  });
+
+  test('forgets the copy once the server no longer shows it, and shows the refusal', async () => {
+    const caches = fakeCaches();
+    await fetchThroughWorker(PICTURE, pictureFor(RYAN), caches);
+    const refused = await fetchThroughWorker(PICTURE, { status: 404, body: '{}' }, caches);
+    expect(refused.response?.status).toBe(404);
+    expect(keptPaths(caches, `${IMAGES}${RYAN}`)).toEqual([]);
+    expect((await fetchThroughWorker(PICTURE, { networkError: true }, caches)).response).toBeNull();
+  });
+
+  test("a picture gone for the account signed in leaves another account's copy alone", async () => {
+    const caches = fakeCaches();
+    const SAM = 'sam@example.com';
+    await fetchThroughWorker(PICTURE, pictureFor(RYAN, 'ryan'), caches);
+    await set(SW_USER_KEY, SAM);
+    await fetchThroughWorker(PICTURE, pictureFor(SAM, 'sam'), caches);
+    // Sam goes back to the initial
+    await fetchThroughWorker(PICTURE, { status: 404, body: '{}' }, caches);
+    expect(keptPaths(caches, `${IMAGES}${SAM}`)).toEqual([]);
+    expect(await keptText(caches, `${IMAGES}${RYAN}`, PICTURE_PATH)).toBe('ryan');
+    // Ryan, back on this browser offline, still sees his
+    await set(SW_USER_KEY, RYAN);
+    const offline = await fetchThroughWorker(PICTURE, { networkError: true }, caches);
+    expect(await offline.response?.text()).toBe('ryan');
+  });
+
+  test('never keeps a sign-in page sent in its place', async () => {
+    const caches = fakeCaches();
+    await fetchThroughWorker(PICTURE, pictureFor(RYAN), caches);
+    const signIn = { status: 200, body: '<html>Sign in</html>', contentType: 'text/html' };
+    const shown = await fetchThroughWorker(PICTURE, { ...signIn, redirected: true }, caches);
+    expect(await shown.response?.text()).toBe('<html>Sign in</html>');
+    expect(await keptText(caches, `${IMAGES}${RYAN}`, PICTURE_PATH)).toBe('picture bytes');
+  });
+
+  test('keeps nothing the server did not say whose it is', async () => {
+    const caches = fakeCaches();
+    await fetchThroughWorker(
+      PICTURE,
+      { status: 200, body: 'x', contentType: 'image/webp' },
+      caches,
+    );
+    expect([...caches.stores.keys()].filter((name) => name.startsWith(IMAGES))).toEqual([]);
+  });
+
+  test('signing out forgets every kept picture', async () => {
+    const caches = fakeCaches();
+    vi.stubGlobal('caches', caches);
+    await fetchThroughWorker(PICTURE, pictureFor(RYAN), caches);
+    expect([...caches.stores.keys()]).toContain(`${IMAGES}${RYAN}`);
+    await clearCache();
+    expect([...caches.stores.keys()].filter((name) => name.startsWith(IMAGES))).toEqual([]);
+    vi.unstubAllGlobals();
   });
 });
 
@@ -177,6 +286,11 @@ const answers: [string, Answer, 'sent' | 'retry' | 'refused'][] = [
   ['no connection', { networkError: true }, 'retry'],
   ['401', { status: 401, body: '{"error":"Not signed in"}' }, 'retry'],
   ['429', { status: 429, body: '{"error":"Too many"}' }, 'retry'],
+  [
+    'amounts converting',
+    { status: 503, body: '{"error":"Converting your amounts","code":"converting"}' },
+    'retry',
+  ],
   ['500', { status: 500, body: '{"error":"Oops"}' }, 'retry'],
   [
     '503, an app too old to say whose a change is',

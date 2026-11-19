@@ -42,6 +42,11 @@ export const MAX_DISPLAY_NAME = 32;
  * shared/settings.ts.
  */
 export interface Settings {
+  /**
+   * The home currency every amount is kept and shown in (one of HOME_CURRENCIES in
+   * shared/rates.ts). Changing it converts every amount on the server (Profile.conversion).
+   */
+  currency: string;
   theme: ThemeSetting;
   accent: Accent;
   ratePreference: RatePreference;
@@ -73,10 +78,21 @@ export interface Settings {
   scheduledReminderDays: number | null;
   /** The person's time zone as their device names it, sent by the app; null until then */
   timeZone: string | null;
+  /**
+   * The other currencies Add offers after the home one, in the person's order: at most
+   * MAX_OTHER_CURRENCIES, each one of ENTRY_CURRENCIES (shared/rates.ts), each once
+   */
+  otherCurrencies: string[];
+  /**
+   * Whether Add opens in the currency of where the device is (or the one the last two
+   * entries today were in) for the rest of that day, when it's one of otherCurrencies
+   */
+  travelSense: boolean;
 }
 
 /** Settings before anyone changes them: as the redesign's settings pages draw them */
 export const DEFAULT_SETTINGS: Settings = {
+  currency: 'MYR',
   theme: 'auto',
   accent: 'cobalt',
   ratePreference: 'wise',
@@ -96,18 +112,103 @@ export const DEFAULT_SETTINGS: Settings = {
   reminderTime: '21:00',
   scheduledReminderDays: 1,
   timeZone: null,
+  otherCurrencies: [],
+  travelSense: true,
 };
+
+/**
+ * The limit that refused a change of currency: an entry's amount, an opening balance
+ * (either way), a budget or a scheduled item's amount would have gone past
+ * MAX_TRANSACTION in the new currency
+ */
+export const CONVERSION_LIMITS = ['amount', 'opening', 'budget', 'scheduled'] as const;
+export type ConversionLimit = (typeof CONVERSION_LIMITS)[number];
+
+/**
+ * Why a change of currency was refused: a limit, or `rates` when it couldn't be finished
+ * (the rate services stayed down through every try), so the person got their currency back
+ */
+export const CONVERSION_REFUSALS = [...CONVERSION_LIMITS, 'rates'] as const;
+export type ConversionRefusal = (typeof CONVERSION_REFUSALS)[number];
+
+/**
+ * The latest change of home currency, while its amounts are converted (refused null), or
+ * once it was refused, naming the limit, until the currency is changed again
+ */
+export interface Conversion {
+  from: string;
+  to: string;
+  /** When the currency was changed, in ms */
+  since: number;
+  refused: ConversionRefusal | null;
+}
+
+/** Where the picture shown in place of the initial came from */
+export const PICTURE_SOURCES = ['upload', 'google'] as const;
+export type PictureSource = (typeof PICTURE_SOURCES)[number];
+
+/** The picture shown in place of the initial, served at pictureAddress() */
+export interface ProfilePicture {
+  /** One the person chose, or the copy of their Google picture */
+  source: PictureSource;
+  /** When it was saved (ms), naming this copy */
+  version: number;
+}
+
+/** What shows when there's no chosen picture: the Google picture, or the initial */
+export const PICTURE_CHOICES = ['google', 'initial'] as const;
+export type PictureChoice = (typeof PICTURE_CHOICES)[number];
+
+/** The largest picture the server keeps, in bytes; the app sends 256px, well under it */
+export const MAX_PICTURE_BYTES = 64 * 1024;
+/** The most pixels a picture may have on a side */
+export const MAX_PICTURE_SIDE = 512;
+/** The picture types the server takes, by their bytes */
+export const PICTURE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+
+/** PUT /api/me/picture takes the image's bytes; GET serves the signed-in account's own */
+export const PICTURE_PATH = '/api/me/picture';
+/**
+ * The picture's address, naming the copy (?v=), so the service worker keeps it per
+ * account (IMAGE_VIEWER_HEADER) and a new one is a new address
+ */
+export const pictureAddress = (picture: ProfilePicture) =>
+  `${PICTURE_PATH}?v=${picture.source}-${picture.version}`;
+/**
+ * Whose a picture is, as the server sends it: the service worker keeps a copy for that
+ * account alone (web/public/sw.js keeps its own copy of this name)
+ */
+export const IMAGE_VIEWER_HEADER = 'X-Image-Viewer';
 
 /** The signed-in account and its private settings */
 export interface Profile {
   email: string;
   displayName: string | null;
   settings: Settings;
+  /** Converting into a new home currency, or the last change refused; null otherwise */
+  conversion: Conversion | null;
+  /** What shows in place of the initial; null for the initial */
+  picture: ProfilePicture | null;
+  /** A copy of their Google picture is kept, to go back to */
+  googlePicture: boolean;
 }
+
+/** Whether a profile's amounts are being converted into a new home currency */
+export const isConverting = (profile: Pick<Profile, 'conversion'>) =>
+  profile.conversion != null && profile.conversion.refused == null;
+
+/**
+ * The currency amounts are in now, as shown and as changes are typed in: until a
+ * conversion is done they are still in the currency it's from
+ */
+export const currencyNow = (profile: Pick<Profile, 'conversion' | 'settings'>) =>
+  isConverting(profile) ? profile.conversion!.from : profile.settings.currency;
 
 export interface ProfilePatch {
   displayName?: string | null;
   settings?: Partial<Settings>;
+  /** Lets the chosen picture go, showing the Google picture or the initial instead */
+  picture?: PictureChoice;
 }
 
 // ---------- Rates ----------
@@ -209,6 +310,24 @@ export interface Transaction {
   scheduled?: ScheduledMark;
   /** When the server saved it (ms), which orders transactions on the same day after the time */
   createdAt: number;
+  /**
+   * What it was typed as, when that wasn't the home currency: an entry typed in another
+   * currency, or one converted when the home currency changed. Missing for one typed in the
+   * home currency. Never sent in a change: a change says its currency in ChangesBody.
+   */
+  original?: Original;
+}
+
+/** An amount as it was typed, and the rate that converted it into the home currency */
+export interface Original {
+  currency: string;
+  /** Whole cents of `currency` */
+  cents: number;
+  /** 1 of `currency` is `rate` of the home currency */
+  rate: number;
+  source: FetchedRateSource;
+  /** When the rate is from (ms); for an earlier day's rate, noon UTC that day */
+  at: number;
 }
 
 /** Where an entry from Scheduled came from, and whether its amount is still to check */
@@ -463,7 +582,7 @@ export interface PayeeCategories {
 export const MAX_PAYEE_CATEGORIES = 10_000;
 
 /** What a transaction is given when it's added: all of it but when it was saved */
-export type NewTransaction = Omit<Transaction, 'createdAt'>;
+export type NewTransaction = Omit<Transaction, 'createdAt' | 'original'>;
 
 /**
  * A bill or income that repeats, monthly or weekly (shared/recurring.ts), and what is added
@@ -530,15 +649,19 @@ export interface Ledger {
 }
 
 /**
- * One change to the ledger, as the app makes it and POST /api/changes saves it. An
- * account's or category's kind is fixed once it's added.
+ * One change to the ledger, as the app makes it and POST /api/changes saves it. A
+ * category's kind is fixed once it's added; an account's can change.
  */
 export type LedgerChange =
   | {
       op: 'addAccount';
       account: { id: string; name: string; kind: AccountKind; openingCents: number };
     }
-  | { op: 'updateAccount'; id: string; name?: string; openingCents?: number }
+  /**
+   * A new kind keeps openingCents as kept (below zero is owed on a card, overdrawn on the
+   * others) unless the change names a new one too
+   */
+  | { op: 'updateAccount'; id: string; name?: string; kind?: AccountKind; openingCents?: number }
   /** archived: true takes it out of the list, false brings it back */
   | { op: 'archiveAccount'; id: string; archived: boolean }
   /** parentId: the top-level category it goes under, of the same kind; null for top level */
@@ -636,6 +759,13 @@ export interface ChangesBody {
    * is refused
    */
   ids: string[];
+  /**
+   * The home currency each change was typed in, one each in order (currencyNow when it was
+   * made), null for one that doesn't say (kept from before): an amount typed before the
+   * currency changed is converted from it on saving; one that doesn't say is taken as typed
+   * in the home currency
+   */
+  currencies?: (string | null)[];
 }
 
 /**
@@ -704,6 +834,8 @@ export interface ApiErrorBody {
 /**
  * account_mismatch: the write was made for another account than the one signed in now,
  * so it's kept (not sent again) until that account is back. client_update_required: an
- * app too old to say whose a write is; kept until it updates.
+ * app too old to say whose a write is; kept until it updates. converting: the person's
+ * amounts are being converted into a new home currency (503), so the write is kept and sent
+ * again once that's done.
  */
-export type ErrorCode = 'account_mismatch' | 'client_update_required';
+export type ErrorCode = 'account_mismatch' | 'client_update_required' | 'converting';

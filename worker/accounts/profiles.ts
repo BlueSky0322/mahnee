@@ -1,20 +1,40 @@
-// The account's profile (its display name) and settings (private preferences that
-// follow it between devices). A profile row is made the first time someone saves
+// The account's profile (its display name and picture) and settings (private preferences
+// that follow it between devices). A profile row is made the first time someone saves
 // anything; until then everything has its default.
 
 import {
   DEFAULT_SETTINGS,
   MAX_DISPLAY_NAME,
+  PICTURE_CHOICES,
+  type PictureChoice,
   type Profile,
   type ProfilePatch,
   type RatePreference,
   type Settings,
 } from '../../shared/api';
-import { readSettingChanges } from '../../shared/settings';
+import { readSettingChanges, whyNotOtherCurrencies } from '../../shared/settings';
+import {
+  type ConversionRow,
+  type ConvertJob,
+  SELECT_CONVERSION,
+  conversionOf,
+  readConversionRow,
+  startStatements,
+} from '../currency/convert';
 import { type Unchecked, json, fail } from '../http';
+import {
+  type PictureRow,
+  choosePictureStatements,
+  fetchGooglePicture,
+  keepPictureStatement,
+  pictureRowsStatement,
+  readPicture,
+  shownPicture,
+} from './pictures';
 
 /** Each setting's column; yes-or-no settings are kept as 1 or 0 */
 const SETTINGS = {
+  currency: 'currency',
   theme: 'theme',
   accent: 'accent',
   ratePreference: 'rate_preference',
@@ -34,6 +54,8 @@ const SETTINGS = {
   reminderTime: 'reminder_time',
   scheduledReminderDays: 'scheduled_reminder_days',
   timeZone: 'time_zone',
+  otherCurrencies: 'other_currencies',
+  travelSense: 'travel_sense',
 } as const satisfies Record<keyof Settings, string>;
 
 type SettingKey = keyof typeof SETTINGS;
@@ -45,10 +67,20 @@ const FLAGS = new Set<SettingKey>([
   'askForTime',
   'carryOverDefault',
   'dailyReminder',
+  'travelSense',
 ]);
 
+/** The settings that are lists, kept as JSON */
+const LISTS = new Set<SettingKey>(['otherCurrencies']);
+
 const toColumn = (key: SettingKey, value: Settings[SettingKey]) =>
-  FLAGS.has(key) ? (value ? 1 : 0) : (value as string | number | null);
+  FLAGS.has(key)
+    ? value
+      ? 1
+      : 0
+    : LISTS.has(key)
+      ? JSON.stringify(value)
+      : (value as string | number | null);
 
 /** The settings as one row of user_settings holds them */
 const SELECT_SETTINGS = `SELECT ${KEYS.map((k) => `${SETTINGS[k]} AS ${k}`).join(', ')}
@@ -57,6 +89,9 @@ const SELECT_SETTINGS = `SELECT ${KEYS.map((k) => `${SETTINGS[k]} AS ${k}`).join
 function fromRow(row: Record<string, unknown>): Settings {
   const settings = { ...row };
   for (const key of FLAGS) settings[key] = row[key] === 1;
+  for (const key of LISTS) {
+    settings[key] = typeof row[key] === 'string' ? (JSON.parse(row[key]) as unknown) : [];
+  }
   return settings as unknown as Settings;
 }
 
@@ -71,17 +106,53 @@ export const ensureProfileStatement = (db: D1Database, email: string) =>
     .bind(email, Date.now());
 
 export async function getProfile(db: D1Database, email: string): Promise<Profile> {
-  const [profile, settings] = await db.batch([
-    db.prepare('SELECT display_name AS displayName FROM profiles WHERE email = ?').bind(email),
+  // Read together, so a currency and the conversion that changed it always agree
+  const [profile, settings, pictures, conversion] = await db.batch([
+    db
+      .prepare(
+        'SELECT display_name AS displayName, google_picture AS google FROM profiles WHERE email = ?',
+      )
+      .bind(email),
     db.prepare(SELECT_SETTINGS).bind(email),
+    pictureRowsStatement(db, email),
+    db.prepare(SELECT_CONVERSION).bind(email),
   ]);
   const row = settings.results[0] as Record<string, unknown> | undefined;
+  const saved = profile.results[0] as { displayName: string | null; google: number } | undefined;
   return {
     email,
-    displayName:
-      (profile.results[0] as { displayName: string | null } | undefined)?.displayName ?? null,
+    displayName: saved?.displayName ?? null,
     settings: row ? fromRow(row) : { ...DEFAULT_SETTINGS },
+    conversion: conversionOf((conversion.results[0] as ConversionRow | undefined) ?? null),
+    // The Google picture shows until they ask for the initial
+    ...shownPicture(pictures.results as unknown as PictureRow[], saved?.google !== 0),
   };
+}
+
+/**
+ * Copies the Google picture the sign-in names when it's new (fetchGooglePicture). Run
+ * after GET /api/me has answered, so a slow Google never holds up the app's start; the
+ * picture shows from the next start.
+ */
+export async function copyGooglePicture(
+  db: D1Database,
+  email: string,
+  googlePicture: string,
+  googleBase?: string,
+) {
+  const keep = await fetchGooglePicture(db, email, googlePicture, googleBase);
+  if (keep != null) await db.batch([ensureProfileStatement(db, email), keep]);
+}
+
+/** PUT /api/me/picture: the picture's bytes, checked, kept as the one the person chose */
+export async function putPicture(db: D1Database, email: string, req: Request) {
+  const picture = await readPicture(req);
+  if (picture instanceof Response) return picture;
+  await db.batch([
+    ensureProfileStatement(db, email),
+    keepPictureStatement(db, email, 'upload', picture, null),
+  ]);
+  return json<Profile>(await getProfile(db, email));
 }
 
 /** Changes some settings, making the settings row (and profile) on first use */
@@ -122,6 +193,17 @@ async function readSettings(
   const changes = readSettingChanges(raw);
   if ('error' in changes) return fail(changes.error, 400);
 
+  // The main currency, saved or sent with them, is never one of the others
+  if (changes.otherCurrencies != null) {
+    const saved = await db
+      .prepare('SELECT currency FROM user_settings WHERE email = ?')
+      .bind(email)
+      .first<string>('currency');
+    const home = changes.currency ?? saved ?? DEFAULT_SETTINGS.currency;
+    const why = whyNotOtherCurrencies(changes.otherCurrencies, home);
+    if (why != null) return fail(why, 400);
+  }
+
   if (changes.defaultAccountId != null) {
     const account = await db
       .prepare('SELECT archived FROM accounts WHERE email = ? AND id = ?')
@@ -160,9 +242,19 @@ async function readSettings(
   return changes;
 }
 
-/** PATCH /api/me: { displayName?, settings? } */
-export async function patchProfile(db: D1Database, email: string, body: Unchecked<ProfilePatch>) {
+/**
+ * PATCH /api/me: { displayName?, settings?, picture? }. A new home currency is saved at
+ * once and starts converting every amount into it (currency/convert.ts): `convert` queues
+ * the first step once it's saved. Refused while a conversion is still under way.
+ */
+export async function patchProfile(
+  db: D1Database,
+  email: string,
+  body: Unchecked<ProfilePatch>,
+  convert: (job: ConvertJob) => Promise<void>,
+) {
   const statements: D1PreparedStatement[] = [];
+  let converting: ConvertJob | null = null;
 
   if ('displayName' in body) {
     const raw = body.displayName;
@@ -179,13 +271,45 @@ export async function patchProfile(db: D1Database, email: string, body: Unchecke
     );
   }
 
+  if ('picture' in body) {
+    if (!(PICTURE_CHOICES as readonly unknown[]).includes(body.picture)) {
+      return fail('Pick the Google picture or the initial', 400);
+    }
+    statements.push(
+      ensureProfileStatement(db, email),
+      ...choosePictureStatements(db, email, body.picture as PictureChoice),
+    );
+  }
+
   if ('settings' in body) {
     const changes = await readSettings(db, email, body.settings);
     if (changes instanceof Response) return changes;
-    statements.push(...settingsStatements(db, email, changes));
+    if (changes.currency != null) {
+      const [saved, conversion] = await Promise.all([
+        db
+          .prepare('SELECT currency FROM user_settings WHERE email = ?')
+          .bind(email)
+          .first<{ currency: string }>(),
+        readConversionRow(db, email),
+      ]);
+      const from = saved?.currency ?? DEFAULT_SETTINGS.currency;
+      if (conversion?.phase === 'converting') {
+        return fail(`Wait until your amounts are in ${conversion.to}`, 409);
+      }
+      if (changes.currency === from) delete changes.currency;
+      else {
+        converting = { email, since: Date.now() };
+        statements.push(
+          ...settingsStatements(db, email, changes),
+          ...startStatements(db, email, from, changes.currency, converting.since),
+        );
+      }
+    }
+    if (converting == null) statements.push(...settingsStatements(db, email, changes));
   }
 
   if (statements.length > 0) await db.batch(statements);
+  if (converting != null) await convert(converting);
   return json<Profile>(await getProfile(db, email));
 }
 

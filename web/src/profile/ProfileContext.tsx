@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { Profile } from '../api';
 import { ApiError, api } from '../api';
-import { queryClient } from '../query-client';
+import { ME_KEY, queryClient } from '../query-client';
 import { isOfflineFailure } from '../offline/network';
 import { reportKept } from '../offline/storage-health';
 import {
@@ -23,7 +23,10 @@ import { isTimeZone } from '@shared/settings';
 import {
   DEFAULT_SETTINGS,
   THEMES,
+  currencyNow,
+  isConverting,
   type Accent,
+  type PictureChoice,
   type ProfilePatch,
   type Settings,
   type ThemeSetting,
@@ -97,6 +100,11 @@ interface ProfileContextValue {
     settings: Partial<Settings>,
     track?: (saving: Promise<void>) => Promise<unknown>,
   ) => void;
+  /**
+   * Shows a chosen photo (made small already), or the Google picture or the initial, in
+   * place of the initial, and saves it; rejects if it isn't saved (what was there comes back)
+   */
+  changePicture: (to: Blob | PictureChoice) => Promise<void>;
   /** Replaces the profile with one the server returned */
   replace: (profile: Profile) => void;
   /** Changes the profile on screen from its latest value */
@@ -105,7 +113,6 @@ interface ProfileContextValue {
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
 
-const ME_KEY = ['me'] as const;
 /** Versioned like the other saved copies: one in an older shape is never read */
 const ME_CACHE_KEY = 'me-v2';
 /**
@@ -113,12 +120,24 @@ const ME_CACHE_KEY = 'me-v2';
  * last account's saved profile
  */
 export const DEVICE_START_WAIT_MS = 2000;
+/** How often the server is asked whether amounts have finished converting */
+export const CONVERSION_POLL_MS = 2000;
 
 export const useProfile = () => {
   const value = useContext(ProfileContext);
   if (value == null) throw new Error('useProfile needs a ProfileProvider');
   return value;
 };
+
+/**
+ * The currency amounts are in, to show them in: the home currency, or while amounts are
+ * converting into a new one, the one they're still in
+ */
+export function useCurrency() {
+  // Drawn alone (a part on its own in a test), the default
+  const profile = useContext(ProfileContext)?.profile;
+  return profile == null ? DEFAULT_SETTINGS.currency : currencyNow(profile);
+}
 
 /** The name to show for someone: their display name, else the part of the email before @ */
 export const nameFor = (email: string, displayName?: string | null) =>
@@ -160,8 +179,16 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     if (email == null) return undefined;
     assumed.current = email;
     const saved = await readCache<Profile>(ME_CACHE_KEY);
-    // Kept before some settings existed: those have their defaults
-    return saved && { ...saved, settings: { ...DEFAULT_SETTINGS, ...saved.settings } };
+    // Kept before some settings (or the picture) existed: those have their defaults
+    return (
+      saved && {
+        ...saved,
+        picture: saved.picture ?? null,
+        googlePicture: saved.googlePicture ?? false,
+        settings: { ...DEFAULT_SETTINGS, ...saved.settings },
+        conversion: saved.conversion ?? null,
+      }
+    );
   }, []);
 
   // Loaded once: after that, this device's changes are the latest, and a refetch
@@ -320,6 +347,35 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     [change],
   );
 
+  // The picture shown in place of the initial. A chosen photo shows from this device until
+  // the server has kept it (then the server's copy, which the browser loads); one refused
+  // puts back what was there. Rejects if it isn't saved, for the caller to say so.
+  const changePicture = useCallback(
+    async (to: Blob | PictureChoice) => {
+      if (!(to instanceof Blob)) {
+        return change(
+          (p) => ({
+            ...p,
+            picturePreview: null,
+            picture: to === 'google' && p.googlePicture ? { source: 'google', version: 0 } : null,
+          }),
+          () => api.updateMe({ picture: to }),
+        );
+      }
+      const preview = URL.createObjectURL(to);
+      try {
+        await change(
+          (p) => ({ ...p, picturePreview: preview }),
+          () => api.putPicture(to),
+        );
+      } finally {
+        // Let go once the server's copy has had a moment to load in its place
+        setTimeout(() => URL.revokeObjectURL(preview), 5000);
+      }
+    },
+    [change],
+  );
+
   // The server needs the person's own day, and only the device knows its time zone: sent
   // once a start, after the server has said who's signed in (never from the copy kept on
   // the device), whenever it isn't the one saved. A failure is left for the next start.
@@ -331,6 +387,27 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     if (!isTimeZone(zone) || zone === profile.settings.timeZone) return;
     void update({ settings: { timeZone: zone } }).catch(() => {});
   }, [profile, update]);
+
+  // While amounts convert into a new home currency, the server is asked every few seconds
+  // how it's going; once it's done, the ledger fetches everything again in the new currency
+  // and sends the changes kept meanwhile (ledger/ledger.ts)
+  const converting = profile != null && isConverting(profile);
+  useEffect(() => {
+    if (!converting) return;
+    const timer = setInterval(() => {
+      const asked = latest.current;
+      void api
+        .getMe()
+        .then((me) => {
+          // A change made since wins; the next ask brings the rest
+          if (asked !== latest.current || profileRef.current?.email !== me.email) return;
+          replace(me);
+          void writeCache(ME_CACHE_KEY, me);
+        })
+        .catch(() => {});
+    }, CONVERSION_POLL_MS);
+    return () => clearInterval(timer);
+  }, [converting, replace]);
 
   const patch = useCallback(
     (change: (profile: Profile) => Profile) => {
@@ -361,6 +438,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         change,
         update,
         rememberSettings,
+        changePicture,
         replace,
         patch,
       }}

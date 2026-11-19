@@ -12,9 +12,16 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
-## 2026-11-18
+## 2026-11-19
 
 - Added: reminders on your phone: a daily one when nothing was added, and one the day before a scheduled entry, naming it and its amount [#?]
+- Added: log an entry in another currency: pick your other currencies in Settings › Money, switch with the pill on Add, and each entry keeps what you typed and its rate [#54]
+- Changed: An account's kind can be changed in Edit, a card to a bank account and back, with its balance shown as it will read [#53]
+
+## 2026-11-18
+
+- Added: pick your home currency in Settings › Money; every amount converts at its own day's rate, and changing back restores them exactly [#52]
+- Added: Your picture in place of the initial: your Google picture once set up, or a photo chosen in My account [#51]
 - Changed: Fields, small buttons, lists and dialogs match the design's lines, sizes and spacing everywhere [#50]
 - Added: Scheduled shows the next 30 days: what comes in and goes out, and each account's lowest point [#49]
 - Changed: Plan, each category's page and Scheduled match the design [#48]
@@ -132,3 +139,7 @@ For agents:
 [#48]: https://github.com/BlueSky0322/mahnee/pull/48
 [#49]: https://github.com/BlueSky0322/mahnee/pull/49
 [#50]: https://github.com/BlueSky0322/mahnee/pull/50
+[#51]: https://github.com/BlueSky0322/mahnee/pull/51
+[#52]: https://github.com/BlueSky0322/mahnee/pull/52
+[#53]: https://github.com/BlueSky0322/mahnee/pull/53
+[#54]: https://github.com/BlueSky0322/mahnee/pull/54

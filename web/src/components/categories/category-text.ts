@@ -1,6 +1,6 @@
 import { fitsBudgetCents } from '@shared/budgets';
 import type { CategoryKind } from '@shared/categories';
-import { DEFAULT_CURRENCY, MAX_TRANSACTION } from '@shared/ledger';
+import { MAX_TRANSACTION } from '@shared/ledger';
 import { toCents } from '@shared/rates';
 import { formatAmount } from '../../utils/money';
 
@@ -29,4 +29,4 @@ export function readBudget(text: string): { cents: number | null } | { error: st
 }
 
 /** A budget as the form shows it to change: "300.00", "1,200.00" (read back by readBudget) */
-export const budgetText = (cents: number) => formatAmount(cents, DEFAULT_CURRENCY);
+export const budgetText = (cents: number, currency: string) => formatAmount(cents, currency);

@@ -5,6 +5,7 @@
 import type {
   Account,
   Category,
+  FetchedRateSource,
   Ledger,
   Recurring,
   SearchPage,
@@ -161,20 +162,49 @@ const transactionColumns = (t = 'transactions') =>
   `${t}.id, ${t}.kind, ${t}.account_id AS accountId, ${t}.to_account_id AS toAccountId,
   ${t}.amount_cents AS amountCents, ${t}.category_id AS categoryId, ${t}.payee, ${t}.note,
   ${t}.date, ${t}.time, ${t}.created_at AS createdAt, ${t}.recurring_id AS recurringId,
-  ${t}.recurring_due AS recurringDue, ${t}.to_check AS toCheck`;
+  ${t}.recurring_due AS recurringDue, ${t}.to_check AS toCheck,
+  ${t}.original_currency AS originalCurrency, ${t}.original_cents AS originalCents,
+  ${t}.rate, ${t}.rate_source AS rateSource, ${t}.rate_at AS rateAt`;
 
 /** A transaction's row as read with transactionColumns */
-type TransactionRow = Omit<Transaction, 'scheduled'> & {
+type TransactionRow = Omit<Transaction, 'scheduled' | 'original'> & {
   recurringId: string | null;
   recurringDue: string | null;
   toCheck: 0 | 1;
+  originalCurrency: string | null;
+  originalCents: number | null;
+  rate: number | null;
+  rateSource: FetchedRateSource | null;
+  rateAt: number | null;
 };
 
-/** A row as the API answers it: `scheduled` only on an entry from Scheduled */
-export function toTransaction({ recurringId, recurringDue, toCheck, ...t }: TransactionRow) {
+/**
+ * A row as the API answers it: `scheduled` only on an entry from Scheduled, `original`
+ * only on one typed in a currency other than the home one
+ */
+export function toTransaction({
+  recurringId,
+  recurringDue,
+  toCheck,
+  originalCurrency,
+  originalCents,
+  rate,
+  rateSource,
+  rateAt,
+  ...t
+}: TransactionRow) {
   const out: Transaction = t;
   if (recurringId != null && recurringDue != null) {
     out.scheduled = { recurringId, due: recurringDue, toCheck: toCheck === 1 };
+  }
+  if (originalCurrency != null && originalCents != null && rate != null && rateSource != null) {
+    out.original = {
+      currency: originalCurrency,
+      cents: originalCents,
+      rate,
+      source: rateSource,
+      at: rateAt ?? 0,
+    };
   }
   return out;
 }

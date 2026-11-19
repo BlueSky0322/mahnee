@@ -56,6 +56,17 @@ describe('nextBatch', () => {
     expect(bytes(all.slice(0, batch.length + 1))).toBeGreaterThan(MAX_CHANGES_BYTES);
   });
 
+  test('counts the currency each change was typed in, where they say', () => {
+    const all = queued(100, (i) => `${i}`.padEnd(1000, 'x')).map((q) => ({
+      ...q,
+      currency: 'MYR',
+    }));
+    const batch = nextBatch(all);
+    expect(changesBody(batch).currencies).toEqual(batch.map(() => 'MYR'));
+    expect(bytes(batch)).toBeLessThanOrEqual(MAX_CHANGES_BYTES);
+    expect(bytes(all.slice(0, batch.length + 1))).toBeGreaterThan(MAX_CHANGES_BYTES);
+  });
+
   test('still sends one change bigger than the limit, on its own', () => {
     const all = queued(3, (i) => (i === 0 ? 'x'.repeat(MAX_CHANGES_BYTES) : 'small'));
     expect(nextBatch(all)).toEqual(all.slice(0, 1));
@@ -119,6 +130,60 @@ describe('the service worker and the app', () => {
   afterEach(async () => {
     vi.unstubAllGlobals();
     await clearCache();
+  });
+
+  test('the service worker says the currency each change was typed in, as the app does', async () => {
+    // One kept from before changes said theirs doesn't stop the others saying
+    const typed = queued(3).map((q, i) => (i === 1 ? q : { ...q, currency: 'MYR' }));
+    await writeOutbox('ryan@example.com', typed);
+    const { outcome, fetch } = await backgroundSync(ok);
+    expect(outcome).toBe('done');
+    const body = JSON.parse(fetch.mock.calls[0][1].body as string) as unknown;
+    expect(body).toEqual(changesBody(typed));
+    expect(body).toMatchObject({ currencies: ['MYR', null, 'MYR'] });
+  });
+
+  test('a change typed in another currency is sent as typed by both, never as it is shown', async () => {
+    const transaction = {
+      id: 'b'.repeat(16),
+      kind: 'expense' as const,
+      accountId: 'a'.repeat(16),
+      toAccountId: null,
+      amountCents: 12_000,
+      categoryId: null,
+      payee: null,
+      note: null,
+      date: '2026-11-19',
+    };
+    const typed: Queued[] = [
+      {
+        cid: 'c'.repeat(16),
+        change: { op: 'addTransaction', transaction },
+        currency: 'THB',
+        // What this device draws until it's saved: never sent
+        shown: {
+          op: 'addTransaction',
+          transaction: {
+            ...transaction,
+            amountCents: 1_530,
+            original: { currency: 'THB', cents: 12_000, rate: 0.1275, source: 'wise', at: 1 },
+          } as typeof transaction,
+        },
+      },
+    ];
+    const sent = {
+      changes: [{ op: 'addTransaction', transaction }],
+      ids: ['c'.repeat(16)],
+      currencies: ['THB'],
+    };
+    expect(changesBody(typed)).toEqual(sent);
+    await writeOutbox('ryan@example.com', typed);
+    const { outcome, fetch } = await backgroundSync(ok);
+    expect(outcome).toBe('done');
+    const body = fetch.mock.calls[0][1].body as string;
+    expect(JSON.parse(body)).toEqual(sent);
+    expect(body).not.toContain('original');
+    expect(body).not.toContain('shown');
   });
 
   test('the service worker sends what the app kept, as whoever the app says is signed in', async () => {

@@ -1,6 +1,8 @@
 import { useNetwork } from '@mantine/hooks';
 import { useEffect, useState } from 'react';
 import { useDataAge, useLedgerShown, useUnsaved } from '../../ledger/useLedger';
+import { isConverting } from '@shared/api';
+import { useProfile } from '../../profile/ProfileContext';
 import { freshnessText } from './freshness-text';
 import classes from './Freshness.module.css';
 
@@ -16,6 +18,8 @@ function useFreshness(month: string) {
   const { online } = useNetwork();
   const { waiting, signedOut } = useUnsaved();
   const at = useDataAge(month);
+  const { profile } = useProfile();
+  const convertingTo = profile != null && isConverting(profile) ? profile.conversion!.to : null;
   const [now, setNow] = useState(Date.now);
   // An age keeps counting while it's shown
   useEffect(() => {
@@ -25,7 +29,7 @@ function useFreshness(month: string) {
     return () => clearInterval(timer);
   }, [at]);
   if (!shown) return null;
-  return freshnessText({ online, waiting, signedOut, at, now });
+  return freshnessText({ online, waiting, signedOut, convertingTo, at, now });
 }
 
 /**

@@ -44,3 +44,10 @@
   margin-left: auto;
   min-width: 120px;
 }
+
+/* The rate an entry typed in another currency was converted at, and its day */
+.rateLine {
+  margin: -6px 0 0;
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+}

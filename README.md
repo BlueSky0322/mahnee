@@ -46,7 +46,7 @@ The Worker is laid out by feature:
 | ------------------------------------------ | -------------------------------------------------------------------------- |
 | `index.ts`, `app.ts`, `http.ts`, `routes/` | The entry point, what every route shares, reading requests, and the routes |
 | `accounts/`                                | Signing in, the profile and settings                                       |
-| `currency/`                                | Exchange rates                                                             |
+| `currency/`                                | Exchange rates, and converting every amount into a new home currency       |
 | `ledger/`                                  | Accounts, balances and categories, saving changes, and the nightly job     |
 | `push/`                                    | Reminders by web push: encrypting, signing, sending, and the cron's job    |
 | `test/`                                    | The API tests, run against a real local Worker and database                |
@@ -65,6 +65,10 @@ yarn dev:worker      # builds the app, then serves app and API on http://localho
 There is no Cloudflare Access locally, so every request is the `DEV_USER_EMAIL` in
 `.dev.vars` (or whoever the `X-Dev-User` header names). Rebuild and restart after
 changing `web/`.
+
+Changing the home currency converts every amount through a queue, which `wrangler dev`
+runs locally on its own; deploying needs the `mahnee-reconvert` and `mahnee-reconvert-dlq`
+queues made in Cloudflare first.
 
 The nightly job that adds scheduled entries runs on a cron trigger; locally, run it as the
 trigger would with

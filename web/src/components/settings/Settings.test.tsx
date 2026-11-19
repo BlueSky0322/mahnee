@@ -259,7 +259,7 @@ describe('My account', () => {
     expect(await pageTitle('My account')).toBeTruthy();
     expect(window.location.search).toBe('?settings=account');
     const profile = screen.getByRole('region', { name: 'Profile' });
-    expect(text(profile)).toBe('R Ryan ryan@example.com Change name');
+    expect(text(profile)).toBe('R Ryan ryan@example.com Change name Change picture');
 
     await user.click(within(profile).getByRole('button', { name: 'Change name' }));
     const dialog = within(await screen.findByRole('dialog', { name: 'Change name' }));
@@ -271,7 +271,7 @@ describe('My account', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await waitFor(() => expect(server.me.displayName).toBe('Mei'));
     expect(text(screen.getByRole('region', { name: 'Profile' }))).toBe(
-      'M Mei ryan@example.com Change name',
+      'M Mei ryan@example.com Change name Change picture',
     );
 
     await user.click(screen.getByRole('button', { name: 'Settings' }));
@@ -291,7 +291,7 @@ describe('My account', () => {
     await user.click(dialog.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(server.me.displayName).toBeNull());
     expect(text(screen.getByRole('region', { name: 'Profile' }))).toBe(
-      'R ryan ryan@example.com Change name',
+      'R ryan ryan@example.com Change name Change picture',
     );
   });
 
@@ -308,7 +308,7 @@ describe('My account', () => {
     expect(await screen.findByText(/Couldn't save your name/)).toBeTruthy();
     await waitFor(() =>
       expect(text(screen.getByRole('region', { name: 'Profile' }))).toBe(
-        'R Ryan ryan@example.com Change name',
+        'R Ryan ryan@example.com Change name Change picture',
       ),
     );
     expect(server.me.displayName).toBe('Ryan');

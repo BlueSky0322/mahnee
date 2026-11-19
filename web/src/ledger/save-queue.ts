@@ -8,6 +8,7 @@ import {
   nextBatch,
   readOutbox,
   requestBackgroundSync,
+  shownOf,
   withOutbox,
   writeOutbox,
 } from '../offline/outbox';
@@ -53,8 +54,12 @@ export interface QueueState {
 }
 
 export interface SaveQueue {
-  /** Queues changes to send after any already waiting, keeping them on the device first */
-  add: (changes: LedgerChange[]) => void;
+  /**
+   * Queues changes to send after any already waiting, keeping them on the device first,
+   * with the currency their amounts were typed in, and (one each, for changes in another
+   * currency) each as it's shown until saved
+   */
+  add: (changes: LedgerChange[], currency?: string, shown?: LedgerChange[]) => void;
   /** Changes made but not yet saved, being sent or waiting, in order */
   pending: () => LedgerChange[];
   /** The same, each with the id it's sent with */
@@ -114,7 +119,7 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
     const found = kept.filter((q) => !known.has(q.cid));
     queued = [...kept, ...queued.filter((q) => !inOutbox.has(q.cid) && !stored.has(q.cid))];
     const left = queued;
-    if (found.length > 0) events.found(found.map((q) => q.change));
+    if (found.length > 0) events.found(found.map(shownOf));
     changed();
     // Not kept (storage full, say): the outbox still holds what it did, and the rest are
     // sent from here
@@ -189,7 +194,7 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
         failures = 0;
         signedOut = false;
         events.saved(
-          batch.map((q) => q.change),
+          batch.map(shownOf),
           batch.map((q) => q.cid),
         );
         changed();
@@ -227,12 +232,19 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
   }
 
   return {
-    add: (changes) => {
-      queued.push(...changes.map((change) => ({ cid: newId(), change })));
+    add: (changes, currency, shown) => {
+      queued.push(
+        ...changes.map((change, i) => ({
+          cid: newId(),
+          change,
+          ...(currency && { currency }),
+          ...(shown?.[i] != null && shown[i] !== change && { shown: shown[i] }),
+        })),
+      );
       changed();
       keepAndSend();
     },
-    pending: () => queued.map((q) => q.change),
+    pending: () => queued.map(shownOf),
     // A copy: the queue itself changes in place
     pendingWithIds: () => [...queued],
     pickUp: async (email) => {

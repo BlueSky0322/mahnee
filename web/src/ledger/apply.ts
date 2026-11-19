@@ -48,6 +48,9 @@ export function changedTransaction(
       if (before == null) return undefined;
       const { op: _op, id: _id, toCheck, ...fields } = change;
       const after: Transaction = { ...before, ...fields };
+      // A new amount is what was typed: in the home currency, unless the change as it's
+      // shown says what it was typed as (ledger.ts, changeTyped)
+      if ('amountCents' in fields && !('original' in fields)) delete after.original;
       // Confirmed, or given what the bill came to: nothing left to check, as the server says
       if (before.scheduled != null && (toCheck === false || 'amountCents' in fields)) {
         after.scheduled = { ...before.scheduled, toCheck: false };
@@ -270,7 +273,8 @@ function applyToAccounts(accounts: Account[], change: LedgerChange): Account[] {
           id,
           name,
           kind,
-          currency: DEFAULT_CURRENCY,
+          // Every account is in the home currency, which the server gives a new one
+          currency: accounts[0]?.currency ?? DEFAULT_CURRENCY,
           openingCents,
           balanceCents: openingCents,
           position,
@@ -285,6 +289,7 @@ function applyToAccounts(accounts: Account[], change: LedgerChange): Account[] {
         return {
           ...a,
           name: change.name ?? a.name,
+          kind: change.kind ?? a.kind,
           openingCents,
           // What came in and went out since stays as it was
           balanceCents: a.balanceCents + openingCents - a.openingCents,

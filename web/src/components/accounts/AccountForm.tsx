@@ -1,16 +1,11 @@
 import { Button, Input, SegmentedControl, TextInput } from '@mantine/core';
+import { useCurrency } from '../../profile/ProfileContext';
 import { Archive } from '@phosphor-icons/react';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
 import type { Account, LedgerChange } from '@shared/api';
 import type { AccountKind } from '@shared/ledger';
-import {
-  ACCOUNT_KINDS,
-  DEFAULT_CURRENCY,
-  MAX_ACCOUNTS,
-  MAX_ACCOUNT_NAME,
-  readAccountName,
-} from '@shared/ledger';
+import { ACCOUNT_KINDS, MAX_ACCOUNTS, MAX_ACCOUNT_NAME, readAccountName } from '@shared/ledger';
 import { change } from '../../ledger/ledger';
 import { newId } from '../../utils/id';
 import { currencySymbol } from '../../utils/money';
@@ -18,7 +13,7 @@ import { showRefusal } from '../../utils/notify';
 import { showUndo } from '../common/undo-toast';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import KindIcon from './KindIcon';
-import { KIND_LABELS, openingText, readOpening } from './account-text';
+import { KIND_AS, KIND_LABELS, balanceText, openingText, readOpening } from './account-text';
 import classes from './Accounts.module.css';
 
 interface AccountFormProps {
@@ -29,8 +24,8 @@ interface AccountFormProps {
   onClose: () => void;
 }
 
-/** Adding an account, or renaming one, changing its opening balance and archiving it (an
- * archived one comes back with Unarchive on its own page) */
+/** Adding an account, or renaming one, changing its kind or opening balance and archiving
+ * it (an archived one comes back with Unarchive on its own page) */
 export default function AccountForm({ open, count, onClose }: AccountFormProps) {
   return (
     <ResponsiveDialog
@@ -64,12 +59,34 @@ function Fields({
   count: number;
   onDone: () => void;
 }) {
+  const homeCurrency = useCurrency();
   const [name, setName] = useState(account?.name ?? '');
   const [kind, setKind] = useState<AccountKind>(account?.kind ?? startKind ?? 'cash');
   const [amount, setAmount] = useState(account ? openingText(account.openingCents, kind) : '');
   const [nameError, setNameError] = useState<string | null>(null);
   const [amountError, setAmountError] = useState<string | null>(null);
-  const symbol = currencySymbol(account?.currency ?? DEFAULT_CURRENCY);
+  const symbol = currencySymbol(account?.currency ?? homeCurrency);
+
+  // A kept account's new kind keeps its cents: the amount typed is shown again as the new
+  // kind reads it (a card's 500 owed is -500 in a bank), for the person to correct if need be
+  const changeKind = (next: AccountKind) => {
+    const typed = readOpening(amount, kind);
+    if (account != null && 'cents' in typed) setAmount(openingText(typed.cents, next));
+    setKind(next);
+  };
+
+  // The balance as it will read once saved under the new kind, with the opening typed
+  let preview: string | null = null;
+  if (account != null && kind !== account.kind) {
+    const typed = readOpening(amount, kind);
+    const openingCents = 'cents' in typed ? typed.cents : account.openingCents;
+    const after = {
+      ...account,
+      kind,
+      balanceCents: account.balanceCents - account.openingCents + openingCents,
+    };
+    preview = `${balanceText(account)} will read ${balanceText(after)} as ${KIND_AS[kind]}`;
+  }
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -95,8 +112,23 @@ function Fields({
         id: account.id,
       };
       if (checkedName !== account.name) update.name = checkedName;
+      if (kind !== account.kind) update.kind = kind;
       if (opening.cents !== account.openingCents) update.openingCents = opening.cents;
-      if (update.name != null || update.openingCents != null) change(update);
+      if (update.name != null || update.kind != null || update.openingCents != null) {
+        change(update);
+      }
+      // A new kind changes how its balance reads and where it's listed: Undo puts back
+      // everything this save changed
+      if (update.kind != null) {
+        const before: Extract<LedgerChange, { op: 'updateAccount' }> = {
+          op: 'updateAccount',
+          id: account.id,
+          kind: account.kind,
+        };
+        if (update.name != null) before.name = account.name;
+        if (update.openingCents != null) before.openingCents = account.openingCents;
+        showUndo(`${checkedName} is now ${KIND_AS[kind]}`, () => change(before));
+      }
     }
     onDone();
   };
@@ -126,32 +158,30 @@ function Fields({
         data-autofocus={account == null || undefined}
         autoComplete="off"
       />
-      {account == null && (
-        <Input.Wrapper
-          label="Kind"
-          labelElement="div"
-          id="account-kind"
-        >
-          <SegmentedControl
-            aria-labelledby="account-kind-label"
-            fullWidth
-            value={kind}
-            onChange={(value) => setKind(value as AccountKind)}
-            data={ACCOUNT_KINDS.map((k) => ({
-              value: k,
-              label: (
-                <span className={classes.kindOption}>
-                  <KindIcon
-                    kind={k}
-                    size={16}
-                  />
-                  {KIND_LABELS[k]}
-                </span>
-              ),
-            }))}
-          />
-        </Input.Wrapper>
-      )}
+      <Input.Wrapper
+        label="Kind"
+        labelElement="div"
+        id="account-kind"
+      >
+        <SegmentedControl
+          aria-labelledby="account-kind-label"
+          fullWidth
+          value={kind}
+          onChange={(value) => changeKind(value as AccountKind)}
+          data={ACCOUNT_KINDS.map((k) => ({
+            value: k,
+            label: (
+              <span className={classes.kindOption}>
+                <KindIcon
+                  kind={k}
+                  size={16}
+                />
+                {KIND_LABELS[k]}
+              </span>
+            ),
+          }))}
+        />
+      </Input.Wrapper>
       <TextInput
         label={kind === 'card' ? 'Amount owed' : 'Opening balance'}
         description={
@@ -167,6 +197,14 @@ function Fields({
         error={amountError}
         autoComplete="off"
       />
+      {preview != null && (
+        <p
+          className={classes.preview}
+          aria-live="polite"
+        >
+          {preview}
+        </p>
+      )}
       <div className={classes.actions}>
         {/* An archived one comes back with Unarchive on its page */}
         {account != null && !account.archived && (

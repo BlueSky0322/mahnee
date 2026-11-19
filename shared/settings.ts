@@ -15,6 +15,7 @@ import {
   type Settings,
   isRowId,
 } from './api';
+import { MAX_OTHER_CURRENCIES, isEntryCurrency, isHomeCurrency } from './rates';
 
 /** monthStartDay for "Last day": each month starts on its last day (Feb 28, Apr 30) */
 export const LAST_DAY_OF_MONTH = 31;
@@ -59,8 +60,17 @@ export function isTimeZone(v: unknown): v is string {
   return known === v || known.toLowerCase() !== v.toLowerCase();
 }
 
+/** Other currencies: a list of ones the app converts, each once, at most MAX_OTHER_CURRENCIES */
+const isOtherCurrencies = (v: unknown): v is string[] =>
+  Array.isArray(v) &&
+  v.length <= MAX_OTHER_CURRENCIES &&
+  v.every(isEntryCurrency) &&
+  new Set(v).size === v.length;
+
 /** Each setting's check */
 export const SETTING_CHECKS: { [K in keyof Settings]: (v: unknown) => v is Settings[K] } = {
+  // Saved with the conversion it starts (worker/currency/convert.ts); 0011 holds the list
+  currency: isHomeCurrency,
   theme: oneOf(THEMES),
   accent: oneOf(ACCENTS),
   ratePreference: oneOf(RATE_PREFERENCES),
@@ -83,7 +93,16 @@ export const SETTING_CHECKS: { [K in keyof Settings]: (v: unknown) => v is Setti
     (Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MAX_SCHEDULED_REMINDER_DAYS),
   // Sent by the app, never taken away
   timeZone: (v): v is string => isTimeZone(v),
+  otherCurrencies: isOtherCurrencies,
+  travelSense: isBoolean,
 };
+
+/**
+ * Why a list of other currencies can't be kept beside `home`, the main currency, which is
+ * never one of them; null when it can
+ */
+export const whyNotOtherCurrencies = (list: readonly string[], home: string) =>
+  list.includes(home) ? `${home} is your main currency` : null;
 
 /**
  * The settings a request changes, each checked on its own; or why they're refused. Rows
@@ -97,6 +116,9 @@ export function readSettingChanges(raw: unknown): Partial<Settings> | { error: s
   for (const [key, value] of Object.entries(raw)) {
     if (!Object.prototype.hasOwnProperty.call(SETTING_CHECKS, key)) {
       return { error: `Unknown setting ${key}` };
+    }
+    if (key === 'otherCurrencies' && Array.isArray(value) && value.length > MAX_OTHER_CURRENCIES) {
+      return { error: `Keep up to ${MAX_OTHER_CURRENCIES} other currencies` };
     }
     if (!SETTING_CHECKS[key as keyof Settings](value)) return { error: `Invalid ${key}` };
     (changes as Record<string, unknown>)[key] = value;

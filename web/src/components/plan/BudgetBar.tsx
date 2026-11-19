@@ -1,4 +1,5 @@
 import type { BudgetLine } from '../../ledger/budgets';
+import { useMoney } from '../../hooks/useMoney';
 import Bar from '../ui/Bar';
 import type { PlanMonth } from './plan-month';
 import { budgetWords } from './plan-text';
@@ -7,7 +8,8 @@ const BAR_STATE = { onTrack: 'on-track', faster: 'faster', over: 'over' } as con
 
 /** A budget's bar: spent against what's available, with today marked on this month only */
 export default function BudgetBar({ line, shown }: { line: BudgetLine; shown: PlanMonth }) {
-  const words = budgetWords(line, shown.at, { short: false });
+  const { currency } = useMoney();
+  const words = budgetWords(line, shown.at, { short: false, currency });
   return (
     <Bar
       label={words.label}

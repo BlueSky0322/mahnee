@@ -23,6 +23,8 @@ in [AGENTS.md](../AGENTS.md).
 | [Export](#export)                                               | (none; read when asked)      | `ledger/`, `routes/ledger.ts`  |
 | [Import](#import)                                               | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Exchange rates](#exchange-rates)                               | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
+| [Home currency](#home-currency)                                 | `profile/ProfileContext.tsx` | `currency/`, `routes/me.ts`    |
+| [Other currencies](#other-currencies)                           | `ledger/ledger.ts`, profile  | `currency/`, `ledger/`         |
 | [Offline start and installing](#offline-start-and-installing)   | `offline/`, `pwa/`           | (none; the API is the same)    |
 | [Pages, layouts and Back](#pages-layouts-and-back)              | `hooks/useRoute.ts`          | (none)                         |
 
@@ -49,7 +51,15 @@ a computer, what it finds takes the sections' place in the sidebar, the first ma
 the pane shows the first one's section with that setting marked (`PreviewedSetting` in
 `setting-in-view.ts`), the keyboard staying in the search; Enter opens it. My account
 (`?settings=account`) has the name and email with Change name (a dialog; empty goes back
-to the email's first part), "This phone" or "This computer" saying "Saved" with the
+to the email's first part), and the round initial, or the person's picture in its place
+(the same size and shape wherever the initial is drawn: My account, Settings' profile
+card, the sidebar, Home's header); Change picture beside Change name (or tapping the
+circle) opens Profile picture:
+Choose a photo (the middle square, made 256px WebP or JPEG on the device, under 64 KB),
+Use Google picture (when a copy is kept and not showing) and Use initial (when a picture
+shows). The Google picture shows by default when the sign-in names one (see
+docs/security.md for the Access setting it needs), copied after `/api/me` has answered,
+so it shows from the next start; "This phone" or "This computer" saying "Saved" with the
 freshness label, and Install the app where the browser can install it (the only place it's
 offered; Home no longer has a card). Search (`components/settings/settings-search.ts`, a
 static index; no server) finds a setting by its name, its line, or words not on it
@@ -58,8 +68,8 @@ match marked; a result, or Enter for the first, opens `?settings=<section>&setti
 with that setting in view and the keyboard on it. Money
 ([settings/MoneyPage.tsx](../web/src/components/settings/MoneyPage.tsx)) sets when the
 month starts (see Month view, The month start day) and when the week starts (Home's
-calendar); its Main currency stays read-only until a home currency can be chosen, and
-Other currencies is hidden. Adding entries
+calendar); its Main currency picks the home currency (see Home currency), and Other
+currencies keeps the list Add offers (see Other currencies). Adding entries
 (`?settings=adding`): Start with (Amount or Category, what Add opens on), Account to use
 ("Last used", or one of the accounts in use, picked from a list; one archived since reads
 as Last used), Suggest as you type (Add's payee field offers the payees used before, from
@@ -82,7 +92,8 @@ rates come from, with the person's time zone.
 
 **Owner.** [profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx) loads
 the profile, keeps a device copy, and owns every change through
-`useProfile().change(show, save)`, which shows the change at once and undoes it if
+`useProfile().change(show, save)` (the picture through `changePicture`, which shows a
+chosen photo from the device until the server has kept it), which shows the change at once and undoes it if
 `save` fails (the caller says what went wrong). `rememberSettings` does the same for a
 preference and explains a failure itself.
 
@@ -90,7 +101,10 @@ preference and explains a failure itself.
 
 - UI: [components/settings/SettingsPage.tsx](../web/src/components/settings/SettingsPage.tsx)
   (the index, a computer's layout, `SectionHeader`),
-  [MyAccount.tsx](../web/src/components/settings/MyAccount.tsx),
+  [MyAccount.tsx](../web/src/components/settings/MyAccount.tsx) (with Profile picture),
+  [common/YouPicture.tsx](../web/src/components/common/YouPicture.tsx) (the picture in the
+  initial's circle, the initial when it can't load),
+  [utils/picture.ts](../web/src/utils/picture.ts) (a photo made a small square),
   [SectionPage.tsx](../web/src/components/settings/SectionPage.tsx) (the read-only
   sections), [SettingsSearch.tsx](../web/src/components/settings/SettingsSearch.tsx) with
   [settings-search.ts](../web/src/components/settings/settings-search.ts) (the index) and
@@ -108,9 +122,11 @@ preference and explains a failure itself.
   marks the accent and the colour of spending on the page (`data-accent`,
   `data-expenses`) and gives Mantine the accent.
 - API: [worker/accounts/auth.ts](../worker/accounts/auth.ts) checks the Access token (or
-  the local dev user), [worker/routes/me.ts](../worker/routes/me.ts) serves `/api/me`,
-  and [worker/accounts/profiles.ts](../worker/accounts/profiles.ts) stores the profile
-  and settings.
+  the local dev user) and reads the Google picture it names,
+  [worker/routes/me.ts](../worker/routes/me.ts) serves `/api/me` and `/api/me/picture`,
+  [worker/accounts/profiles.ts](../worker/accounts/profiles.ts) stores the profile
+  and settings, and [worker/accounts/pictures.ts](../worker/accounts/pictures.ts) checks,
+  keeps and serves the picture and copies the Google one.
 - Shared: `Settings`, `DEFAULT_SETTINGS` and the profile shapes in
   [shared/api.ts](../shared/api.ts); what each setting takes in
   [shared/settings.ts](../shared/settings.ts), read by the Worker and the test stand-in;
@@ -120,6 +136,13 @@ preference and explains a failure itself.
 
 **Invariants.**
 
+- The picture shown is the chosen one, else the Google copy unless the person chose the
+  initial, else none (`shownPicture` in `accounts/pictures.ts`). `/api/me/picture` serves
+  only the signed-in account's, `private, no-cache` with an ETag and `X-Image-Viewer`;
+  the service worker keeps one copy per account and shows it only to that account
+  (`web/public/sw.js` keeps copies of `IMAGE_CACHE_PREFIX`, `IMAGE_VIEWER_HEADER` and
+  `PICTURE_PATH`; `offline/sw.test.ts` runs it against the app's). The server takes a
+  JPEG, PNG or WebP by its bytes, at most `MAX_PICTURE_BYTES` and `MAX_PICTURE_SIDE`.
 - Without both Access values set, the API refuses everyone, unless both are blank and a
   local dev user is set (`getUserEmail` in `accounts/auth.ts`).
 - A new settings row takes every value from `DEFAULT_SETTINGS`, so defaults change in
@@ -179,10 +202,22 @@ see Reminders),
 (the index and its summaries, each section and back, My account with Change name and a
 refusal, saved and waiting offline, install where offered and never on Home, a computer's
 layout, Close and moving between sections, search, clear, nothing found, Ctrl K and
-Enter), [settings-search.test.ts](../web/src/components/settings/settings-search.test.ts),
+Enter), [settings/ProfilePicture.test.tsx](../web/src/components/settings/ProfilePicture.test.tsx)
+(the initial, the Google picture everywhere the initial is, one that can't load, a photo
+cropped, made small and saved, too large, unreadable or refused, going back to the Google
+picture or the initial on a phone, a failed save put back),
+[offline/sw.test.ts](../web/src/offline/sw.test.ts) (the picture kept per account, shown
+offline only to it, forgotten on 404 for that account alone and on signing out),
+[settings-search.test.ts](../web/src/components/settings/settings-search.test.ts),
 [settings-text.test.ts](../web/src/components/settings/settings-text.test.ts),
 [worker/accounts/auth.test.ts](../worker/accounts/auth.test.ts) (tokens,
-keys, configuration, 401 versus 500), [App.test.tsx](../web/src/App.test.tsx) (who's
+keys, configuration, 401 versus 500, the Google picture claim),
+[worker/test/api.test.ts](../worker/test/api.test.ts) (the picture: kept, served privately
+with an ETag, never to another account, refused types and sizes, let go, the Google copy
+made once after the answer, never holding it up, not asked again for an hour after
+failing, again only when it changes, nothing from elsewhere),
+[worker/accounts/pictures.test.ts](../worker/accounts/pictures.test.ts) (Google's real
+host only: no lookalike, sign-in, port or redirect; the size cut off as it streams), [App.test.tsx](../web/src/App.test.tsx) (who's
 signed in, signed out, unreachable, saving the theme and undoing a failed save),
 [profile/time-zone.test.tsx](../web/src/profile/time-zone.test.tsx) (the time zone sent
 at start), the profile cases in [worker/test/api.test.ts](../worker/test/api.test.ts), and
@@ -295,9 +330,14 @@ shown through the loaded rows, newest first, so it's left out while searching or
 to some days. Picking an account there takes the page's place in history. "Show 50 more"
 loads the next page. Add here and Transfer open Add with this account in From (Transfer on
 Transfer), over a kept draft's account, the rest of the draft kept. Add one from the list;
-rename it, change its opening balance, or archive it (with Undo) from Edit; Unarchive brings
-it back in one tap, with nothing to undo. A card's balance is what's owed on it. Its kind is
-fixed once added. Worker folder `accounts/` is sign-in, not these: the ledger is `ledger/`.
+rename it, change its kind or opening balance, or archive it (with Undo) from Edit; Unarchive
+brings it back in one tap, with nothing to undo. A card's balance is what's owed on it. A new
+kind keeps the opening balance's cents as they were (a card's RM 500.00 owed is −RM 500.00
+in a bank): Edit shows the amount as the new kind reads it and "RM 500.00 owed will read
+−RM 500.00 as a bank account" before Save, for the opening balance to be corrected in the
+same save, and the save says "Visa is now a bank account" with Undo (the old kind, and the
+name and opening balance if they changed too). Everything that depends on the kind (the
+groups and totals on Accounts, "owed", Scheduled's cards to pay) reads it as it is now. Worker folder `accounts/` is sign-in, not these: the ledger is `ledger/`.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts) keeps the ledger (accounts,
 categories and repeating items, one request) in the query cache (`LEDGER_KEY`), with a device copy
@@ -1689,11 +1729,12 @@ the same id for two people, Undo exactly and once).
 ## Exchange rates
 
 **What it is.** Today's rate from one currency into another, or the rate on an earlier
-day, for previews. Nothing on screen asks for one yet; `useRate` is there for the first
-feature that converts.
+day, for previews: Add's "about RM 15.30 at today's rate", and an entry's editor.
 
 **Owner.** [hooks/useRate.ts](../web/src/hooks/useRate.ts) fetches and shares a rate
-through the query cache, keyed by the pair, the account's rate source and the day.
+through the query cache, keyed by the pair, the account's rate source and the day. Today's
+is kept on the device (tagged with the account) as it comes, and offline the last one kept
+is shown, marked `fromDevice`.
 
 **Parts.**
 
@@ -1712,11 +1753,139 @@ through the query cache, keyed by the pair, the account's rate source and the da
 - An amount asked about is at most `MAX_AMOUNT`; a rate outside `MIN_RATE` to `MAX_RATE`
   is never used.
 - An earlier day's rate is the ECB's for that day (the working day before, on a
-  weekend), else Wise's; a service that is down is an error, never quietly today's rate.
+  weekend), else Wise's (its history covers TWD and VND), else the closest earlier day
+  either has within `MAX_EARLIER_DAYS` (7), else today's. Its time (`rate_at`) is always on
+  the day it is really from. A service that is down is an error, never quietly another
+  day's rate.
 
 **Tests.** [worker/currency/exchange-rates.test.ts](../worker/currency/exchange-rates.test.ts)
 (sources, fallbacks, caching, earlier days) and the rate cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts).
+
+## Home currency
+
+**What it is.** Settings › Money › Main currency (owner decisions D2 to D5): the currency
+every amount is kept and shown in, reading "MYR, RM". It opens a picker (a sheet on phones,
+a panel under the row on computers) with "Search currencies" and the groups "You use" (the
+one in use) and "All currencies" (the ECB's 30, `HOME_CURRENCIES` in `shared/rates.ts`, so
+each converts without Wise). Picking one saves it at once; the server then converts every
+amount in the background. Until that's done the row and the freshness line say "Converting
+to USD…", the row can't be changed, and amounts are shown as they still are. A change
+refused for an amount past its limit is said under the row ("Kept MYR: an entry would come
+to more than 10,000,000 IDR"). It needs a connection ("Connect to change the currency").
+
+**Owner.** The profile ([profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx)):
+the setting saves through `change()`, and `Profile.conversion` says what's converting (or
+the last change refused). While converting it asks `GET /api/me` every 2 seconds; once
+done, the ledger ([ledger/ledger.ts](../web/src/ledger/ledger.ts)) drops every month's
+totals kept, fetches everything again and sends the changes kept meanwhile. `useCurrency()`
+(and `useMoney()` in `hooks/`) is the currency every amount is shown in: `currencyNow` in
+`shared/api.ts`, the one converted from until it's done.
+
+**Data flow.**
+
+- `PATCH /api/me` with `settings.currency` saves it with a `conversions` row (refused, 409,
+  while one is under way) and queues the first step on `mahnee-reconvert`
+  ([worker/currency/convert-queue.ts](../worker/currency/convert-queue.ts)).
+- Each step ([worker/currency/convert.ts](../worker/currency/convert.ts)) works out a page
+  of 200 transactions, by day then id, each at the rate on its own day (`getRateOn`: the
+  ECB's, else Wise's), into `conversion_staged`, checking each against its limit; the last
+  step works out the opening balances, budgets and scheduled items at the rate on the day of
+  the switch and swaps everything in at once, the accounts' `currency` too. One past its
+  limit refuses the whole change: the currency goes back, nothing was converted, and the
+  profile names the limit (`amount`, `opening`, `budget` or `scheduled`).
+- A failed step is tried again by the queue (30 s, doubling to an hour, 8 tries) and notes
+  when its next try is due; after the last, `mahnee-reconvert-dlq` gives the person their
+  currency back, nothing converted (refused `rates`: "Kept MYR: rates for USD weren't
+  available, so nothing was converted. Try again later"). One 2 minutes past its due time is
+  queued again when the person's profile is read, at most 3 times, then given back the same
+  way.
+- The swap checks every transaction was worked out (else it starts over, counted as a
+  restart, so the same cap gives the currency back) and puts them in
+  10,000 to a statement, all in one batch.
+- While converting, `POST /api/changes` answers 503 with code `converting` (the outbox
+  keeps the changes and sends them again), and the nightly job skips the person.
+- Every change the app sends says the currency it was typed in (`currencies`, from
+  `currencyNow` when made, null for one kept from before; the outbox and
+  `web/public/sw.js` keep it). One typed in a currency
+  since left is converted on saving at its rate (an entry's day, otherwise today's)
+  ([worker/currency/typed-in.ts](../worker/currency/typed-in.ts)).
+
+**Invariants.**
+
+- Every amount keeps what it was typed as (`original_currency`, `original_cents`, `rate`,
+  `rate_source`, `rate_at`): one converted again is converted from that, and one typed in
+  the new currency is plain again, so changing back restores the exact amounts. Changing an
+  amount outside a conversion makes it typed in the home currency (triggers in 0011).
+- Amounts never show in two currencies at once, and limits stay as they are
+  (`MAX_TRANSACTION_CENTS` each, so every total stays exact); a converted amount above zero
+  is at least a cent. An earlier day no service has a rate for is converted at today's,
+  which `rate_at` shows.
+- Only an error's name and message, or the limit that refused a change, are logged.
+
+**Tests.** [worker/test/currency.test.ts](../worker/test/currency.test.ts) (each rate,
+back exactly, an edit since, writes held and typed in the old currency, retries, both
+refusals), the 0011 cases in [worker/test/migrations.test.ts](../worker/test/migrations.test.ts),
+[settings/HomeCurrency.test.tsx](../web/src/components/settings/HomeCurrency.test.tsx)
+(the picker, converting on Home, changes held then converted, each refusal, offline) and
+the `currencies` cases in [offline/outbox.test.ts](../web/src/offline/outbox.test.ts).
+
+## Other currencies
+
+**What it is.** Settings › Money › Other currencies (R-Set-Money, R-Desk-Prefs; owner
+request 2026-11-19): chips in the person's order and "Add" (every currency not in use yet,
+searchable); a chip opens Move earlier, Move later and Remove THB; at most 8 ("Up to 8
+other currencies"). In Add the figure's currency is a pill before it: a tap goes to the next
+of the home currency and the list, a long press, right-click or Alt+Down opens every
+currency ("Yours", "All currencies") for a one-off. In another currency the figure reads
+"THB 120.00", Save "Save THB 120.00", and under it "about RM 15.30 at today's rate" ("at the
+last rate known" offline), whose tap shows "1 THB = 0.1275 MYR, from Wise". Entries show
+"−THB 120.00" with "RM 15.30" beside it in ink-3 on Activity, the register, an account's
+page and the entry's editor, whose Currency select changes it. Totals stay in the home
+currency. Travel sense ("Follow where I am", on unless turned off; shown with a list): Add
+opens in the currency of the device's time zone's country, or of the last two entries
+added today, when it's in the list, for the rest of that day, saying "In THB today. Tap to
+change."
+
+**Owner.** The list and the switch are settings (the profile, `rememberSettings`). Entries
+change through the ledger: `changeTyped(currency, changes, shown)` in
+[ledger/ledger.ts](../web/src/ledger/ledger.ts) queues each change with the currency it was
+typed in and, for the device only, `shown` (the amount at the device's rate, with
+`original`), which is what the screens and totals draw until it's saved; `addAgain` puts
+deleted entries back as they were typed. Travel sense is
+[entry/travel-sense.ts](../web/src/components/entry/travel-sense.ts), on the device alone.
+
+**Data flow.**
+
+- `PATCH /api/me` with `settings.otherCurrencies` / `travelSense`, checked by
+  `shared/settings.ts` (400 "Keep up to 8 other currencies", "Invalid otherCurrencies").
+- `POST /api/changes` with `currencies[i]` another than the home one: the change's amounts
+  are converted by [worker/currency/typed-in.ts](../worker/currency/typed-in.ts) (an entry
+  at its day's rate) and saved with `original_*`; a typed currency outside
+  `ENTRY_CURRENCIES` refuses the batch (400). An entry's amount sent in the home currency
+  clears `original_*`. `GET /api/transactions` and search answer `original`.
+- `web/public/sw.js` sends `change` and `currency` as before; `shown` never leaves the
+  device.
+
+**Invariants.**
+
+- One conversion path: the server converts on saving; the app's figure is a preview.
+- What was typed is kept (currency, cents, rate, source, when), and an entry converted past
+  `MAX_TRANSACTION_CENTS` is refused; Add says "Comes to more than 10,000,000 MYR" first.
+  Typed in another currency, the figure may go past `MAX_TRANSACTION` (an IDR 15,000,000
+  bill) up to `MAX_TYPED_CENTS` (`MAX_AMOUNT` units; refused past it with "An amount typed
+  in IDR can be up to 1,000,000,000"), as long as what it comes to fits; totals only ever
+  sum converted amounts, so they stay exact.
+- Travel sense never picks a currency outside the person's list.
+- The main currency is never in the list: refused when saved ("MYR is your main
+  currency"), and dropped in the swap of a home-currency change that makes it the main one.
+- An entry's details say the rate and the day it's from ("1 VND = 0.00018 MYR, rate of
+  Nov 12, from Wise"); Add says a backdated entry is "saved at the rate of Nov 12".
+
+**Tests.** [worker/test/other-currencies.test.ts](../worker/test/other-currencies.test.ts),
+the 0012 cases in [worker/test/migrations.test.ts](../worker/test/migrations.test.ts), and
+[entry/other-currencies.test.tsx](../web/src/components/entry/other-currencies.test.tsx)
+(settings list, pill, long press, hint, offline, entry display, editing, travel sense).
 
 ## Offline start and installing
 

@@ -13,6 +13,10 @@
   "vars": {
     "ACCESS_TEAM_DOMAIN": "ryanng-0611.cloudflareaccess.com",
     "ACCESS_AUD": "18cc5a8ad6ad6b831b40ab4a17ab3a1e152251f8a556ce570ff110edcc59aa26",
+    // Reminders (worker/push/): the public key devices subscribe with (an uncompressed
+    // P-256 point, base64url); its private key is the VAPID_PRIVATE_KEY secret (a JWK).
+    // Without both, no reminder is sent.
+    "VAPID_PUBLIC_KEY": "BLUdmedG6uf8THqDAtX3N3KvnnUsGuWw4ZMXKq9QypnMgPiC652_FF5R5FMnUUv7SAa8VEh9znXf9S8hPU-wbak",
   },
   "assets": {
     "directory": "./dist",
@@ -23,7 +27,7 @@
   },
   // The nightly job that adds scheduled entries on their day (worker/ledger/post-scheduled.ts)
   // runs every 15 minutes, so each person's midnight is reached within a quarter of an hour
-  // wherever they are; reminders share it. A deploy sets it up.
+  // wherever they are; reminders share it (worker/push/reminders.ts). A deploy sets it up.
   "triggers": { "crons": ["*/15 * * * *"] },
   // Logs and traces in the dashboard, for a tenth of requests
   "observability": { "enabled": true, "head_sampling_rate": 0.1 },

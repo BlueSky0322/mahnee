@@ -15,6 +15,7 @@ erDiagram
   accounts ||--o{ transactions : "holds"
   categories ||--o{ transactions : "sorts"
   profiles ||--o{ change_receipts : "has"
+  profiles ||--o{ push_subscriptions : "is reminded on"
   categories ||--o{ budgets : "has"
   profiles ||--o{ recurring : "has"
   profiles ||--o{ imports : "has"
@@ -169,6 +170,19 @@ erDiagram
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
+  push_subscriptions {
+    TEXT endpoint PK "the browser's address at its push service, up to 2048"
+    TEXT email FK
+    TEXT p256dh "the browser's public key, base64url"
+    TEXT auth "its auth secret, base64url"
+    INTEGER created_at "ms"
+    TEXT reminded_on "the person's day last done with, or null"
+    TEXT daily_on "the day the daily reminder was last claimed"
+    TEXT scheduled_on "the day the one before was last claimed"
+    INTEGER failures "times in a row it couldn't be taken now"
+    INTEGER retry_at "ms, or null"
+    INTEGER last_ok_at "ms, or null"
+  }
   conversions {
     TEXT email PK "and FK to profiles"
     TEXT from_currency "the home currency before"
@@ -307,6 +321,20 @@ erDiagram
   `import_id` is it and sets `undone_at`, in one batch; once undone, nothing more goes and no
   transaction may name it. Keyed by email and then id, so two people's imports never meet.
   Deleting one keeps its transactions, their `import_id` set back to null.
+- **`push_subscriptions`**: one per device that gets reminders (owner decision D6): the
+  browser's push subscription, its endpoint and the keys a message is encrypted to, kept
+  for the account that subscribed it (`PUT /api/push/subscription`). The endpoint is the
+  key, so one device reminds one account: a device subscribed by someone else moves to
+  them. At most 10 per account, the oldest dropped. Let go on signing out
+  (`DELETE /api/push/subscription`, the person's own only), when the push service answers
+  400, 404 or 410 (401 or 403 three times in a row), and with the profile. `reminded_on` is the person's own day
+  the cron (`worker/push/reminders.ts`) was last done with it; `daily_on` and
+  `scheduled_on` the day each reminder was claimed, just before it was sent, so neither
+  goes twice; `failures` and `retry_at` hold it back after its push service couldn't take
+  one (15 minutes, doubling, at most 120); the endpoint
+  is checked to be a browser's push service before it's kept and before each send.
+  Migration 0013 also indexes `transactions (email, created_at)`, for whether anything was
+  added during a person's day.
 - **`conversions`** and **`conversion_staged`**: changing the home currency
   (`user_settings.currency`, saved at once) writes a `conversions` row, phase `converting`,
   and the person's amounts are converted in the background (`worker/currency/convert.ts`,

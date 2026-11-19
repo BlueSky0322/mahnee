@@ -20,6 +20,8 @@
 // - Changes made offline are kept by the app (in IndexedDB, web/src/offline/outbox.ts);
 //   background sync sends them here when the connection is back, even if the app is
 //   closed.
+// - Reminders the server pushes (worker/push/reminders.ts) are shown as notifications,
+//   and a tap opens the app at the page the reminder points to.
 const SHELL = 'mahnee-shell-v1';
 const ASSETS = 'mahnee-assets-v1';
 const FONTS = 'mahnee-fonts-v1';
@@ -515,4 +517,109 @@ async function sendOutbox() {
 self.addEventListener('sync', (event) => {
   // Failing makes the browser try again later
   if (event.tag === SYNC_TAG) event.waitUntil(sendOutbox());
+});
+
+// --- Reminders: shown as they come, opened where they point ---------------------------
+
+/** What's shown when a push can't be read: something must be, the browser insists */
+const FALLBACK_REMINDER = {
+  title: 'Mahnee',
+  body: 'Open Mahnee to see your reminder.',
+  url: '/',
+  tag: 'reminder',
+};
+
+/** One of the app's own pages ("/?plan=scheduled"), or Home for anything else */
+const ownPage = (url) =>
+  typeof url === 'string' && url.startsWith('/') && !url.startsWith('//') ? url : '/';
+
+/**
+ * accountTag in worker/push/reminder-text.ts: which account a reminder is for, without
+ * naming it (the first 16 hex characters of the SHA-256 of "mahnee-push:" and the email in
+ * small letters)
+ */
+async function accountTag(email) {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    utf8.encode(`mahnee-push:${email.toLowerCase()}`),
+  );
+  return [...new Uint8Array(digest)]
+    .slice(0, 8)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/** Who the app last said is signed in here, or null */
+async function signedInHere() {
+  const db = await openDb();
+  try {
+    const user = await idb(db, 'readonly', (s) => s.get(USER_KEY));
+    return typeof user === 'string' ? user : null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * The message the server sent (worker/push/send.ts ReminderMessage); the fallback, saying
+ * nothing of it, for one that can't be read or is meant for another account than the one
+ * signed in here (or with no one signed in). Something is always shown, or the browser
+ * stops the subscription.
+ */
+async function readReminder(data) {
+  let message = null;
+  try {
+    message = data?.json();
+  } catch {
+    message = null;
+  }
+  if (typeof message?.title !== 'string' || message.title === '') return FALLBACK_REMINDER;
+  const user = await signedInHere().catch(() => null);
+  if (user == null || message.account !== (await accountTag(user))) return FALLBACK_REMINDER;
+  return {
+    title: message.title,
+    body: typeof message.body === 'string' ? message.body : '',
+    url: ownPage(message.url),
+    tag: typeof message.tag === 'string' ? message.tag : FALLBACK_REMINDER.tag,
+  };
+}
+
+/** Shows a reminder that came: as sent if it's for the account signed in here */
+async function showReminder(data) {
+  const { title, body, url, tag } = await readReminder(data);
+  await self.registration.showNotification(title, {
+    body,
+    tag,
+    icon: '/icon-192.png',
+    data: { url },
+  });
+}
+
+self.addEventListener('push', (event) => {
+  event.waitUntil(showReminder(event.data));
+});
+
+/**
+ * Brings a window of the app already open (the one in front, if any) to the page, or
+ * opens one when there's none or it can't be brought there
+ */
+async function openAt(url) {
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const ours = windows.filter((w) => new URL(w.url).origin === self.location.origin);
+  const open = ours.find((w) => w.focused) ?? ours[0];
+  if (open != null) {
+    try {
+      const shown = (await open.navigate(url)) ?? open;
+      return await shown.focus();
+    } catch {
+      // Not one this service worker controls: a new window instead
+    }
+  }
+  return self.clients.openWindow(url);
+}
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL(ownPage(event.notification.data?.url), self.location.origin).href;
+  event.waitUntil(openAt(url));
 });

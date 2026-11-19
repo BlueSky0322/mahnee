@@ -80,12 +80,15 @@ Accent (Cobalt, Green, Plum, Rust, Graphite), Expenses and income (spending in i
 wherever entries are listed; income always green), Home shows (Essentials or Everything,
 see Home at a glance) and Open the app on (Home, Activity or Plan, see Pages). Budgets and
 reminders (`?settings=budgets`): "Carry over, for new budgets" (a switch; a budget set
-where there was none starts with it, see Budgets), then the reminder rows read-only until
-reminders are sent (piece 16). Each control saves at once through `rememberSettings`, put
-back with a message if it can't be saved. The profile also holds a display name and where
-exchange rates come from, with the person's time zone.
-The reminder line on the index shows the stored setting; reminders are sent only once
-piece 16 lands.
+where there was none starts with it, see Budgets), then the reminders (see Reminders
+below): "Daily reminder to log" (a switch), "Remind me at" (a sheet with a time; on a
+computer the "Reminder time" button beside the "Daily reminder" switch), "Before one is
+added" (Off, or 1 to 7 days before, picked from a list), and, while any reminder is on,
+how this device stands ("Reminders on this phone" or "this computer": Allow
+notifications, "Allowed: they come here", blocked, add to the Home Screen first, or can't
+show notifications). Each control saves at once through `rememberSettings`, put back with
+a message if it can't be saved. The profile also holds a display name and where exchange
+rates come from, with the person's time zone.
 
 **Owner.** [profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx) loads
 the profile, keeps a device copy, and owns every change through
@@ -112,7 +115,8 @@ preference and explains a failure itself.
   [components/common/YouLink.tsx](../web/src/components/common/YouLink.tsx),
   [AddingPage.tsx](../web/src/components/settings/AddingPage.tsx),
   [LookPage.tsx](../web/src/components/settings/LookPage.tsx),
-  [BudgetsPage.tsx](../web/src/components/settings/BudgetsPage.tsx) and
+  [BudgetsPage.tsx](../web/src/components/settings/BudgetsPage.tsx) (with the reminder
+  rows, see Reminders) and
   [setting-parts.tsx](../web/src/components/settings/setting-parts.tsx) (a setting's row,
   a segmented choice, a switch); [theme/appearance.ts](../web/src/theme/appearance.ts)
   marks the accent and the colour of spending on the page (`data-accent`,
@@ -165,11 +169,10 @@ preference and explains a failure itself.
   from the saved one; a failure is silent and left for the next start. Only a named zone
   the runtime knows, in its own letters, is saved (`isTimeZone`), never an offset. The
   server has no zone for someone until their app has started once since.
-- Reminders are on by default, as drawn, but nothing sends one yet. The change that sends
-  them must: choose whom to remind from push subscriptions (no subscription, no push,
-  whatever the setting; no time zone, skipped); make a subscription only in the
-  permission flow, from the person's tap, never on load; and show the reminder rows as
-  they really are while permission isn't granted or the device can't receive pushes.
+- Reminders are on by default, as drawn, but come only to a device subscribed for them
+  (no subscription, no push, whatever the setting; no time zone, skipped). A subscription
+  is made only from the person's tap on Allow notifications, never on load; the device row
+  says how this device really stands.
 - A profile kept on the device from before a setting existed opens with that setting's
   default (`ProfileContext.tsx`).
 - A stale save answer never overwrites a newer change (`ProfileContext.tsx`).
@@ -193,7 +196,8 @@ account over the last used, suggestions once each, off reading nothing, a failed
 each accent and its tint on both themes, expenses in red on Activity and an account page,
 Home shows and Open the app on saved, no theme switch on Home),
 [settings/BudgetsPage.test.tsx](../web/src/components/settings/BudgetsPage.test.tsx)
-(carry over for new budgets, on the category's sheet and Plan's field),
+(carry over for new budgets, on the category's sheet and Plan's field; the reminder rows,
+see Reminders),
 [settings/Settings.test.tsx](../web/src/components/settings/Settings.test.tsx)
 (the index and its summaries, each section and back, My account with Change name and a
 refusal, saved and waiting offline, install where offered and never on Home, a computer's
@@ -219,6 +223,87 @@ signed in, signed out, unreachable, saving the theme and undoing a failed save),
 at start), the profile cases in [worker/test/api.test.ts](../worker/test/api.test.ts), and
 [worker/test/migrations.test.ts](../worker/test/migrations.test.ts) (0007 on rows from
 before, and every CHECK against what the API takes).
+
+## Reminders
+
+**What it is.** Owner decision D6, "Push with details": web push to the installed app. A
+daily reminder at the person's "Remind me at" time, only when nothing was added that day
+("Nothing added today", "Anything spent today? Add it before you forget.", opening Home),
+and a reminder the day (or 1 to 7 days) before a scheduled entry, naming it and its amount
+("TNB RM 189.00 is added tomorrow", or "in 3 days"; with others due that day "TNB RM 189.00
+and 2 more are added tomorrow", the others named in the line under it, at most three;
+"From Scheduled. Tap to check it." opening Plan › Scheduled). Set on Budgets and reminders
+(see Sign-in, profile and settings).
+
+**Owner.** [reminders/push-device.ts](../web/src/reminders/push-device.ts) owns this
+device's subscription: how it stands (`readDeviceState`), Allow notifications
+(`turnOnHere`: the browser asked first, from the tap, then the subscription kept on the
+server), letting it go on signing out (`letGoHere`, from `signOut` in
+`ProfileContext.tsx`) and when another account is known to be signed in
+(`releaseForOthers`). The settings themselves belong to the profile. On the server,
+[worker/push/reminders.ts](../worker/push/reminders.ts) is the cron's job that picks who
+to remind.
+
+**Data flow.** Allow notifications → `Notification.requestPermission()` →
+`GET /api/push` (the VAPID public key) → `pushManager.subscribe` →
+`PUT /api/push/subscription` ([worker/routes/push.ts](../worker/routes/push.ts)) →
+`push_subscriptions`. The cron trigger (every 15 minutes, `worker/index.ts`, after the
+nightly job) → `sendReminders` → each message encrypted
+([worker/push/encrypt.ts](../worker/push/encrypt.ts), RFC 8291) and signed
+([vapid.ts](../worker/push/vapid.ts), RFC 8292) → POST to the device's push service
+([send.ts](../worker/push/send.ts)) → `push` in `web/public/sw.js` shows it →
+`notificationclick` brings an open window to its page, or opens one. Wording in
+[worker/push/reminder-text.ts](../worker/push/reminder-text.ts); the subscription's shape,
+limits and the push services taken in [shared/push.ts](../shared/push.ts).
+
+**Invariants.**
+
+- One device reminds one account: the endpoint is the key, and subscribing moves it.
+  Writes carry `X-Expected-Account` like every write; deleting is scoped by the email. At
+  most `MAX_PUSH_DEVICES` (10) an account, the oldest dropped.
+- Endpoints only on the browsers' push services (`isPushService`), checked when kept and
+  before each send; the key must be a point on P-256.
+- Each reminder goes to a device at most once a day of the person's: claimed
+  (`daily_on`, `scheduled_on`) just before it's sent, so overlapping runs or one stopped
+  halfway never send it twice (one stopped between the claim and the send loses that
+  reminder for the day, by design); a device done with for the day is marked
+  `reminded_on`.
+  At or after their time and not more than two hours after it. "Added that day" is an
+  entry saved during the person's day as their clock ran it (its real midnight, DST and
+  half-hour zones included), not one from Scheduled.
+- Only items that will be added on their own are named: running, not asking first,
+  accounts and category not archived, falling on the day the reminder is for.
+- A push service's 400, 404 or 410, or keys that can't be encrypted to, delete the
+  subscription; 401 or 403 delete it only at the third in a row; 429, 5xx or no answer give the claim back and wait 15, 30, 60, then
+  120 minutes (`failures`, `retry_at`); a redirect is never followed and marks the day.
+- At most 50 devices a run, waiting longest first, six at once, and each person's first
+  four items due with their count; a device's failure doesn't stop the others, and the run
+  then fails.
+- Each message carries its account's tag (`accountTag`, a hash of the email, never the
+  email); `web/public/sw.js` shows it only while that account is the one signed in there
+  (`mahnee:user`); signed out or for someone else it shows only "Mahnee" / "Open Mahnee to
+  see your reminder.", as the browser needs something shown.
+- Nothing about a person, no payload, endpoint or key is logged.
+- `web/public/sw.js` shows only a message it can read (otherwise "Mahnee", "Open Mahnee to
+  see your reminder.") and opens only the app's own pages, in the window in front, or a new
+  one when that can't be brought there.
+
+**Tests.** [worker/test/reminders.test.ts](../worker/test/reminders.test.ts) (subscribing,
+its refusals, another account's write, moving a device, ten devices, letting go; the
+daily reminder at 9:00 PM in Kuala Lumpur and Kathmandu with a pinned clock, between runs
+and too late, something added that day, DST days in London and Lord Howe, Scheduled's
+entries, off, no zone; the day before and days before, several due, asking first and
+stopped, one person's 200 items beside another's; both together; two runs at once, one
+message taken and the next waiting, a broken key, a redirect, 400 to 410, 503 and its
+back-off, 50 a run; each message decrypted as the browser would, its account tag and
+VAPID token checked),
+[worker/push/encrypt.test.ts](../worker/push/encrypt.test.ts) (RFC 8291's example byte for
+byte, fresh keys, 4096 bytes, the VAPID claims),
+[offline/sw.test.ts](../web/src/offline/sw.test.ts) (`push` for the account signed in
+only, and `notificationclick`) and
+[settings/BudgetsPage.test.tsx](../web/src/components/settings/BudgetsPage.test.tsx) (the
+rows on phones and computers, time and days before saved, allowing, already allowed, the
+browser refusing, blocked, the server refusing, no notifications, an iPhone, signing out).
 
 ## Accounts
 
@@ -1249,7 +1334,7 @@ Repeat (Monthly or Weekly) in Add, or under More on a transaction's own sheet wh
 changing it (its first due date the next one after the person's own today).
 
 - **Added on its day.** A cron trigger runs every 15 minutes (`wrangler.jsonc`
-  `triggers.crons`, `*/15 * * * *`, shared with reminders later). Each run works out each
+  `triggers.crons`, `*/15 * * * *`, shared with reminders, see Reminders). Each run works out each
   stored time zone's day from the run's scheduled time and adds every occurrence whose day
   has begun where its person is: an entry dated that day, "from Scheduled", and "amount to
   check" when the item's amount changes. Missed runs are caught up from the item's next due
@@ -1944,17 +2029,17 @@ Scheduled). Home is at a glance (see Home at a glance).
 
 **Addresses.** Later pieces link to these; each is a query string read by `readRoute`.
 
-| Page                      | Address                                                                                                                                  | Now                                                                                                                                                             |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home                      | none, or `?month=2026-10` for an earlier month                                                                                           | live                                                                                                                                                            |
-| Activity                  | `?activity`, with `&q=`, `&account=`, `&category=`, `&kind=`, `&scheduled`, `&from=`, `&to=`, `&day=2026-11-10`, `&dates=all`, `&select` | live; see below                                                                                                                                                 |
-| Plan                      | `?plan`, with `&month=2026-10`                                                                                                           | live                                                                                                                                                            |
-| Scheduled                 | `?plan=scheduled`                                                                                                                        | Plan's other half: every scheduled item, with Schedule something; see Scheduled                                                                                 |
-| A category over 12 months | `?plan&category=<id>` (after `&month=` for an earlier month); `expenses` or `income` for all of them                                     | live; a page on phones and tablets, beside the table on a computer                                                                                              |
-| Accounts                  | `?accounts`                                                                                                                              | live                                                                                                                                                            |
-| One account               | `?account=<id>`                                                                                                                          | live; on a computer, Accounts with it beside the list                                                                                                           |
-| Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`                                         | live; Budgets and reminders' reminder rows are read-only until reminders (piece 16); `&setting=<key>` opens one in view; a computer's `?settings` is My account |
-| Importing a file          | `?import`                                                                                                                                | live, opened from `?settings=data`                                                                                                                              |
+| Page                      | Address                                                                                                                                  | Now                                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Home                      | none, or `?month=2026-10` for an earlier month                                                                                           | live                                                                             |
+| Activity                  | `?activity`, with `&q=`, `&account=`, `&category=`, `&kind=`, `&scheduled`, `&from=`, `&to=`, `&day=2026-11-10`, `&dates=all`, `&select` | live; see below                                                                  |
+| Plan                      | `?plan`, with `&month=2026-10`                                                                                                           | live                                                                             |
+| Scheduled                 | `?plan=scheduled`                                                                                                                        | Plan's other half: every scheduled item, with Schedule something; see Scheduled  |
+| A category over 12 months | `?plan&category=<id>` (after `&month=` for an earlier month); `expenses` or `income` for all of them                                     | live; a page on phones and tablets, beside the table on a computer               |
+| Accounts                  | `?accounts`                                                                                                                              | live                                                                             |
+| One account               | `?account=<id>`                                                                                                                          | live; on a computer, Accounts with it beside the list                            |
+| Settings                  | `?settings`, and `?settings=account`, `money`, `adding`, `look`, `budgets`, `categories`, `data`                                         | live; `&setting=<key>` opens one in view; a computer's `?settings` is My account |
+| Importing a file          | `?import`                                                                                                                                | live, opened from `?settings=data`                                               |
 
 Activity's filters (components/activity/address.ts): plain `?activity` is this month on
 every account. `&q=` is the words; `&account=` an account (transfers into it too);

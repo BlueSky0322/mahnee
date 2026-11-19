@@ -9,6 +9,9 @@
 //   - currency/: exchange rates, and converting every amount when the home currency
 //     changes (convert.ts), a step at a time from the mahnee-reconvert queue
 //     (convert-queue.ts, wired in index.ts and wrangler.jsonc);
+//   - push/: reminders by web push: encrypting (encrypt.ts) and signing (vapid.ts) each
+//     one with WebCrypto, sending it (send.ts), and the cron's job that picks who to
+//     remind (reminders.ts);
 //   - ledger/: the money a person tracks: their cash, bank, card and e-wallet accounts
 //     with balances, their categories, and their transactions a page at a time
 //     (read.ts), a month's spending and income (summary.ts) and the 12 months up to it
@@ -21,8 +24,9 @@
 import type { AuthEnv } from './accounts/auth';
 import type { ConvertJob } from './currency/convert';
 import type { RatesEnv } from './currency/exchange-rates';
+import type { PushEnv } from './push/reminders';
 
-export interface Env extends AuthEnv, RatesEnv {
+export interface Env extends AuthEnv, RatesEnv, PushEnv {
   DB: D1Database;
   ASSETS: Fetcher;
   /** Changes per account per minute */

@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-19
 
+- Added: reminders on your phone: a daily one when nothing was added, and one the day before a scheduled entry, naming it and its amount [#55]
 - Added: log an entry in another currency: pick your other currencies in Settings › Money, switch with the pill on Add, and each entry keeps what you typed and its rate [#54]
 - Changed: An account's kind can be changed in Edit, a card to a bank account and back, with its balance shown as it will read [#53]
 
@@ -142,3 +143,4 @@ For agents:
 [#52]: https://github.com/BlueSky0322/mahnee/pull/52
 [#53]: https://github.com/BlueSky0322/mahnee/pull/53
 [#54]: https://github.com/BlueSky0322/mahnee/pull/54
+[#55]: https://github.com/BlueSky0322/mahnee/pull/55

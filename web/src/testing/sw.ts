@@ -65,6 +65,7 @@ export function load(globals: object, self: object = {}): Handlers {
     TextEncoder,
     URL,
     URLSearchParams,
+    crypto,
     // Through the test's own, so fake timers reach the service worker too
     setTimeout: (run: () => void, ms: number) => setTimeout(run, ms),
     ...globals,
@@ -225,4 +226,82 @@ export async function fetchThroughWorker(
   // What it carries on with afterwards (keeping a copy, say)
   await Promise.allSettled(background);
   return { fetch, response };
+}
+
+/** A notification the service worker showed: its title and options */
+export interface Shown {
+  title: string;
+  options: NotificationOptions & { data?: { url?: string } };
+}
+
+/**
+ * A push message arriving for the service worker, carrying `text` (null for one with no
+ * data), as the browser hands it over; answers the notifications it showed
+ */
+export async function pushToWorker(text: string | null): Promise<Shown[]> {
+  const shown: Shown[] = [];
+  const handlers = load(
+    {},
+    {
+      registration: {
+        showNotification: vi.fn((title: string, options: Shown['options']) => {
+          shown.push({ title, options });
+          return Promise.resolve();
+        }),
+      },
+    },
+  );
+  let done: Promise<unknown> = Promise.resolve();
+  handlers.push({
+    data: text == null ? null : { text: () => text, json: () => JSON.parse(text) as unknown },
+    waitUntil: (work: Promise<unknown>) => (done = work),
+  });
+  await done;
+  return shown;
+}
+
+/** A window of the app the browser has open, as the service worker sees it */
+export function appWindow(
+  url: string,
+  { focused = false, navigates = true }: { focused?: boolean; navigates?: boolean } = {},
+) {
+  const client = {
+    url,
+    type: 'window',
+    focused,
+    focus: vi.fn(() => Promise.resolve(client)),
+    // A window the service worker doesn't control can't be navigated: the browser refuses
+    navigate: vi.fn((to: string) =>
+      navigates
+        ? Promise.resolve({ ...client, url: to })
+        : Promise.reject(new TypeError('Not controlled')),
+    ),
+  };
+  return client;
+}
+
+/**
+ * The person tapping a notification whose data is `data`, with `windows` of the app open;
+ * answers what the service worker did: the notification closed, windows navigated and
+ * focused (on the windows themselves), and any window it opened
+ */
+export async function clickNotification(data: unknown, windows: ReturnType<typeof appWindow>[]) {
+  const close = vi.fn();
+  const openWindow = vi.fn((url: string) => Promise.resolve(appWindow(url)));
+  const handlers = load(
+    {},
+    {
+      clients: {
+        matchAll: vi.fn(() => Promise.resolve(windows)),
+        openWindow,
+      },
+    },
+  );
+  let done: Promise<unknown> = Promise.resolve();
+  handlers.notificationclick({
+    notification: { data, close },
+    waitUntil: (work: Promise<unknown>) => (done = work),
+  });
+  await done;
+  return { close, openWindow };
 }

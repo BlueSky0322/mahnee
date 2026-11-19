@@ -9,8 +9,10 @@ import { getSignIn } from './accounts/auth';
 import type { ConvertJob } from './currency/convert';
 import { handleConvertQueue } from './currency/convert-queue';
 import { postScheduled } from './ledger/post-scheduled';
+import { sendReminders } from './push/reminders';
 import ledger from './routes/ledger';
 import me from './routes/me';
+import push from './routes/push';
 import rates from './routes/rates';
 
 const api = new Hono<AppEnv>().basePath('/api');
@@ -57,6 +59,7 @@ api.use('*', async (c, next) => {
 api.route('/', me);
 api.route('/', ledger);
 api.route('/', rates);
+api.route('/', push);
 
 api.notFound(() => notFound());
 
@@ -75,15 +78,21 @@ export default {
     return api.fetch(req, env, ctx);
   },
   // The cron trigger (every 15 minutes, wrangler.jsonc): scheduled entries are added on their
-  // day where each person is (ledger/post-scheduled.ts). Only an error's name and message
-  // are logged.
+  // day where each person is (ledger/post-scheduled.ts), then reminders go at each person's
+  // time (push/reminders.ts). One failing doesn't stop the other; the run then fails, so
+  // the trigger shows it. Only an error's name and message are logged.
   async scheduled(controller, env): Promise<void> {
-    try {
-      await postScheduled(env.DB, controller.scheduledTime);
-    } catch (err) {
-      console.error(err instanceof Error ? `${err.name}: ${err.message}` : 'Unknown error');
-      throw err;
+    const at = controller.scheduledTime;
+    let failure: Error | null = null;
+    for (const job of [() => postScheduled(env.DB, at), () => sendReminders(env.DB, env, at)]) {
+      try {
+        await job();
+      } catch (err) {
+        console.error(err instanceof Error ? `${err.name}: ${err.message}` : 'Unknown error');
+        failure ??= err instanceof Error ? err : new Error('Unknown error');
+      }
     }
+    if (failure != null) throw failure;
   },
   // Converting amounts into a new home currency, a step at a time, and the steps given up
   // on (currency/convert-queue.ts)

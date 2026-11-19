@@ -32,6 +32,7 @@ import {
   type ThemeSetting,
 } from '@shared/api';
 import { rememberStartScreen } from '../hooks/useRoute';
+import { letGoHere, releaseForOthers } from '../reminders/push-device';
 import { showAccent, showExpenseColour } from '../theme/appearance';
 import { showError } from '../utils/notify';
 import { quietly } from '../utils/quietly';
@@ -154,11 +155,12 @@ export function signIn() {
 }
 
 /**
- * Forgets what this device kept for the account, changes not yet saved included, then
- * signs out of Cloudflare Access. Others' unsent changes, kept from before this account
- * signed in here, stay theirs.
+ * Stops reminders coming to this device, forgets what this device kept for the account,
+ * changes not yet saved included, then signs out of Cloudflare Access. Others' unsent
+ * changes, kept from before this account signed in here, stay theirs.
  */
 export async function signOut() {
+  await letGoHere();
   const leaving = cacheUser();
   await clearCache((owner) => leaving != null && owner !== leaving);
   reportKept(true);
@@ -215,6 +217,8 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         clearTimeout(timer);
         // Copies are kept per account; know whose before showing any
         await setCacheUser(me.email);
+        // Reminders for whoever subscribed this device before stop coming here
+        void releaseForOthers(me.email);
         const shown = assumed.current;
         assumed.current = null;
         fromDevice.current = false;

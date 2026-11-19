@@ -17,6 +17,7 @@ import {
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { newVapidKeys } from './push-receiver';
 
 const ROOT = resolve(__dirname, '../..');
 const MIGRATE_TIMEOUT_MS = 60_000;
@@ -115,6 +116,10 @@ export interface LocalWorker {
   ) => Promise<Response>;
   /** The stand-in for Wise and Frankfurter that the Worker gets its rates from */
   rates: FakeRates;
+  /** The stand-in push service the Worker sends reminders to */
+  push: FakePush;
+  /** The VAPID public key the Worker signs its pushes with */
+  vapidPublicKey: string;
   /** The stand-in for Google's picture host, which a Google picture is copied from */
   google: FakeGoogle;
   /** Where it's listening, e.g. http://127.0.0.1:1234 */
@@ -129,6 +134,71 @@ export interface LocalWorker {
 }
 
 type Service = 'wise' | 'frankfurter';
+
+/** One request the push service was handed */
+export interface PushRequest {
+  path: string;
+  headers: Record<string, string | undefined>;
+  body: Uint8Array;
+}
+
+export interface FakePush {
+  /** Where it's listening; a subscription's endpoint is `${base}/push/<anything>` */
+  base: string;
+  /** Every request handed to it, in order */
+  received: () => PushRequest[];
+  /**
+   * Answers requests for `path` with `status` from now on (201 unless said); a redirect
+   * (3xx) points at `${base}/push/redirected`
+   */
+  answer: (path: string, status: number) => void;
+  /** Answers the next requests for `path` with these, one each, before the lasting answer */
+  answerNext: (path: string, ...statuses: number[]) => void;
+  /** Forgets what it was handed and how it answers */
+  reset: () => void;
+}
+
+/** A push service: takes every message with 201, or as told, and keeps what it was handed */
+async function startFakePush(): Promise<FakePush & { close: () => void }> {
+  let received: PushRequest[] = [];
+  const answers = new Map<string, number>();
+  const queued = new Map<string, number[]>();
+  let base = '';
+  const server = createHttpServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => {
+      const path = new URL(req.url ?? '/', 'http://x').pathname;
+      const headers: Record<string, string | undefined> = {};
+      for (const [k, v] of Object.entries(req.headers)) headers[k] = [v].flat().join(', ');
+      received.push({ path, headers, body: new Uint8Array(Buffer.concat(chunks)) });
+      const status = queued.get(path)?.shift() ?? answers.get(path) ?? 201;
+      res.writeHead(
+        status,
+        status >= 300 && status < 400 ? { Location: `${base}/push/redirected` } : {},
+      );
+      res.end();
+    });
+  });
+  await new Promise<void>((done, fail) => {
+    server.once('error', fail);
+    server.listen(0, '127.0.0.1', done);
+  });
+  const { port } = server.address() as { port: number };
+  base = `http://127.0.0.1:${port}`;
+  return {
+    base,
+    received: () => [...received],
+    answer: (path, status) => void answers.set(path, status),
+    answerNext: (path, ...statuses) => void queued.set(path, statuses),
+    reset: () => {
+      received = [];
+      answers.clear();
+      queued.clear();
+    },
+    close: () => server.close(),
+  };
+}
 
 export interface FakeGoogle {
   /** Where pictures are served from, as GOOGLE_PICTURE_BASE: `${base}a/<name>` */
@@ -382,6 +452,9 @@ export async function startLocalWorker(): Promise<LocalWorker> {
 
     const rates = await startFakeRates();
     cleanups.push(() => rates.close());
+    const push = await startFakePush();
+    cleanups.push(() => push.close());
+    const vapid = await newVapidKeys();
     // A port picked free a moment ago can be taken by the time workerd binds it: the
     // other Worker-backed test file starts at the same moment. Then once more, on others.
     let port = 0;
@@ -411,6 +484,12 @@ export async function startLocalWorker(): Promise<LocalWorker> {
           `FRANKFURTER_BASE:${rates.base}`,
           '--var',
           'WISE_TOKEN:test-token',
+          '--var',
+          `VAPID_PUBLIC_KEY:${vapid.publicKey}`,
+          '--var',
+          `VAPID_PRIVATE_KEY:${vapid.privateJwk}`,
+          '--var',
+          `PUSH_TEST_ORIGIN:${push.base}`,
           // A conversion step that failed is tried again after a second, not minutes
           '--var',
           'CONVERT_RETRY_DELAY_S:1',
@@ -484,6 +563,8 @@ export async function startLocalWorker(): Promise<LocalWorker> {
     return {
       stop,
       rates,
+      push,
+      vapidPublicKey: vapid.publicKey,
       google: rates.google,
       base,
       raw,

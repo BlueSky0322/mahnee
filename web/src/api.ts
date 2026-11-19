@@ -22,6 +22,7 @@ import type {
   SearchPage,
   TransactionPage,
 } from '@shared/api';
+import type { PushKey, PushSubscriptionBody } from '@shared/push';
 import { newId } from './utils/id';
 
 /** The signed-in account, as this device holds it */
@@ -232,4 +233,12 @@ export const api = {
         fresh ? '&fresh=1' : ''
       }${at != null ? `&at=${at}` : ''}`,
     ),
+  /** The key a device subscribes for reminders with; null while the server has none */
+  getPushKey: () => request<PushKey>('GET', '/api/push'),
+  /** Reminders to this device, for the account signed in */
+  subscribePush: (subscription: PushSubscriptionBody) =>
+    request<Ok>('PUT', '/api/push/subscription', subscription),
+  /** No more reminders to this device, as signing out does */
+  unsubscribePush: (endpoint: string) =>
+    request<Ok>('DELETE', '/api/push/subscription', { endpoint }),
 };

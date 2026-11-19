@@ -1,0 +1,59 @@
+/* A phone's setting that opens a sheet: the whole row is its button */
+.holder {
+  padding: 0;
+}
+
+.rowButton {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* How many days before a scheduled entry: one choice a line */
+.leads {
+  display: flex;
+  flex-direction: column;
+}
+
+.lead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 4px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.lead + .lead {
+  border-top: 1px solid var(--line);
+}
+
+.lead input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.timeForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* A computer's time button and the daily switch, side by side */
+.controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+}

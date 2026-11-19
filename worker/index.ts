@@ -6,6 +6,8 @@ import type { AppEnv, Env } from './app';
 import { fail, isCrossSiteWrite, notFound } from './http';
 import { EXPECTED_ACCOUNT_HEADER } from '../shared/api';
 import { getSignIn } from './accounts/auth';
+import type { ConvertJob } from './currency/convert';
+import { handleConvertQueue } from './currency/convert-queue';
 import { postScheduled } from './ledger/post-scheduled';
 import ledger from './routes/ledger';
 import me from './routes/me';
@@ -83,4 +85,7 @@ export default {
       throw err;
     }
   },
-} satisfies ExportedHandler<Env>;
+  // Converting amounts into a new home currency, a step at a time, and the steps given up
+  // on (currency/convert-queue.ts)
+  queue: handleConvertQueue,
+} satisfies ExportedHandler<Env, ConvertJob>;

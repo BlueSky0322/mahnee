@@ -1,6 +1,6 @@
 import { useId } from 'react';
+import { useCurrency } from '../../profile/ProfileContext';
 import type { DayTotal, WeekStart } from '@shared/api';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
 import { dayByDay } from '../../ledger/day-by-day';
 import { monthHeading } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
@@ -59,6 +59,7 @@ export default function DayByDay({
   /** Says "Tap a day to see it" (phones) */
   tapHint: boolean;
 }) {
+  const homeCurrency = useCurrency();
   const titleId = useId();
   const { middleCents, days } = dayByDay(spentByDay, firstDay, lastDay, today);
   const empty = spentByDay.length === 0;
@@ -84,8 +85,7 @@ export default function DayByDay({
         </h2>
         {!empty && middleCents != null && (
           <span className={classes.middle}>
-            middle day{' '}
-            <span className={classes.num}>{formatMoney(middleCents, DEFAULT_CURRENCY)}</span>
+            middle day <span className={classes.num}>{formatMoney(middleCents, homeCurrency)}</span>
           </span>
         )}
       </div>
@@ -136,7 +136,7 @@ export default function DayByDay({
                     >
                       <PageLink
                         href={`?activity&day=${day.date}`}
-                        aria-label={dayLabel(day, dueOn?.names ?? [])}
+                        aria-label={dayLabel(day, dueOn?.names ?? [], homeCurrency)}
                         aria-current={isToday ? 'date' : undefined}
                         data-against={day.against ?? 'later'}
                         className={classes.day}

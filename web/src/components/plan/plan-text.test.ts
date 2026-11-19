@@ -95,12 +95,14 @@ describe("a category row's subtitle", () => {
   it('counts the entries, one or many', () => {
     expect(entriesText(1)).toBe('1 entry');
     expect(entriesText(6)).toBe('6 entries');
-    expect(phoneSubtitle(row('Groceries', 18_000, 3), 165_050)).toBe('11% · 3 entries');
-    expect(phoneSubtitle(row('Health', 600, 1), 165_050)).toBe('under 1% · 1 entry');
+    expect(phoneSubtitle(row('Groceries', 18_000, 3), 165_050, 'MYR')).toBe('11% · 3 entries');
+    expect(phoneSubtitle(row('Health', 600, 1), 165_050, 'MYR')).toBe('under 1% · 1 entry');
   });
 
   it('names the payee of a single entry', () => {
-    expect(phoneSubtitle(row('Bills', 120_000, 1, { payee: 'Rent' }), 165_050)).toBe('73% · Rent');
+    expect(phoneSubtitle(row('Bills', 120_000, 1, { payee: 'Rent' }), 165_050, 'MYR')).toBe(
+      '73% · Rent',
+    );
   });
 
   it('lists the subcategories with their amounts, then what was filed on the category itself', () => {
@@ -111,7 +113,9 @@ describe("a category row's subtitle", () => {
         { id: 'c'.repeat(16), name: 'Coffee', cents: 1_500, entries: 1 },
       ],
     });
-    expect(phoneSubtitle(food, 165_050)).toBe('5% · Dining out 60.00, Coffee 15.00, Food 9.00');
+    expect(phoneSubtitle(food, 165_050, 'MYR')).toBe(
+      '5% · Dining out 60.00, Coffee 15.00, Food 9.00',
+    );
     // With nothing filed on Food itself, only the subcategories
     expect(
       phoneSubtitle(
@@ -121,6 +125,7 @@ describe("a category row's subtitle", () => {
           subcategories: [{ id: 'p'.repeat(16), name: 'Petrol', cents: 3_000, entries: 1 }],
         }),
         165_050,
+        'MYR',
       ),
     ).toBe('2% · Petrol 30.00');
   });
@@ -156,13 +161,13 @@ describe("a category row's subtitle", () => {
 
 describe('the month against the usual', () => {
   it('says how far under or over the average of the 11 months before, or the same', () => {
-    expect(usualText({ averageCents: 3_182, byCents: 5_218, direction: 'above' })).toBe(
+    expect(usualText({ averageCents: 3_182, byCents: 5_218, direction: 'above' }, 'MYR')).toBe(
       'RM 52.18 over your usual RM 31.82',
     );
-    expect(usualText({ averageCents: 37_146, byCents: 15_624, direction: 'below' })).toBe(
+    expect(usualText({ averageCents: 37_146, byCents: 15_624, direction: 'below' }, 'MYR')).toBe(
       'RM 156.24 under your usual RM 371.46',
     );
-    expect(usualText({ averageCents: 1_000, byCents: 0, direction: 'same' })).toBe(
+    expect(usualText({ averageCents: 1_000, byCents: 0, direction: 'same' }, 'MYR')).toBe(
       'the same as your usual RM 10.00',
     );
   });
@@ -221,7 +226,9 @@ describe('where the month stands in its year', () => {
 
 describe("a budget's figures on Plan", () => {
   it("on track: what's left, and what's spent of what's available, with no pace words", () => {
-    expect(budgetWords(line('Food', 80_000, 21_522), DAY_10_OF_30, { short: false })).toEqual({
+    expect(
+      budgetWords(line('Food', 80_000, 21_522), DAY_10_OF_30, { short: false, currency: 'MYR' }),
+    ).toEqual({
       left: 'RM 584.78 left',
       meta: 'RM 215.22 of RM 800.00',
       label: 'Food: 27% spent',
@@ -230,7 +237,12 @@ describe("a budget's figures on Plan", () => {
   });
 
   it('faster than the month: says so after the figures', () => {
-    expect(budgetWords(line('Shopping', 30_000, 23_842), DAY_10_OF_30, { short: false })).toEqual({
+    expect(
+      budgetWords(line('Shopping', 30_000, 23_842), DAY_10_OF_30, {
+        short: false,
+        currency: 'MYR',
+      }),
+    ).toEqual({
       left: 'RM 61.58 left',
       meta: 'RM 238.42 of RM 300.00 · faster than the month',
       label: 'Shopping: 79% spent',
@@ -239,7 +251,9 @@ describe("a budget's figures on Plan", () => {
   });
 
   it('over: how far over, and says over', () => {
-    expect(budgetWords(line('Transport', 2_000, 3_000), DAY_10_OF_30, { short: false })).toEqual({
+    expect(
+      budgetWords(line('Transport', 2_000, 3_000), DAY_10_OF_30, { short: false, currency: 'MYR' }),
+    ).toEqual({
       left: 'RM 10.00 over',
       meta: 'RM 30.00 of RM 20.00 · over',
       label: 'Transport: 150% spent',
@@ -249,43 +263,52 @@ describe("a budget's figures on Plan", () => {
 
   it("counts what carried over in what's available", () => {
     // RM 300.00 set, RM 50.00 carried in, RM 84.00 spent
-    expect(budgetWords(line('Food', 35_000, 8_400, 5_000), DAY_10_OF_30, { short: false })).toEqual(
-      {
-        left: 'RM 266.00 left',
-        meta: 'RM 84.00 of RM 350.00',
-        label: 'Food: 24% spent',
-        pace: 'onTrack',
-      },
-    );
+    expect(
+      budgetWords(line('Food', 35_000, 8_400, 5_000), DAY_10_OF_30, {
+        short: false,
+        currency: 'MYR',
+      }),
+    ).toEqual({
+      left: 'RM 266.00 left',
+      meta: 'RM 84.00 of RM 350.00',
+      label: 'Food: 24% spent',
+      pace: 'onTrack',
+    });
   });
 
   it('once the month is over: on track or over, never faster', () => {
-    expect(budgetWords(line('Shopping', 30_000, 23_842), DAY_30_OF_30, { short: false }).pace).toBe(
-      'onTrack',
-    );
+    expect(
+      budgetWords(line('Shopping', 30_000, 23_842), DAY_30_OF_30, { short: false, currency: 'MYR' })
+        .pace,
+    ).toBe('onTrack');
   });
 
   it("names the bar's percent exactly: nothing spent, half up, and at the limits", () => {
-    expect(budgetWords(line('Food', 30_000, 0), DAY_10_OF_30, { short: false }).label).toBe(
-      'Food: 0% spent',
-    );
+    expect(
+      budgetWords(line('Food', 30_000, 0), DAY_10_OF_30, { short: false, currency: 'MYR' }).label,
+    ).toBe('Food: 0% spent');
     // 1 in 200 is 0.5%, which rounds up
-    expect(budgetWords(line('Food', 20_000, 100), DAY_10_OF_30, { short: false }).label).toBe(
-      'Food: 1% spent',
-    );
+    expect(
+      budgetWords(line('Food', 20_000, 100), DAY_10_OF_30, { short: false, currency: 'MYR' }).label,
+    ).toBe('Food: 1% spent');
     // RM 2.00 available and nearly all a person can spend: 1,897,210,537,686,175.5%, exactly,
     // which rounds up; worked in floats it comes out one short
     expect(
-      budgetWords(line('Food', 200, 3_794_421_075_372_351), DAY_10_OF_30, { short: false }).label,
+      budgetWords(line('Food', 200, 3_794_421_075_372_351), DAY_10_OF_30, {
+        short: false,
+        currency: 'MYR',
+      }).label,
     ).toBe('Food: 1897210537686176% spent');
   });
 
   it('on a computer: figures without the symbol in the Left column', () => {
-    expect(budgetWords(line('Food', 80_000, 21_522), DAY_10_OF_30, { short: true }).left).toBe(
-      '584.78',
-    );
-    expect(budgetWords(line('Transport', 2_000, 3_000), DAY_10_OF_30, { short: true }).left).toBe(
-      '10.00 over',
-    );
+    expect(
+      budgetWords(line('Food', 80_000, 21_522), DAY_10_OF_30, { short: true, currency: 'MYR' })
+        .left,
+    ).toBe('584.78');
+    expect(
+      budgetWords(line('Transport', 2_000, 3_000), DAY_10_OF_30, { short: true, currency: 'MYR' })
+        .left,
+    ).toBe('10.00 over');
   });
 });

@@ -1,10 +1,10 @@
 import { useThisMonth } from '../../ledger/month-start';
+import { useCurrency } from '../../profile/ProfileContext';
 import { ActionIcon, Button } from '@mantine/core';
 import { ArrowDown, ArrowUp } from '@phosphor-icons/react';
 import { CheckIcon, InIcon, OutIcon, PlusIcon } from '../ui/icons';
 import { Fragment, useState } from 'react';
 import type { Category, MonthBudget } from '@shared/api';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
 import type { CategoryKind } from '@shared/categories';
 import {
   CATEGORY_KINDS,
@@ -318,8 +318,8 @@ function Section({
 }
 
 /** A whole number of ringgit without cents ("RM 800"), else as it is ("RM 120.50") */
-const budgetMoney = (cents: number) => {
-  const text = formatMoney(cents, DEFAULT_CURRENCY);
+const budgetMoney = (cents: number, currency: string) => {
+  const text = formatMoney(cents, currency);
   return cents % 100 === 0 ? text.replace(/\.00$/, '') : text;
 };
 
@@ -344,6 +344,7 @@ function Top({
   /** Opens the field for its first subcategory; null once it has some (the + is after them) */
   onAddUnder: (() => void) | null;
 }) {
+  const homeCurrency = useCurrency();
   return (
     <div className={classes.top}>
       <span
@@ -359,7 +360,9 @@ function Top({
         {node.name}
       </button>
       {budget?.amountCents != null && (
-        <span className={classes.budget}>{budgetMoney(budget.amountCents)} a month</span>
+        <span className={classes.budget}>
+          {budgetMoney(budget.amountCents, homeCurrency)} a month
+        </span>
       )}
       {reordering ? (
         <Arrows

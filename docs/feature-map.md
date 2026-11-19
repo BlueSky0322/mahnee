@@ -23,6 +23,7 @@ in [AGENTS.md](../AGENTS.md).
 | [Export](#export)                                               | (none; read when asked)      | `ledger/`, `routes/ledger.ts`  |
 | [Import](#import)                                               | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Exchange rates](#exchange-rates)                               | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
+| [Home currency](#home-currency)                                 | `profile/ProfileContext.tsx` | `currency/`, `routes/me.ts`    |
 | [Offline start and installing](#offline-start-and-installing)   | `offline/`, `pwa/`           | (none; the API is the same)    |
 | [Pages, layouts and Back](#pages-layouts-and-back)              | `hooks/useRoute.ts`          | (none)                         |
 
@@ -66,8 +67,8 @@ match marked; a result, or Enter for the first, opens `?settings=<section>&setti
 with that setting in view and the keyboard on it. Money
 ([settings/MoneyPage.tsx](../web/src/components/settings/MoneyPage.tsx)) sets when the
 month starts (see Month view, The month start day) and when the week starts (Home's
-calendar); its Main currency stays read-only until a home currency can be chosen, and
-Other currencies is hidden. Adding entries
+calendar); its Main currency picks the home currency (see Home currency), and Other
+currencies is hidden (owner decision D4). Adding entries
 (`?settings=adding`): Start with (Amount or Category, what Add opens on), Account to use
 ("Last used", or one of the accounts in use, picked from a list; one archived since reads
 as Last used), Suggest as you type (Add's payee field offers the payees used before, from
@@ -1665,6 +1666,74 @@ through the query cache, keyed by the pair, the account's rate source and the da
 **Tests.** [worker/currency/exchange-rates.test.ts](../worker/currency/exchange-rates.test.ts)
 (sources, fallbacks, caching, earlier days) and the rate cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts).
+
+## Home currency
+
+**What it is.** Settings › Money › Main currency (owner decisions D2 to D5): the currency
+every amount is kept and shown in, reading "MYR, RM". It opens a picker (a sheet on phones,
+a panel under the row on computers) with "Search currencies" and the groups "You use" (the
+one in use) and "All currencies" (the ECB's 30, `HOME_CURRENCIES` in `shared/rates.ts`, so
+each converts without Wise). Picking one saves it at once; the server then converts every
+amount in the background. Until that's done the row and the freshness line say "Converting
+to USD…", the row can't be changed, and amounts are shown as they still are. A change
+refused for an amount past its limit is said under the row ("Kept MYR: an entry would come
+to more than 10,000,000 IDR"). It needs a connection ("Connect to change the currency").
+
+**Owner.** The profile ([profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx)):
+the setting saves through `change()`, and `Profile.conversion` says what's converting (or
+the last change refused). While converting it asks `GET /api/me` every 2 seconds; once
+done, the ledger ([ledger/ledger.ts](../web/src/ledger/ledger.ts)) drops every month's
+totals kept, fetches everything again and sends the changes kept meanwhile. `useCurrency()`
+(and `useMoney()` in `hooks/`) is the currency every amount is shown in: `currencyNow` in
+`shared/api.ts`, the one converted from until it's done.
+
+**Data flow.**
+
+- `PATCH /api/me` with `settings.currency` saves it with a `conversions` row (refused, 409,
+  while one is under way) and queues the first step on `mahnee-reconvert`
+  ([worker/currency/convert-queue.ts](../worker/currency/convert-queue.ts)).
+- Each step ([worker/currency/convert.ts](../worker/currency/convert.ts)) works out a page
+  of 200 transactions, by day then id, each at the rate on its own day (`getRateOn`: the
+  ECB's, else Wise's), into `conversion_staged`, checking each against its limit; the last
+  step works out the opening balances, budgets and scheduled items at the rate on the day of
+  the switch and swaps everything in at once, the accounts' `currency` too. One past its
+  limit refuses the whole change: the currency goes back, nothing was converted, and the
+  profile names the limit (`amount`, `opening`, `budget` or `scheduled`).
+- A failed step is tried again by the queue (30 s, doubling to an hour, 8 tries) and notes
+  when its next try is due; after the last, `mahnee-reconvert-dlq` gives the person their
+  currency back, nothing converted (refused `rates`: "Kept MYR: rates for USD weren't
+  available, so nothing was converted. Try again later"). One 2 minutes past its due time is
+  queued again when the person's profile is read, at most 3 times, then given back the same
+  way.
+- The swap checks every transaction was worked out (else it starts over, counted as a
+  restart, so the same cap gives the currency back) and puts them in
+  10,000 to a statement, all in one batch.
+- While converting, `POST /api/changes` answers 503 with code `converting` (the outbox
+  keeps the changes and sends them again), and the nightly job skips the person.
+- Every change the app sends says the currency it was typed in (`currencies`, from
+  `currencyNow` when made, null for one kept from before; the outbox and
+  `web/public/sw.js` keep it). One typed in a currency
+  since left is converted on saving at its rate (an entry's day, otherwise today's)
+  ([worker/currency/typed-in.ts](../worker/currency/typed-in.ts)).
+
+**Invariants.**
+
+- Every amount keeps what it was typed as (`original_currency`, `original_cents`, `rate`,
+  `rate_source`, `rate_at`): one converted again is converted from that, and one typed in
+  the new currency is plain again, so changing back restores the exact amounts. Changing an
+  amount outside a conversion makes it typed in the home currency (triggers in 0011).
+- Amounts never show in two currencies at once, and limits stay as they are
+  (`MAX_TRANSACTION_CENTS` each, so every total stays exact); a converted amount above zero
+  is at least a cent. An earlier day no service has a rate for is converted at today's,
+  which `rate_at` shows.
+- Only an error's name and message, or the limit that refused a change, are logged.
+
+**Tests.** [worker/test/currency.test.ts](../worker/test/currency.test.ts) (each rate,
+back exactly, an edit since, writes held and typed in the old currency, retries, both
+refusals), the 0011 cases in [worker/test/migrations.test.ts](../worker/test/migrations.test.ts),
+[settings/HomeCurrency.test.tsx](../web/src/components/settings/HomeCurrency.test.tsx)
+(the picker, converting on Home, changes held then converted, each refusal, offline) and
+the `currencies` cases in [offline/outbox.test.ts](../web/src/offline/outbox.test.ts).
 
 ## Offline start and installing
 

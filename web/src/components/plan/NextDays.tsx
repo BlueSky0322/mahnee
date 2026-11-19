@@ -1,6 +1,6 @@
 import { useId } from 'react';
+import { useCurrency } from '../../profile/ProfileContext';
 import type { Ledger } from '@shared/api';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
 import { nextThirtyDays } from '../../ledger/forecast';
 import { formatMoney } from '../../utils/money';
 import { balanceText } from '../accounts/account-text';
@@ -13,11 +13,12 @@ import classes from './Scheduled.module.css';
 // the day. A quiet card under what's drawn, in the same look as the groups.
 
 export default function NextDays({ ledger, today }: { ledger: Ledger; today: string }) {
+  const homeCurrency = useCurrency();
   const id = useId();
   const next = nextThirtyDays(ledger, today);
   const nothing = next.lowest.length === 0;
   const total = (cents: number, sign: string) =>
-    `${cents === 0 ? '' : sign}${formatMoney(cents, DEFAULT_CURRENCY)}`;
+    `${cents === 0 ? '' : sign}${formatMoney(cents, homeCurrency)}`;
   return (
     <section
       className={classes.group}

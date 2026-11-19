@@ -1,10 +1,10 @@
 import { Button } from '@mantine/core';
+import { useCurrency } from '../../profile/ProfileContext';
 import type { ReactNode } from 'react';
 import { useId } from 'react';
 import type { Category, Ledger, Recurring } from '@shared/api';
 import { categoriesOrDefaults } from '@shared/categories';
 import type { TransactionKind } from '@shared/ledger';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
 import { monthlyCents } from '@shared/scheduled';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { useMonths } from '../../ledger/month-start';
@@ -47,6 +47,7 @@ const COMMON: { label: string; kind: TransactionKind; category: string; payee: s
 ];
 
 export default function ScheduledView({ onOpen }: { onOpen: (opened: Opened) => void }) {
+  const homeCurrency = useCurrency();
   const { data: ledger } = useWholeLedger();
   const months = useMonths();
   const { summary } = useMonthSummary(months.current.month);
@@ -86,7 +87,7 @@ export default function ScheduledView({ onOpen }: { onOpen: (opened: Opened) => 
             <Group
               key={kind}
               title={kind === 'expense' ? 'Expenses' : 'Income'}
-              aside={`${formatMoney(monthlyCents(of(kind), period), DEFAULT_CURRENCY)} a month`}
+              aside={`${formatMoney(monthlyCents(of(kind), period), homeCurrency)} a month`}
             >
               {of(kind).map(row)}
             </Group>
@@ -203,6 +204,7 @@ function Row({
   isDesktop: boolean;
   onOpen: () => void;
 }) {
+  const homeCurrency = useCurrency();
   const title = itemTitle(r, ledger.accounts, categories, isDesktop);
   const changes = r.amountVaries === true;
   const amount = (
@@ -211,7 +213,7 @@ function Row({
       data-kind={r.kind}
     >
       {isDesktop && changes && <span className={classes.about}>about </span>}
-      {signedAmount(r)}
+      {signedAmount(r, homeCurrency)}
     </span>
   );
   // The item's category letter in its colour, or a transfer's arrows

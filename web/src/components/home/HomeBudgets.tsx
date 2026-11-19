@@ -1,4 +1,5 @@
 import { AlertIcon } from '../ui/icons';
+import { useCurrency } from '../../profile/ProfileContext';
 import { useId } from 'react';
 import type { PeriodDay } from '@shared/period';
 import type { BudgetLine } from '../../ledger/budgets';
@@ -24,6 +25,7 @@ export default function HomeBudgets({
   /** On a computer: figures without the symbol, as drawn */
   short: boolean;
 }) {
+  const homeCurrency = useCurrency();
   const titleId = useId();
   return (
     <section
@@ -60,7 +62,7 @@ export default function HomeBudgets({
       ) : (
         <ul className={short ? classes.budgetGrid : classes.budgetList}>
           {lines.map((line) => {
-            const text = budgetText(line, at, { short });
+            const text = budgetText(line, at, { short, currency: homeCurrency });
             const tone =
               text.pace === 'over' ? classes.neg : text.pace === 'faster' ? classes.due : '';
             return (

@@ -4,12 +4,18 @@ import { Hono } from 'hono';
 import type { Profile, ProfilePatch } from '../../shared/api';
 import type { AppEnv } from '../app';
 import { json, readJson } from '../http';
+import { queueConversion, restartStalled } from '../currency/convert-queue';
 import { copyGooglePicture, getProfile, patchProfile, putPicture } from '../accounts/profiles';
 import { servePicture } from '../accounts/pictures';
 
 const me = new Hono<AppEnv>();
 
 me.get('/me', async (c) => {
+  const profile = await getProfile(c.env.DB, c.var.email);
+  // A conversion the queue gave up on starts again once the person is back
+  if (profile.conversion != null && profile.conversion.refused == null) {
+    c.executionCtx.waitUntil(restartStalled(c.env, c.var.email).catch(() => {}));
+  }
   // The Google picture the sign-in names is copied once the profile has been sent
   const picture = c.var.googlePicture;
   if (picture != null) {
@@ -19,7 +25,7 @@ me.get('/me', async (c) => {
       ),
     );
   }
-  return json<Profile>(await getProfile(c.env.DB, c.var.email));
+  return json<Profile>(profile);
 });
 
 // The signed-in account's own picture, as shown in place of the initial; no one else's
@@ -29,7 +35,7 @@ me.put('/me/picture', (c) => putPicture(c.env.DB, c.var.email, c.req.raw));
 me.patch('/me', async (c) => {
   const body = await readJson<ProfilePatch>(c.req.raw);
   if (body instanceof Response) return body;
-  return patchProfile(c.env.DB, c.var.email, body);
+  return patchProfile(c.env.DB, c.var.email, body, (job) => queueConversion(c.env, job));
 });
 
 export default me;

@@ -155,31 +155,33 @@ describe('Tidy up', () => {
 
 describe("a calendar day's name", () => {
   it('says what was spent against the middle day', () => {
-    expect(dayLabel({ date: '2026-11-10', cents: 1_768, against: 'less' }, [])).toBe(
+    expect(dayLabel({ date: '2026-11-10', cents: 1_768, against: 'less' }, [], 'MYR')).toBe(
       'November 10, spent RM 17.68, less than the middle day',
     );
-    expect(dayLabel({ date: '2026-11-01', cents: 147_017, against: 'more' }, [])).toBe(
+    expect(dayLabel({ date: '2026-11-01', cents: 147_017, against: 'more' }, [], 'MYR')).toBe(
       'November 1, spent RM 1,470.17, more than the middle day',
     );
-    expect(dayLabel({ date: '2026-11-02', cents: 0, against: 'less' }, [])).toBe(
+    expect(dayLabel({ date: '2026-11-02', cents: 0, against: 'less' }, [], 'MYR')).toBe(
       'November 2, spent RM 0.00, less than the middle day',
     );
   });
 
   it('names what is due on a day to come', () => {
-    expect(dayLabel({ date: '2026-11-20', cents: 0, against: null }, ['TNB electricity'])).toBe(
-      'November 20, TNB electricity due',
+    expect(
+      dayLabel({ date: '2026-11-20', cents: 0, against: null }, ['TNB electricity'], 'MYR'),
+    ).toBe('November 20, TNB electricity due');
+    expect(
+      dayLabel({ date: '2026-11-25', cents: 0, against: null }, ['Rent', 'Netflix'], 'MYR'),
+    ).toBe('November 25, Rent and Netflix due');
+    expect(dayLabel({ date: '2026-11-21', cents: 0, against: null }, [], 'MYR')).toBe(
+      'November 21',
     );
-    expect(dayLabel({ date: '2026-11-25', cents: 0, against: null }, ['Rent', 'Netflix'])).toBe(
-      'November 25, Rent and Netflix due',
-    );
-    expect(dayLabel({ date: '2026-11-21', cents: 0, against: null }, [])).toBe('November 21');
   });
 
   it('says what was spent first, then what is due, on a day with both', () => {
-    expect(dayLabel({ date: '2026-11-10', cents: 900, against: 'more' }, ['TNB electricity'])).toBe(
-      'November 10, spent RM 9.00, more than the middle day, TNB electricity due',
-    );
+    expect(
+      dayLabel({ date: '2026-11-10', cents: 900, against: 'more' }, ['TNB electricity'], 'MYR'),
+    ).toBe('November 10, spent RM 9.00, more than the middle day, TNB electricity due');
   });
 });
 
@@ -201,13 +203,17 @@ describe("the calendar's weeks", () => {
 
 describe("a budget's figures", () => {
   it('say what is left, of what, and how it goes against the month (phone)', () => {
-    expect(budgetText(line('Food', 80_000, 21_522), DAY_10_OF_30, { short: false })).toEqual({
+    expect(
+      budgetText(line('Food', 80_000, 21_522), DAY_10_OF_30, { short: false, currency: 'MYR' }),
+    ).toEqual({
       left: 'RM 584.78 left',
       meta: 'RM 215.22 of RM 800.00 · on track',
       pace: 'onTrack',
       label: 'Food: 27% of budget spent, 33% of the month gone',
     });
-    expect(budgetText(line('Shopping', 30_000, 23_842), DAY_10_OF_30, { short: false })).toEqual({
+    expect(
+      budgetText(line('Shopping', 30_000, 23_842), DAY_10_OF_30, { short: false, currency: 'MYR' }),
+    ).toEqual({
       left: 'RM 61.58 left',
       meta: 'RM 238.42 of RM 300.00 · faster than the month',
       pace: 'faster',
@@ -216,7 +222,9 @@ describe("a budget's figures", () => {
   });
 
   it('drop the symbol from what is left, and what is spent, on a computer', () => {
-    expect(budgetText(line('Food', 80_000, 21_522), DAY_10_OF_30, { short: true })).toEqual({
+    expect(
+      budgetText(line('Food', 80_000, 21_522), DAY_10_OF_30, { short: true, currency: 'MYR' }),
+    ).toEqual({
       left: '584.78 left',
       meta: 'of RM 800.00 · on track',
       pace: 'onTrack',
@@ -225,24 +233,26 @@ describe("a budget's figures", () => {
   });
 
   it('say how far over', () => {
-    expect(budgetText(line('Fun', 30_000, 34_000), DAY_10_OF_30, { short: false })).toEqual({
+    expect(
+      budgetText(line('Fun', 30_000, 34_000), DAY_10_OF_30, { short: false, currency: 'MYR' }),
+    ).toEqual({
       left: 'RM 40.00 over',
       meta: 'RM 340.00 of RM 300.00 · over',
       pace: 'over',
       label: 'Fun: 113% of budget spent, 33% of the month gone',
     });
-    expect(budgetText(line('Fun', 30_000, 34_000), DAY_10_OF_30, { short: true }).left).toBe(
-      '40.00 over',
-    );
+    expect(
+      budgetText(line('Fun', 30_000, 34_000), DAY_10_OF_30, { short: true, currency: 'MYR' }).left,
+    ).toBe('40.00 over');
   });
 
   it('keep the words once the month is over, and say on track', () => {
     const done = { day: 31, days: 31 };
-    expect(budgetText(line('Food', 80_000, 21_522), done, { short: false }).meta).toBe(
-      'RM 215.22 of RM 800.00 · on track',
-    );
-    expect(budgetText(line('Fun', 30_000, 34_000), done, { short: false }).meta).toBe(
-      'RM 340.00 of RM 300.00 · over',
-    );
+    expect(
+      budgetText(line('Food', 80_000, 21_522), done, { short: false, currency: 'MYR' }).meta,
+    ).toBe('RM 215.22 of RM 800.00 · on track');
+    expect(
+      budgetText(line('Fun', 30_000, 34_000), done, { short: false, currency: 'MYR' }).meta,
+    ).toBe('RM 340.00 of RM 300.00 · over');
   });
 });

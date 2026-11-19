@@ -1,6 +1,6 @@
 import { useId } from 'react';
+import { useCurrency } from '../../profile/ProfileContext';
 import type { TransactionKind } from '@shared/ledger';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
 import { formatMoney } from '../../utils/money';
 import classes from './Home.module.css';
 import { shortDate } from './home-text';
@@ -43,6 +43,7 @@ export default function ComingUp({
   added: readonly string[];
   checks?: readonly ComingUpCheck[];
 }) {
+  const homeCurrency = useCurrency();
   const titleId = useId();
   return (
     <section
@@ -75,9 +76,7 @@ export default function ComingUp({
             >
               <span className={classes.needTitle}>
                 {`${check.name} · `}
-                <span className={classes.num}>
-                  {formatMoney(check.amountCents, DEFAULT_CURRENCY)}
-                </span>
+                <span className={classes.num}>{formatMoney(check.amountCents, homeCurrency)}</span>
               </span>
               <span
                 className={classes.needLine}
@@ -95,7 +94,7 @@ export default function ComingUp({
               <span
                 className={row.kind === 'income' ? `${classes.num} ${classes.pos}` : classes.num}
               >
-                {`${row.kind === 'income' ? '+' : ''}${formatMoney(row.amountCents, DEFAULT_CURRENCY)}`}
+                {`${row.kind === 'income' ? '+' : ''}${formatMoney(row.amountCents, homeCurrency)}`}
               </span>
             </span>
             <span className={classes.needLine}>

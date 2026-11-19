@@ -3,7 +3,7 @@ import { BackIcon, ForwardIcon, SearchIcon, TidyIcon } from '../ui/icons';
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { Account, Category, Ledger, MonthSummary, WeekStart } from '@shared/api';
 import { OTHER_EXPENSE_ID, categoriesOrDefaults } from '@shared/categories';
-import { DEFAULT_CURRENCY, FIRST_DAY } from '@shared/ledger';
+import { FIRST_DAY } from '@shared/ledger';
 import { periodDay } from '@shared/period';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { ALL_EXPENSES, ALL_INCOME, navigate } from '../../hooks/useRoute';
@@ -11,7 +11,7 @@ import { budgetLines } from '../../ledger/budgets';
 import { comingUp, monthEndForecast, nextPay } from '../../ledger/forecast';
 import { useKnownMonthStart, useMonths } from '../../ledger/month-start';
 import { useAccounts, useMonthSummary, useWholeLedger } from '../../ledger/useLedger';
-import { useProfile } from '../../profile/ProfileContext';
+import { useProfile, useCurrency } from '../../profile/ProfileContext';
 import { addMonths, monthHeading } from '../../utils/date-input';
 import { balanceText } from '../accounts/account-text';
 import Freshness from '../common/Freshness';
@@ -489,6 +489,7 @@ function Answers({
   /** Nothing spent and no budgets yet: a computer draws the three smaller */
   quiet?: boolean;
 }) {
+  const homeCurrency = useCurrency();
   const heroId = useId();
   const { isCurrent, today, at } = figures;
   const planHref = isCurrent ? '?plan' : `?plan&month=${month}`;
@@ -516,7 +517,7 @@ function Answers({
               balancesCents: forecast.balancesCents,
               billsCents: forecast.billsCents,
               payCents: forecast.payCents,
-              currency: DEFAULT_CURRENCY,
+              currency: homeCurrency,
             }),
     };
   } else {
@@ -543,7 +544,9 @@ function Answers({
         height={big ? 40 : 22}
       />
     ) : (
-      <span className={big ? classes.heroFigure : classes.cardFigure}>{signedMoney(cents)}</span>
+      <span className={big ? classes.heroFigure : classes.cardFigure}>
+        {signedMoney(cents, homeCurrency)}
+      </span>
     );
 
   // As drawn: on a phone one run of words, the amounts in their colours; on a computer each

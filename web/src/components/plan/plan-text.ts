@@ -2,7 +2,6 @@ import type { AgainstAverage } from '@shared/trend';
 import type { BudgetPace } from '@shared/budgets';
 import type { PeriodDay } from '@shared/period';
 import { budgetPace } from '@shared/budgets';
-import { DEFAULT_CURRENCY } from '@shared/ledger';
 import type { BudgetLine } from '../../ledger/budgets';
 import type { CategorySpending } from '../../ledger/derive';
 import { monthHeading } from '../../utils/date-input';
@@ -12,8 +11,8 @@ import { formatAmount, formatMoney } from '../../utils/money';
 // month compares with the usual and where it stands in its year, and each budget's
 // figures. Money is whole cents, in the one currency accounts are kept in for now.
 
-const money = (cents: number) => formatMoney(cents, DEFAULT_CURRENCY);
-const amount = (cents: number) => formatAmount(cents, DEFAULT_CURRENCY);
+const money = (cents: number, currency: string) => formatMoney(cents, currency);
+const amount = (cents: number, currency: string) => formatAmount(cents, currency);
 
 /**
  * `part` of `whole` as a whole percent, rounded half up, worked in whole numbers so it is
@@ -48,11 +47,11 @@ const entriesOrPayee = (row: CategorySpending) =>
  * filed on the category itself ("Dining out 60.00, Coffee 15.00, Food 9.00"), or the payee
  * of its one entry, or how many entries
  */
-export function phoneSubtitle(row: CategorySpending, totalCents: number): string {
+export function phoneSubtitle(row: CategorySpending, totalCents: number, currency: string): string {
   const share = sharePercent(row.cents, totalCents);
   if (row.subcategories.length === 0) return `${share} · ${entriesOrPayee(row)}`;
-  const parts = row.subcategories.map((sub) => `${sub.name} ${amount(sub.cents)}`);
-  if (row.ownCents > 0) parts.push(`${row.name} ${amount(row.ownCents)}`);
+  const parts = row.subcategories.map((sub) => `${sub.name} ${amount(sub.cents, currency)}`);
+  if (row.ownCents > 0) parts.push(`${row.name} ${amount(row.ownCents, currency)}`);
   return `${share} · ${parts.join(', ')}`;
 }
 
@@ -78,18 +77,24 @@ export function deskSubtitle(
  * The same in two parts, so a page can stand out how far off it is: "RM 156.24 under" and
  * "your usual RM 371.46", or nothing and "the same as your usual RM 10.00"
  */
-export function usualParts({ averageCents, byCents, direction }: AgainstAverage): {
+export function usualParts(
+  { averageCents, byCents, direction }: AgainstAverage,
+  currency: string,
+): {
   by: string | null;
   rest: string;
 } {
-  const usual = `your usual ${money(averageCents)}`;
+  const usual = `your usual ${money(averageCents, currency)}`;
   if (direction === 'same') return { by: null, rest: `the same as ${usual}` };
-  return { by: `${money(byCents)} ${direction === 'above' ? 'over' : 'under'}`, rest: usual };
+  return {
+    by: `${money(byCents, currency)} ${direction === 'above' ? 'over' : 'under'}`,
+    rest: usual,
+  };
 }
 
 /** "RM 156.24 under your usual RM 371.46", or "the same as your usual RM 10.00" */
-export function usualText(against: AgainstAverage): string {
-  const { by, rest } = usualParts(against);
+export function usualText(against: AgainstAverage, currency: string): string {
+  const { by, rest } = usualParts(against, currency);
   return by == null ? rest : `${by} ${rest}`;
 }
 
@@ -120,11 +125,15 @@ export function yearComparison(months: readonly { month: string; cents: number }
  * available with how it goes against the month (nothing said when on track), the bar's
  * name, and the pace. On a computer (`short`) what's left has no symbol, as drawn.
  */
-export function budgetWords(line: BudgetLine, at: PeriodDay, { short }: { short: boolean }) {
+export function budgetWords(
+  line: BudgetLine,
+  at: PeriodDay,
+  { short, currency }: { short: boolean; currency: string },
+) {
   const pace: BudgetPace = budgetPace(line.spentCents, line.availableCents, at);
-  const figure = (cents: number) => (short ? amount(cents) : money(cents));
+  const figure = (cents: number) => (short ? amount(cents, currency) : money(cents, currency));
   const sign = line.availableCents < 0 ? '−' : '';
-  const of = `${money(line.spentCents)} of ${sign}${money(line.availableCents)}`;
+  const of = `${money(line.spentCents, currency)} of ${sign}${money(line.availableCents, currency)}`;
   const percent =
     line.availableCents > 0
       ? wholePercent(line.spentCents, line.availableCents)

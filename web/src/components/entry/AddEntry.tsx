@@ -15,7 +15,7 @@ import {
   typeKeys,
 } from '@shared/keypad';
 import type { TransactionKind } from '@shared/ledger';
-import { DEFAULT_CURRENCY, MAX_PAYEE, categoryKindFor, readOptionalText } from '@shared/ledger';
+import { MAX_PAYEE, categoryKindFor, readOptionalText } from '@shared/ledger';
 import type { Schedule } from '@shared/recurring';
 import { dayFor, nextAfter } from '@shared/recurring';
 import { useBackDismiss } from '../../hooks/useBackDismiss';
@@ -23,7 +23,7 @@ import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { change } from '../../ledger/ledger';
 import { lastUsed, recentCategoryIds, rememberUsed } from '../../ledger/last-used';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
-import { useProfile } from '../../profile/ProfileContext';
+import { useProfile, useCurrency } from '../../profile/ProfileContext';
 import { categoryColour } from '../../utils/category-colour';
 import { api } from '../../api';
 import { clockText, dayHeading, isPastDay, toDateInput, toTimeInput } from '../../utils/date-input';
@@ -178,6 +178,7 @@ function AddForm({
   desktop: boolean;
   onDone: () => void;
 }) {
+  const homeCurrency = useCurrency();
   const { accounts } = useAccounts();
   const { categories, tree } = useCategories();
   const { profile } = useProfile();
@@ -238,7 +239,7 @@ function AddForm({
     destinations.find((a) => a.id === toAccountId) ??
     destinations.find((a) => a.id === remembered.toAccountId) ??
     destinations[0];
-  const currency = account?.currency ?? DEFAULT_CURRENCY;
+  const currency = account?.currency ?? homeCurrency;
   const suggestions = useSuggestions(
     settings?.suggestAsYouType === true ? account?.id ?? null : null,
   );

@@ -1,10 +1,12 @@
-// The account's profile (its display name) and settings (private preferences that
-// follow it between devices). A profile row is made the first time someone saves
+// The account's profile (its display name and picture) and settings (private preferences
+// that follow it between devices). A profile row is made the first time someone saves
 // anything; until then everything has its default.
 
 import {
   DEFAULT_SETTINGS,
   MAX_DISPLAY_NAME,
+  PICTURE_CHOICES,
+  type PictureChoice,
   type Profile,
   type ProfilePatch,
   type RatePreference,
@@ -20,6 +22,15 @@ import {
   startStatements,
 } from '../currency/convert';
 import { type Unchecked, json, fail } from '../http';
+import {
+  type PictureRow,
+  choosePictureStatements,
+  fetchGooglePicture,
+  keepPictureStatement,
+  pictureRowsStatement,
+  readPicture,
+  shownPicture,
+} from './pictures';
 
 /** Each setting's column; yes-or-no settings are kept as 1 or 0 */
 const SETTINGS = {
@@ -81,19 +92,52 @@ export const ensureProfileStatement = (db: D1Database, email: string) =>
 
 export async function getProfile(db: D1Database, email: string): Promise<Profile> {
   // Read together, so a currency and the conversion that changed it always agree
-  const [profile, settings, conversion] = await db.batch([
-    db.prepare('SELECT display_name AS displayName FROM profiles WHERE email = ?').bind(email),
+  const [profile, settings, pictures, conversion] = await db.batch([
+    db
+      .prepare(
+        'SELECT display_name AS displayName, google_picture AS google FROM profiles WHERE email = ?',
+      )
+      .bind(email),
     db.prepare(SELECT_SETTINGS).bind(email),
+    pictureRowsStatement(db, email),
     db.prepare(SELECT_CONVERSION).bind(email),
   ]);
   const row = settings.results[0] as Record<string, unknown> | undefined;
+  const saved = profile.results[0] as { displayName: string | null; google: number } | undefined;
   return {
     email,
-    displayName:
-      (profile.results[0] as { displayName: string | null } | undefined)?.displayName ?? null,
+    displayName: saved?.displayName ?? null,
     settings: row ? fromRow(row) : { ...DEFAULT_SETTINGS },
     conversion: conversionOf((conversion.results[0] as ConversionRow | undefined) ?? null),
+    // The Google picture shows until they ask for the initial
+    ...shownPicture(pictures.results as unknown as PictureRow[], saved?.google !== 0),
   };
+}
+
+/**
+ * Copies the Google picture the sign-in names when it's new (fetchGooglePicture). Run
+ * after GET /api/me has answered, so a slow Google never holds up the app's start; the
+ * picture shows from the next start.
+ */
+export async function copyGooglePicture(
+  db: D1Database,
+  email: string,
+  googlePicture: string,
+  googleBase?: string,
+) {
+  const keep = await fetchGooglePicture(db, email, googlePicture, googleBase);
+  if (keep != null) await db.batch([ensureProfileStatement(db, email), keep]);
+}
+
+/** PUT /api/me/picture: the picture's bytes, checked, kept as the one the person chose */
+export async function putPicture(db: D1Database, email: string, req: Request) {
+  const picture = await readPicture(req);
+  if (picture instanceof Response) return picture;
+  await db.batch([
+    ensureProfileStatement(db, email),
+    keepPictureStatement(db, email, 'upload', picture, null),
+  ]);
+  return json<Profile>(await getProfile(db, email));
 }
 
 /** Changes some settings, making the settings row (and profile) on first use */
@@ -173,9 +217,9 @@ async function readSettings(
 }
 
 /**
- * PATCH /api/me: { displayName?, settings? }. A new home currency is saved at once and
- * starts converting every amount into it (currency/convert.ts): `convert` queues the first
- * step once it's saved. Refused while a conversion is still under way.
+ * PATCH /api/me: { displayName?, settings?, picture? }. A new home currency is saved at
+ * once and starts converting every amount into it (currency/convert.ts): `convert` queues
+ * the first step once it's saved. Refused while a conversion is still under way.
  */
 export async function patchProfile(
   db: D1Database,
@@ -198,6 +242,16 @@ export async function patchProfile(
       db
         .prepare('UPDATE profiles SET display_name = ?, updated_at = ? WHERE email = ?')
         .bind(name || null, Date.now(), email),
+    );
+  }
+
+  if ('picture' in body) {
+    if (!(PICTURE_CHOICES as readonly unknown[]).includes(body.picture)) {
+      return fail('Pick the Google picture or the initial', 400);
+    }
+    statements.push(
+      ensureProfileStatement(db, email),
+      ...choosePictureStatements(db, email, body.picture as PictureChoice),
     );
   }
 

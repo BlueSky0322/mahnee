@@ -15,11 +15,6 @@ const files = readdirSync(DIR)
   .sort();
 const before0007 = files.filter((f) => f < '0007');
 const SETTINGS_MIGRATION = '0007_settings.sql';
-/**
- * Numbers another branch has taken and not yet landed: 0010 is the profile picture's. Drop
- * one from here once its migration is on main.
- */
-const RESERVED = ['0010'];
 
 function database(migrations: string[]) {
   const db = new DatabaseSync(':memory:');
@@ -85,9 +80,7 @@ function takes(db: DatabaseSync, sql: string, ...params: (string | number | null
 
 describe('the migrations', () => {
   it('number each one once, in order, with 0007 for the settings', () => {
-    // A number taken by a change on another branch counts as used until that change lands
-    const numbers = [...new Set([...files.map((f) => f.slice(0, 4)), ...RESERVED])].sort();
-    expect(files.map((f) => f.slice(0, 4))).toEqual([...new Set(files.map((f) => f.slice(0, 4)))]);
+    const numbers = files.map((f) => f.slice(0, 4));
     expect(numbers).toEqual(numbers.map((_, i) => String(i + 1).padStart(4, '0')));
     expect(files).toContain(SETTINGS_MIGRATION);
   });
@@ -648,6 +641,84 @@ describe('0009, Scheduled', () => {
   });
 });
 
+describe('0010, profile pictures', () => {
+  const PICTURES_MIGRATION = '0010_profile_pictures.sql';
+  const ME = 'teal@example.com';
+  const migrated = () => {
+    const db = database(before0007);
+    seedToday(db);
+    for (const file of files.filter((f) => f >= '0007')) {
+      db.exec(readFileSync(join(DIR, file), 'utf8'));
+    }
+    return db;
+  };
+  const picture = (
+    db: DatabaseSync,
+    source: string,
+    type: string,
+    data: Uint8Array | string,
+    url: string | null,
+    email = ME,
+  ) => {
+    try {
+      db.prepare(
+        `INSERT INTO profile_pictures (email, source, content_type, data, version, google_url)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(email, source, type, data, T, url);
+      return true;
+    } catch (err) {
+      const code = (err as { errcode?: unknown }).errcode;
+      if (typeof code === 'number' && (code & 0xff) === SQLITE_CONSTRAINT) return false;
+      throw err;
+    }
+  };
+
+  it('is the next migration after Scheduled', () => {
+    expect(files.indexOf(PICTURES_MIGRATION)).toBe(files.indexOf('0009_scheduled.sql') + 1);
+  });
+
+  it('keeps every profile, each showing its Google picture until told otherwise', () => {
+    const db = migrated();
+    expect(all(db, 'SELECT DISTINCT google_picture FROM profiles')).toEqual([
+      { google_picture: 1 },
+    ]);
+    expect(all(db, 'SELECT count(*) AS n FROM profiles')).toEqual([{ n: 7 }]);
+  });
+
+  it('takes a small image of a known type, one of each source, from an account that exists', () => {
+    const db = migrated();
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 1]);
+    expect(picture(db, 'upload', 'image/webp', bytes, null)).toBe(true);
+    expect(
+      picture(db, 'google', 'image/jpeg', bytes, 'https://lh3.googleusercontent.com/a/x'),
+    ).toBe(true);
+    // One of each
+    expect(picture(db, 'upload', 'image/webp', bytes, null)).toBe(false);
+    // Only these sources and types, as bytes, and not too large
+    expect(picture(db, 'gravatar', 'image/webp', bytes, null)).toBe(false);
+    expect(picture(db, 'upload', 'image/gif', bytes, null, 'blue@example.com')).toBe(false);
+    expect(picture(db, 'upload', 'image/webp', 'text', null, 'blue@example.com')).toBe(false);
+    expect(
+      picture(db, 'upload', 'image/webp', new Uint8Array(65537), null, 'blue@example.com'),
+    ).toBe(false);
+    // A Google picture says where it came from; a chosen one doesn't
+    expect(picture(db, 'google', 'image/jpeg', bytes, null, 'blue@example.com')).toBe(false);
+    expect(picture(db, 'upload', 'image/jpeg', bytes, 'https://x', 'blue@example.com')).toBe(false);
+    // Only for someone with a profile
+    expect(picture(db, 'upload', 'image/webp', bytes, null, 'nobody@example.com')).toBe(false);
+    // And it goes with the profile
+    db.prepare('DELETE FROM profiles WHERE email = ?').run(ME);
+    expect(all(db, 'SELECT count(*) AS n FROM profile_pictures')).toEqual([{ n: 0 }]);
+  });
+
+  it('shows the Google picture or the initial, and nothing else', () => {
+    const db = migrated();
+    expect(takes(db, 'UPDATE profiles SET google_picture = 0 WHERE email = ?', ME)).toBe(true);
+    expect(takes(db, 'UPDATE profiles SET google_picture = 2 WHERE email = ?', ME)).toBe(false);
+    expect(takes(db, "UPDATE profiles SET google_picture = 'yes' WHERE email = ?", ME)).toBe(false);
+  });
+});
+
 describe('0011, the home currency', () => {
   const CURRENCY_MIGRATION = '0011_currency.sql';
   const OWNER = 'teal@example.com';
@@ -662,9 +733,8 @@ describe('0011, the home currency', () => {
     return db;
   };
 
-  it('is the next migration after Scheduled and the reserved 0010', () => {
-    expect(RESERVED).toEqual(['0010']);
-    expect(files.indexOf(CURRENCY_MIGRATION)).toBe(files.indexOf('0009_scheduled.sql') + 1);
+  it('is the next migration after the profile pictures', () => {
+    expect(files.indexOf(CURRENCY_MIGRATION)).toBe(files.indexOf('0010_profile_pictures.sql') + 1);
   });
 
   it('keeps everyone in MYR, every amount as typed and nothing converting', () => {

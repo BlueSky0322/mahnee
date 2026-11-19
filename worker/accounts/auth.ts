@@ -1,7 +1,12 @@
 // Identifies the signed-in user from the Cloudflare Access token on each request.
 // In production every request must carry a valid Access JWT; locally (no Access in
 // front of `wrangler dev`) DEV_USER_EMAIL stands in, overridable per request with
-// an X-Dev-User header so tests can act as several people.
+// an X-Dev-User header so tests can act as several people (and X-Dev-Picture for the
+// Google picture a sign-in names).
+//
+// The token names the person's Google picture only when the Google identity provider in
+// Zero Trust passes the `picture` claim on (its OIDC Claims setting): Access then puts it
+// in the token's `custom` claims. Without that, there's no picture and the initial shows.
 
 export interface AuthEnv {
   ACCESS_TEAM_DOMAIN?: string;
@@ -53,6 +58,21 @@ interface JwtPayload {
   exp?: unknown;
   nbf?: unknown;
   email?: unknown;
+  /** The identity provider's claims the team chose to pass on (OIDC Claims) */
+  custom?: unknown;
+}
+
+/** Who's signed in, and the address of their Google picture when the sign-in names one */
+export interface SignIn {
+  email: string;
+  picture: string | null;
+}
+
+/** The picture claim Access passed on from the identity provider, if it's text */
+function pictureClaim(custom: unknown): string | null {
+  if (custom == null || typeof custom !== 'object') return null;
+  const picture = (custom as Record<string, unknown>).picture;
+  return typeof picture === 'string' && picture !== '' ? picture : null;
 }
 
 /** What `decode` returns, or null when the token part isn't valid base64url or JSON */
@@ -114,12 +134,12 @@ async function fetchKeys(certsUrl: string): Promise<KeySet> {
   return keyCache;
 }
 
-/** Returns the token's email if it is a valid Access token for this app, otherwise null. */
+/** Who the token says signed in, if it is a valid Access token for this app; otherwise null */
 async function verifyAccessJwt(
   token: string,
   teamDomain: string,
   aud: string,
-): Promise<string | null> {
+): Promise<SignIn | null> {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const [rawHeader, rawPayload, rawSignature] = parts;
@@ -156,7 +176,7 @@ async function verifyAccessJwt(
   if (typeof payload.nbf === 'number' && payload.nbf > nowSeconds) return null;
   if (typeof payload.email !== 'string' || payload.email === '') return null;
 
-  return payload.email.toLowerCase();
+  return { email: payload.email.toLowerCase(), picture: pictureClaim(payload.custom) };
 }
 
 const readCookie = (req: Request, name: string) =>
@@ -167,7 +187,11 @@ const readCookie = (req: Request, name: string) =>
     .find(([k]) => k === name)?.[1];
 
 /** The signed-in user's email, or null. Fails closed when Access isn't configured. */
-export async function getUserEmail(req: Request, env: AuthEnv): Promise<string | null> {
+export const getUserEmail = async (req: Request, env: AuthEnv) =>
+  (await getSignIn(req, env))?.email ?? null;
+
+/** Who's signed in, with their Google picture's address, or null. Fails closed as above. */
+export async function getSignIn(req: Request, env: AuthEnv): Promise<SignIn | null> {
   if (env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD) {
     const token = req.headers.get('Cf-Access-Jwt-Assertion') ?? readCookie(req, 'CF_Authorization');
     if (!token) return null;
@@ -178,7 +202,10 @@ export async function getUserEmail(req: Request, env: AuthEnv): Promise<string |
   if (env.ACCESS_TEAM_DOMAIN || env.ACCESS_AUD) return null;
 
   if (env.DEV_USER_EMAIL) {
-    return (req.headers.get('X-Dev-User') ?? env.DEV_USER_EMAIL).toLowerCase();
+    return {
+      email: (req.headers.get('X-Dev-User') ?? env.DEV_USER_EMAIL).toLowerCase(),
+      picture: req.headers.get('X-Dev-Picture') || null,
+    };
   }
 
   return null;

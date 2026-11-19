@@ -131,6 +131,43 @@ export interface Conversion {
   refused: ConversionRefusal | null;
 }
 
+/** Where the picture shown in place of the initial came from */
+export const PICTURE_SOURCES = ['upload', 'google'] as const;
+export type PictureSource = (typeof PICTURE_SOURCES)[number];
+
+/** The picture shown in place of the initial, served at pictureAddress() */
+export interface ProfilePicture {
+  /** One the person chose, or the copy of their Google picture */
+  source: PictureSource;
+  /** When it was saved (ms), naming this copy */
+  version: number;
+}
+
+/** What shows when there's no chosen picture: the Google picture, or the initial */
+export const PICTURE_CHOICES = ['google', 'initial'] as const;
+export type PictureChoice = (typeof PICTURE_CHOICES)[number];
+
+/** The largest picture the server keeps, in bytes; the app sends 256px, well under it */
+export const MAX_PICTURE_BYTES = 64 * 1024;
+/** The most pixels a picture may have on a side */
+export const MAX_PICTURE_SIDE = 512;
+/** The picture types the server takes, by their bytes */
+export const PICTURE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+
+/** PUT /api/me/picture takes the image's bytes; GET serves the signed-in account's own */
+export const PICTURE_PATH = '/api/me/picture';
+/**
+ * The picture's address, naming the copy (?v=), so the service worker keeps it per
+ * account (IMAGE_VIEWER_HEADER) and a new one is a new address
+ */
+export const pictureAddress = (picture: ProfilePicture) =>
+  `${PICTURE_PATH}?v=${picture.source}-${picture.version}`;
+/**
+ * Whose a picture is, as the server sends it: the service worker keeps a copy for that
+ * account alone (web/public/sw.js keeps its own copy of this name)
+ */
+export const IMAGE_VIEWER_HEADER = 'X-Image-Viewer';
+
 /** The signed-in account and its private settings */
 export interface Profile {
   email: string;
@@ -138,6 +175,10 @@ export interface Profile {
   settings: Settings;
   /** Converting into a new home currency, or the last change refused; null otherwise */
   conversion: Conversion | null;
+  /** What shows in place of the initial; null for the initial */
+  picture: ProfilePicture | null;
+  /** A copy of their Google picture is kept, to go back to */
+  googlePicture: boolean;
 }
 
 /** Whether a profile's amounts are being converted into a new home currency */
@@ -154,6 +195,8 @@ export const currencyNow = (profile: Pick<Profile, 'conversion' | 'settings'>) =
 export interface ProfilePatch {
   displayName?: string | null;
   settings?: Partial<Settings>;
+  /** Lets the chosen picture go, showing the Google picture or the initial instead */
+  picture?: PictureChoice;
 }
 
 // ---------- Rates ----------

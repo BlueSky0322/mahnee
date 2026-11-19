@@ -27,6 +27,8 @@ const PROBE_TIMEOUT_MS = 5_000;
 const EXIT_TIMEOUT_MS = 10_000;
 /** How many times the Worker is started on fresh ports when one it was given is taken */
 const BIND_ATTEMPTS = 3;
+/** Where the stand-in rate services also serve Google pictures */
+const GOOGLE_PREFIX = '/google/';
 /** The pair the readiness check asks for, which only this run's fake services hear about */
 const PROBE_PAIR = ['PRB', 'PRC'] as const;
 
@@ -113,6 +115,8 @@ export interface LocalWorker {
   ) => Promise<Response>;
   /** The stand-in for Wise and Frankfurter that the Worker gets its rates from */
   rates: FakeRates;
+  /** The stand-in for Google's picture host, which a Google picture is copied from */
+  google: FakeGoogle;
   /** Where it's listening, e.g. http://127.0.0.1:1234 */
   base: string;
   /**
@@ -125,6 +129,17 @@ export interface LocalWorker {
 }
 
 type Service = 'wise' | 'frankfurter';
+
+export interface FakeGoogle {
+  /** Where pictures are served from, as GOOGLE_PICTURE_BASE: `${base}a/<name>` */
+  base: string;
+  /** Serves `bytes` as `contentType` at `path` (under base) */
+  set: (path: string, bytes: Uint8Array, contentType: string) => void;
+  /** How many times `path` (under base) was asked for */
+  asked: (path: string) => number;
+  /** Holds back the answer for `path` until released, as a slow host does */
+  hold: (path: string) => { release: () => void };
+}
 
 export interface FakeRates {
   /**
@@ -159,10 +174,15 @@ export interface FakeRates {
 
 /**
  * A tiny HTTP server answering like Wise's /v1/rates (with a time or without) and
- * Frankfurter's /v1/latest and /v1/<date>
+ * Frankfurter's /v1/latest and /v1/<date>, and serving Google pictures under /google/
  */
 async function startFakeRates(): Promise<
-  FakeRates & { base: string; close: () => void; heardProbe: () => boolean }
+  FakeRates & {
+    base: string;
+    close: () => void;
+    heardProbe: () => boolean;
+    google: FakeGoogle;
+  }
 > {
   const table = new Map<string, number>();
   // Every rate a pair was given this run, to catch a test that would get a kept one
@@ -172,6 +192,9 @@ async function startFakeRates(): Promise<
   let codes = 0;
   const askedFor = new Map<string, number>();
   const holds = new Map<string, { arrived: () => void; released: Promise<void> }>();
+  const googlePictures = new Map<string, { bytes: Uint8Array; contentType: string }>();
+  const googleAsked = new Map<string, number>();
+  const googleHeld = new Map<string, Promise<void>>();
   const answer = (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? '/', 'http://x');
     const send = (status: number, body: unknown) => {
@@ -182,6 +205,19 @@ async function startFakeRates(): Promise<
       if (from === PROBE_PAIR[0] && to === PROBE_PAIR[1]) probed = true;
       askedFor.set(`${from}${to}`, (askedFor.get(`${from}${to}`) ?? 0) + 1);
     };
+    if (url.pathname.startsWith(GOOGLE_PREFIX)) {
+      const path = url.pathname.slice(GOOGLE_PREFIX.length);
+      googleAsked.set(path, (googleAsked.get(path) ?? 0) + 1);
+      const serve = () => {
+        const picture = googlePictures.get(path);
+        if (picture == null) return send(404, {});
+        res.writeHead(200, { 'Content-Type': picture.contentType });
+        res.end(picture.bytes);
+      };
+      const held = googleHeld.get(path);
+      if (held == null) return serve();
+      return void held.then(serve);
+    }
     if (url.pathname === '/v1/rates') {
       const [from, to] = [url.searchParams.get('source'), url.searchParams.get('target')];
       heard(from, to);
@@ -282,6 +318,21 @@ async function startFakeRates(): Promise<
       };
     },
     heardProbe: () => probed,
+    google: {
+      base: `http://127.0.0.1:${port}${GOOGLE_PREFIX}`,
+      set: (path, bytes, contentType) => googlePictures.set(path, { bytes, contentType }),
+      asked: (path) => googleAsked.get(path) ?? 0,
+      hold: (path) => {
+        let release = () => {};
+        googleHeld.set(path, new Promise<void>((r) => (release = r)));
+        return {
+          release: () => {
+            googleHeld.delete(path);
+            release();
+          },
+        };
+      },
+    },
     close: () => server.close(),
   };
 }
@@ -363,6 +414,8 @@ export async function startLocalWorker(): Promise<LocalWorker> {
           // A conversion step that failed is tried again after a second, not minutes
           '--var',
           'CONVERT_RETRY_DELAY_S:1',
+          '--var',
+          `GOOGLE_PICTURE_BASE:${rates.google.base}`,
           '--log-level',
           'warn',
         ],
@@ -431,6 +484,7 @@ export async function startLocalWorker(): Promise<LocalWorker> {
     return {
       stop,
       rates,
+      google: rates.google,
       base,
       raw,
       sql,

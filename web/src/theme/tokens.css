@@ -169,6 +169,11 @@ textarea {
   font-weight: 500;
 }
 
+/* A small one's words are 13.5px, as the design's .btn-sm */
+.mantine-Button-root[data-size='xs'] {
+  font-size: 0.84375rem;
+}
+
 .mantine-Button-root[data-variant='filled'],
 .mantine-ActionIcon-root[data-variant='filled'] {
   background: var(--accent);
@@ -194,9 +199,11 @@ textarea {
   color: var(--accent);
 }
 
+/* A quiet one has no edge, so its words sit as far in as the design's */
 .mantine-Button-root[data-variant='light'] {
   background: var(--sunk);
   color: var(--ink);
+  border: 0;
 }
 
 .mantine-Button-root[data-variant='default'],
@@ -328,6 +335,12 @@ textarea {
   font-size: 0.9375rem;
 }
 
+/* A field is edged with the darker line in both themes, where Mantine draws its own grey; a
+   focused field still takes the accent and a refused one the red */
+[data-mantine-color-scheme] .mantine-Input-wrapper[data-variant='default'] {
+  --input-bd: var(--line-2);
+}
+
 /* A field's leading icon sits 14px in, in the quiet ink, with the text 10px after it */
 .mantine-Input-section.sf-lead {
   justify-content: flex-start;
@@ -362,9 +375,11 @@ textarea {
   box-shadow: 0 1px 2px rgba(20, 20, 20, 0.12);
 }
 
+/* Its options are buttons in the design, at the browser's own tracking */
 .mantine-SegmentedControl-label {
   font-size: 0.875rem;
   font-weight: 500;
+  letter-spacing: normal;
   color: var(--ink-2);
   min-height: 2.125rem;
   display: flex;

@@ -223,7 +223,8 @@
   vertical-align: baseline;
 }
 
-.inlineSelect {
+/* Over the fields' own size and edge (theme/tokens.css) */
+.inlinePick .inlineSelect {
   height: auto;
   min-height: 0;
   padding: 0;
@@ -241,7 +242,7 @@
 }
 
 [data-other] .inlineSelect,
-.inlineSelect[data-other] {
+.inlinePick .inlineSelect[data-other] {
   color: var(--accent);
   font-weight: 500;
 }
@@ -314,6 +315,8 @@
   background: none;
   font: inherit;
   font-size: 13px;
+  /* A done step reads as the others, at the page's tracking */
+  letter-spacing: inherit;
   cursor: pointer;
 }
 
@@ -553,14 +556,15 @@
   gap: 10px;
 }
 
-.mapLabel {
+/* Over the fields' own label and text sizes (theme/tokens.css) */
+.map .mapLabel {
   margin: 0;
   color: var(--ink-2);
   font-size: 14px;
   font-weight: 400;
 }
 
-.mapInput {
+.map .mapInput {
   height: 40px;
   min-height: 40px;
   border-radius: 10px;
@@ -677,7 +681,7 @@
 }
 
 /* A computer's category: an outlined button-like pick, dashed in the accent for Other */
-.categoryButton {
+.categoryPick .categoryButton {
   width: auto;
   max-width: 100%;
   height: 32px;
@@ -693,7 +697,7 @@
 }
 
 [data-other] .categoryButton,
-.categoryButton[data-other] {
+.categoryPick .categoryButton[data-other] {
   border-style: dashed;
   color: var(--accent);
 }

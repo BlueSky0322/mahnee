@@ -4,7 +4,8 @@
 // folders, which export handlers (taking the database, the account and the request or
 // its body, and answering with a Response) and loaders (returning data shaped as in
 // shared/api.ts, for the route to send with json<T>()). The feature folders:
-//   - accounts/: who's signed in (auth.ts), and their profile and settings (profiles.ts);
+//   - accounts/: who's signed in (auth.ts), their profile and settings (profiles.ts), and
+//     their profile picture (pictures.ts);
 //   - currency/: exchange rates, and converting every amount when the home currency
 //     changes (convert.ts), a step at a time from the mahnee-reconvert queue
 //     (convert-queue.ts, wired in index.ts and wrangler.jsonc);
@@ -32,10 +33,15 @@ export interface Env extends AuthEnv, RatesEnv {
   CONVERT_QUEUE: Queue<ConvertJob>;
   /** For tests: seconds between tries of a failed conversion step */
   CONVERT_RETRY_DELAY_S?: string;
+  /**
+   * Where a Google picture may be copied from; the only address a sign-in's picture is
+   * fetched at. Google's own unless tests stand in for it.
+   */
+  GOOGLE_PICTURE_BASE?: string;
 }
 
 export type AppEnv = {
   Bindings: Env;
-  /** email: the signed-in account */
-  Variables: { email: string };
+  /** email: the signed-in account; googlePicture: the Google picture its sign-in names */
+  Variables: { email: string; googlePicture: string | null };
 };

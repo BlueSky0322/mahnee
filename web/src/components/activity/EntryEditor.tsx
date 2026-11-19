@@ -5,16 +5,20 @@ import type { LedgerChange, Transaction } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
 import { MAX_NOTE, MAX_PAYEE, categoryKindFor, readOptionalText } from '@shared/ledger';
 import { nextAfter } from '@shared/recurring';
-import { change } from '../../ledger/ledger';
+import { MAX_TYPED_CENTS } from '@shared/rates';
+import { addAgain, change } from '../../ledger/ledger';
 import { useAccounts, useCategories, useWholeLedger } from '../../ledger/useLedger';
 import { useProfile, useCurrency } from '../../profile/ProfileContext';
 import { clockText, isPastDay, toDateInput } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
+import { sendEdit, sendsAmount, useEntryCurrency } from '../common/entry-currency';
+import MainAmount from '../common/MainAmount';
+import { typedAmount } from '../common/typed-amount';
 import { showUndo } from '../common/undo-toast';
 import { amountText, readAmount, transactionSummary } from '../entry/entry-text';
 import Key from '../ui/Key';
 import { DownIcon } from '../ui/icons';
-import { fullDay, headlineAmount, headlinePrefix } from './activity-text';
+import { SIGNS, fullDay, headlineAmount, headlinePrefix } from './activity-text';
 import classes from './Activity.module.css';
 
 /** Whole cents as typed figures, with both decimals: 28900 is "289.00" */
@@ -61,9 +65,18 @@ export default function EntryEditor({
     const focus = setTimeout(() => amountField.current?.focus(), 0);
     return () => clearTimeout(focus);
   }, [toCheck]);
+  // In the currency it was typed in, which can be changed
+  const {
+    home,
+    typedIn,
+    setTypedIn,
+    options: currencies,
+    quote,
+    typedCents,
+  } = useEntryCurrency(editing);
   // Beside the register it reads as its headline, cents and all ("289.00")
   const [amount, setAmount] = useState(
-    title != null ? centsText(editing.amountCents) : amountText(editing.amountCents),
+    title != null ? centsText(typedCents) : amountText(typedCents),
   );
   const [kind, setKind] = useState<TransactionKind>(editing.kind);
   const [accountId, setAccountId] = useState(editing.accountId);
@@ -78,7 +91,7 @@ export default function EntryEditor({
   const [payee, setPayee] = useState(editing.payee ?? '');
   const [note, setNote] = useState(editing.note ?? '');
   const [errors, setErrors] = useState<
-    Partial<Record<'amount' | 'date' | 'category' | 'to', string>>
+    Partial<Record<'amount' | 'date' | 'category' | 'to' | 'currency', string>>
   >({});
 
   // What can be picked: listed accounts and categories, and the ones it's on already
@@ -109,7 +122,7 @@ export default function EntryEditor({
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const typed = readAmount(amount);
+    const typed = readAmount(amount, typedIn === home ? undefined : MAX_TYPED_CENTS);
     const wrong: typeof errors = {};
     if ('error' in typed) wrong.amount = typed.error;
     if (!isPastDay(date)) wrong.date = 'Pick a day from 2000 up to today';
@@ -123,7 +136,6 @@ export default function EntryEditor({
       kind,
       accountId: account.id,
       toAccountId: to?.id ?? null,
-      amountCents: typed.cents,
       categoryId: transfer ? null : categoryId,
       payee: readOptionalText(payee, MAX_PAYEE) ?? null,
       note: readOptionalText(note, MAX_NOTE) ?? null,
@@ -141,6 +153,9 @@ export default function EntryEditor({
         Object.assign(update, { [key]: fields[key] });
       }
     }
+    if (sendsAmount(editing, typed.cents, typedIn, home, date !== editing.date)) {
+      update.amountCents = typed.cents;
+    }
     // Saved as it is, an amount to check is confirmed; a new amount confirms it too
     if (toCheck && !('amountCents' in update)) update.toCheck = false;
     // The amount the bill came to is the item's amount next time, when its amount changes
@@ -148,6 +163,7 @@ export default function EntryEditor({
     const mark = editing.scheduled;
     const item = ledger?.recurring?.find((r) => r.id === mark?.recurringId);
     const nextTime =
+      typedIn === home &&
       mark != null &&
       item != null &&
       !item.archived &&
@@ -155,19 +171,23 @@ export default function EntryEditor({
       'amountCents' in update &&
       update.amountCents !== item.amountCents &&
       nextAfter(item.schedule, item.day, mark.due) === item.nextDue;
-    if (nextTime && update.amountCents != null) {
-      change(update, { op: 'updateRecurring', id: item.id, amountCents: update.amountCents });
-    } else if (Object.keys(update).length > 2) change(update);
+    const more: LedgerChange[] =
+      nextTime && update.amountCents != null
+        ? [{ op: 'updateRecurring', id: item.id, amountCents: update.amountCents }]
+        : [];
+    if (!sendEdit(update, more, { typedIn, home, quote })) {
+      setErrors({ currency: `Needs a rate for ${typedIn}. Connect to fetch one.` });
+      return;
+    }
     onSaved?.();
   };
 
   const remove = () => {
     change({ op: 'removeTransaction', id: editing.id });
     onDeleted();
-    const { createdAt: _createdAt, ...again } = editing;
     const what = transactionSummary(editing, accounts ?? [], categories ?? []);
     showUndo(`Deleted ${formatMoney(editing.amountCents, currency)}, ${what}`, () =>
-      change({ op: 'addTransaction', transaction: again }),
+      addAgain(editing),
     );
   };
 
@@ -228,7 +248,9 @@ export default function EntryEditor({
             className={`${classes.headline} sf-tabular`}
             data-kind={kind}
           >
-            <span>{headlinePrefix(kind, currency)}</span>{' '}
+            <span>
+              {typedIn === home ? headlinePrefix(kind, currency) : `${SIGNS[kind]}${typedIn}`}
+            </span>{' '}
             <input
               ref={amountField}
               className={classes.inlineField}
@@ -264,7 +286,11 @@ export default function EntryEditor({
             className={`${classes.headline} sf-tabular`}
             data-kind={editing.kind}
           >
-            {headlineAmount(editing, currency)}
+            {typedAmount(editing, SIGNS[editing.kind]) ?? headlineAmount(editing, currency)}
+            <MainAmount
+              t={editing}
+              currency={currency}
+            />
           </p>
         </>
       )}
@@ -275,6 +301,17 @@ export default function EntryEditor({
         onChange={(value) => setKind(value as TransactionKind)}
         data={WAYS}
       />
+      {currencies.length > 1 && (
+        <NativeSelect
+          label="Currency"
+          value={typedIn}
+          onChange={(e) => setTypedIn(e.currentTarget.value)}
+          data={currencies}
+          error={errors.currency}
+          rightSection={chevron}
+          rightSectionWidth={44}
+        />
+      )}
       {toCheck && (
         <p className={classes.muted}>
           {`Added at ${formatMoney(editing.amountCents, currency)} from Scheduled, for you to check`}

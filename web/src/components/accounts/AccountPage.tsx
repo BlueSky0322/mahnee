@@ -12,6 +12,8 @@ import Skeleton, { Loading } from '../ui/Skeleton';
 import AccountForm from './AccountForm';
 import { useAccountActions } from './account-actions';
 import { balanceText, entryRow, kindLine } from './account-text';
+import MainAmount from '../common/MainAmount';
+import { amountWords, typedAmount } from '../common/typed-amount';
 import classes from './AccountsPage.module.css';
 import BackButton from '../ui/BackButton';
 
@@ -299,11 +301,12 @@ function EntryRow({
   onOpen: (transaction: Transaction) => void;
 }) {
   const { title, subtitle, amount, incoming } = entryRow(t, account.id, accounts, categories);
+  const currency = account.currency;
   return (
     <button
       type="button"
       className={classes.row}
-      aria-label={`${title}, ${subtitle}, ${amount}`}
+      aria-label={`${title}, ${subtitle}, ${amountWords(t, amount, amount[0], currency)}`}
       onClick={() => onOpen(t)}
     >
       <EntryTile
@@ -319,7 +322,11 @@ function EntryRow({
         data-incoming={(incoming && t.kind === 'income') || undefined}
         data-kind={t.kind}
       >
-        {amount}
+        {typedAmount(t, amount[0]) ?? amount}
+        <MainAmount
+          t={t}
+          currency={currency}
+        />
       </span>
     </button>
   );

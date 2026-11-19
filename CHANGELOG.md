@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-19
+
+- Added: log an entry in another currency: pick your other currencies in Settings › Money, switch with the pill on Add, and each entry keeps what you typed and its rate [#?]
+
 ## 2026-11-18
 
 - Added: pick your home currency in Settings › Money; every amount converts at its own day's rate, and changing back restores them exactly [#52]

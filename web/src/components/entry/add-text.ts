@@ -5,8 +5,9 @@ import type { Keypad } from '@shared/keypad';
 import { totalCents } from '@shared/keypad';
 import type { TransactionKind } from '@shared/ledger';
 import { MAX_TRANSACTION } from '@shared/ledger';
+import { MAX_TYPED_CENTS } from '@shared/rates';
 import type { CategoryNode } from '../../ledger/category-tree';
-import { formatMoney } from '../../utils/money';
+import { typedMoney } from '../../utils/money';
 import { categoryName } from '../common/category-name';
 import { MAX_RECENT_CATEGORIES } from '../../ledger/last-used';
 
@@ -16,16 +17,25 @@ import { MAX_RECENT_CATEGORIES } from '../../ledger/last-used';
 /** The words for the largest amount, when a key went past it */
 export const LIMIT_TEXT = `Up to ${MAX_TRANSACTION.toLocaleString('en')}`;
 
+/** The same for a limit in cents: "Up to 1,000,000,000" in another currency */
+export const limitText = (cents: number) => `Up to ${(cents / 100).toLocaleString('en')}`;
+
 /**
- * What Save says: "Save RM 12.50", "Move RM 12.50" for a transfer, or why it can't be
- * saved yet: "Type an amount", "The total is below zero", "Up to 10,000,000"
+ * What Save says: "Save RM 12.50", "Move RM 12.50" for a transfer, "Save THB 120.00" in
+ * another currency than the home one, or why it can't be saved yet: "Type an amount", "The
+ * total is below zero", "Up to 10,000,000"
  */
-export function saveLabel(kind: TransactionKind, keypad: Keypad, currency: string): string {
-  if (keypad.tooMuch) return LIMIT_TEXT;
+export function saveLabel(
+  kind: TransactionKind,
+  keypad: Keypad,
+  currency: string,
+  home = currency,
+): string {
+  if (keypad.tooMuch) return currency === home ? LIMIT_TEXT : limitText(MAX_TYPED_CENTS);
   const cents = totalCents(keypad.expr);
   if (cents === 0) return 'Type an amount';
   if (cents < 0) return 'The total is below zero';
-  return `${kind === 'transfer' ? 'Move' : 'Save'} ${formatMoney(cents, currency)}`;
+  return `${kind === 'transfer' ? 'Move' : 'Save'} ${typedMoney(cents, currency, home)}`;
 }
 
 /** A category to pick, with the name the For row shows ("Food › Coffee") */

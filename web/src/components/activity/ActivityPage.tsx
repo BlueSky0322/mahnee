@@ -4,19 +4,21 @@ import { useNetwork } from '@mantine/hooks';
 import { CloudSlash } from '@phosphor-icons/react';
 import { ActivityIcon, DownIcon, SearchIcon } from '../ui/icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Account, Category, LedgerChange, Transaction } from '@shared/api';
+import type { Account, Category, Transaction } from '@shared/api';
 import { MAX_BULK_TRANSACTIONS } from '@shared/ledger';
 import { MAX_SEARCH_TEXT } from '@shared/search';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { navigate } from '../../hooks/useRoute';
 import { takeSearchFocus, useShortcuts } from '../../hooks/useShortcuts';
-import { change } from '../../ledger/ledger';
+import { addAgain, change } from '../../ledger/ledger';
 import { useMonthStart } from '../../ledger/month-start';
 import { useAccounts, useCategories, useSearch } from '../../ledger/useLedger';
 import type { Found as Totals } from '../../ledger/search-totals';
 import { clockText, dayHeading, toDateInput } from '../../utils/date-input';
 import { showRefusal } from '../../utils/notify';
 import EntryTile from '../common/EntryTile';
+import MainAmount from '../common/MainAmount';
+import { amountWords, typedAmount } from '../common/typed-amount';
 import { categoryName } from '../common/category-name';
 import { scheduledNote } from '../common/scheduled-note';
 import { showUndo } from '../common/undo-toast';
@@ -31,6 +33,7 @@ import {
   dayTotal,
   entriesText,
   foundLine,
+  SIGNS,
   listAmount,
   noMatchLine,
   rowText,
@@ -198,13 +201,7 @@ export default function ActivityPage({ query }: { query: string }) {
     change({ op: 'removeTransactions', ids: gone.map((t) => t.id) });
     setTicked(new Set());
     // Undo adds each again, with its own id
-    showUndo(`Deleted ${entriesText(gone.length)}`, () =>
-      change(
-        ...gone.map(
-          ({ createdAt: _at, ...t }): LedgerChange => ({ op: 'addTransaction', transaction: t }),
-        ),
-      ),
-    );
+    showUndo(`Deleted ${entriesText(gone.length)}`, () => addAgain(...gone));
   };
 
   // A computer's keys: J and K move the open row, X ticks it, C changes the category
@@ -603,7 +600,11 @@ function Amount({ t, currency }: { t: Transaction; currency: string }) {
       className={`${classes.amount} sf-tabular`}
       data-kind={t.kind}
     >
-      {listAmount(t, currency)}
+      {typedAmount(t, SIGNS[t.kind]) ?? listAmount(t, currency)}
+      <MainAmount
+        t={t}
+        currency={currency}
+      />
     </span>
   );
 }
@@ -661,7 +662,7 @@ function DayList({
       selecting,
       today,
     });
-    const name = `${title}, ${subtitle}, ${listAmount(t, currency)}`;
+    const name = `${title}, ${subtitle}, ${amountWords(t, listAmount(t, currency), SIGNS[t.kind], currency)}`;
     const body = (
       <>
         <span className={classes.rowText}>
@@ -918,7 +919,7 @@ function Register({
                     <input
                       type="checkbox"
                       className={`sf-tick ${classes.tick}`}
-                      aria-label={`${title}, ${subtitle}, ${listAmount(t, currency)}`}
+                      aria-label={`${title}, ${subtitle}, ${amountWords(t, listAmount(t, currency), SIGNS[t.kind], currency)}`}
                       checked={ticked.has(t.id)}
                       onClick={(e) => e.stopPropagation()}
                       onChange={() => onToggle(t.id)}

@@ -16,9 +16,21 @@ import { reportKept } from './storage-health';
 export interface Queued {
   cid: string;
   change: LedgerChange;
-  /** The home currency its amounts were typed in; kept from older builds without one */
+  /**
+   * The currency its amounts were typed in: the home currency when it was made, or another
+   * one an entry was typed in; kept from older builds without one
+   */
   currency?: string;
+  /**
+   * The change as this device shows it until it's saved, when that differs from what's
+   * sent: an amount typed in another currency, at the rate the device had for it, saying
+   * what was typed. Never sent: the server converts at the entry's own day's rate.
+   */
+  shown?: LedgerChange;
 }
+
+/** A change waiting, as it's shown until it's saved */
+export const shownOf = (q: Queued): LedgerChange => q.shown ?? q.change;
 
 // The keys, lock and tag below are also used by public/sw.js, which can't import them: a
 // change here needs the same change there (outbox.test.ts checks they match)

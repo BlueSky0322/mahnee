@@ -51,6 +51,8 @@ const DESIGN_DEFAULTS = {
   reminderTime: '21:00',
   scheduledReminderDays: 1,
   timeZone: null,
+  otherCurrencies: [],
+  travelSense: true,
 };
 
 /**
@@ -409,6 +411,8 @@ describe('the profile', () => {
         reminderTime: '07:45',
         scheduledReminderDays: null,
         timeZone: 'Asia/Kathmandu',
+        otherCurrencies: ['THB', 'USD'],
+        travelSense: false,
       };
       const saved = await save(me, chosen);
       expect(saved.status).toBe(200);

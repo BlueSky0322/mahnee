@@ -21,6 +21,8 @@ import AccountForm from './AccountForm';
 import { ArchivedNote, Balance, EntriesLoading, NoEntries } from './AccountPage';
 import { useAccountActions } from './account-actions';
 import { balancesAfter, entryRow, kindLine, listBalanceText, startedLine } from './account-text';
+import MainAmount from '../common/MainAmount';
+import { typedAmount } from '../common/typed-amount';
 import classes from './AccountsPage.module.css';
 
 /** The days the register shows: every one (null), or from and/or to, both included */
@@ -381,7 +383,11 @@ function Table({
                   data-incoming={(incoming && t.kind === 'income') || undefined}
                   data-kind={t.kind}
                 >
-                  {amount}
+                  {typedAmount(t, amount[0]) ?? amount}
+                  <MainAmount
+                    t={t}
+                    currency={account.currency}
+                  />
                 </td>
                 {after != null && (
                   <td

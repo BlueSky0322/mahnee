@@ -1,9 +1,10 @@
 import { readCategoryName } from '@shared/categories';
 import { isKeypadSum } from '@shared/keypad';
 import type { TransactionKind } from '@shared/ledger';
-import { MAX_PAYEE, isDay, isTransactionKind } from '@shared/ledger';
+import { MAX_PAYEE, MAX_TRANSACTION_CENTS, isDay, isTransactionKind } from '@shared/ledger';
 import type { Schedule } from '@shared/recurring';
 import { isSchedule } from '@shared/recurring';
+import { MAX_TYPED_CENTS, isEntryCurrency } from '@shared/rates';
 import { onCacheCleared } from '../../offline/cache';
 import { toDateInput } from '../../utils/date-input';
 import { quietly } from '../../utils/quietly';
@@ -27,6 +28,8 @@ export interface AddDraft {
   /** The day picked, or null for Today, whichever day that is when it's opened again */
   date: string | null;
   repeat: Schedule | '';
+  /** The currency it was typed in; missing for the home currency (and from older drafts) */
+  currency?: string;
 }
 
 const isIdOrNone = (v: unknown): v is string | null => v === null || typeof v === 'string';
@@ -44,7 +47,9 @@ function isDraft(v: unknown): v is AddDraft {
   return (
     isTransactionKind(d.kind) &&
     typeof d.expr === 'string' &&
-    isKeypadSum(d.expr) &&
+    (d.currency === undefined || isEntryCurrency(d.currency)) &&
+    // In another currency it may go past the home one's limit, to its own
+    isKeypadSum(d.expr, d.currency === undefined ? MAX_TRANSACTION_CENTS : MAX_TYPED_CENTS) &&
     isIdOrNone(d.accountId) &&
     isIdOrNone(d.toAccountId) &&
     isIdOrNone(d.categoryId) &&

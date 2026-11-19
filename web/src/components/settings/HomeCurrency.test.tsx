@@ -22,7 +22,7 @@ import {
 // changes made meanwhile wait on the device. They're sent once it's done, saying the
 // currency they were typed in, so the server converts them too. A change refused for an
 // amount past its limit is said under the row, naming the limit. Changing it needs a
-// connection; "Other currencies" stays hidden (D4).
+// connection. Other currencies sit under it (other-currencies.test.tsx).
 
 setupAppTests();
 
@@ -76,8 +76,8 @@ describe('Main currency', () => {
     const card = await moneyCard();
     expect(within(card).getByText('For totals and budgets')).toBeTruthy();
     expect((await currencyButton()).textContent).toContain('MYR, RM');
-    // Entries in other currencies come later (D4)
-    expect(within(card).queryByText('Other currencies')).toBeNull();
+    // Other currencies come next, with their own tests
+    expect(within(card).getByText('Other currencies')).toBeTruthy();
 
     const { user, dialog } = await openPicker();
     const search = dialog.getByRole('searchbox', { name: 'Search currencies' });

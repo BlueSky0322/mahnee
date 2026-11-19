@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-19
 
-- Changed: An account's kind can be changed in Edit, a card to a bank account and back, with its balance shown as it will read [#?]
+- Changed: An account's kind can be changed in Edit, a card to a bank account and back, with its balance shown as it will read [#53]
 
 ## 2026-11-18
 
@@ -139,3 +139,4 @@ For agents:
 [#50]: https://github.com/BlueSky0322/mahnee/pull/50
 [#51]: https://github.com/BlueSky0322/mahnee/pull/51
 [#52]: https://github.com/BlueSky0322/mahnee/pull/52
+[#53]: https://github.com/BlueSky0322/mahnee/pull/53

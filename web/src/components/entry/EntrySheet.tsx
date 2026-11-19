@@ -27,6 +27,7 @@ import { isPastDay, toDateInput } from '../../utils/date-input';
 import { newId } from '../../utils/id';
 import { currencySymbol, formatMoney } from '../../utils/money';
 import { sendEdit, sendsAmount, useEntryCurrency } from '../common/entry-currency';
+import { rateLine } from '../common/typed-amount';
 import { showUndo } from '../common/undo-toast';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { amountText, readAmount, transactionSummary } from './entry-text';
@@ -251,6 +252,9 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
         data-autofocus
         autoComplete="off"
       />
+      {editing.original != null && (
+        <p className={classes.rateLine}>{rateLine(editing, homeCurrency)}</p>
+      )}
       {currencies.length > 1 && (
         <NativeSelect
           label="Currency"

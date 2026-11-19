@@ -12,6 +12,23 @@ export const typedAmount = (t: Pick<Transaction, 'original'>, sign: string) =>
     ? null
     : `${sign}${t.original.currency} ${formatAmount(t.original.cents, t.original.currency)}`;
 
+/** Where a rate came from, as it's said */
+export const SOURCE_NAMES = { wise: 'Wise', frankfurter: 'the ECB' } as const;
+
+/** A day as "Nov 12" */
+export const shortDate = (at: number) =>
+  new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+/**
+ * The rate an entry was converted at, and the day it's really from: "1 VND = 0.00018 MYR,
+ * rate of Nov 12, from Wise"; null for one typed in the home currency
+ */
+export function rateLine(t: Pick<Transaction, 'original'>, home: string) {
+  const o = t.original;
+  if (o == null) return null;
+  return `1 ${o.currency} = ${Number(o.rate.toPrecision(6))} ${home}, rate of ${shortDate(o.at)}, from ${SOURCE_NAMES[o.source]}`;
+}
+
 /**
  * An amount as a list reads it out: `shown` ("−15.30") alone, or for one typed in another
  * currency, what was typed and then what it came to ("−THB 120.00, RM 15.30")

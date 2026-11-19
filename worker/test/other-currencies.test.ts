@@ -129,6 +129,39 @@ describe('the list of other currencies', () => {
   });
 });
 
+describe('the main currency and the list', () => {
+  it('refuses the main currency in the list, keeping the list as it was', async () => {
+    const who = person('main');
+    await settings(who, { otherCurrencies: ['THB'] });
+    expect(await settings(who, { otherCurrencies: ['THB', 'MYR'] })).toEqual({
+      status: 400,
+      data: { error: 'MYR is your main currency' },
+    });
+    // Nor one sent as the new main currency beside it
+    expect(await settings(who, { currency: 'SGD', otherCurrencies: ['SGD'] })).toEqual({
+      status: 400,
+      data: { error: 'SGD is your main currency' },
+    });
+    expect((await me(who)).settings.otherCurrencies).toEqual(['THB']);
+  });
+
+  it('drops a listed currency once it becomes the main one, keeping the others in order', async () => {
+    const who = person('switch');
+    await settings(who, { otherCurrencies: ['THB', 'USD', 'SGD'] });
+    expect((await settings(who, { currency: 'USD' })).status).toBe(200);
+    const until = Date.now() + 60_000;
+    let profile = await api.call(who, 'GET', '/api/me');
+    while (profile.data.conversion != null && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 200));
+      profile = await api.call(who, 'GET', '/api/me');
+    }
+    expect(profile.data.settings).toMatchObject({
+      currency: 'USD',
+      otherCurrencies: ['THB', 'SGD'],
+    });
+  }, 70_000);
+});
+
 describe('an entry typed in another currency', () => {
   it('is converted at its own day’s rate, keeping the currency, amount and rate typed', async () => {
     const { who, wallet } = await withWallet('thb');
@@ -182,6 +215,23 @@ describe('an entry typed in another currency', () => {
     const [after] = await entries(who, wallet);
     expect(after.amountCents).toBe(9_000);
     expect(after.original).toBeUndefined();
+  });
+
+  it('in a currency the ECB doesn’t publish, takes Wise’s closest earlier day, saying which', async () => {
+    const { who, wallet } = await withWallet('dong');
+    const [earlier, , day] = [freshDay(), freshDay(), freshDay()];
+    api.rates.setOn(earlier, 'VND', 'MYR', 0.00018, 'wise');
+    await send(who, [spend(wallet, 50_000_000, day)], ['VND']);
+    expect((await entries(who, wallet))[0]).toMatchObject({
+      amountCents: 9_000,
+      original: {
+        currency: 'VND',
+        cents: 50_000_000,
+        rate: 0.00018,
+        source: 'wise',
+        at: Date.parse(`${earlier}T12:00:00Z`),
+      },
+    });
   });
 
   it('is refused in a currency the app can’t convert, and nothing is saved', async () => {

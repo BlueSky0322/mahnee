@@ -341,7 +341,8 @@ erDiagram
 
 `user_settings.other_currencies` (0012) is the person's list of other currencies, a JSON
 array in their order, at most `MAX_OTHER_CURRENCIES` (8), each one of `ENTRY_CURRENCIES`
-(`shared/rates.ts`: the home currencies, TWD and VND), checked by the Worker. An entry typed
+(`shared/rates.ts`: the home currencies, TWD and VND), never the home currency, checked by
+the Worker; a home-currency change drops the new one from it when it's done. An entry typed
 in one of them (or a one-off) is sent with that currency as its change's own (`currencies`
 in `POST /api/changes`), converted into the home currency at its own day's rate and saved
 with what was typed in the transaction's `original_currency`, `original_cents`, `rate`,

@@ -430,6 +430,18 @@ export async function convertStep(
     db
       .prepare(`UPDATE accounts SET currency = ?3 WHERE email = ?1 AND ${STILL}`)
       .bind(email, since, to),
+    // The new main currency is no longer one of the others, the rest kept in their order
+    db
+      .prepare(
+        `UPDATE user_settings SET other_currencies = (
+           SELECT json_group_array(value) FROM (
+             SELECT value FROM json_each(user_settings.other_currencies)
+             WHERE value <> ?3 ORDER BY key
+           )
+         )
+         WHERE email = ?1 AND ${STILL}`,
+      )
+      .bind(email, since, to),
     db.prepare(`DELETE FROM conversion_staged WHERE email = ?1 AND ${STILL}`).bind(email, since),
     db
       .prepare("DELETE FROM conversions WHERE email = ? AND since = ? AND phase = 'converting'")

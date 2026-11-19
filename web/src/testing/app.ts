@@ -10,7 +10,12 @@ import { notifications } from '@mantine/notifications';
 import { onlineManager } from '@tanstack/react-query';
 import { createElement } from 'react';
 import { afterEach, beforeEach, expect, onTestFinished, vi } from 'vitest';
-import { isTimeOfDay, isTimeZone, readSettingChanges } from '@shared/settings';
+import {
+  isTimeOfDay,
+  isTimeZone,
+  readSettingChanges,
+  whyNotOtherCurrencies,
+} from '@shared/settings';
 import type {
   Settings,
   Account,
@@ -177,7 +182,8 @@ export interface FakeServer {
   me: Profile;
   /**
    * 1 `from` is `rate` `to`: today's by `${from}${to}`, an earlier day's by
-   * `${from}${to}@2026-10-12`. Asked about a day with none, it's today's, as the real one does.
+   * `${from}${to}@2026-10-12`. Asked about a day with none, it's the closest of the 7 days
+   * before it, else today's, as the real one does.
    */
   rates: Map<string, number>;
   /**
@@ -264,13 +270,18 @@ const json = (body: unknown, status = 200) =>
 
 /**
  * The rate from `from` into `to` at `at`, as the real server finds it: that day's when
- * there's one (from the ECB), else today's (from Wise); null when there's none
+ * there's one (from the ECB), else the closest earlier day's within a week, else today's
+ * (from Wise); null when there's none
  */
 function rateOn(server: FakeServer, from: string, to: string, at?: number) {
   const day = at == null ? null : rateDay(at);
-  const onDay = day == null ? null : server.rates.get(`${from}${to}@${day}`);
-  if (onDay != null) {
-    return { rate: onDay, source: 'frankfurter' as const, at: Date.parse(`${day}T12:00:00Z`) };
+  // That day's, else the closest of the 7 before it, said to be from the day it is
+  for (let earlier = 0; day != null && earlier <= 7; earlier++) {
+    const asked = rateDay(Date.parse(`${day}T12:00:00Z`) - earlier * 24 * 60 * 60 * 1000);
+    const onDay = server.rates.get(`${from}${to}@${asked}`);
+    if (onDay != null) {
+      return { rate: onDay, source: 'frankfurter' as const, at: Date.parse(`${asked}T12:00:00Z`) };
+    }
   }
   const rate = server.rates.get(`${from}${to}`);
   return rate == null ? null : { rate, source: 'wise' as const, at: Date.now() };
@@ -1156,6 +1167,13 @@ function settingsAfterChanges(server: FakeServer) {
 function readSettingsPatch(server: FakeServer, raw: unknown): Partial<Settings> | [number, string] {
   const changes = readSettingChanges(raw);
   if ('error' in changes) return [400, changes.error];
+  if (changes.otherCurrencies != null) {
+    const why = whyNotOtherCurrencies(
+      changes.otherCurrencies,
+      changes.currency ?? server.me.settings.currency,
+    );
+    if (why != null) return [400, why];
+  }
   if (changes.defaultAccountId != null) {
     const account = server.accounts.find((a) => a.id === changes.defaultAccountId);
     if (account == null) return [404, 'Account not found'];
@@ -1662,7 +1680,13 @@ export function finishConversion(server: FakeServer) {
   for (const r of server.recurring) r.amountCents = up(r.amountCents, rate());
   for (const b of server.budgets)
     if (b.amountCents != null) b.amountCents = up(b.amountCents, rate());
-  server.me = { ...server.me, conversion: null };
+  // The new main currency is no longer one of the others, as the real swap does
+  const others = server.me.settings.otherCurrencies.filter((c) => c !== to);
+  server.me = {
+    ...server.me,
+    settings: { ...server.me.settings, otherCurrencies: others },
+    conversion: null,
+  };
 }
 
 /** A fresh server with the signed-in account */

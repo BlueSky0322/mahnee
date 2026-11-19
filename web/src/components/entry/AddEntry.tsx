@@ -38,6 +38,7 @@ import { clockText, dayHeading, isPastDay, toDateInput, toTimeInput } from '../.
 import { newId } from '../../utils/id';
 import { currencySymbol, formatMoney } from '../../utils/money';
 import CurrencyList from '../common/CurrencyList';
+import { SOURCE_NAMES, shortDate } from '../common/typed-amount';
 import { balanceText } from '../accounts/account-text';
 import BackButton from '../ui/BackButton';
 import Key from '../ui/Key';
@@ -184,9 +185,6 @@ const REPEATS: { value: Schedule | ''; label: string }[] = [
 
 /** How long the currency pill is held to open every currency */
 const PILL_HOLD_MS = 500;
-
-/** Where a rate came from, as the hint says it */
-const SOURCE_NAMES = { wise: 'Wise', frankfurter: 'the ECB' } as const;
 
 /** What's open over or under the entry; `today` is the day's currency, from travel sense */
 type Picking = 'from' | 'to' | 'category' | 'currency' | 'today' | null;
@@ -643,14 +641,15 @@ function AddForm({
         setShowRate(false);
       }}
       onAll={() => setPicking('currency')}
+      listOpen={picking === 'currency' || picking === 'today'}
     />
   );
 
   // Under the figure: what an amount in another currency comes to, or the day's currency
-  const quoteDay =
-    quote == null
-      ? ''
-      : new Date(quote.fetchedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const quoteDay = quote == null ? '' : shortDate(quote.fetchedAt);
+  // An earlier day's entry is saved at that day's rate, which may differ
+  const savedAt =
+    day === today ? '' : `, saved at the rate of ${shortDate(Date.parse(`${day}T12:00:00`))}`;
   const lines =
     elsewhere && total > 0 ? (
       <div className={classes.rateLines}>
@@ -669,7 +668,7 @@ function AddForm({
           >
             {`about ${formatMoney(estimate!, currency)} at ${
               quote.fromDevice ? 'the last rate known' : "today's rate"
-            }`}
+            }${savedAt}`}
           </button>
         )}
         {showRate && quote != null && (
@@ -1030,12 +1029,15 @@ function CurrencyPill({
   next,
   onNext,
   onAll,
+  listOpen,
 }: {
   label: string;
   code: string;
   next: string;
   onNext: () => void;
   onAll: () => void;
+  /** Every currency is open, from this pill or elsewhere */
+  listOpen: boolean;
 }) {
   const holding = useRef<ReturnType<typeof setTimeout> | null>(null);
   const held = useRef(false);
@@ -1045,14 +1047,19 @@ function CurrencyPill({
     holding.current = null;
   };
   useEffect(() => stop, []);
+  // The list closed: the press that opened it is over (its release may have landed on the
+  // list), so the next tap is a tap
+  useEffect(() => {
+    if (!listOpen) held.current = false;
+  }, [listOpen]);
   return (
     <>
       <button
         type="button"
         className={classes.pill}
-        aria-label={`Currency, ${code}`}
+        // Named by what it shows first, so a voice saying it finds it
+        aria-label={`${label}, currency`}
         aria-describedby={hint}
-        aria-haspopup="dialog"
         aria-keyshortcuts="Alt+ArrowDown"
         onPointerDown={() => {
           held.current = false;
@@ -1091,7 +1098,7 @@ function CurrencyPill({
         id={hint}
         className="sr-only"
       >
-        {`Tap for ${next}. Hold, or press Alt+Down, for every currency.`}
+        {`${code}. Tap for ${next}. Hold, or press Alt+Down, for every currency.`}
       </span>
     </>
   );

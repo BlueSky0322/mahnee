@@ -12,7 +12,7 @@ import {
   type RatePreference,
   type Settings,
 } from '../../shared/api';
-import { readSettingChanges } from '../../shared/settings';
+import { readSettingChanges, whyNotOtherCurrencies } from '../../shared/settings';
 import {
   type ConversionRow,
   type ConvertJob,
@@ -192,6 +192,17 @@ async function readSettings(
 ): Promise<Partial<Settings> | Response> {
   const changes = readSettingChanges(raw);
   if ('error' in changes) return fail(changes.error, 400);
+
+  // The main currency, saved or sent with them, is never one of the others
+  if (changes.otherCurrencies != null) {
+    const saved = await db
+      .prepare('SELECT currency FROM user_settings WHERE email = ?')
+      .bind(email)
+      .first<string>('currency');
+    const home = changes.currency ?? saved ?? DEFAULT_SETTINGS.currency;
+    const why = whyNotOtherCurrencies(changes.otherCurrencies, home);
+    if (why != null) return fail(why, 400);
+  }
 
   if (changes.defaultAccountId != null) {
     const account = await db

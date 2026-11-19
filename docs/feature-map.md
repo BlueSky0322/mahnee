@@ -1668,7 +1668,10 @@ is shown, marked `fromDevice`.
 - An amount asked about is at most `MAX_AMOUNT`; a rate outside `MIN_RATE` to `MAX_RATE`
   is never used.
 - An earlier day's rate is the ECB's for that day (the working day before, on a
-  weekend), else Wise's; a service that is down is an error, never quietly today's rate.
+  weekend), else Wise's (its history covers TWD and VND), else the closest earlier day
+  either has within `MAX_EARLIER_DAYS` (7), else today's. Its time (`rate_at`) is always on
+  the day it is really from. A service that is down is an error, never quietly another
+  day's rate.
 
 **Tests.** [worker/currency/exchange-rates.test.ts](../worker/currency/exchange-rates.test.ts)
 (sources, fallbacks, caching, earlier days) and the rate cases in
@@ -1789,6 +1792,10 @@ deleted entries back as they were typed. Travel sense is
   in IDR can be up to 1,000,000,000"), as long as what it comes to fits; totals only ever
   sum converted amounts, so they stay exact.
 - Travel sense never picks a currency outside the person's list.
+- The main currency is never in the list: refused when saved ("MYR is your main
+  currency"), and dropped in the swap of a home-currency change that makes it the main one.
+- An entry's details say the rate and the day it's from ("1 VND = 0.00018 MYR, rate of
+  Nov 12, from Wise"); Add says a backdated entry is "saved at the rate of Nov 12".
 
 **Tests.** [worker/test/other-currencies.test.ts](../worker/test/other-currencies.test.ts),
 the 0012 cases in [worker/test/migrations.test.ts](../worker/test/migrations.test.ts), and

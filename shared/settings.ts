@@ -98,6 +98,13 @@ export const SETTING_CHECKS: { [K in keyof Settings]: (v: unknown) => v is Setti
 };
 
 /**
+ * Why a list of other currencies can't be kept beside `home`, the main currency, which is
+ * never one of them; null when it can
+ */
+export const whyNotOtherCurrencies = (list: readonly string[], home: string) =>
+  list.includes(home) ? `${home} is your main currency` : null;
+
+/**
  * The settings a request changes, each checked on its own; or why they're refused. Rows
  * they name (an account, a pay) are checked by the Worker.
  */

@@ -13,7 +13,7 @@ import { clockText, isPastDay, toDateInput } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
 import { sendEdit, sendsAmount, useEntryCurrency } from '../common/entry-currency';
 import MainAmount from '../common/MainAmount';
-import { typedAmount } from '../common/typed-amount';
+import { rateLine, typedAmount } from '../common/typed-amount';
 import { showUndo } from '../common/undo-toast';
 import { amountText, readAmount, transactionSummary } from '../entry/entry-text';
 import Key from '../ui/Key';
@@ -312,6 +312,7 @@ export default function EntryEditor({
           rightSectionWidth={44}
         />
       )}
+      {editing.original != null && <p className={classes.muted}>{rateLine(editing, currency)}</p>}
       {toCheck && (
         <p className={classes.muted}>
           {`Added at ${formatMoney(editing.amountCents, currency)} from Scheduled, for you to check`}

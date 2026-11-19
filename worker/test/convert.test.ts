@@ -9,7 +9,13 @@ import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { MAX_TRANSACTIONS_PER_ACCOUNT } from '../../shared/ledger';
-import { type ConvertJob, type FetchRate, convertStep, startStatements } from '../currency/convert';
+import {
+  type ConvertJob,
+  type FetchRate,
+  MAX_RESTARTS,
+  convertStep,
+  startStatements,
+} from '../currency/convert';
 
 const DIR = resolve(__dirname, '../../migrations');
 const ME = 'me@example.com';
@@ -173,6 +179,29 @@ describe('converting, step by step', () => {
       { cents: 51, typed: 101 },
       { cents: 51, typed: 102 },
     ]);
+  });
+
+  it('gives the currency back when it keeps finding worked-out amounts gone, rather than loop', async () => {
+    const db = person(3);
+    const job = await switchTo(db, 'USD', 1_000);
+    let steps = 0;
+    while (steps < 20 && (await convertStep(d1(db), job, flat(0.5)))) {
+      steps++;
+      // Each time every transaction is worked out, one goes missing again
+      const { n } = db
+        .prepare("SELECT COUNT(*) AS n FROM conversion_staged WHERE kind = 'transaction'")
+        .get() as { n: number };
+      if (n === 3) db.prepare("DELETE FROM conversion_staged WHERE key = '0000000000000001'").run();
+    }
+    expect(steps).toBeLessThan(20);
+    expect(db.prepare('SELECT phase, refused, restarts FROM conversions').get()).toEqual({
+      phase: 'refused',
+      refused: 'rates',
+      restarts: MAX_RESTARTS,
+    });
+    expect(db.prepare('SELECT currency FROM user_settings').get()).toEqual({ currency: 'MYR' });
+    expect(amounts(db).map((x) => x.typed)).toEqual([null, null, null]);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({ n: 0 });
   });
 
   it('swaps in the most transactions an account can hold, and back exactly', async () => {

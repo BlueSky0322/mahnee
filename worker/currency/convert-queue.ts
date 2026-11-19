@@ -10,15 +10,20 @@
 
 import type { Env } from '../app';
 import { getRatePreference } from '../accounts/profiles';
-import { type ConvertJob, STALLED_MS, convertStep, readConversionRow, release } from './convert';
+import {
+  type ConvertJob,
+  MAX_RESTARTS,
+  STALLED_MS,
+  convertStep,
+  readConversionRow,
+  release,
+} from './convert';
 import { getRateOn } from './exchange-rates';
 
 /** The first retry waits this long, giving the rate services a moment to come back */
 const FIRST_RETRY_S = 30;
 /** The longest wait between tries; 8 tries fit in the day a message is kept */
 const MAX_RETRY_S = 60 * 60;
-/** How many times a stalled conversion is started again before it's given back */
-export const MAX_RESTARTS = 3;
 
 /** Seconds before try `attempts + 1`; CONVERT_RETRY_DELAY_S (for tests) sets every wait */
 export function retryDelay(env: Pick<Env, 'CONVERT_RETRY_DELAY_S'>, attempts: number) {

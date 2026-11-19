@@ -176,7 +176,7 @@ erDiagram
     TEXT after_date "how far through the transactions"
     TEXT after_id "with after_date"
     INTEGER touched_at "ms: when it last moved on, or its next try is due"
-    INTEGER restarts "times started again after stalling"
+    INTEGER restarts "times started again: stalled, or found incomplete"
     TEXT refused "amount, opening, budget, scheduled or rates; when refused"
   }
   conversion_staged {

@@ -1705,7 +1705,8 @@ totals kept, fetches everything again and sends the changes kept meanwhile. `use
   available, so nothing was converted. Try again later"). One 2 minutes past its due time is
   queued again when the person's profile is read, at most 3 times, then given back the same
   way.
-- The swap checks every transaction was worked out (else it starts over) and puts them in
+- The swap checks every transaction was worked out (else it starts over, counted as a
+  restart, so the same cap gives the currency back) and puts them in
   10,000 to a statement, all in one batch.
 - While converting, `POST /api/changes` answers 503 with code `converting` (the outbox
   keeps the changes and sends them again), and the nightly job skips the person.

@@ -43,6 +43,11 @@ export interface ConvertJob {
 
 /** Transactions worked out in one step: few enough rates to fetch within one run */
 export const PAGE = 200;
+/**
+ * How many times a conversion is started again (stalled, or found with worked-out amounts
+ * gone) before it's given back
+ */
+export const MAX_RESTARTS = 3;
 /** A conversion that hasn't moved on for this long is started again when the person reads it */
 export const STALLED_MS = 2 * 60 * 1000;
 /** Budget rows worked out in one statement, well within D1's statement size */
@@ -328,7 +333,7 @@ export async function convertStep(
       ...stageStatements(db, email, since, 'transaction', staged),
       db
         .prepare(
-          `UPDATE conversions SET after_date = ?5, after_id = ?6, touched_at = ?7, restarts = 0
+          `UPDATE conversions SET after_date = ?5, after_id = ?6, touched_at = ?7
            WHERE email = ?1 AND since = ?2 AND phase = 'converting'
              AND after_date = ?3 AND after_id = ?4`,
         )
@@ -390,10 +395,16 @@ export async function convertStep(
     )
     .bind(email)
     .first<{ held: number; worked: number; low: number | null; high: number | null }>();
+  // That counts as starting again, and too many give the currency back
   if (counts == null || counts.held !== counts.worked) {
+    if (conversion.restarts >= MAX_RESTARTS) {
+      await release(db, { email, since }, 'rates');
+      return false;
+    }
     await db
       .prepare(
-        `UPDATE conversions SET after_date = '', after_id = '', touched_at = ?3
+        `UPDATE conversions SET after_date = '', after_id = '', touched_at = ?3,
+           restarts = restarts + 1
          WHERE email = ?1 AND since = ?2 AND phase = 'converting'`,
       )
       .bind(email, since, Date.now())

@@ -31,6 +31,7 @@ interface AccountRow {
   position: number;
   archived: 0 | 1;
   archivedAt: number | null;
+  createdAt: number;
 }
 
 interface CategoryRow {
@@ -54,7 +55,8 @@ const accountsStatement = (db: D1Database, email: string) =>
       `SELECT a.id, a.name, a.kind, a.currency,
               a.opening_cents AS openingCents,
               a.opening_cents + COALESCE(t.net, 0) AS balanceCents,
-              a.position, a.archived, a.archived_at AS archivedAt
+              a.position, a.archived, a.archived_at AS archivedAt,
+              a.created_at AS createdAt
        FROM accounts a
        LEFT JOIN (
          SELECT id, SUM(cents) AS net FROM (

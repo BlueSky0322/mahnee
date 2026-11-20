@@ -2,6 +2,7 @@ import { Button } from '@mantine/core';
 import { AccountsIcon, ActivityIcon, HomeIcon, PlanIcon, SettingsIcon } from '../ui/icons';
 import type { Place } from '../../hooks/useRoute';
 import { navigate } from '../../hooks/useRoute';
+import AppLogo from '../common/AppLogo';
 import Freshness from '../common/Freshness';
 import YouPicture from '../common/YouPicture';
 import { useYou } from '../common/you';
@@ -11,8 +12,8 @@ import classes from './Sidebar.module.css';
 
 const ICONS = { home: HomeIcon, activity: ActivityIcon, plan: PlanIcon, accounts: AccountsIcon };
 
-// The computer's places, down the left of every page: Mahnee and how fresh the figures are
-// (judged on `month`, Home's open month or this one), New entry (N), Home,
+// The computer's places, down the left of every page: Mahnee's logo and name, how fresh
+// the figures are (judged on `month`, Home's open month or this one), New entry (N), Home,
 // Activity, Plan and Accounts with the open one marked, and Settings with who's signed in
 // at the foot. New entry waits for the accounts, and can't be used while every account is
 // archived.
@@ -32,7 +33,11 @@ export default function Sidebar({
   return (
     <aside className={classes.sidebar}>
       <div className={classes.brand}>
-        <span className={classes.name}>Mahnee</span>
+        <span className={classes.name}>
+          <AppLogo size={22} />
+          {/* The logo is read out as Mahnee already */}
+          <span aria-hidden="true">Mahnee</span>
+        </span>
         <Freshness month={month} />
       </div>
       {addable != null && (

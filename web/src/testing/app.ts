@@ -72,6 +72,7 @@ import {
   MAX_NOTE,
   MAX_PAYEE,
   MAX_TRANSACTION,
+  MAX_TRANSACTION_CENTS,
   MAX_TRANSACTIONS_PER_ACCOUNT,
   balanceEffect,
   fitsOpeningCents,
@@ -216,7 +217,13 @@ export interface FakeServer {
    * The person's imports as the server keeps them, undone ones too (undoneAt), in the order
    * recorded
    */
-  imports: (ImportRecord & { undoneAt: number | null })[];
+  imports: (Omit<ImportRecord, 'openingChanged'> & {
+    undoneAt: number | null;
+    /** How much it changed its account's opening balance (imports.opening_change_cents; 0 unless said) */
+    openingChangeCents?: number;
+    /** Whether it changed it already: only once */
+    openingChanged?: boolean;
+  })[];
   /** The import each transaction came in with, by transaction id (transactions.import_id) */
   importIds: Map<string, string>;
   /** Saved change ids and the change each was, as the real server keeps receipts */
@@ -444,9 +451,10 @@ function answerNow(server: FakeServer) {
     if (path === '/api/accounts' && method === 'GET') {
       const accounts = [...server.accounts]
         .sort((a, b) => a.position - b.position)
-        .map(({ createdAt: _added, ...a }) => ({
+        .map((a) => ({
           ...a,
           archivedAt: a.archivedAt ?? null,
+          createdAt: a.createdAt ?? 0,
           balanceCents: balanceOf(server, a),
         }));
       const categories = [...server.categories].sort(
@@ -506,7 +514,10 @@ function answerNow(server: FakeServer) {
         .filter((i) => i.undoneAt == null)
         .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : -1))
         .slice(0, MAX_RECENT_IMPORTS)
-        .map(({ undoneAt: _undone, ...i }) => i);
+        .map(({ undoneAt: _undone, openingChangeCents, openingChanged: _once, ...i }) => ({
+          ...i,
+          openingChanged: (openingChangeCents ?? 0) !== 0,
+        }));
       return json({ imports });
     }
     if (path === '/api/payee-categories' && method === 'GET') {
@@ -1003,6 +1014,7 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
         addedCount,
         skippedCount,
         createdAt: Date.now(),
+        openingChangeCents: 0,
         undoneAt: null,
       });
       continue;
@@ -1013,6 +1025,15 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
       // Undone already: nothing more goes
       if (record.undoneAt != null) continue;
       record.undoneAt = Date.now();
+      // The opening balance it changed goes back by as much, within its limit
+      const into = accounts.find((a) => a.id === record.accountId);
+      const changedBy = record.openingChangeCents ?? 0;
+      if (into != null && changedBy !== 0) {
+        into.openingCents = Math.max(
+          -MAX_TRANSACTION_CENTS,
+          Math.min(MAX_TRANSACTION_CENTS, into.openingCents - changedBy),
+        );
+      }
       for (let at = transactions.length - 1; at >= 0; at--) {
         if (importIds.get(transactions[at].id) === change.id) {
           importIds.delete(transactions[at].id);
@@ -1111,6 +1132,26 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
     }
     const account = accounts.find((a) => a.id === change.id);
     if (account == null) return [404, 'Account not found'];
+    // Part of an import: only the opening balance of the account its file went into, the
+    // change kept on the import for its Undo, as the real one does
+    if (change.op === 'updateAccount' && 'importId' in change) {
+      const record = imports.find((i) => i.id === change.importId);
+      if (record == null) return [404, 'Import not found'];
+      if (record.undoneAt != null) return [409, 'That import was undone'];
+      if (change.openingCents == null || change.name != null || 'kind' in change) {
+        return [400, 'An import changes only an opening balance'];
+      }
+      if (record.accountId !== account.id) {
+        return [409, "An import changes only its own account's opening balance"];
+      }
+      if (record.openingChanged === true) {
+        return [409, 'That import changed the opening balance already'];
+      }
+      record.openingChanged = true;
+      if (!fitsOpeningCents(change.openingCents)) return [400, openingError];
+      record.openingChangeCents =
+        (record.openingChangeCents ?? 0) + change.openingCents - account.openingCents;
+    }
     if (change.op === 'archiveAccount') {
       if (typeof change.archived !== 'boolean') return [400, 'Say whether it is archived'];
       // As the real one: the day it was first archived, kept while archived; none once back

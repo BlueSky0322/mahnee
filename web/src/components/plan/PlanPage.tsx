@@ -423,7 +423,7 @@ function PhoneBudgets({ data, shown }: { data: Month; shown: PlanMonth }) {
           A monthly amount per category, with a bar for what&apos;s left.
         </p>
         <PageLink
-          href="?settings=categories"
+          href="?settings=categories&budget"
           push
           className={classes.primaryLink}
         >

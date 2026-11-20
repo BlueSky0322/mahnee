@@ -1,0 +1,14 @@
+/* The tile takes the accent and the hand and coin the ink written on it (theme/tokens.css),
+   so the logo follows the accent and the light or dark theme as they change */
+.logo {
+  display: block;
+  flex: none;
+}
+
+.tile {
+  fill: var(--accent);
+}
+
+.mark {
+  fill: var(--accent-ink);
+}

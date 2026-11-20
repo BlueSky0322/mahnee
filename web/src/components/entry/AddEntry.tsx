@@ -1,5 +1,5 @@
 import { Modal } from '@mantine/core';
-import { CalendarIcon, CloseIcon, ForwardIcon, RepeatIcon } from '../ui/icons';
+import { CalendarIcon, CloseIcon, DownIcon, ForwardIcon, RepeatIcon } from '../ui/icons';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { LedgerChange, Original } from '@shared/api';
@@ -36,9 +36,12 @@ import { categoryColour } from '../../utils/category-colour';
 import { api } from '../../api';
 import { clockText, dayHeading, isPastDay, toDateInput, toTimeInput } from '../../utils/date-input';
 import { newId } from '../../utils/id';
+import { showRefusal } from '../../utils/notify';
 import { currencySymbol, formatMoney } from '../../utils/money';
 import CurrencyList from '../common/CurrencyList';
 import { SOURCE_NAMES, rateDate, shortDay } from '../common/typed-amount';
+import { showUndo } from '../common/undo-toast';
+import AccountForm from '../accounts/AccountForm';
 import { balanceText } from '../accounts/account-text';
 import BackButton from '../ui/BackButton';
 import Key from '../ui/Key';
@@ -55,7 +58,12 @@ import {
 } from './add-text';
 import type { NewCategory } from './CategoryPicker';
 import CategoryPicker from './CategoryPicker';
-import { noteEntryCurrency, pickTodaysCurrency, travelCurrency } from './travel-sense';
+import {
+  noteEntryCurrency,
+  pickTodaysCurrency,
+  todaysEntryCurrencies,
+  travelCurrency,
+} from './travel-sense';
 import classes from './AddEntry.module.css';
 
 // Add (R-Add, R-Desk-Add): a new transaction. On phones and tablets it covers the screen,
@@ -66,11 +74,11 @@ import classes from './AddEntry.module.css';
 // "Payee or note" field, which fills the payee (owner decision D10: the note stays apart,
 // edited on the entry); Today (the day) and Repeat. Save says what it will do, or why it
 // can't yet. What's typed is kept as a draft on this device when Add is closed any way but
-// Save. It opens on the amount, or on the categories when the person chose to start with
+// Save, and Add says so, with Discard draft to throw it away. It opens on the amount, or on the categories when the person chose to start with
 // the category (D9). Saving is one change() through the ledger and its outbox, a new
-// category first. The figure's currency is a pill before it: a tap goes to the next of the
-// home currency and the person's other currencies, a long press (a right-click, or Alt+Down)
-// opens every currency for a one-off. In another currency it says what that comes to at
+// category first. The figure's currency is a pill before it, with an arrow: a tap opens every
+// currency, the home currency and the person's other currencies first, then the ones used
+// today on this device. In another currency it says what that comes to at
 // today's rate, and the entry is sent as typed (changeTyped) for the server to convert at
 // its own day's rate. Travel sense (travel-sense.ts) may open it in the day's currency.
 
@@ -133,11 +141,12 @@ export default function AddEntry({
   );
 }
 
-const CloseButton = ({ onClose }: { onClose: () => void }) => (
+/** Closes Add; with something typed it says the draft is kept */
+const CloseButton = ({ onClose, keeps }: { onClose: () => void; keeps: boolean }) => (
   <button
     type="button"
     className={classes.close}
-    aria-label="Close, keeps what you typed as a draft"
+    aria-label={keeps ? 'Keep draft and close' : 'Close'}
     onClick={onClose}
   >
     <CloseIcon
@@ -182,9 +191,6 @@ const REPEATS: { value: Schedule | ''; label: string }[] = [
   { value: 'monthly', label: 'Monthly' },
   { value: 'weekly', label: 'Weekly' },
 ];
-
-/** How long the currency pill is held to open every currency */
-const PILL_HOLD_MS = 500;
 
 /** What's open over or under the entry; `today` is the day's currency, from travel sense */
 type Picking = 'from' | 'to' | 'category' | 'currency' | 'today' | null;
@@ -245,6 +251,8 @@ function AddForm({
     draft == null && settings?.startWith === 'category' ? 'category' : null,
   );
   const [showDate, setShowDate] = useState(false);
+  // Add account, over a transfer with nowhere to go; the one made is where it goes
+  const [addingAccount, setAddingAccount] = useState(false);
   const [showRepeat, setShowRepeat] = useState(false);
   const ids = { hint: useId(), way: useId() };
   // A computer's For row, where the category is typed while its list is open
@@ -458,9 +466,36 @@ function AddForm({
     onDone();
   };
 
+  // Discard draft: closes Add with nothing kept, so it opens fresh, and Undo puts it back
+  const discard = () => {
+    const was = JSON.parse(keptText) as AddDraft;
+    saved.current = true;
+    dropDraft(email);
+    onDone();
+    // Undo brings it back unless a newer draft has been kept since
+    showUndo('Draft discarded', () => {
+      if (readDraft(email) == null) keepDraft(email, was);
+      else showRefusal("A newer draft is kept, so the discarded one can't come back");
+    });
+  };
+  // Says that what's typed is kept, and how to throw it away
+  const draftLine = typedSomething && (
+    <div className={classes.draftLine}>
+      <span>{draft != null ? 'Draft kept from last time' : 'Kept as a draft until saved'}</span>
+      <button
+        type="button"
+        className={classes.discard}
+        onClick={discard}
+      >
+        Discard draft
+      </button>
+    </div>
+  );
+
   // Esc closes what's open in Add first, then Add, keeping the draft
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape') return;
+    // Add account's own keys are its own (its dialog is drawn inside Add)
+    if (e.key !== 'Escape' || addingAccount) return;
     e.preventDefault();
     e.stopPropagation();
     if (picking != null) setPicking(null);
@@ -533,8 +568,10 @@ function AddForm({
         onBack={() => setPicking(null)}
       />
     );
-  // Every currency, the person's own first; picking one for the day (travel sense) keeps it
-  const cycle = [currency, ...others];
+  // Every currency, the person's own first, then the ones used today on this device; picking
+  // one for the day (travel sense) keeps it
+  const yours = [currency, ...others];
+  const usedToday = todaysEntryCurrencies(email, today).filter((c) => !yours.includes(c));
   const pickCurrency = (code: string) => {
     if (picking === 'today') {
       pickTodaysCurrency(email, today, code);
@@ -552,8 +589,12 @@ function AddForm({
     >
       <CurrencyList
         groups={[
-          ['Yours', cycle],
-          ['All currencies', ENTRY_CURRENCIES.filter((c) => !cycle.includes(c))],
+          ['Yours', yours],
+          ...(usedToday.length > 0 ? [['Used today', usedToday] as [string, string[]]] : []),
+          [
+            'All currencies',
+            ENTRY_CURRENCIES.filter((c) => !yours.includes(c) && !usedToday.includes(c)),
+          ],
         ]}
         current={typedIn}
         onPick={pickCurrency}
@@ -579,7 +620,16 @@ function AddForm({
       />
       {desktop && picking === 'from' && pickerShown}
       {toAccount == null ? (
-        <p className={classes.rowNote}>{NO_DESTINATION}</p>
+        <div className={classes.rowNote}>
+          <span>{NO_DESTINATION}</span>
+          <button
+            type="button"
+            className={classes.noteAction}
+            onClick={() => setAddingAccount(true)}
+          >
+            Add account
+          </button>
+        </div>
       ) : (
         <Row
           k="To"
@@ -632,15 +682,7 @@ function AddForm({
   const pill = (
     <CurrencyPill
       label={`${kind === 'income' ? '+ ' : ''}${shownCurrency}`}
-      code={typedIn}
-      next={cycle[(cycle.indexOf(typedIn) + 1) % cycle.length]}
-      onNext={() => {
-        // A one-off goes back to the home currency
-        const at = cycle.indexOf(typedIn);
-        setTypedIn(at < 0 ? currency : cycle[(at + 1) % cycle.length]);
-        setShowRate(false);
-      }}
-      onAll={() => setPicking('currency')}
+      onOpen={() => setPicking('currency')}
       listOpen={picking === 'currency' || picking === 'today'}
     />
   );
@@ -905,70 +947,89 @@ function AddForm({
     </label>
   );
 
+  // Drawn outside the entry's form, so its own Save sends nothing of the entry's
+  const accountForm = (
+    <AccountForm
+      open={addingAccount ? { account: null } : null}
+      count={accounts?.length ?? 0}
+      onClose={() => setAddingAccount(false)}
+      onAdded={setToAccountId}
+    />
+  );
+
   if (desktop) {
     return (
-      <form
-        aria-label="Add a transaction"
-        className={classes.deskForm}
-        onSubmit={submit}
-        onKeyDown={onKeyDown}
-        noValidate
-      >
-        <div className={classes.dialogHeader}>
-          <Modal.Title className={classes.dialogTitle}>New entry</Modal.Title>
-          <CloseButton onClose={onDone} />
-        </div>
-        <div className={classes.deskTop}>
-          {way}
-          {/* The figure is the field: what's typed is worked out as it's shown */}
-          <div className={classes.deskFigure}>
-            {pill}
-            <label className={classes.deskAmount}>
-              <input
-                className={classes.amountField}
-                aria-label="Amount"
-                aria-describedby={ids.hint}
-                inputMode="decimal"
-                autoComplete="off"
-                value={keypad.expr}
-                data-autofocus={picking == null ? true : undefined}
-                onFocus={(e) => {
-                  const end = e.currentTarget.value.length;
-                  e.currentTarget.setSelectionRange(end, end);
-                }}
-                onChange={(e) => setKeypad(typeKeys(e.currentTarget.value, undefined, typedLimit))}
-              />
-              {status}
-            </label>
+      <>
+        <form
+          aria-label="Add a transaction"
+          className={classes.deskForm}
+          onSubmit={submit}
+          onKeyDown={onKeyDown}
+          noValidate
+        >
+          <div className={classes.dialogHeader}>
+            <Modal.Title className={classes.dialogTitle}>New entry</Modal.Title>
+            <CloseButton
+              onClose={onDone}
+              keeps={typedSomething}
+            />
           </div>
-        </div>
-        {lines}
-        {(picking === 'currency' || picking === 'today') && pickerShown}
-        <div className={classes.fields}>
-          {rows}
-          {note}
-        </div>
-        {picking === 'category' && pickerShown}
-        {chips}
-        {options}
-        <div className={classes.deskFoot}>
-          <span
-            id={ids.hint}
-            className={classes.hint}
-          >
-            Sums work: 8+4.5
-          </span>
-          <button
-            type="button"
-            className={classes.cancel}
-            onClick={onDone}
-          >
-            Cancel
-            <Key>Esc</Key>
-          </button>
-          {save}
-        </div>
-      </form>
+          {draftLine}
+          <div className={classes.deskTop}>
+            {way}
+            {/* The figure is the field: what's typed is worked out as it's shown */}
+            <div className={classes.deskFigure}>
+              {pill}
+              <label className={classes.deskAmount}>
+                <input
+                  className={classes.amountField}
+                  aria-label="Amount"
+                  aria-describedby={ids.hint}
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={keypad.expr}
+                  data-autofocus={picking == null ? true : undefined}
+                  onFocus={(e) => {
+                    const end = e.currentTarget.value.length;
+                    e.currentTarget.setSelectionRange(end, end);
+                  }}
+                  onChange={(e) =>
+                    setKeypad(typeKeys(e.currentTarget.value, undefined, typedLimit))
+                  }
+                />
+                {status}
+              </label>
+            </div>
+          </div>
+          {lines}
+          {(picking === 'currency' || picking === 'today') && pickerShown}
+          <div className={classes.fields}>
+            {rows}
+            {note}
+          </div>
+          {picking === 'category' && pickerShown}
+          {chips}
+          {options}
+          <div className={classes.deskFoot}>
+            <span
+              id={ids.hint}
+              className={classes.hint}
+            >
+              Sums work: 8+4.5
+            </span>
+            <button
+              type="button"
+              className={classes.cancel}
+              onClick={onDone}
+            >
+              {typedSomething ? 'Keep draft' : 'Cancel'}
+              <Key>Esc</Key>
+            </button>
+            {save}
+          </div>
+        </form>
+        {accountForm}
+      </>
     );
   }
 
@@ -987,10 +1048,14 @@ function AddForm({
         noValidate
       >
         <div className={classes.top}>
-          <CloseButton onClose={onDone} />
+          <CloseButton
+            onClose={onDone}
+            keeps={typedSomething}
+          />
           {way}
           <span className={classes.headerSpace} />
         </div>
+        {draftLine}
         {status}
         {lines}
         <div className={classes.fields}>
@@ -1014,92 +1079,46 @@ function AddForm({
           {pickerShown}
         </>
       )}
+      {accountForm}
     </div>
   );
 }
 
-/**
- * The figure's currency: a tap goes to the next one, a long press (a right-click, or
- * Alt+Down from the keyboard) opens every currency
- */
+/** The figure's currency, with an arrow: a tap (or Alt+Down) opens every currency to pick from */
 function CurrencyPill({
   label,
-  code,
-  next,
-  onNext,
-  onAll,
+  onOpen,
   listOpen,
 }: {
   label: string;
-  code: string;
-  next: string;
-  onNext: () => void;
-  onAll: () => void;
+  onOpen: () => void;
   /** Every currency is open, from this pill or elsewhere */
   listOpen: boolean;
 }) {
-  const holding = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const held = useRef(false);
-  const hint = useId();
-  const stop = () => {
-    if (holding.current != null) clearTimeout(holding.current);
-    holding.current = null;
-  };
-  useEffect(() => stop, []);
-  // The list closed: the press that opened it is over (its release may have landed on the
-  // list), so the next tap is a tap
-  useEffect(() => {
-    if (!listOpen) held.current = false;
-  }, [listOpen]);
   return (
-    <>
-      <button
-        type="button"
-        className={classes.pill}
-        // Named by what it shows first, so a voice saying it finds it
-        aria-label={`${label}, currency`}
-        aria-describedby={hint}
-        aria-keyshortcuts="Alt+ArrowDown"
-        onPointerDown={() => {
-          held.current = false;
-          stop();
-          holding.current = setTimeout(() => {
-            held.current = true;
-            onAll();
-          }, PILL_HOLD_MS);
-        }}
-        onPointerUp={stop}
-        onPointerLeave={stop}
-        onContextMenu={(e) => {
+    <button
+      type="button"
+      className={classes.pill}
+      // Named by what it shows first, so a voice saying it finds it
+      aria-label={`${label}, currency`}
+      aria-haspopup="listbox"
+      aria-expanded={listOpen}
+      aria-keyshortcuts="Alt+ArrowDown"
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.altKey && e.key === 'ArrowDown') {
           e.preventDefault();
-          stop();
-          held.current = true;
-          onAll();
-        }}
-        onKeyDown={(e) => {
-          if (e.altKey && e.key === 'ArrowDown') {
-            e.preventDefault();
-            onAll();
-          }
-        }}
-        onClick={() => {
-          // The press that opened the list isn't also a tap
-          if (held.current) {
-            held.current = false;
-            return;
-          }
-          onNext();
-        }}
-      >
-        {label}
-      </button>
-      <span
-        id={hint}
-        className="sr-only"
-      >
-        {`${code}. Tap for ${next}. Hold, or press Alt+Down, for every currency.`}
-      </span>
-    </>
+          onOpen();
+        }
+      }}
+    >
+      {label}
+      <DownIcon
+        size={14}
+        aria-hidden
+        className={classes.pillArrow}
+      />
+    </button>
   );
 }
 

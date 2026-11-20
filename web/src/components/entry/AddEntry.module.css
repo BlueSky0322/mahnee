@@ -276,10 +276,27 @@
 }
 
 .rowNote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin: 0;
   padding: 14px;
   color: var(--ink-3);
   font-size: 0.875rem;
+}
+
+/* An action beside a row's note: Add account, where a transfer has nowhere to go */
+.noteAction {
+  flex: none;
+  min-height: 32px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .note {
@@ -836,6 +853,9 @@
 
 /* The figure's currency, a small pill before it: tapped for the next, held for every one */
 .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   align-self: center;
   height: 30px;
   padding: 0 11px;
@@ -852,6 +872,12 @@
   touch-action: manipulation;
   -webkit-touch-callout: none;
   user-select: none;
+}
+
+/* The arrow that says a tap opens the list */
+.pillArrow {
+  flex: none;
+  color: var(--ink-3);
 }
 
 .pill:focus-visible {
@@ -908,4 +934,25 @@ button.rateHint {
   color: var(--ink-3);
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* What's typed is kept as a draft: says so, with Discard draft beside it */
+.draftLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}
+
+.discard {
+  min-height: 32px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--neg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }

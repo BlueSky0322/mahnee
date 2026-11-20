@@ -60,8 +60,9 @@ Use Google picture (when a copy is kept and not showing) and Use initial (when a
 shows). The Google picture shows by default when the sign-in names one (see
 docs/security.md for the Access setting it needs), copied after `/api/me` has answered,
 so it shows from the next start; "This phone" or "This computer" saying "Saved" with the
-freshness label, and Install the app where the browser can install it (the only place it's
-offered; Home no longer has a card). Search (`components/settings/settings-search.ts`, a
+freshness label, and Install the app where the browser can install it (also on a phone's
+and a tablet's Settings index, under who's signed in; never once opened as the app; Home has
+no card). Search (`components/settings/settings-search.ts`, a
 static index; no server) finds a setting by its name, its line, or words not on it
 ("the month end" finds Main currency), name matches first, quoting what was found with the
 match marked; a result, or Enter for the first, opens `?settings=<section>&setting=<key>`
@@ -581,8 +582,13 @@ payee was last filed in ("Tealive was in Food", from `GET /api/payee-categories`
 own category, or under another picked; one with no room under it, a name an archived one
 has, or past `MAX_CATEGORIES`, is not offered. A new category is saved with the entry, first,
 in the same change. What's typed is kept as a draft on the device when Add is closed any
-way but Save (Close, Back, Esc, Cancel), and opens again as left; an Add with nothing typed
-keeps none. With "start with the category" (D9, `startWith`), Add opens on the category list.
+way but Save (Close, Back, Esc, Keep draft), and opens again as left; an Add with nothing
+typed keeps none. While there's something typed, Add says so ("Kept as a draft until
+saved", or "Draft kept from last time" when it opened on one) with Discard draft, which
+closes Add with nothing kept ("Draft discarded", with Undo); the close icon reads "Keep
+draft and close" (else "Close"), a computer's Cancel "Keep draft". A transfer with one
+account says "Add another account to move money to" with Add account, which opens Add
+account over Add; the account made becomes To, the rest as typed. With "start with the category" (D9, `startWith`), Add opens on the category list.
 With Suggest as you type on, the payee field lists the payees used before (Settings ›
 Adding entries). With Ask for a time on (owner decision D20, `askForTime`), the day reads
 "Today, 8:12 PM": the time Add opened, changeable under it ("Time"), saved as it's shown.
@@ -696,7 +702,8 @@ a floating-point multiply gets wrong, =, Delete, the largest amount, the keyboar
 sums, below zero, nothing, the limit, Delete held; From and For, income, transfers and
 their balances, one account; which account it opens on; recent chips; the payee only;
 Today and Repeat by the person's own clock in Kuala Lumpur, past midnight, days refused;
-the draft through Close, Back, Esc, Cancel, a reload, saving, things gone, another person;
+the draft through Close, Back, Esc, Keep draft, Discard draft and Undo, a reload, saving,
+things gone, another person; Add account from a one-account transfer;
 a new category from the payee's hint, its limits and the payees out of reach, sent first
 in one request, offline; start with the category; refusals by tapping and Enter; Add as a
 dialog so N and / do nothing more),
@@ -983,7 +990,7 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
 - The month's name between arrows ("Previous month"; "Next month" off on this month), the
   freshness label under it and the round initial on phones and tablets; on a computer
   "November 2026" and a search box, "Search everything" (/ puts the cursor there, Enter
-  opens `?activity&q=<words>`). The initial comes once the accounts are
+  opens `?activity&q=<words>&dates=all`, every month, Activity's dates there to narrow it). The initial comes once the accounts are
   known (it may be the first run, which has its own) or couldn't be loaded ("Couldn't load
   your accounts.", Try again), so Settings and Sign out are always a tap away.
 - "Expected at month end": the month-end sum (Repeating bills and month end) with its line,
@@ -1019,7 +1026,10 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   marker for how much of the month has gone, and "RM 24.00 of RM 60.00 · faster than the
   month" (on track, faster than the month, or over; amber when faster, with a warning icon on
   a phone, the negative colour when over). "All of Plan" opens Plan. None: "No budgets yet." with
-  "Set a budget" (`?settings=categories`, where budgets are set).
+  "Set a budget" (`?settings=categories&budget`, where budgets are set: it says "Choose an
+  expense category to set its monthly budget", and the category opened has Monthly budget
+  ready to type, the first one opened only; Getting started's and Plan's "Set a budget" go
+  there too).
 - Getting started, this month while any of its five steps is left and it isn't hidden:
   where the money is (always done), the first expense (spending this month), past months
   (anything last month), rent, bills and pay (a repeating item), a budget (one this month);
@@ -1218,7 +1228,14 @@ box, and the open row (the first until another is picked) is changed beside it, 
 day and amount typed where the pane shows them (R-Desk-Activity); J and K
 move the open row, X ticks it, C changes the category of what's ticked (or of the open
 row), and a row's category opens Change category for it alone. Esc closes the top dialog;
-with a row always open, there's no pane to close.
+with a row always open, there's no pane to close. Anything that would lose the open entry's changes not saved asks "Save your changes?"
+with Keep editing, Discard and Save (which stays put, saying why, when it can't be saved):
+another row (a click, J or K), a search or filter that leaves it out (it stays open beside
+the register until answered), leaving Activity (any move through `navigate()`, guarded by
+`useLeaveGuard` in `hooks/useRoute.ts`; reloading gets the browser's own question), and
+closing a phone's or tablet's entry sheet (its Cancel or Close, Esc, the backdrop, a
+phone's Back). An entry with nothing changed moves and closes at once (`EditorControl` and
+`onDirty` in `EntryEditor.tsx`). New entry (N) opens over it and leaves it as typed.
 
 Change category lists the kind's categories (each top-level one with its subcategories,
 searchable; not the one they are all in already), says what moves ("RM 30.90 from Other to Food") and what it does to that
@@ -1617,12 +1634,25 @@ bank file's file and columns are done: a phone shows only the lines (a done step
 to them), a computer the columns beside the lines' table. Pick the account and the file; for a bank's file, say which column
 is the date, the amount (one column, below zero or in brackets for money out) or money in
 and money out, the payee and the note. The mapping is remembered per account on this
-device. Preview shows every row before anything is saved: money out as spending, money in
+device; for an account with none kept, or a kept column the file no longer has (only
+that one), columns whose names say plainly what they hold are picked (`suggestMapping` in `shared/csv-import.ts`: Date, Description, Amount, Debit and
+Credit and common variants, any case), one only when exactly one column has such a name,
+the rest left to pick; every one can be changed. Preview shows every row before anything is saved: money out as spending, money in
 as income, each in the category its payee was last filed under (`GET
 /api/payee-categories`; when that fails online the page says so), else Other or Other income, changeable per row. Dates are read day first, as the page says. A row with the
 same account, day, amount (money in and money out differ) and payee (trimmed, ignoring
 case; empty only matches empty) as a saved or waiting one says "Looks already saved" and
-is left unticked; it can be ticked anyway. A row it can't read, or that can't go where it
+is left unticked; it can be ticked anyway. For a bank's file the preview says what the
+ticked rows come to and the account's balance before and after ("These 2 come to
+−RM 39.35", "RM 1,215.11 now, RM 1,175.76 after"), following each tick. Ticked rows dated on
+or before the day the account was added (its `createdAt`, as a day in the person's stored
+time zone, else this device's: tracking began then, and the
+opening balance is what it held; none for a copy kept from before, so nothing is asked) may
+already be in the opening balance, and the page says so under "Already in the balance?" and
+asks, choosing nothing for the person (Add waits): "Keep the balance as it is" (the opening
+balance changes by what those rows come to, old and new said, and Add says "and change the
+opening balance") or "Add them as new activity" (the balance moves). Later rows are always
+new activity. A row it can't read, or that can't go where it
 says (an archived account), says why and can't be ticked; a payee or note cut to fit says
 so. Mahnee's own export (known by its header) needs no mapping: its accounts are found by
 name and those missing added (the file doesn't say their kinds, so each is asked), its
@@ -1690,7 +1720,13 @@ column names per email and account (`localStorage`, let go on signing out).
   the file's name, the account a bank's file went into or none for an export, how many
   transactions it added and how many of the file's transaction lines it left out) goes
   first in the same ordered changes, then each `addTransaction` with `importId`, so the
-  0007 trigger always finds it; the server dates it. Recent imports
+  0007 trigger always finds it; the server dates it. Keeping the balance sends, last (after its
+  entries, so it's in the last batch and a batch refused before it drops it with them),
+  `updateAccount` with the new `openingCents` and `importId`: only the opening balance of
+  the account the file went into, once (else 400 "An import changes only an opening
+  balance", 409 "An import changes only its own account's opening balance", 409 "That
+  import changed the opening balance already"), what it changed
+  by kept on the import (`openingChanged` in `GET /api/imports`). Recent imports
   (`GET /api/imports`, at most `MAX_RECENT_IMPORTS`, newest first, none undone) are owned
   by [ledger/ledger.ts](../web/src/ledger/ledger.ts) (`useImports()`, `applyToImports`,
   `fetchImports`): what's recorded or undone here shows at once on top of the server's
@@ -1702,8 +1738,10 @@ column names per email and account (`localStorage`, let go on signing out).
   all in the batch; one undone already changes nothing more, and the receipt counts a
   resent one once. The row goes at once; the entries leave balances and lists when the
   server has done it (at once online, offline once back), since a device can't know every
-  entry an import added. Accounts, categories, opening balances and repeating items an
-  import added stay. An entry naming an import not the person's own, or none, is refused
+  entry an import added. The opening balance an import changed to keep the balance goes
+  back by as much (the dialog then says "Its 2 entries are deleted and the opening balance
+  it changed goes back, on every device."); other opening balances, accounts, categories
+  and repeating items an import added stay. An entry naming an import not the person's own, or none, is refused
   404 "Import not found", one undone 409 "That import was undone".
 - Banks it remembers lists this device's column layouts for the signed-in person by
   account, each with Forget (`rememberedMappings`, `forgetMapping`).
@@ -1714,7 +1752,9 @@ repeating lines and what's wrong with them, the duplicate rule, the limit), [Imp
 (the steps, heading and counts, a computer's tabs and Cancel, recording an import and its
 entries, offline in order, nothing recorded without an entry, a file of some dates as
 transactions only, mapping and remembering it, money in and out, already saved and ticked anyway, the
-same file twice, categories from payees, shortened text, 5,001 refused, 5,000 on a phone
+same file twice, categories from payees, shortened text, what the ticked rows do to the
+balance and rows from before the account was tracked (kept by changing the opening balance,
+or added as new, each undone; only the older ones; none asked when none are older), 5,001 refused, 5,000 on a phone
 with a lost answer counted once, offline, the export round trip, opening balances, an
 export picked before the accounts load; repeating items: the round trip, a next due kept
 or moved on by the person's own day, what counts as already there, two alike, what each
@@ -1724,7 +1764,8 @@ imports, Undo asked, kept and confirmed, offline and resent once, an import undo
 it was sent, the stand-in's refusals, Banks it remembers and Forget, choosing and dropping
 a file), and the payee categories and recent imports cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (recording, listing, every refusal,
-the same id for two people, Undo exactly and once).
+the same id for two people, Undo exactly and once, an opening balance changed with an import
+and put back by its Undo, and its refusals).
 
 ## Exchange rates
 
@@ -1837,9 +1878,9 @@ the `currencies` cases in [offline/outbox.test.ts](../web/src/offline/outbox.tes
 **What it is.** Settings › Money › Other currencies (R-Set-Money, R-Desk-Prefs; owner
 request 2026-11-19): chips in the person's order and "Add" (every currency not in use yet,
 searchable); a chip opens Move earlier, Move later and Remove THB; at most 8 ("Up to 8
-other currencies"). In Add the figure's currency is a pill before it: a tap goes to the next
-of the home currency and the list, a long press, right-click or Alt+Down opens every
-currency ("Yours", "All currencies") for a one-off. In another currency the figure reads
+other currencies"). In Add the figure's currency is a pill before it, with an arrow: a tap
+(or Alt+Down) opens every currency ("Yours": the home currency and the list; "Used today": others entries
+were added in today on this device; "All currencies") (owner audit 2026-11-20). In another currency the figure reads
 "THB 120.00", Save "Save THB 120.00", and under it "about RM 15.30 at today's rate" ("at the
 last rate known" offline), whose tap shows "1 THB = 0.1275 MYR, from Wise". Entries show
 "−THB 120.00" with "RM 15.30" beside it in ink-3 on Activity, the register, an account's
@@ -1887,7 +1928,7 @@ deleted entries back as they were typed. Travel sense is
 **Tests.** [worker/test/other-currencies.test.ts](../worker/test/other-currencies.test.ts),
 the 0012 cases in [worker/test/migrations.test.ts](../worker/test/migrations.test.ts), and
 [entry/other-currencies.test.tsx](../web/src/components/entry/other-currencies.test.tsx)
-(settings list, pill, long press, hint, offline, entry display, editing, travel sense).
+(settings list, the pill opening the list, today's currencies, offline, entry display, editing, travel sense).
 
 ## Offline start and installing
 
@@ -1939,7 +1980,7 @@ keep changes, those two with how many are waiting.
 - [offline/storage.ts](../web/src/offline/storage.ts): once the app is installed, asks
   the browser (once per device) not to clear what's kept when space runs low.
 - [pwa/install.ts](../web/src/pwa/install.ts): the browser's install prompt, kept for
-  Install the app on Settings › My account
+  Install the app on Settings › My account and a phone's Settings index
   ([components/common/use-install-action.tsx](../web/src/components/common/use-install-action.tsx),
   the steps by hand in [components/common/InstallApp.tsx](../web/src/components/common/InstallApp.tsx)).
 
@@ -1954,10 +1995,21 @@ writes `precache.json`, every built file the app needs offline
 
 Opening the app: [web/index.html](../web/index.html) paints a first screen before the
 app's code loads, in the theme this device saved or the phone's own on Auto, with the
-logo drawing itself; [pwa/launch-screen.ts](../web/src/pwa/launch-screen.ts) fades it
-out once the app is up and keeps the status bar following the theme. iPhones show plain
-launch screens in the theme's background, made at build time
+logo on a tile of the saved accent, its coin dropping into the hand;
+[pwa/launch-screen.ts](../web/src/pwa/launch-screen.ts) fades it out once the app is up
+and keeps the status bar following the theme (both of the page's `theme-color` metas, one for
+a light device and one for a dark). iPhones show plain launch screens in the
+theme's background, made at build time
 ([web/build/launch-images.ts](../web/build/launch-images.ts)).
+
+The logo: in the app,
+[components/common/AppLogo.tsx](../web/src/components/common/AppLogo.tsx) (the sidebar,
+the first run, the signed-out screen) draws its tile in `--accent` and the hand and coin in
+`--accent-ink`, so it follows the accent and theme as they change. The browser tab's
+icon, [web/public/icon.svg](../web/public/icon.svg), follows the device's light or dark.
+The icons that can't change (installing, the iPhone's, maskable, a reminder's icon, and
+the PNG tab icons) stay cobalt, and a reminder's badge is the mark alone;
+[tools/icons/make-icons.js](../tools/icons/make-icons.js) makes them all from icon.svg.
 
 **Flow.** A page load waits up to 3 seconds for the network; offline, slower, or a 5xx
 or non-page answer, and the kept page opens instead, marked as opened from the device.
@@ -1989,11 +2041,14 @@ account's saved copy ([ProfileContext](../web/src/profile/ProfileContext.tsx)).
 - The kept page is only replaced once every file it and `precache.json` name is kept,
   so a stopped update leaves the old page whole. Built files of the newest two pages are
   kept, for a tab still open on the older one.
-- The manifest and the icons it names are kept beside the page and answered from there
-  when the network fails or Access answers in their place, so a page opened from the
-  device still installs properly (`INSTALL_FILES` in `sw.js`).
+- The manifest, the icons it names and the browser tab's icons are kept beside the page
+  and answered from there when the network fails or Access answers in their place, so a
+  page opened from the device still installs properly (`INSTALL_FILES` in `sw.js`).
 
-**Tests.** [cache.test.ts](../web/src/offline/cache.test.ts),
+**Tests.** [AppLogo.test.tsx](../web/src/components/common/AppLogo.test.tsx) (the logo
+takes the accent and theme, and every copy of the mark is the same),
+[icons.test.ts](../web/src/pwa/icons.test.ts) (every icon named is there at its size; the
+tab icon's colours are the app's), [cache.test.ts](../web/src/offline/cache.test.ts),
 [shell.test.ts](../web/src/offline/shell.test.ts) (slow, failing and redirected page
 loads, stopped updates, which files are kept),
 [sw.test.ts](../web/src/offline/sw.test.ts) (web fonts, the API left alone, background

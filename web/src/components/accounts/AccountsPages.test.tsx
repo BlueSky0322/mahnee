@@ -437,7 +437,7 @@ describe("an account's page", () => {
     await user.click(form.getByRole('button', { name: /^From Pocket/ }));
     await user.click(await screen.findByRole('radio', { name: /^Saver/ }));
     await typeAmount(form, '3');
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
     await waitFor(() =>
       expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull(),
     );

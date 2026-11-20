@@ -22,11 +22,13 @@ interface AccountFormProps {
   /** How many accounts there are, archived ones included */
   count: number;
   onClose: () => void;
+  /** A new account was added, with this id */
+  onAdded?: (id: string) => void;
 }
 
 /** Adding an account, or renaming one, changing its kind or opening balance and archiving
  * it (an archived one comes back with Unarchive on its own page) */
-export default function AccountForm({ open, count, onClose }: AccountFormProps) {
+export default function AccountForm({ open, count, onClose, onAdded }: AccountFormProps) {
   return (
     <ResponsiveDialog
       opened={open != null}
@@ -42,6 +44,7 @@ export default function AccountForm({ open, count, onClose }: AccountFormProps) 
           startKind={open.kind}
           count={count}
           onDone={onClose}
+          onAdded={onAdded}
         />
       )}
     </ResponsiveDialog>
@@ -53,11 +56,13 @@ function Fields({
   startKind,
   count,
   onDone,
+  onAdded,
 }: {
   account: Account | null;
   startKind?: AccountKind;
   count: number;
   onDone: () => void;
+  onAdded?: (id: string) => void;
 }) {
   const homeCurrency = useCurrency();
   const [name, setName] = useState(account?.name ?? '');
@@ -101,10 +106,12 @@ function Fields({
         showRefusal(`You can have up to ${MAX_ACCOUNTS} accounts, archived ones included`);
         return;
       }
+      const id = newId();
       change({
         op: 'addAccount',
-        account: { id: newId(), name: checkedName, kind, openingCents: opening.cents },
+        account: { id, name: checkedName, kind, openingCents: opening.cents },
       });
+      onAdded?.(id);
     } else {
       // Only what changed is sent
       const update: Extract<LedgerChange, { op: 'updateAccount' }> = {
@@ -184,11 +191,13 @@ function Fields({
       </Input.Wrapper>
       <TextInput
         label={kind === 'card' ? 'Amount owed' : 'Opening balance'}
-        description={
+        // The opening balance is what it held on the first day tracked: older entries
+        // imported later are offered as a change to it, so they don't count twice
+        description={`${
           kind === 'card'
-            ? "What's owed on the card now"
-            : 'What it holds now; below zero if overdrawn'
-        }
+            ? "What's owed on the first day you'll track."
+            : "Your balance on the first day you'll track."
+        } Importing older transactions later? We'll offer to adjust it.`}
         placeholder="0.00"
         inputMode="decimal"
         leftSection={<span className={classes.symbol}>{symbol}</span>}

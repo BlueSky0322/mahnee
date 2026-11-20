@@ -1,9 +1,10 @@
 // The first screen index.html shows while the app's code loads: the theme's background
-// and the logo drawing itself. Once the app is up it fades away, after the logo has
-// finished drawing (unless the phone asks for less motion), so it never cuts off midway.
+// and the logo, its coin dropping into the hand. Once the app is up it fades away, after
+// the coin has come to rest (unless the phone asks for less motion), so it never cuts off
+// midway.
 
-/** When the logo has finished drawing, from the start of the page (index.html's timings) */
-const DRAWN_MS = 850;
+/** When the coin has come to rest, from the start of the page (index.html's timings) */
+const DRAWN_MS = 700;
 
 export function hideLaunchScreen() {
   const launch = document.getElementById('launch');
@@ -28,8 +29,12 @@ export function hideLaunchScreen() {
  * the first screen), so it follows the theme when it changes
  */
 export function syncStatusBar(scheme: 'light' | 'dark') {
-  const bar = document.querySelector('meta[name="theme-color"]');
   const background = getComputedStyle(document.documentElement).getPropertyValue('--ground');
-  if (bar != null && background.trim() !== '') bar.setAttribute('content', background.trim());
+  if (background.trim() !== '') {
+    // Both of the page's, the light device's and the dark one's, as the app's theme may differ
+    for (const bar of document.querySelectorAll('meta[name="theme-color"]')) {
+      bar.setAttribute('content', background.trim());
+    }
+  }
   document.documentElement.setAttribute('data-launch', scheme);
 }

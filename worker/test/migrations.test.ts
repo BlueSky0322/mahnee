@@ -859,20 +859,20 @@ describe('0012, other currencies', () => {
   });
 });
 
-describe('0014, start-overs counted apart from stalls', () => {
+describe('0015, start-overs counted apart from stalls', () => {
   const OWNER = 'teal@example.com';
 
   it('keeps a conversion under way as it was, with no start-overs yet', () => {
     const db = database(before0007);
     seedToday(db);
-    for (const file of files.filter((f) => f >= '0007' && f < '0014')) {
+    for (const file of files.filter((f) => f >= '0007' && f < '0015')) {
       db.exec(readFileSync(join(DIR, file), 'utf8'));
     }
     db.prepare(
       `INSERT INTO conversions (email, from_currency, to_currency, since, phase, touched_at, restarts)
        VALUES (?, 'MYR', 'USD', 5, 'converting', 6, 2)`,
     ).run(OWNER);
-    db.exec(readFileSync(join(DIR, '0014_conversion_start_overs.sql'), 'utf8'));
+    db.exec(readFileSync(join(DIR, '0015_conversion_start_overs.sql'), 'utf8'));
     expect(all(db, 'SELECT phase, restarts, start_overs FROM conversions')).toEqual([
       { phase: 'converting', restarts: 2, start_overs: 0 },
     ]);

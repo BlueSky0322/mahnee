@@ -1,7 +1,7 @@
 import { Button, Modal, NativeSelect, SegmentedControl } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { FileArrowUp } from '@phosphor-icons/react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { Account, Category, LedgerChange } from '@shared/api';
 import { MAX_FILE_NAME } from '@shared/api';
 import type { CategoryKind } from '@shared/categories';
@@ -13,9 +13,11 @@ import {
   readBankRows,
   readExportRange,
   readExportRows,
+  suggestMapping,
 } from '@shared/csv-import';
 import type { AccountKind } from '@shared/ledger';
-import { ACCOUNT_KINDS, MAX_NOTE, MAX_PAYEE } from '@shared/ledger';
+import { ACCOUNT_KINDS, MAX_NOTE, MAX_PAYEE, fitsOpeningCents } from '@shared/ledger';
+import { dayIn } from '@shared/scheduled';
 import { api } from '../../api';
 import { goUp, navigate } from '../../hooks/useRoute';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
@@ -31,10 +33,11 @@ import { categoryName } from '../common/category-name';
 import { scheduleText } from '../home/recurring-text';
 import { newId } from '../../utils/id';
 import { askFocusBack, takeHandedFile } from './handed-file';
-import type { Plan, PlannedRow } from './import-plan';
+import type { BalanceImpact, Plan, PlannedRow } from './import-plan';
 import {
   accountsToCheck,
   adds,
+  balanceImpact,
   earliestDay,
   importChanges,
   markSaved,
@@ -93,6 +96,11 @@ interface Choices {
   categoryOf: Map<number, string>;
   kinds: Map<string, AccountKind>;
   openingsTicked: Set<string>;
+  /**
+   * For ticked rows from before the account was tracked: keep the balance by changing the
+   * opening balance, or add them as new activity; null until the person says
+   */
+  older: 'keep' | 'add' | null;
 }
 
 const count = (n: number) =>
@@ -133,23 +141,41 @@ export default function ImportPage() {
 
   const header = file?.table[0] ?? [];
 
-  /** The mapping remembered for `id`, as far as this file has those columns */
+  /**
+   * The mapping remembered for `id`, as far as this file has those columns; with none kept,
+   * or for a kept column it no longer has, the columns whose names say plainly what they
+   * hold, the rest left to pick
+   */
   function pickRemembered(id: string, columns: string[]) {
     const kept = id === '' ? null : rememberedMapping(email, id);
     const has = (name: string | null) => (name != null && columns.includes(name) ? name : '');
-    setTwoColumns(kept != null && kept.amount == null);
-    setPicked(
-      kept == null
-        ? NOTHING_PICKED
-        : {
-            date: has(kept.date),
-            amount: has(kept.amount),
-            moneyIn: has(kept.moneyIn),
-            moneyOut: has(kept.moneyOut),
-            payee: has(kept.payee),
-            note: has(kept.note),
-          },
-    );
+    if (kept == null) {
+      const suggested = suggestMapping(columns);
+      setTwoColumns(suggested.twoColumns);
+      setPicked({
+        date: has(suggested.columns.date),
+        amount: has(suggested.columns.amount),
+        moneyIn: has(suggested.columns.moneyIn),
+        moneyOut: has(suggested.columns.moneyOut),
+        payee: has(suggested.columns.payee),
+        note: has(suggested.columns.note),
+      });
+      return;
+    }
+    // A kept column this file no longer has (the bank renamed it) is suggested afresh; one
+    // never picked stays unpicked
+    const suggested = suggestMapping(columns).columns;
+    const keptOr = (key: keyof ColumnMapping) =>
+      has(kept[key]) || (kept[key] != null ? has(suggested[key]) : '');
+    setTwoColumns(kept.amount == null);
+    setPicked({
+      date: keptOr('date'),
+      amount: keptOr('amount'),
+      moneyIn: keptOr('moneyIn'),
+      moneyOut: keptOr('moneyOut'),
+      payee: keptOr('payee'),
+      note: keptOr('note'),
+    });
   }
 
   function startOver() {
@@ -271,6 +297,7 @@ export default function ImportPage() {
         categoryOf: new Map(),
         kinds: new Map(),
         openingsTicked: new Set(),
+        older: null,
       });
     } catch (err) {
       if (mine === asked.current) showError(err, "Couldn't check the file against what's saved.");
@@ -287,11 +314,34 @@ export default function ImportPage() {
     tickedRows - tickedRepeating,
     plan?.rows.some((r) => r.recurring != null) ? tickedRepeating : null,
   );
+  // A bank's file: what the ticked rows do to the account's balance, and those from on or
+  // before the day it started being tracked, which its opening balance may already count
+  // Its day where the person is (their stored time zone), else on this device
+  const startDay =
+    account?.createdAt == null
+      ? null
+      : (profile?.settings.timeZone == null
+          ? null
+          : dayIn(profile.settings.timeZone, account.createdAt)) ??
+        toDateInput(new Date(account.createdAt));
+  const impact =
+    plan?.source === 'bank' && choices != null && account != null
+      ? balanceImpact(plan, choices.ticked, account.id, startDay)
+      : null;
+  // Keeping the balance: the opening balance changes by what the older rows come to
+  const keptOpening =
+    impact != null && account != null ? account.openingCents - impact.olderNetCents : null;
+  const keeping = impact != null && impact.olderCount > 0 && choices?.older === 'keep';
   const canImport =
     plan != null &&
     choices != null &&
     plan.problem == null &&
-    (tickedRows > 0 || choices.openingsTicked.size > 0);
+    (tickedRows > 0 || choices.openingsTicked.size > 0) &&
+    // Nothing older is added until the person says what it does to the balance
+    (impact == null ||
+      impact.olderCount === 0 ||
+      choices.older === 'add' ||
+      (keeping && fitsOpeningCents(keptOpening)));
 
   function importNow() {
     if (plan == null || choices == null || !canImport || file == null) return;
@@ -313,6 +363,13 @@ export default function ImportPage() {
     if (added === 0) return changes;
     const lines = plan.rows.filter((r) => r.repeats == null).length;
     const id = newId();
+    // Kept from counting twice: the opening balance changes as part of this import, so its
+    // Undo changes it back. Last, so it's in the last batch sent: a batch refused before it
+    // drops it with the rest, never leaving the opening balance changed for rows not added.
+    const opening: LedgerChange[] =
+      keeping && account != null && keptOpening != null && keptOpening !== account.openingCents
+        ? [{ op: 'updateAccount', id: account.id, openingCents: keptOpening, importId: id }]
+        : [];
     return [
       {
         op: 'addImport',
@@ -325,6 +382,7 @@ export default function ImportPage() {
         },
       },
       ...changes.map((c): LedgerChange => (c.op === 'addTransaction' ? { ...c, importId: id } : c)),
+      ...opening,
     ];
   }
 
@@ -336,6 +394,7 @@ export default function ImportPage() {
         categoryOf: new Map(c.categoryOf),
         kinds: new Map(c.kinds),
         openingsTicked: new Set(c.openingsTicked),
+        older: c.older,
       };
       fn(next);
       return next;
@@ -529,7 +588,24 @@ export default function ImportPage() {
         onClick={importNow}
       >
         Add {toImport}
+        {keeping && ' and change the opening balance'}
       </Button>
+    ) : null;
+
+  const balance =
+    impact != null && impact.count > 0 && account != null && choices != null ? (
+      <BalanceChange
+        impact={impact}
+        account={account}
+        startDay={startDay}
+        keptOpening={keptOpening}
+        older={choices.older}
+        onOlder={(older) =>
+          update((c) => {
+            c.older = older;
+          })
+        }
+      />
     ) : null;
 
   // "Which column is which": on a computer the card down the left, with what's counted and
@@ -597,6 +673,7 @@ export default function ImportPage() {
           <>
             <hr className={classes.rule} />
             {counts}
+            {balance}
             {plan?.problem != null && <p className={classes.problem}>{plan.problem}</p>}
             {addButton}
           </>
@@ -756,6 +833,7 @@ export default function ImportPage() {
       {reading}
       {lookupProblem}
       {counts}
+      {balance}
       {lines}
 
       {addButton != null && (
@@ -1045,6 +1123,117 @@ function LineTabs({
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * What the ticked rows of a bank's file do to the account's balance ("These 2 come to
+ * −RM 39.35", "RM 1,215.11 now, RM 1,175.76 after"), and for those dated on or before the
+ * day it started being tracked, which its opening balance may already count, a choice made
+ * by the person: keep the balance by changing the opening balance, or add them as new
+ * activity. Nothing is chosen for them, and the balance after follows what they choose.
+ */
+function BalanceChange({
+  impact,
+  account,
+  startDay,
+  keptOpening,
+  older,
+  onOlder,
+}: {
+  impact: BalanceImpact;
+  account: Account;
+  startDay: string | null;
+  keptOpening: number | null;
+  older: 'keep' | 'add' | null;
+  onOlder: (older: 'keep' | 'add') => void;
+}) {
+  const headingId = useId();
+  const money = (cents: number) => signedMoney(cents, account.currency);
+  const net = `${impact.netCents > 0 ? '+' : ''}${money(impact.netCents)}`;
+  const asking = impact.olderCount > 0 && startDay != null;
+  const keep = asking && older === 'keep';
+  const after = account.balanceCents + impact.netCents - (keep ? impact.olderNetCents : 0);
+  const fits = fitsOpeningCents(keptOpening);
+  const n = impact.olderCount;
+  const which =
+    n === impact.count
+      ? n === 1
+        ? 'This one is'
+        : `These ${n.toLocaleString('en')} are`
+      : `${n.toLocaleString('en')} of these ${n === 1 ? 'is' : 'are'}`;
+  const moves = impact.olderNetCents;
+  const options: { value: 'keep' | 'add'; title: string; line: string; disabled: boolean }[] = [
+    {
+      value: 'keep',
+      title: 'Keep the balance as it is',
+      line: fits
+        ? `Opening balance ${money(account.openingCents)} becomes ${money(keptOpening)}. Nothing counts twice.`
+        : 'That would take the opening balance past its limit.',
+      disabled: !fits,
+    },
+    {
+      value: 'add',
+      title: n === 1 ? 'Add it as new activity' : 'Add them as new activity',
+      line:
+        moves === 0
+          ? 'The balance stays as it is.'
+          : `The balance goes ${moves < 0 ? 'down' : 'up'} by ${formatMoney(Math.abs(moves), account.currency)}.`,
+      disabled: false,
+    },
+  ];
+  return (
+    <section
+      className={classes.balance}
+      aria-label="What it does to the balance"
+    >
+      <p className={classes.balanceNet}>
+        {impact.count === 1
+          ? `This one comes to ${net}`
+          : `These ${impact.count.toLocaleString('en')} come to ${net}`}
+      </p>
+      <p className={classes.muted}>{`${money(account.balanceCents)} now, ${money(after)} after`}</p>
+      {asking && (
+        <div
+          role="radiogroup"
+          aria-labelledby={headingId}
+          className={classes.older}
+        >
+          <h3
+            id={headingId}
+            className={classes.sectionTitle}
+          >
+            Already in the balance?
+          </h3>
+          <p className={classes.muted}>
+            {`${which} dated on or before ${shortDay(startDay)}, when you started tracking ${account.name}. Its opening balance of ${money(account.openingCents)} may already include ${n === 1 ? 'it' : 'them'}.`}
+          </p>
+          {options.map((o) => (
+            <label
+              key={o.value}
+              className={classes.olderOption}
+              data-disabled={o.disabled || undefined}
+            >
+              <input
+                type="radio"
+                name={headingId}
+                value={o.value}
+                checked={older === o.value}
+                disabled={o.disabled}
+                onChange={() => onOlder(o.value)}
+              />
+              <span className={classes.olderText}>
+                <strong>{o.title}</strong>
+                <span className={classes.muted}>{o.line}</span>
+              </span>
+            </label>
+          ))}
+          {older == null && (
+            <p className={classes.small}>{`Choose one to add ${n === 1 ? 'it' : 'them'}.`}</p>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

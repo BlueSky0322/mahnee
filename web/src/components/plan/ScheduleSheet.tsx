@@ -16,7 +16,7 @@ import { showUndo } from '../common/undo-toast';
 import { readAmount } from '../entry/entry-text';
 import ResponsiveDialog, { DialogTitle } from '../ui/ResponsiveDialog';
 import Picker from '../ui/Picker';
-import RepeatsPicker from '../ui/RepeatsPicker';
+import RepeatsPicker from './RepeatsPicker';
 import classes from './Scheduled.module.css';
 import { itemTitle, nextLine, repeatsLabel } from './scheduled-text';
 

@@ -1,58 +1,17 @@
 // @vitest-environment jsdom
-import { MantineProvider, Modal } from '@mantine/core';
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { Modal } from '@mantine/core';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { buildTheme } from '../../theme/theme';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { atSize, setupPartTests, showPart as show } from '../../testing/parts';
 import Picker from './Picker';
 import type { PickerOption } from './Picker';
-import RepeatsPicker from './RepeatsPicker';
 
-// The app's own pickers, in place of the browser's list: a list under the field on a
-// computer, a sheet on a phone that Back closes, each worked by keys as well as taps.
+// The app's own picker, in place of the browser's list: a list under the field on a
+// computer, a sheet on a phone that Back closes, worked by keys as well as taps.
 
-const WIDTHS = { desktop: 1280, phone: 390 };
-type Size = keyof typeof WIDTHS;
-
-function atSize(size: Size) {
-  const width = WIDTHS[size];
-  vi.stubGlobal('innerWidth', width);
-  window.matchMedia = (query: string) => {
-    const m = /\((min|max)-width:\s*([\d.]+)(em|px)\)/.exec(query);
-    const px = m == null ? 0 : Number(m[2]) * (m[3] === 'em' ? 16 : 1);
-    return {
-      matches: m != null && (m[1] === 'min' ? width >= px : width <= px),
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    };
-  };
-}
-
-beforeEach(() => {
-  vi.stubGlobal(
-    'ResizeObserver',
-    class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
-  );
-  window.history.replaceState(null, '', '/');
-});
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
-
-const show = (ui: ReactNode) =>
-  render(<MantineProvider theme={buildTheme()}>{ui}</MantineProvider>);
+setupPartTests();
 
 const ACCOUNTS: PickerOption[] = [
   { value: 'a1', label: 'Maybank', group: 'Banks' },
@@ -86,7 +45,7 @@ function Kept({
   );
 }
 
-const field = () => screen.getByRole('combobox', { name: 'Account' });
+const field = () => screen.getByRole('combobox', { name: /^Account / });
 const activeName = (list: HTMLElement) =>
   document.getElementById(list.getAttribute('aria-activedescendant') ?? '')?.textContent;
 
@@ -189,7 +148,7 @@ describe('a picker on a computer', () => {
       </Modal>,
     );
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('combobox', { name: 'Account' }));
+    await user.click(await screen.findByRole('combobox', { name: /^Account / }));
     await screen.findByRole('listbox', { name: 'Account' });
     await user.keyboard('{ArrowDown}{Escape}');
     await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
@@ -250,6 +209,54 @@ describe('a picker on a computer', () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith('November');
   });
 
+  test('a group named in two words names its options for a screen reader', async () => {
+    show(
+      <Kept
+        start="f1"
+        options={[
+          { value: 'f1', label: 'Kopi', group: 'Eating out' },
+          { value: 'f2', label: 'Nasi lemak', group: 'Eating out' },
+          { value: 'g1', label: 'Rice', group: 'Food & drink' },
+        ]}
+      />,
+    );
+    await userEvent.setup().click(field());
+    const list = await screen.findByRole('listbox', { name: 'Account' });
+    const out = within(list).getByRole('group', { name: 'Eating out' });
+    expect(
+      within(out)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Kopi', 'Nasi lemak']);
+    expect(within(list).getByRole('group', { name: 'Food & drink' })).toBeTruthy();
+  });
+
+  test.each(['field', 'row', 'plain'] as const)(
+    'says its name and what is chosen, closed (%s)',
+    async (look) => {
+      function Looked() {
+        const [chosen, choose] = useState('a1');
+        return (
+          <Picker
+            look={look}
+            label="Account"
+            value={chosen}
+            options={ACCOUNTS}
+            onChange={choose}
+          />
+        );
+      }
+      show(<Looked />);
+      const user = userEvent.setup();
+      expect(screen.getByRole('combobox', { name: 'Account Maybank' })).toBeTruthy();
+      await user.click(screen.getByRole('combobox', { name: 'Account Maybank' }));
+      await user.click(await screen.findByRole('option', { name: 'Wallet' }));
+      await waitFor(() =>
+        expect(screen.getByRole('combobox', { name: 'Account Wallet' })).toBeTruthy(),
+      );
+    },
+  );
+
   test('what is chosen but not listed shows its prompt, quieter', () => {
     show(
       <Picker
@@ -260,7 +267,7 @@ describe('a picker on a computer', () => {
         onChange={() => {}}
       />,
     );
-    const picker = screen.getByRole('combobox', { name: 'Category' });
+    const picker = screen.getByRole('combobox', { name: /^Category / });
     expect(picker.textContent).toBe('Pick a category');
     expect(picker.querySelector('[data-prompt]')).not.toBeNull();
   });
@@ -306,120 +313,5 @@ describe('a picker on a phone', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Account' });
     await user.click(within(sheet).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-  });
-});
-
-/** A Repeats picker that keeps what's picked, said as the schedule screens say it */
-function KeptRepeats({ onChange }: { onChange: (schedule: string, day: number) => void }) {
-  const [repeats, setRepeats] = useState<{ schedule: 'monthly' | 'weekly'; day: number }>({
-    schedule: 'monthly',
-    day: 18,
-  });
-  return (
-    <RepeatsPicker
-      label="Repeats"
-      schedule={repeats.schedule}
-      day={repeats.day}
-      shown={`${repeats.schedule} ${repeats.day}`}
-      onChange={(schedule, day) => {
-        setRepeats({ schedule, day });
-        onChange(schedule, day);
-      }}
-    />
-  );
-}
-
-describe('the Repeats picker', () => {
-  const repeats = () => screen.getByRole('combobox', { name: 'Repeats' });
-  const checked = (group: HTMLElement) =>
-    within(group)
-      .getAllByRole('radio')
-      .filter((r) => r.getAttribute('aria-checked') === 'true')
-      .map((r) => r.getAttribute('aria-label') ?? r.textContent);
-
-  test.each(['desktop', 'phone'] as const)(
-    'picks a day of the month from a calendar, or a weekday from a row (%s)',
-    async (size) => {
-      atSize(size);
-      const onChange = vi.fn();
-      show(<KeptRepeats onChange={onChange} />);
-      const user = userEvent.setup();
-      expect(repeats().textContent).toBe('monthly 18');
-      await user.click(repeats());
-      const panel = await screen.findByRole('group', { name: 'Repeats' });
-      if (size === 'phone') expect(screen.getByRole('dialog', { name: 'Repeats' })).toBeTruthy();
-      expect(checked(within(panel).getByRole('radiogroup', { name: 'How often' }))).toEqual([
-        'Monthly',
-      ]);
-      const month = within(panel).getByRole('radiogroup', { name: 'Day of the month' });
-      expect(within(month).getAllByRole('radio')).toHaveLength(31);
-      expect(checked(month)).toEqual(['18']);
-      expect(within(panel).getByText(/or the month’s last day when it’s shorter/)).toBeTruthy();
-      await user.click(within(month).getByRole('radio', { name: '31' }));
-      expect(onChange).toHaveBeenCalledExactlyOnceWith('monthly', 31);
-      await waitFor(() => expect(screen.queryByRole('group', { name: 'Repeats' })).toBeNull());
-      expect(repeats().textContent).toBe('monthly 31');
-
-      await user.click(repeats());
-      const again = await screen.findByRole('group', { name: 'Repeats' });
-      await user.click(within(again).getByRole('radio', { name: 'Weekly' }));
-      const week = within(again).getByRole('radiogroup', { name: 'Day of the week' });
-      expect(
-        within(week)
-          .getAllByRole('radio')
-          .map((r) => r.textContent),
-      ).toEqual(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
-      // Monthly on the 31st isn't a weekday: none is chosen yet, and nothing changed
-      expect(checked(week)).toEqual([]);
-      expect(within(again).queryByText(/last day/)).toBeNull();
-      expect(onChange).toHaveBeenCalledTimes(1);
-      await user.click(within(week).getByRole('radio', { name: 'Thursday' }));
-      expect(onChange).toHaveBeenLastCalledWith('weekly', 4);
-      await waitFor(() => expect(repeats().textContent).toBe('weekly 4'));
-    },
-  );
-
-  test('on a computer, opens on the chosen day, and the arrows move through the calendar', async () => {
-    atSize('desktop');
-    const onChange = vi.fn();
-    show(<KeptRepeats onChange={onChange} />);
-    const user = userEvent.setup();
-    act(() => repeats().focus());
-    await user.keyboard('{Enter}');
-    await waitFor(() => expect(document.activeElement?.getAttribute('aria-checked')).toBe('true'));
-    expect(document.activeElement?.textContent).toBe('18');
-    await user.keyboard('{ArrowRight}');
-    expect(document.activeElement?.textContent).toBe('19');
-    await user.keyboard('{ArrowDown}');
-    expect(document.activeElement?.textContent).toBe('26');
-    await user.keyboard('{ArrowDown}');
-    // No 33rd: the last day stays
-    expect(document.activeElement?.textContent).toBe('31');
-    await user.keyboard('{Home}{ArrowUp}{ArrowLeft}');
-    expect(document.activeElement?.textContent).toBe('1');
-    await user.keyboard('{End}{ArrowUp}{Enter}');
-    expect(onChange).toHaveBeenCalledExactlyOnceWith('monthly', 24);
-    await waitFor(() => expect(document.activeElement).toBe(repeats()));
-
-    await user.keyboard('{Enter}');
-    await screen.findByRole('group', { name: 'Repeats' });
-    await user.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('group', { name: 'Repeats' })).toBeNull());
-    expect(onChange).toHaveBeenCalledTimes(1);
-  });
-
-  test('on a phone, Back closes its sheet and changes nothing', async () => {
-    atSize('phone');
-    const onChange = vi.fn();
-    show(<KeptRepeats onChange={onChange} />);
-    const user = userEvent.setup();
-    await user.click(repeats());
-    await screen.findByRole('dialog', { name: 'Repeats' });
-    await act(async () => {
-      window.history.back();
-      await new Promise((r) => setTimeout(r, 20));
-    });
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(onChange).not.toHaveBeenCalled();
   });
 });

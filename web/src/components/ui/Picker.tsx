@@ -96,7 +96,11 @@ export function PickerShell({
   const sheet = useIsMobile();
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState('');
-  const ids = { trigger: useId(), label: useId(), panel: useId() };
+  // A list or sheet is only made once the picker is first opened, so a page of many (an
+  // import's rows) draws just their buttons until then
+  const [used, setUsed] = useState(false);
+  if (open && !used) setUsed(true);
+  const ids = { trigger: useId(), label: useId(), value: useId(), panel: useId() };
   const trigger = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => {
     setOpen(false);
@@ -106,6 +110,8 @@ export function PickerShell({
 
   const roles = {
     'role': 'combobox',
+    // Read out as its name and then what's chosen, as the browser's own list is
+    'aria-labelledby': `${ids.label} ${ids.value}`,
     'aria-haspopup': popup,
     'aria-expanded': open,
     'aria-controls': open ? ids.panel : undefined,
@@ -136,12 +142,44 @@ export function PickerShell({
         />
       )}
       <span
+        id={ids.value}
         className={classes.valueText}
         data-prompt={prompt || undefined}
       >
         {shown}
       </span>
     </>
+  );
+
+  // A computer's list, under the field or row: anchored to a box over it, so it can be added
+  // on first opening without remaking the button that has focus
+  const popover = !sheet && used && (
+    <Popover
+      opened={open}
+      onChange={setOpen}
+      position="bottom-start"
+      offset={6}
+      width={look === 'field' ? 'target' : undefined}
+      zIndex={300}
+      withinPortal
+      withRoles={false}
+      closeOnEscape={false}
+      returnFocus={false}
+      middlewares={{ flip: true, shift: true }}
+    >
+      <Popover.Target>
+        <span
+          className={classes.anchorBox}
+          aria-hidden
+        />
+      </Popover.Target>
+      <Popover.Dropdown
+        className={classes.pop}
+        style={{ minWidth: width }}
+      >
+        {open && panel({ close, sheet: false, id: ids.panel, typed })}
+      </Popover.Dropdown>
+    </Popover>
   );
 
   let closed: ReactNode;
@@ -155,7 +193,6 @@ export function PickerShell({
         pointer
         label={label}
         labelProps={{ id: ids.label }}
-        aria-labelledby={ids.label}
         description={description}
         error={error}
         disabled={disabled}
@@ -168,6 +205,12 @@ export function PickerShell({
           />
         }
         rightSectionPointerEvents="none"
+        inputContainer={(input) => (
+          <div className={classes.anchored}>
+            {input}
+            {popover}
+          </div>
+        )}
         {...data}
         {...roles}
       >
@@ -192,7 +235,6 @@ export function PickerShell({
           id={ids.trigger}
           type="button"
           className={classes.rowButton}
-          aria-labelledby={ids.label}
           disabled={disabled}
           {...roles}
         >
@@ -203,27 +245,36 @@ export function PickerShell({
             aria-hidden
           />
         </button>
+        {popover}
       </div>
     );
   } else {
     closed = (
-      <button
-        ref={trigger}
-        id={ids.trigger}
-        type="button"
-        className={`${classes.plain} ${className ?? ''}`}
-        aria-label={label}
-        disabled={disabled}
-        {...data}
-        {...roles}
-      >
-        {value}
-        <DownIcon
-          size={14}
-          className={classes.chevron}
-          aria-hidden
-        />
-      </button>
+      <span className={classes.anchored}>
+        <span
+          id={ids.label}
+          hidden
+        >
+          {label}
+        </span>
+        <button
+          ref={trigger}
+          id={ids.trigger}
+          type="button"
+          className={`${classes.plain} ${className ?? ''}`}
+          disabled={disabled}
+          {...data}
+          {...roles}
+        >
+          {value}
+          <DownIcon
+            size={14}
+            className={classes.chevron}
+            aria-hidden
+          />
+        </button>
+        {popover}
+      </span>
     );
   }
 
@@ -232,42 +283,16 @@ export function PickerShell({
       className={classes.contents}
       onKeyDown={keepEscape}
     >
-      {sheet ? (
-        <>
-          {closed}
-          <ResponsiveDialog
-            opened={open}
-            onClose={() => setOpen(false)}
-            title={label}
-            stacked
-          >
-            {open && panel({ close, sheet: true, id: ids.panel, typed })}
-          </ResponsiveDialog>
-        </>
-      ) : (
-        <Popover
+      {closed}
+      {sheet && used && (
+        <ResponsiveDialog
           opened={open}
-          onChange={setOpen}
-          position="bottom-start"
-          offset={6}
-          width={look === 'field' ? 'target' : undefined}
-          zIndex={300}
-          withinPortal
-          withRoles={false}
-          closeOnEscape={false}
-          returnFocus={false}
-          middlewares={{ flip: true, shift: true }}
+          onClose={() => setOpen(false)}
+          title={label}
+          stacked
         >
-          <Popover.Target>
-            {look === 'row' ? closed : <span className={classes.anchor}>{closed}</span>}
-          </Popover.Target>
-          <Popover.Dropdown
-            className={classes.pop}
-            style={{ minWidth: width }}
-          >
-            {open && panel({ close, sheet: false, id: ids.panel, typed })}
-          </Popover.Dropdown>
-        </Popover>
+          {open && panel({ close, sheet: true, id: ids.panel, typed })}
+        </ResponsiveDialog>
       )}
     </div>
   );
@@ -495,17 +520,17 @@ function OptionList({
         {...OWN_ESCAPE}
         onKeyDown={onKeyDown}
       >
-        {groups.map(([title, members]) =>
+        {groups.map(([title, members], at) =>
           title == null ? (
             members.map(option)
           ) : (
             <div
               key={title}
               role="group"
-              aria-labelledby={`${id}-g-${title}`}
+              aria-labelledby={`${id}-g${at}`}
             >
               <div
-                id={`${id}-g-${title}`}
+                id={`${id}-g${at}`}
                 className={classes.group}
               >
                 {title}

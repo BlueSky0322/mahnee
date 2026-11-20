@@ -506,7 +506,7 @@ describe('entries in another currency', () => {
         ? await screen.findByRole('complementary', { name: /^Night market/ })
         : await screen.findByRole('dialog', { name: 'Night market' }),
     );
-    const currency = editor.getByRole('combobox', { name: 'Currency' });
+    const currency = editor.getByRole('combobox', { name: /^Currency / });
     expect(currency.textContent).toBe('THB');
     const amount = editor.getByRole<HTMLInputElement>('textbox', { name: 'Amount' });
     expect(amount.value).toMatch(/^120(\.00)?$/);
@@ -534,7 +534,7 @@ describe('entries in another currency', () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: /^Night market, / }));
     const editor = within(await screen.findByRole('dialog', { name: 'Night market' }));
-    await pick(user, editor.getByRole('combobox', { name: 'Currency' }), 'MYR');
+    await pick(user, editor.getByRole('combobox', { name: /^Currency / }), 'MYR');
     const amount = editor.getByRole<HTMLInputElement>('textbox', { name: 'Amount' });
     await user.clear(amount);
     await user.type(amount, '15.30');

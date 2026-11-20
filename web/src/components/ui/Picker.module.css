@@ -7,9 +7,16 @@
   display: contents;
 }
 
-.anchor {
-  display: block;
+/* What a computer's list is placed against: a box over the field, row or button */
+.anchored {
+  position: relative;
   min-width: 0;
+}
+
+.anchorBox {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 /* A form field: drawn as the app's other fields (tokens.css), saying what's chosen */
@@ -38,6 +45,7 @@
 
 /* A row of a grouped card: its name at the left, what's chosen, a chevron */
 .row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -80,6 +88,11 @@
 }
 
 /* Just the button: what's chosen and a small chevron */
+span.anchored {
+  display: inline-flex;
+  max-width: 100%;
+}
+
 .plain {
   display: inline-flex;
   align-items: center;
@@ -233,90 +246,4 @@
   margin: 4px 8px 6px;
   color: var(--ink-3);
   font-size: 13px;
-}
-
-/* Repeats: how often, as two segments, then the day as a grid (R-Desk-Prefs' .seg, .dgrid) */
-.repeats {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 8px;
-}
-
-.panel[data-sheet].repeats {
-  padding: 0 0 8px;
-}
-
-.seg {
-  display: grid;
-  grid-auto-columns: minmax(0, 1fr);
-  grid-auto-flow: column;
-  gap: 3px;
-  padding: 3px;
-  border-radius: 999px;
-  background: var(--sunk);
-}
-
-.segment {
-  height: 34px;
-  border: 0;
-  border-radius: 999px;
-  background: none;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.segment[aria-checked='true'] {
-  background: var(--surface);
-  box-shadow: 0 1px 2px rgb(20 20 20 / 12%);
-  color: var(--ink);
-}
-
-.days {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.day {
-  height: 36px;
-  border: 0;
-  border-radius: 10px;
-  background: none;
-  color: var(--ink);
-  font: inherit;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-
-.panel[data-sheet] .day {
-  height: 44px;
-  font-size: 16px;
-}
-
-.day:hover {
-  background: var(--sunk);
-}
-
-.day[aria-checked='true'] {
-  background: var(--ink);
-  color: var(--surface);
-  font-weight: 600;
-}
-
-.segment:focus-visible,
-.day:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.note {
-  margin: 0;
-  color: var(--ink-3);
-  font-size: 12px;
-  line-height: 1.45;
 }

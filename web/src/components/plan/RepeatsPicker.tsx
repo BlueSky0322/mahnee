@@ -1,10 +1,10 @@
 import type { KeyboardEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { Schedule } from '@shared/recurring';
-import type { PickerLook } from './Picker';
-import { PickerShell } from './Picker';
-import classes from './Picker.module.css';
-import { OWN_ESCAPE } from './own-escape';
+import type { PickerLook } from '../ui/Picker';
+import { PickerShell } from '../ui/Picker';
+import { OWN_ESCAPE } from '../ui/own-escape';
+import classes from './RepeatsPicker.module.css';
 
 // When something repeats: Monthly or Weekly as two segments, then its day, as a calendar
 // of the month's days 1 to 31 or a row of the week's days. Tapping a day chooses it and
@@ -118,9 +118,11 @@ function DayChooser({
       id={id}
       role="group"
       aria-label={label}
-      className={`${classes.panel} ${classes.repeats}`}
+      className={classes.repeats}
       data-sheet={sheet || undefined}
       onKeyDown={(e) => {
+        // Escape closes it, and on a computer so does Tab, as a list does
+        if (e.key === 'Tab' && !sheet) onClose();
         if (e.key !== 'Escape') return;
         e.stopPropagation();
         onClose();

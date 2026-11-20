@@ -460,6 +460,40 @@ describe('repeating bills and income on Home', () => {
     20_000,
   );
 
+  test("on a phone, Back closes the Repeat picker over a transaction's sheet, then the sheet", async () => {
+    onTheSixth();
+    const server = withAccounts([]);
+    server.transactions.push({
+      id: 'a'.repeat(16),
+      kind: 'expense',
+      accountId: BANK,
+      toAccountId: null,
+      amountCents: 120_000,
+      categoryId: BILLS,
+      payee: 'Rent',
+      note: null,
+      date: '2026-11-01',
+      createdAt: 1,
+    });
+    renderApp(server, `/?account=${BANK}`, { size: 'phone' });
+    const user = userEvent.setup();
+    await user.click(await entryOnPage('Rent, Bills, −1,200.00', 'phone'));
+    const sheet = within(await screen.findByRole('dialog', { name: 'Edit transaction' }));
+    if (sheet.getByRole('button', { name: 'More' }).getAttribute('aria-expanded') !== 'true') {
+      await user.click(sheet.getByRole('button', { name: 'More' }));
+    }
+    await user.click(sheet.getByLabelText('Repeat'));
+    await screen.findByRole('dialog', { name: 'Repeat' });
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Repeat' })).toBeNull());
+    expect(screen.getByRole('dialog', { name: 'Edit transaction' })).toBeTruthy();
+    act(() => window.history.back());
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Edit transaction' })).toBeNull(),
+    );
+    expect(server.recurring).toEqual([]);
+  });
+
   test.each(SIZES)(
     "sets one up from a transaction's sheet, monthly on its day, next due the month after (%s)",
     async (size) => {

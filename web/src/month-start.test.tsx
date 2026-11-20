@@ -393,7 +393,7 @@ describe('a pay changed in Plan › Scheduled while the month starts on payday',
     const income = await screen.findByRole('region', { name: 'Income' });
     await user.click(within(income).getByRole('button', { name: /^Salary/ }));
     let sheet = within(await screen.findByRole('dialog', { name: 'Salary' }));
-    await pickRepeats(user, sheet.getByRole('combobox', { name: 'Repeats' }), 'Monthly', 25);
+    await pickRepeats(user, sheet.getByRole('combobox', { name: /^Repeats / }), 'Monthly', 25);
     await user.click(sheet.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(server.recurring[0].day).toBe(25));
 

@@ -209,3 +209,39 @@ describe('signing out with settings changed offline', () => {
     expect(await keptPatch()).toBeUndefined();
   });
 });
+
+test('a save still on its way when the connection drops never wins over a newer change kept offline', async () => {
+  const server = fakeServer();
+  renderApp(server, '/?settings=adding', { size: 'phone' });
+  const page = await adding();
+  // The first save of the profile gets no answer until the connection has dropped
+  const answer = vi.mocked(fetch).getMockImplementation()!;
+  let dropA: (err: Error) => void = () => {};
+  let held = false;
+  vi.mocked(fetch).mockImplementation((input, init) => {
+    if (!held && input === '/api/me' && init?.method === 'PATCH') {
+      held = true;
+      return new Promise((_, reject) => {
+        dropA = reject;
+      });
+    }
+    return answer(input, init);
+  });
+  const user = userEvent.setup();
+  await user.click(page.getByRole('radio', { name: 'Category' }));
+  await waitFor(() => expect(held).toBe(true));
+
+  const back = goOffline(server);
+  await user.click(page.getByRole('radio', { name: 'Amount' }));
+  await settle();
+  dropA(new TypeError('Failed to fetch'));
+  await settle();
+  expect(await keptPatch()).toEqual({ settings: { startWith: 'amount' } });
+
+  back();
+  await waitFor(() => expect(server.me.settings.startWith).toBe('amount'), { timeout: 5000 });
+  expect(await startWith()).toEqual([
+    ['Amount', 'true'],
+    ['Category', 'false'],
+  ]);
+}, 15_000);

@@ -190,7 +190,8 @@ failure undoes them as before. The picture and the home currency still need a co
   and dropped on signing out, which asks first, naming the settings ("Your change to Start
   with hasn't been saved yet. Signing out removes it from this device."). Each change to it
   reads and writes it under a lock per person (`mahnee-profile-outbox:<email>`), so quick
-  changes never lose one another. A waiting patch the server refuses is sent again a field
+  changes never lose one another; a save on its way when the connection drops is kept
+  under any change made since, never over it. A waiting patch the server refuses is sent again a field
   at a time, so only the field it won't take is let go (and said). Sending it twice changes
   nothing, so it carries no ids. The service worker doesn't send it: the app does when next
   open.

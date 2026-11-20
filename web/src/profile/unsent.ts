@@ -67,6 +67,13 @@ export const readUnsent = (email: string) => withLock(email, () => read(email));
 export const keepUnsent = (email: string, patch: ProfilePatch) =>
   withLock(email, async () => write(email, merged((await read(email)) ?? {}, patch)));
 
+/**
+ * Adds an older change under what waits: a field changed since and kept already keeps its
+ * newer value. For a save that was on its way when the connection dropped.
+ */
+export const keepUnsentUnder = (email: string, patch: ProfilePatch) =>
+  withLock(email, async () => write(email, merged(patch, (await read(email)) ?? {})));
+
 /** Two changes as one, the second's fields over the first's */
 const merged = (a: ProfilePatch, b: ProfilePatch): ProfilePatch => ({
   ...('displayName' in a && { displayName: a.displayName }),

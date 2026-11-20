@@ -12,6 +12,7 @@ import {
   dropUnsent,
   eachField,
   keepUnsent,
+  keepUnsentUnder,
   readUnsent,
   settleUnsent,
   unsentNow,
@@ -401,7 +402,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         if (id === latest.current) replace(withPatch(saved, unsentNow(email)));
       } catch (err) {
         const waiting = isOfflineFailure(err) || isSignInAnswer(err);
-        if (waiting && (kept || (await keepUnsent(email, patch)))) return;
+        // A change made since (kept offline, say) is newer: this one goes under it
+        const keep = id === latest.current ? keepUnsent : keepUnsentUnder;
+        if (waiting && (kept || (await keep(email, patch)))) return;
         if (kept) await settleUnsent(email, patch);
         if (id === latest.current) replace(current);
         throw err;

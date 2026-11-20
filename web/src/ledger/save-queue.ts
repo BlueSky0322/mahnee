@@ -108,9 +108,12 @@ export interface SaveQueue {
   pendingWithIds: () => Queued[];
   /** Refused changes waiting for the person, the same list until it changes */
   needsAttention: () => Refused[];
-  /** Sends a refused set again, shown again meanwhile */
-  retry: (set: string) => void;
-  /** Lets a refused set go, from the device too */
+  /**
+   * Sends a refused set again, shown again meanwhile; nothing changes until the device has
+   * it as waiting again
+   */
+  retry: (set: string) => Promise<void>;
+  /** Lets a refused set go, once the device has let it go */
   discard: (set: string) => Promise<void>;
   /** Tries again to keep on the device what it couldn't */
   keepAgain: () => void;
@@ -162,6 +165,14 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
   let maxGroups = Infinity;
   // Keeping changes on the device, one write after another in this page
   let keeping: Promise<unknown> = Promise.resolve();
+  // Reading the device into this page, trying again and discarding take turns, so one
+  // never undoes what another just did
+  let turn: Promise<unknown> = Promise.resolve();
+  function inTurn<T>(fn: () => Promise<T>): Promise<T> {
+    const run = turn.then(fn, fn);
+    turn = run.catch(() => undefined);
+    return run;
+  }
 
   // Waited on until the signed-in person's kept changes are picked up; one still waited on
   // carries on past a forget, for whoever is signed in next
@@ -232,7 +243,11 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
    * in. A device that can't be read changes nothing here. False if the queue was forgotten
    * meanwhile.
    */
-  async function reconcile(email: string, mine: number) {
+  function reconcile(email: string, mine: number) {
+    return inTurn(() => reconcileNow(email, mine));
+  }
+
+  async function reconcileNow(email: string, mine: number) {
     await keeping;
     let kept: Queued[];
     try {
@@ -403,25 +418,43 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
     pending: () => waitingItems().map(shownOf),
     pendingWithIds: () => waitingItems().map(plain),
     needsAttention: () => attention,
-    retry: (set) => {
-      const back = items.filter((i) => i.refused?.set === set);
-      if (back.length === 0) return;
-      items = items.map((i) => (i.refused?.set === set ? { ...unrefused(i), kept: i.kept } : i));
-      changed();
-      events.found(back.map(shownOf));
+    retry: async (set) => {
       const email = owner;
-      if (email == null) return;
-      void retryRefused(email, set)
-        .catch(() => undefined)
-        .then(() => {
-          failures = 0;
-          return run();
-        });
+      const mine = round;
+      if (email == null || !items.some((i) => i.refused?.set === set)) return;
+      const tried = await inTurn(async () => {
+        // The device first: until it has them as waiting, nothing changes here
+        try {
+          await retryRefused(email, set);
+        } catch {
+          return false;
+        }
+        if (mine !== round) return false;
+        const back = items.filter((i) => i.refused?.set === set);
+        items = items.map((i) => (i.refused?.set === set ? { ...unrefused(i), kept: i.kept } : i));
+        changed();
+        if (back.length > 0) events.found(back.map(shownOf));
+        return true;
+      });
+      if (!tried || mine !== round) return;
+      failures = 0;
+      void run();
     },
     discard: async (set) => {
-      items = items.filter((i) => i.refused?.set !== set);
-      changed();
-      if (owner != null) await discardRefused(owner, set).catch(() => undefined);
+      const email = owner;
+      const mine = round;
+      if (email == null) return;
+      await inTurn(async () => {
+        // The device first: until it has let them go, they stay listed here
+        try {
+          await discardRefused(email, set);
+        } catch {
+          return;
+        }
+        if (mine !== round) return;
+        items = items.filter((i) => i.refused?.set !== set);
+        changed();
+      });
     },
     keepAgain: () => void keep().then(() => run()),
     pickUp: async (email) => {

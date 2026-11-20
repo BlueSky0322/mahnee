@@ -5,7 +5,8 @@ import type { ChangesBody, LedgerChange } from '@shared/api';
 import { MAX_CHANGES, isRowId } from '@shared/api';
 import { ApiError, NetworkError } from '../api';
 import { clearCache, setCacheUser } from '../offline/cache';
-import { readOutbox } from '../offline/outbox';
+import { get, set } from 'idb-keyval';
+import { outboxKey, readOutbox } from '../offline/outbox';
 import type { SaveQueue } from './save-queue';
 import { createSaveQueue } from './save-queue';
 
@@ -67,6 +68,17 @@ afterEach(async () => {
   await clearCache();
 });
 
+/** The clock the queue waits on, moved on by the test */
+function controlTimers() {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  onTestFinished(() => void vi.useRealTimers());
+}
+/** Moves the clock on, with time for what that sets going to reach the server */
+async function moveOn(ms: number) {
+  await vi.advanceTimersByTimeAsync(ms);
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+}
+
 describe('the save queue', () => {
   test('sends one batch at a time, in order, with an id for each change', async () => {
     const { send, requests } = controlledSend();
@@ -120,15 +132,17 @@ describe('the save queue', () => {
   test('a refused change is kept for review, with its reason; the rest still go', async () => {
     const { send, requests } = controlledSend();
     const { queue, events } = await openQueue(send);
+    // Another account's: a change to the same account would wait with it
+    const other: LedgerChange = { op: 'updateAccount', id: 'b'.repeat(16), name: 'made after it' };
 
     queue.add([rename('refused')]);
     await vi.waitFor(() => expect(requests).toHaveLength(1));
-    queue.add([rename('made after it')]);
+    queue.add([other]);
     const refusal = new ApiError(404, 'Account not found', 'Account not found');
     requests[0].answer(refusal);
     await vi.waitFor(() => expect(events.failed).toHaveBeenCalledWith(refusal));
     // Not shown as waiting any more, but kept on the device with why
-    expect(queue.pending()).toEqual([rename('made after it')]);
+    expect(queue.pending()).toEqual([other]);
     expect(queue.needsAttention()).toEqual([
       expect.objectContaining({ reason: 'Account not found', changes: [rename('refused')] }),
     ]);
@@ -136,10 +150,10 @@ describe('the save queue', () => {
 
     // The one made after it is independent of it, so it's sent on its own
     await vi.waitFor(() => expect(requests).toHaveLength(2));
-    expect(requests[1].body.changes).toEqual([rename('made after it')]);
+    expect(requests[1].body.changes).toEqual([other]);
     requests[1].answer();
     await vi.waitFor(() => expect(events.idle).toHaveBeenCalledTimes(1));
-    expect(events.saved).toHaveBeenCalledWith([rename('made after it')], requests[1].body.ids);
+    expect(events.saved).toHaveBeenCalledWith([other], requests[1].body.ids);
     expect(await kept()).toEqual([rename('refused')]);
   });
 
@@ -205,17 +219,6 @@ describe('the save queue', () => {
 });
 
 describe('the save queue, when a send fails for want of a connection or the server', () => {
-  /** The clock the queue waits on, moved on by the test */
-  function controlTimers() {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    onTestFinished(() => void vi.useRealTimers());
-  }
-  /** Moves the clock on, with time for what that sets going to reach the server */
-  async function moveOn(ms: number) {
-    await vi.advanceTimersByTimeAsync(ms);
-    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
-  }
-
   test.each([
     ['no answer', new NetworkError('Failed to fetch')],
     ['busy', new ApiError(429, 'Too many')],
@@ -482,7 +485,7 @@ describe('the save queue, when the server refuses a change', () => {
     expect([first.changes, second.changes]).toEqual([[editIn(ACCOUNT_A)], [editIn(ACCOUNT_B)]]);
 
     refusing = false;
-    queue.retry(first.set);
+    await queue.retry(first.set);
     // Shown again while it's on its way
     expect(events.found).toHaveBeenLastCalledWith([editIn(ACCOUNT_A)]);
     await vi.waitFor(() => expect(online.has()).toEqual([editIn(ACCOUNT_A)]));
@@ -573,5 +576,126 @@ describe('the save queue, in two tabs at once without Web Locks', () => {
         .filter((c) => c.op === 'addTransaction' && c.transaction.id.startsWith(`${tab}`));
       expect(own).toEqual([0, 1, 2, 3, 4].map((i) => made(tab, i)));
     }
+  });
+});
+
+describe('the save queue, with later changes to the same thing as a refused one', () => {
+  test('an edit of the same entry waits for the refused one, so the newer one wins once tried again', async () => {
+    const T = 't'.repeat(16);
+    const C = 'c'.repeat(16);
+    const older: LedgerChange = {
+      op: 'updateTransaction',
+      id: T,
+      categoryId: C,
+      amountCents: 5000,
+    };
+    const newer: LedgerChange = { op: 'updateTransaction', id: T, amountCents: 8000 };
+    const before = await openQueue(offline);
+    before.queue.add([older]);
+    before.queue.add([newer]);
+    await vi.waitFor(async () => expect(await kept()).toHaveLength(2));
+    before.queue.forget();
+
+    // The category was archived meanwhile; the server applies edits to the entry in turn
+    let archived = true;
+    let amount = 1000;
+    const send = vi.fn((body: ChangesBody) => {
+      if (
+        archived &&
+        body.changes.some((c) => c.op === 'updateTransaction' && c.categoryId === C)
+      ) {
+        const why = 'That category is archived';
+        return Promise.reject(new ApiError(409, why, why));
+      }
+      for (const c of body.changes)
+        if (c.op === 'updateTransaction') amount = c.amountCents ?? amount;
+      return Promise.resolve({ ok: true });
+    });
+    const { queue, events } = await openQueue(send);
+    await vi.waitFor(() => expect(events.idle).toHaveBeenCalled());
+    // The newer edit didn't overtake it: both wait together
+    expect(amount).toBe(1000);
+    expect(queue.needsAttention()).toEqual([
+      expect.objectContaining({ reason: 'That category is archived', changes: [older, newer] }),
+    ]);
+
+    // Unarchived, and tried again: sent in the order they were made
+    archived = false;
+    await queue.retry(queue.needsAttention()[0].set);
+    await vi.waitFor(async () => expect(await kept()).toEqual([]));
+    expect(amount).toBe(8000);
+  });
+});
+
+describe('the save queue, when something other than the server answers', () => {
+  test('a 403 page from in between holds nothing back, and everything is sent later', async () => {
+    controlTimers();
+    let answer: Error | null = new ApiError(403, 'POST /api/changes failed', null);
+    const sent: LedgerChange[][] = [];
+    const send = vi.fn((body: ChangesBody) => {
+      sent.push(body.changes);
+      return answer ? Promise.reject(answer) : Promise.resolve({ ok: true });
+    });
+    const { queue, events } = await openQueue(send);
+    queue.add([editIn(ACCOUNT_A)]);
+    queue.add([expense('1', ACCOUNT_B)]);
+    await moveOn(0);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(events.failed).not.toHaveBeenCalled();
+    expect(queue.needsAttention()).toEqual([]);
+    expect(queue.state()).toMatchObject({ waiting: 2, refused: 0 });
+
+    answer = null;
+    await moveOn(3000);
+    await vi.waitFor(async () => expect(await kept()).toEqual([]));
+    expect(sent[sent.length - 1]).toEqual([editIn(ACCOUNT_A), expense('1', ACCOUNT_B)]);
+  });
+});
+
+describe('the save queue, trying again or discarding while the device fails', () => {
+  async function oneRefused() {
+    const online = server((c) => (c.op === 'updateAccount' ? 'Account not found' : null));
+    const { queue } = await openQueue(online.send);
+    queue.add([editIn(ACCOUNT_A)]);
+    await vi.waitFor(() => expect(queue.needsAttention()).toHaveLength(1));
+    return { queue, online };
+  }
+
+  test('try again changes nothing until the device has it', async () => {
+    const { queue, online } = await oneRefused();
+    const sentBefore = online.send.mock.calls.length;
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    });
+    onTestFinished(() => put.mockRestore());
+    await queue.retry(queue.needsAttention()[0].set);
+    expect(queue.needsAttention()).toHaveLength(1);
+    expect(queue.state()).toMatchObject({ waiting: 0, refused: 1 });
+    expect(online.send.mock.calls.length).toBe(sentBefore);
+  });
+
+  test('discard changes nothing until the device has let it go', async () => {
+    const { queue } = await oneRefused();
+    const put = vi.spyOn(IDBObjectStore.prototype, 'delete').mockImplementation(() => {
+      throw new DOMException('Unwritable', 'UnknownError');
+    });
+    onTestFinished(() => put.mockRestore());
+    await queue.discard(queue.needsAttention()[0].set);
+    expect(queue.needsAttention()).toHaveLength(1);
+    expect(await kept()).toEqual([editIn(ACCOUNT_A)]);
+  });
+});
+
+describe('the save queue, with entries it does not know in the outbox', () => {
+  test('keeps them, as written, when it writes the outbox', async () => {
+    // From a newer build, say
+    const unknown = { cid: 'u'.repeat(16), future: { op: 'somethingNew' } };
+    await set(outboxKey(RYAN), { email: RYAN, value: [unknown] });
+    const online = server();
+    const { queue, events } = await openQueue(online.send);
+    queue.add([expense('1', ACCOUNT_A)]);
+    await vi.waitFor(() => expect(events.idle).toHaveBeenCalled());
+    expect(online.has()).toEqual([expense('1', ACCOUNT_A)]);
+    expect(await get(outboxKey(RYAN))).toEqual({ email: RYAN, value: [unknown] });
   });
 });

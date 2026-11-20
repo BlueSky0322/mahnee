@@ -452,7 +452,7 @@ export const subscribeUnsaved = (listener: () => void) => queue.subscribe(listen
 /** Changes the server refused, with those held with them, kept for the person to review */
 export const needsAttention = () => queue.needsAttention();
 /** Sends refused changes again, shown again meanwhile */
-export const tryAgainRefused = (set: string) => queue.retry(set);
+export const tryAgainRefused = (set: string) => void queue.retry(set);
 /** Lets refused changes go, from this device too */
 export const discardRefused = (set: string) => queue.discard(set);
 /** Tries again to keep on this device the changes it couldn't */

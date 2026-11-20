@@ -121,6 +121,48 @@ const addedBy = (change) =>
     .map((key) => change[key]?.id)
     .filter((id) => typeof id === 'string');
 
+/** TARGETS in web/src/offline/outbox.ts: what a change to an existing thing changes */
+const TARGETS = {
+  updateAccount: 'account',
+  archiveAccount: 'account',
+  updateCategory: 'category',
+  archiveCategory: 'category',
+  updateTransaction: 'transaction',
+  removeTransaction: 'transaction',
+  recategoriseTransactions: 'transaction',
+  removeTransactions: 'transaction',
+  updateRecurring: 'recurring',
+  archiveRecurring: 'recurring',
+  logRecurring: 'recurring',
+  skipRecurring: 'recurring',
+  undoImport: 'import',
+};
+
+/** The things a change adds or changes, as targetsOf in web/src/offline/outbox.ts finds them */
+function targetsOf(change) {
+  const found = [];
+  const kind = TARGETS[change.op];
+  if (kind != null && typeof change.id === 'string') found.push(`${kind}:${change.id}`);
+  if (kind != null && Array.isArray(change.ids)) {
+    for (const id of change.ids) if (typeof id === 'string') found.push(`${kind}:${id}`);
+  }
+  if (change.op === 'setBudget' && typeof change.categoryId === 'string') {
+    found.push(`budget:${change.categoryId}`);
+  }
+  for (const key of ['account', 'category', 'transaction', 'recurring', 'import']) {
+    const id = change[key]?.id;
+    if (typeof id === 'string') found.push(`${key}:${id}`);
+  }
+  return found;
+}
+
+/** A change as the app keeps it, as isQueued in web/src/offline/outbox.ts reads it */
+const isQueued = (q) =>
+  typeof q === 'object' &&
+  q != null &&
+  typeof q.cid === 'string' &&
+  typeof q.change?.op === 'string';
+
 /** Whether a change names any of these ids anywhere in it */
 function names(value, ids) {
   if (typeof value === 'string') return ids.has(value);
@@ -133,18 +175,27 @@ function names(value, ids) {
 
 /**
  * The changes held with refused ones, as heldWith in web/src/offline/outbox.ts finds them:
- * those, the rest of their groups, and every later change naming something they add
+ * those, the rest of their groups, every later change naming something they add, and
+ * every later change to the same thing
  */
 function heldWith(queued, refused) {
   const held = new Set();
   const groups = new Set();
   const added = new Set();
+  const touched = new Set();
   for (const q of queued) {
-    if (q.refused != null) continue;
-    if (refused.has(q.cid) || groups.has(groupOf(q)) || names(q.change, added)) {
+    if (!isQueued(q) || q.refused != null) continue;
+    const targets = targetsOf(q.change);
+    if (
+      refused.has(q.cid) ||
+      groups.has(groupOf(q)) ||
+      names(q.change, added) ||
+      targets.some((t) => touched.has(t))
+    ) {
       held.add(q.cid);
       groups.add(groupOf(q));
       addedBy(q.change).forEach((id) => added.add(id));
+      targets.forEach((t) => touched.add(t));
     }
   }
   return held;
@@ -538,7 +589,7 @@ async function post(path, body, account) {
   }
   // The same rule as isRetryable in web/src/offline/outbox.ts: busy, a problem on the
   // server's side, or signed out. Nothing wrong with what was sent.
-  if (res.status === 401 || res.status === 429 || res.status >= 500) {
+  if ([401, 408, 413, 425, 429].includes(res.status) || res.status >= 500) {
     throw new TryLater(`HTTP ${res.status}`);
   }
   // Signed out (Cloudflare Access sends a sign-in page): the app sends it once signed in
@@ -551,9 +602,11 @@ async function post(path, body, account) {
   // anything that isn't JSON, or is JSON null
   if (res.ok && answer == null) throw new TryLater('Not answered with JSON');
   if (res.ok) return { saved: true };
-  // Refused (4xx), with the server's reason, as refusalReason in web/src/offline/outbox.ts
-  const reason = typeof answer?.error === 'string' && answer.error ? answer.error : REFUSED_REASON;
-  return { saved: false, reason };
+  // Refused only by the app's own server, which says why in JSON; anything else in
+  // between (Cloudflare Access, a proxy, a deploy) is tried again, as the app does
+  if (typeof answer?.error !== 'string') throw new TryLater(`HTTP ${res.status}, not the API`);
+  // With the server's reason, as refusalReason in web/src/offline/outbox.ts
+  return { saved: false, reason: answer.error || REFUSED_REASON };
 }
 
 /**
@@ -574,7 +627,7 @@ async function sendOutbox() {
         // new ones (which never waits for this lock)
         const entry = await idb(db, 'readonly', (s) => s.get(key));
         if (entry?.email !== user || !Array.isArray(entry.value)) return;
-        const waiting = entry.value.filter((q) => q.refused == null);
+        const waiting = entry.value.filter((q) => isQueued(q) && q.refused == null);
         if (waiting.length === 0) return;
         // As many at a time as the server takes. Each request's changes are crossed off
         // once saved, so a failure later on leaves only what wasn't sent.

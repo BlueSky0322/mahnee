@@ -6,6 +6,7 @@ import type { Profile } from '../api';
 import { ApiError, api } from '../api';
 import { ME_KEY, queryClient } from '../query-client';
 import { isOfflineFailure } from '../offline/network';
+import { editOutbox } from '../offline/outbox';
 import {
   assumeLastUser,
   cacheUser,
@@ -155,13 +156,22 @@ export function signIn() {
 
 /**
  * Stops reminders coming to this device, forgets what this device kept for the account,
- * changes not yet saved included, then signs out of Cloudflare Access. Others' unsent
+ * changes waiting to be sent included, then signs out of Cloudflare Access. Changes the
+ * server refused stay, theirs alone, to review when they sign in again; others' unsent
  * changes, kept from before this account signed in here, stay theirs.
  */
 export async function signOut() {
   await letGoHere();
   const leaving = cacheUser();
-  await clearCache((owner) => leaving != null && owner !== leaving);
+  // Of their own, only changes the server refused stay, for them to review when they sign
+  // in again; what's still waiting to be sent goes. If the device can't be written, it all
+  // stays, still theirs alone.
+  if (leaving != null) {
+    await editOutbox(leaving, (kept) => kept.filter((q) => q.refused != null)).catch(
+      () => undefined,
+    );
+  }
+  await clearCache(() => true);
   window.location.href = '/cdn-cgi/access/logout';
 }
 

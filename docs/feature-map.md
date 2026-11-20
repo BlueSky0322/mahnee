@@ -403,16 +403,24 @@ up, shown and sent. A batch that
 got no answer, or a 429 or 5xx, is kept and tried again after 3 seconds, doubling to a
 minute; offline it waits for the connection, and a 401 or `account_mismatch` waits for
 the person to be back (the connection returning, the page shown again or restored),
-since a timer would only fail. The server refuses a batch whole (any other 4xx), so a
+since a timer would only fail. A 408, 413 or 425, or any 4xx without the server's own
+reason in JSON (a page from Cloudflare Access, a proxy or a deploy in between), is tried
+again the same way, so it never holds changes back. The server refuses a batch whole
+(any other 4xx, with its reason), so a
 refused batch of several groups is halved, and halved again, until the group it refuses
-is found. That group, and every later change naming something it adds (an entry on an
-account it creates, an import's entries), are marked refused in the outbox with the
+is found. That group, every later change naming something it adds (an entry on an
+account it creates, an import's entries), and every later change to the same thing (the
+same entry, account, category, scheduled item or import, or a budget for the same
+category, so a newer edit never overtakes it when it's tried again) are marked refused in the outbox with the
 server's reason (`refused: { reason, set }`), the ledger is shown without them, and the
 explanation is shown (`showError`); everything else carries on being sent. The notice at
 the bottom says "1 change couldn't be saved." with Review
 ([components/shell/RefusedChanges.tsx](../web/src/components/shell/RefusedChanges.tsx)),
 which lists each refused set in plain words with its reason, Try again (shown and sent
-again) and Discard (gone from the device). They stay through reloads until then. A change
+again) and Discard (gone from the device); each changes the page only once the device
+has it. They stay through reloads, and through signing out, until then: signing out
+removes only the changes still waiting, and says so first
+([components/common/useConfirmSignOut.tsx](../web/src/components/common/useConfirmSignOut.tsx)). A change
 the device can't keep (storage full or blocked) is still sent from the open page, and
 the notice says "Couldn't save on this device." with Try again. A read of the outbox that
 fails is never taken for an empty one: the page carries on with what it holds. While

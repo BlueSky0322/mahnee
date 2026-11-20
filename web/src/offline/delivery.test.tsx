@@ -417,6 +417,40 @@ describe('signing out', () => {
     expect(await get(outboxKey(RYAN))).toBeUndefined();
   });
 
+  test('keeps a change the server refused for when they sign in again', async () => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
+    renderApp(server, '/?accounts');
+    await row('Wallet');
+    // Gone from the server, so the rename is refused and held for review
+    server.accounts.splice(0, 1);
+    await rename('Wallet', 'Purse');
+    expect(await screen.findByText("1 change couldn't be saved.")).toBeTruthy();
+    // Settings, from a page that no longer shows the account
+    await reloadApp(server, '/?settings');
+    await screen.findByText('Ryan');
+    const sentTo = watchLeaving();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+    const asking = within(await dialog());
+    expect(
+      asking.getByText(
+        /1 change the server couldn't save stays on this device for when you sign in again/,
+      ),
+    ).toBeTruthy();
+    await user.click(asking.getByRole('button', { name: 'Sign out anyway' }));
+    await waitFor(() => expect(sentTo).toEqual(['/cdn-cgi/access/logout']));
+    vi.unstubAllGlobals();
+
+    // Signed in again: still there to review
+    await reloadApp(server, '/?accounts');
+    expect(await screen.findByText("1 change couldn't be saved.")).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Review' }));
+    const item = within(within(await dialog()).getByRole('listitem'));
+    expect(item.getByText('Account not found')).toBeTruthy();
+  });
+
   test('with nothing waiting, signs out straight away', async () => {
     const server = fakeServer();
     renderApp(server, '/?settings');

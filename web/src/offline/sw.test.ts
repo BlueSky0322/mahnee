@@ -335,6 +335,62 @@ describe('the service worker, sending changes kept on the device', () => {
     }
   });
 
+  test('holds later changes to the same thing as a refused one, as the app does', async () => {
+    const T = 't'.repeat(16);
+    const C = 'c'.repeat(16);
+    const q = (n: number, change: LedgerChange): Queued => ({
+      cid: n.toString(16).padStart(16, '0'),
+      change,
+    });
+    const all: Queued[] = [
+      q(1, { op: 'updateTransaction', id: T, categoryId: C, amountCents: 5000 }),
+      q(2, { op: 'updateTransaction', id: T, amountCents: 8000 }),
+      q(3, { op: 'removeTransactions', ids: ['x'.repeat(16), T] }),
+      q(4, {
+        op: 'setBudget',
+        categoryId: C,
+        fromMonth: '2026-11',
+        amountCents: 100,
+        carryOver: false,
+      }),
+      q(5, {
+        op: 'setBudget',
+        categoryId: C,
+        fromMonth: '2026-12',
+        amountCents: 200,
+        carryOver: false,
+      }),
+      q(6, { op: 'updateAccount', id: 'a'.repeat(16), name: 'One' }),
+      q(7, { op: 'updateAccount', id: 'a'.repeat(16), name: 'Two' }),
+      q(8, { op: 'updateAccount', id: 'b'.repeat(16), name: 'Other' }),
+    ];
+    await writeOutbox(RYAN, all);
+    const refused = (c: LedgerChange) =>
+      (c.op === 'updateTransaction' && c.categoryId === C) ||
+      (c.op === 'setBudget' && c.fromMonth === '2026-11') ||
+      (c.op === 'updateAccount' && c.name === 'One');
+    const { outcome, batches } = await backgroundSync((changes) =>
+      changes.some(refused) ? { status: 409, body: '{"error":"No"}' } : ok,
+    );
+    expect(outcome).toBe('done');
+    const left = await kept();
+    expect(left.map((k) => parseInt(k.cid, 16))).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(batches.filter((b) => !b.some(refused))).toEqual([[all[7].change]]);
+    const sets = new Map<string, string[]>();
+    for (const k of left) sets.set(k.refused!.set, [...(sets.get(k.refused!.set) ?? []), k.cid]);
+    for (const [set, cids] of sets) expect([...heldWith(all, new Set([set]))]).toEqual(cids);
+  });
+
+  test('a 403 page from in between holds nothing back, for everything to be sent later', async () => {
+    await writeOutbox(RYAN, queued(3));
+    const first = await backgroundSync({ status: 403, body: '<html>Forbidden</html>' });
+    expect(first.outcome).toBe('try later');
+    expect(await kept()).toEqual(queued(3));
+    const later = await backgroundSync(ok);
+    expect(later.batches).toEqual([queued(3).map((k) => k.change)]);
+    expect(await kept()).toEqual([]);
+  });
+
   test('keeps each request under the size the server takes, split where the app would', async () => {
     // About 1 KB each (longer than a name can be, so the server would refuse them; it's
     // the splitting that's checked), so the size, not the count, ends each request
@@ -387,6 +443,14 @@ const answers: [string, Answer, 'sent' | 'retry' | 'refused'][] = [
     { status: 409, body: '{"error":"Signed in as someone else.","code":"account_mismatch"}' },
     'retry',
   ],
+  // Answered by Cloudflare Access, a proxy or a deploy in between, not the app's server:
+  // tried again, so nothing is held back for it
+  ['403, a page from in between', { status: 403, body: '<html>Forbidden</html>' }, 'retry'],
+  ['404, a page from in between', { status: 404, body: '<html>Not found</html>' }, 'retry'],
+  ['400 with no reason', { status: 400, body: '{}' }, 'retry'],
+  ['408', { status: 408, body: '{"error":"Took too long to send"}' }, 'retry'],
+  ['413', { status: 413, body: '{"error":"Too large"}' }, 'retry'],
+  ['425', { status: 425, body: '{"error":"Too early"}' }, 'retry'],
   ['400', { status: 400, body: '{"error":"Invalid change"}' }, 'refused'],
   ['403', { status: 403, body: '{"error":"Not allowed"}' }, 'refused'],
   ['404', { status: 404, body: '{"error":"Account not found"}' }, 'refused'],
@@ -435,7 +499,7 @@ describe('reading the answer to sending changes', () => {
   });
 });
 
-describe('a refusal without a reason', () => {
+describe('a refusal with an empty reason', () => {
   const RYAN = 'ryan@example.com';
   beforeEach(() => setCacheUser(RYAN));
   afterEach(() => clearCache());
@@ -445,11 +509,11 @@ describe('a refusal without a reason', () => {
       { cid: 'c'.repeat(16), change: { op: 'undoImport', id: 'd'.repeat(16) } },
     ];
     await writeOutbox(RYAN, one);
-    await backgroundSync({ status: 400, body: '{}' });
+    await backgroundSync({ status: 400, body: '{"error":""}' });
     expect(await readOutbox(RYAN)).toEqual([
       { ...one[0], refused: { reason: REFUSED_REASON, set: one[0].cid } },
     ]);
-    expect(refusalReason(new ApiError(400, 'POST /api/changes failed'))).toBe(REFUSED_REASON);
+    expect(refusalReason(new ApiError(400, 'POST /api/changes failed', ''))).toBe(REFUSED_REASON);
   });
 });
 

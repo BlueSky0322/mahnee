@@ -135,6 +135,51 @@ function addedBy(change: LedgerChange): string[] {
     .filter((id): id is string => typeof id === 'string');
 }
 
+/** What a change to an existing thing changes, by op: one id, or a list of them */
+const TARGETS: Partial<Record<LedgerChange['op'], string>> = {
+  updateAccount: 'account',
+  archiveAccount: 'account',
+  updateCategory: 'category',
+  archiveCategory: 'category',
+  updateTransaction: 'transaction',
+  removeTransaction: 'transaction',
+  recategoriseTransactions: 'transaction',
+  removeTransactions: 'transaction',
+  updateRecurring: 'recurring',
+  archiveRecurring: 'recurring',
+  logRecurring: 'recurring',
+  skipRecurring: 'recurring',
+  undoImport: 'import',
+};
+
+/**
+ * The things a change adds or changes, as "kind:id": two changes to the same one must be
+ * saved in the order they were made. A budget is its category's, whatever the month, since
+ * one from a month replaces what was set from any later month.
+ */
+function targetsOf(change: LedgerChange): string[] {
+  const c = change as unknown as {
+    op: string;
+    id?: unknown;
+    ids?: unknown;
+    categoryId?: unknown;
+  } & Partial<Record<string, { id?: unknown }>>;
+  const found: string[] = [];
+  const kind = TARGETS[change.op];
+  if (kind != null && typeof c.id === 'string') found.push(`${kind}:${c.id}`);
+  if (kind != null && Array.isArray(c.ids)) {
+    for (const id of c.ids) if (typeof id === 'string') found.push(`${kind}:${id}`);
+  }
+  if (c.op === 'setBudget' && typeof c.categoryId === 'string') {
+    found.push(`budget:${c.categoryId}`);
+  }
+  for (const key of ['account', 'category', 'transaction', 'recurring', 'import']) {
+    const id = c[key]?.id;
+    if (typeof id === 'string') found.push(`${key}:${id}`);
+  }
+  return found;
+}
+
 /** Whether a change names any of these ids anywhere in it */
 function names(value: unknown, ids: ReadonlySet<string>): boolean {
   if (typeof value === 'string') return ids.has(value);
@@ -147,20 +192,30 @@ function names(value: unknown, ids: ReadonlySet<string>): boolean {
 
 /**
  * The changes held with ones the server refused, in order: those, the rest of their
- * groups, and every change after them that names something they (or another held) add, an
- * entry on an account made in them, say. Changes refused already are left as they are.
- * sw.js holds the same ones (sw.test.ts runs both).
+ * groups, every change after them that names something they (or another held) add (an
+ * entry on an account made in them, say), and every change after them to the same thing
+ * (a later edit of the same entry, which would otherwise be overtaken when the refused one
+ * is tried again). Changes refused already are left as they are. sw.js holds the same
+ * ones (sw.test.ts runs both).
  */
 export function heldWith(queued: Queued[], refused: ReadonlySet<string>): Set<string> {
   const held = new Set<string>();
   const groups = new Set<string>();
   const added = new Set<string>();
+  const touched = new Set<string>();
   for (const q of queued) {
     if (q.refused != null) continue;
-    if (refused.has(q.cid) || groups.has(groupOf(q)) || names(q.change, added)) {
+    const targets = targetsOf(q.change);
+    if (
+      refused.has(q.cid) ||
+      groups.has(groupOf(q)) ||
+      names(q.change, added) ||
+      targets.some((t) => touched.has(t))
+    ) {
       held.add(q.cid);
       groups.add(groupOf(q));
       addedBy(q.change).forEach((id) => added.add(id));
+      targets.forEach((t) => touched.add(t));
     }
   }
   return held;
@@ -221,13 +276,14 @@ async function inOutbox(
           read.onsuccess = () => {
             try {
               const entry = read.result as { email?: unknown; value?: unknown } | undefined;
-              const before =
-                entry?.email === email && Array.isArray(entry.value)
-                  ? entry.value.filter(isQueued)
-                  : [];
+              const all: unknown[] =
+                entry?.email === email && Array.isArray(entry.value) ? entry.value : [];
+              const before = all.filter(isQueued);
               if (edit == null) return resolve(before);
               const after = edit(before);
-              if (after.length > 0) s.put({ email, value: after }, key);
+              // Entries this build doesn't know (from a newer one, say) stay as they are
+              const kept = [...after, ...all.filter((q) => !isQueued(q))];
+              if (kept.length > 0) s.put({ email, value: kept }, key);
               else s.delete(key);
               s.transaction.oncomplete = () => resolve(after);
               s.transaction.onabort = s.transaction.onerror = () =>
@@ -309,15 +365,24 @@ export const classifySaveFailure = (err: unknown): 'refused' | 'retry' =>
   err instanceof ApiError && !isRetryable(err) ? 'refused' : 'retry';
 
 /**
- * Whether a failed send is worth trying again: no connection, busy (429), something
- * wrong on the server's side (5xx), signed out (401), or made as another account.
- * Anything else is the server refusing the change itself. public/sw.js follows the same
- * rule (sw.test.ts runs both against the same answers).
+ * Answers that say nothing about the change: signed out (401), took too long (408), too
+ * large or too early for something in between (413, 425), busy (429)
+ */
+const RETRY_STATUSES = new Set([401, 408, 413, 425, 429]);
+
+/**
+ * Whether a failed send is worth trying again: no connection, busy, something wrong on the
+ * server's side (5xx), signed out, made as another account, or an answer that isn't the
+ * app's own server saying why (a page from Cloudflare Access, a proxy or a deploy in
+ * between, with no JSON reason). Only the server's own refusal, a 4xx with its reason in
+ * JSON, is the server refusing the change itself. public/sw.js follows the same rule
+ * (sw.test.ts runs both against the same answers).
  */
 export const isRetryable = (err: unknown) =>
   isOfflineFailure(err) ||
   isOtherAccount(err) ||
-  (err instanceof ApiError && (err.status === 401 || err.status === 429 || err.status >= 500));
+  (err instanceof ApiError &&
+    (RETRY_STATUSES.has(err.status) || err.status >= 500 || err.explanation == null));
 
 /** Cloudflare Access's session ran out: sent again once they've signed in */
 export const isSignedOut = (err: unknown) => err instanceof ApiError && err.status === 401;
@@ -331,4 +396,4 @@ export const isOtherAccount = (err: unknown) =>
 
 /** Why the server refused a change, in its own words where it gave them */
 export const refusalReason = (err: unknown) =>
-  (err instanceof ApiError ? err.explanation : null) ?? REFUSED_REASON;
+  (err instanceof ApiError ? err.explanation : null) || REFUSED_REASON;

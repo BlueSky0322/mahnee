@@ -33,6 +33,20 @@ export interface EditorControl {
   save: () => boolean;
 }
 
+/** What's typed in an editor, carried to another that takes its place */
+export interface EditorTyped {
+  amount: string;
+  typedIn: string;
+  kind: TransactionKind;
+  accountId: string;
+  toAccountId: string;
+  picked: Partial<Record<TransactionKind, string>>;
+  date: string;
+  time: string;
+  payee: string;
+  note: string;
+}
+
 const WAYS = [
   { value: 'expense', label: 'Expense' },
   { value: 'income', label: 'Income' },
@@ -55,6 +69,9 @@ export default function EntryEditor({
   onSaved,
   control,
   onDirty,
+  saveInView = false,
+  startFrom,
+  onTyped,
 }: {
   transaction: Transaction;
   /** The entry's name, drawn as the pane's heading; a sheet has its own */
@@ -65,6 +82,12 @@ export default function EntryEditor({
   control?: MutableRefObject<EditorControl | null>;
   /** Told whenever it comes to have changes not saved, or no longer has */
   onDirty?: (dirty: boolean) => void;
+  /** In a dialog taller than the screen: Delete and Save stay in view at its foot */
+  saveInView?: boolean;
+  /** What another editor of this entry had typed, taken up where it left off */
+  startFrom?: EditorTyped;
+  /** Told what's typed, and whether it differs from the entry as saved, as it changes */
+  onTyped?: (typed: EditorTyped, dirty: boolean) => void;
 }) {
   const homeCurrency = useCurrency();
   const { accounts } = useAccounts();
@@ -90,20 +113,22 @@ export default function EntryEditor({
   } = useEntryCurrency(editing);
   // Beside the register it reads as its headline, cents and all ("289.00")
   const [amount, setAmount] = useState(
-    title != null ? centsText(typedCents) : amountText(typedCents),
+    startFrom?.amount ?? (title != null ? centsText(typedCents) : amountText(typedCents)),
   );
-  const [kind, setKind] = useState<TransactionKind>(editing.kind);
-  const [accountId, setAccountId] = useState(editing.accountId);
-  const [toAccountId, setToAccountId] = useState(editing.toAccountId ?? '');
+  const [kind, setKind] = useState<TransactionKind>(startFrom?.kind ?? editing.kind);
+  const [accountId, setAccountId] = useState(startFrom?.accountId ?? editing.accountId);
+  const [toAccountId, setToAccountId] = useState(
+    startFrom?.toAccountId ?? editing.toAccountId ?? '',
+  );
   const [picked, setPicked] = useState<Partial<Record<TransactionKind, string>>>(
-    editing.categoryId == null ? {} : { [editing.kind]: editing.categoryId },
+    startFrom?.picked ?? (editing.categoryId == null ? {} : { [editing.kind]: editing.categoryId }),
   );
-  const [date, setDate] = useState(editing.date);
-  const [time, setTime] = useState(editing.time ?? '');
+  const [date, setDate] = useState(startFrom?.date ?? editing.date);
+  const [time, setTime] = useState(startFrom?.time ?? editing.time ?? '');
   const asksForTime = useProfile().profile?.settings.askForTime === true;
   const showsTime = asksForTime || editing.time != null;
-  const [payee, setPayee] = useState(editing.payee ?? '');
-  const [note, setNote] = useState(editing.note ?? '');
+  const [payee, setPayee] = useState(startFrom?.payee ?? editing.payee ?? '');
+  const [note, setNote] = useState(startFrom?.note ?? editing.note ?? '');
   const [errors, setErrors] = useState<
     Partial<Record<'amount' | 'date' | 'category' | 'to' | 'currency', string>>
   >({});
@@ -196,6 +221,11 @@ export default function EntryEditor({
 
   // Changes not saved: anything typed that differs from the entry as it's saved now
   const [firstCurrency] = useState(typedIn);
+  // Carried from another editor, in the currency it was typed in there
+  useEffect(() => {
+    if (startFrom != null && startFrom.typedIn !== typedIn) setTypedIn(startFrom.typedIn);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only as it opens
+  }, []);
   // The amount as the entry shows it, untouched, is no change, whatever it reads as
   const amountSaved = inline ? centsText(typedCents) : amountText(typedCents);
   const typedNow = readAmount(amount, typedIn === home ? undefined : MAX_TYPED_CENTS);
@@ -221,6 +251,24 @@ export default function EntryEditor({
   });
   const told = useRef(onDirty);
   told.current = onDirty;
+  const typedFields: EditorTyped = {
+    amount,
+    typedIn,
+    kind,
+    accountId,
+    toAccountId,
+    picked,
+    date,
+    time,
+    payee,
+    note,
+  };
+  const typedText = JSON.stringify(typedFields);
+  const tellTyped = useRef(onTyped);
+  tellTyped.current = onTyped;
+  useEffect(() => {
+    tellTyped.current?.(JSON.parse(typedText) as EditorTyped, dirty);
+  }, [typedText, dirty]);
   useEffect(() => {
     told.current?.(dirty);
   }, [dirty]);
@@ -239,6 +287,7 @@ export default function EntryEditor({
   return (
     <form
       className={classes.editor}
+      data-save-in-view={saveInView || undefined}
       onSubmit={submit}
       noValidate
     >

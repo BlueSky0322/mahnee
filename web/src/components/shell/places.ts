@@ -11,13 +11,14 @@ export const PLACES: { place: Place; label: string; address: string }[] = [
 ];
 
 /**
- * Goes to a place in the page's own place, so Back never walks through them. A click with
- * Ctrl or Cmd held is left to the browser, which opens it in a new tab.
+ * Goes to a place in the page's own place, so Back never walks through them, where it was
+ * left last time (at the top the first time). A click with Ctrl or Cmd held is left to the
+ * browser, which opens it in a new tab.
  */
 export function goToPlace(e: MouseEvent, address: string) {
   if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
   e.preventDefault();
-  navigate(address, { replace: true });
+  navigate(address, { replace: true, back: true });
 }
 
 /** A place's link target: Home is the app's own address */

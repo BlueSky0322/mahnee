@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Account, Category, Transaction } from '@shared/api';
 import { MAX_BULK_TRANSACTIONS } from '@shared/ledger';
 import { MAX_SEARCH_TEXT } from '@shared/search';
-import { useIsDesktop } from '../../hooks/useBreakpoints';
+import { useIsDesktop, useIsWide } from '../../hooks/useBreakpoints';
 import { navigate, useLeaveGuard } from '../../hooks/useRoute';
 import { takeSearchFocus, useShortcuts } from '../../hooks/useShortcuts';
 import { addAgain, change } from '../../ledger/ledger';
@@ -33,7 +33,7 @@ import Key from '../ui/Key';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import ChangeCategory from './ChangeCategory';
-import EntryEditor, { type EditorControl } from './EntryEditor';
+import EntryEditor, { type EditorControl, type EditorTyped } from './EntryEditor';
 import FilterChips from './Filters';
 import {
   dayTotal,
@@ -74,11 +74,15 @@ const TOO_MANY = `You can change up to ${MAX_BULK_TRANSACTIONS} transactions at 
 // Phones and tablets list them by day, each day with its total; tapping one opens it in a
 // sheet to change, and Select (or a long press) ticks several, with what's ticked at the
 // foot. A computer shows a register, every row with a tick box and the open one beside it,
-// moved through with J and K, ticked with X, recategorised with C. Change category and
+// moved through with J and K, ticked with X, recategorised with C; one too narrow for both
+// (under 1200px) opens the row in a dialog instead, Enter opening the row J and K moved to. Change category and
 // Delete act on what's ticked, up to MAX_BULK_TRANSACTIONS at once, each one change
 // through the ledger with Undo. With nothing yet, or nothing found, it says so.
 export default function ActivityPage({ query }: { query: string }) {
   const isDesktop = useIsDesktop();
+  // A computer too narrow for the editor beside the register opens it in a dialog
+  const beside = useIsWide();
+  const inDialog = isDesktop === true && beside !== true;
   const { online } = useNetwork();
   const { accounts } = useAccounts();
   const { categories } = useCategories();
@@ -190,6 +194,45 @@ export default function ActivityPage({ query }: { query: string }) {
     if (open != null && id !== open.id && dirty) setAsk({ kind: 'row', id });
     else setOpenId(id);
   };
+  /** A narrower computer's: the row is the one picked, and opens in a dialog */
+  const openInDialog = (id: string) => {
+    const row = rows?.find((t) => t.id === id);
+    if (row == null) return;
+    setOpenId(id);
+    setSheet(row);
+  };
+  // J and K moved the row: a narrower computer's row takes the focus, so Enter opens it
+  const [moved, setMoved] = useState(0);
+  // The window growing or shrinking past where the pane fits moves the editor between the
+  // pane and a dialog or sheet, one at a time, with what was typed: the editor's latest, and
+  // what the next one starts from
+  const typedNow = useRef<{ id: string; typed: EditorTyped; dirty: boolean } | null>(null);
+  const [carried, setCarried] = useState<{ id: string; typed: EditorTyped } | null>(null);
+  // Beside the register only on a computer wide enough; anywhere else the row opens over the
+  // page (a dialog, or a phone's or tablet's sheet)
+  const inPane = isDesktop === true && beside === true;
+  const wasInPane = useRef(inPane);
+  useEffect(() => {
+    if (wasInPane.current === inPane) return;
+    wasInPane.current = inPane;
+    const typed = typedNow.current;
+    if (!inPane) {
+      if (open == null || typed?.id !== open.id || !typed.dirty) return;
+      setCarried({ id: open.id, typed: typed.typed });
+      setSheet(open);
+    } else if (sheet != null) {
+      if (typed?.id === sheet.id && typed.dirty) setCarried({ id: sheet.id, typed: typed.typed });
+      setOpenId(sheet.id);
+      setSheet(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the window crosses over
+  }, [inPane]);
+  const startFrom = (id: string) => (carried?.id === id ? carried.typed : undefined);
+  const noteTyped = (id: string) => (typed: EditorTyped, changed: boolean) => {
+    typedNow.current = { id, typed, dirty: changed };
+    // Taken up once the editor has opened; a later opening starts from the entry as saved
+    setCarried((now) => (now?.id === id ? null : now));
+  };
   // The open entry, changed, is no longer among what's found: ask once
   const keptGone = dirty && kept != null && rows != null && !rows.some((t) => t.id === kept.id);
   useEffect(() => {
@@ -277,6 +320,7 @@ export default function ActivityPage({ query }: { query: string }) {
       rows.findIndex((t) => t.id === open?.id),
     );
     openRow(rows[Math.min(rows.length - 1, Math.max(0, at + by))].id);
+    if (inDialog) setMoved((n) => n + 1);
   };
   useShortcuts(
     {
@@ -528,7 +572,9 @@ export default function ActivityPage({ query }: { query: string }) {
               ticked={ticked}
               count={count}
               openId={open?.id ?? null}
-              onOpen={openRow}
+              onOpen={inDialog ? openInDialog : openRow}
+              inDialog={inDialog}
+              moved={moved}
               onToggle={toggle}
               onSelectAll={() =>
                 ticked.size > 0 && ticked.size >= count ? setTicked(new Set()) : void selectAll()
@@ -564,7 +610,7 @@ export default function ActivityPage({ query }: { query: string }) {
           )}
         </section>
 
-        {isDesktop && open != null && paneTitle != null && (
+        {inPane && sheet == null && open != null && paneTitle != null && (
           <aside
             className={classes.pane}
             aria-label={`${paneTitle}, ${shortDay(open.date, today)}${
@@ -576,6 +622,8 @@ export default function ActivityPage({ query }: { query: string }) {
               transaction={open}
               title={paneTitle}
               control={editor}
+              startFrom={startFrom(open.id)}
+              onTyped={noteTyped(open.id)}
               onDirty={(changed) => {
                 setDirty(changed);
                 // Kept open as it is while it has changes
@@ -641,6 +689,9 @@ export default function ActivityPage({ query }: { query: string }) {
             transaction={sheet}
             control={editor}
             onDirty={setDirty}
+            saveInView={inDialog}
+            startFrom={startFrom(sheet.id)}
+            onTyped={noteTyped(sheet.id)}
             onDeleted={() => setSheet(null)}
             onSaved={() => setSheet(null)}
           />
@@ -937,6 +988,8 @@ function Register({
   count,
   openId,
   onOpen,
+  inDialog,
+  moved,
   onToggle,
   onSelectAll,
   onChangeCategory,
@@ -952,6 +1005,10 @@ function Register({
   count: number;
   openId: string | null;
   onOpen: (id: string) => void;
+  /** The row opens in a dialog, not beside the register */
+  inDialog: boolean;
+  /** Counts J and K's moves, after each of which a dialog's row takes the focus */
+  moved: number;
   onToggle: (id: string) => void;
   onSelectAll: () => void;
   onChangeCategory: (those: Transaction[]) => void;
@@ -964,6 +1021,9 @@ function Register({
   useEffect(() => {
     opened.current?.scrollIntoView({ block: 'nearest' });
   }, [openId]);
+  useEffect(() => {
+    if (moved > 0) opened.current?.querySelector('button')?.focus({ preventScroll: true });
+  }, [moved]);
   const allTicked = chosen.length > 0 && chosen.length >= count;
   return (
     <>
@@ -996,7 +1056,9 @@ function Register({
         </Button>
         <span className={classes.hints}>
           <Key>J</Key>
-          <Key>K</Key> move <Key>X</Key> tick <Key>C</Key> category
+          <Key>K</Key> move {inDialog && <Key>Enter</Key>}
+          {inDialog && ' open '}
+          <Key>X</Key> tick <Key>C</Key> category
         </span>
       </div>
       <div className={classes.tableWrap}>
@@ -1058,7 +1120,11 @@ function Register({
                   aria-selected={isOpen}
                   data-ticked={ticked.has(t.id) || undefined}
                   className={classes.registerRow}
-                  onClick={() => onOpen(t.id)}
+                  onClick={(e) => {
+                    // A dialog's focus comes back to the row it was opened from
+                    if (inDialog) e.currentTarget.querySelector('button')?.focus();
+                    onOpen(t.id);
+                  }}
                 >
                   <td>
                     <input
@@ -1075,7 +1141,7 @@ function Register({
                     {t.time != null && `, ${clockText(t.time)}`}
                   </td>
                   <td className={classes.payee}>
-                    {/* Opens the row beside the register, from the keyboard too */}
+                    {/* Opens the row beside the register (or in a dialog), from the keyboard too */}
                     <button
                       type="button"
                       className={classes.payeeButton}

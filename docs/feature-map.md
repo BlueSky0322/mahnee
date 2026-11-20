@@ -1952,10 +1952,21 @@ writes `precache.json`, every built file the app needs offline
 
 Opening the app: [web/index.html](../web/index.html) paints a first screen before the
 app's code loads, in the theme this device saved or the phone's own on Auto, with the
-logo drawing itself; [pwa/launch-screen.ts](../web/src/pwa/launch-screen.ts) fades it
-out once the app is up and keeps the status bar following the theme. iPhones show plain
-launch screens in the theme's background, made at build time
+logo on a tile of the saved accent, its coin dropping into the hand;
+[pwa/launch-screen.ts](../web/src/pwa/launch-screen.ts) fades it out once the app is up
+and keeps the status bar following the theme (both of the page's `theme-color` metas, one for
+a light device and one for a dark). iPhones show plain launch screens in the
+theme's background, made at build time
 ([web/build/launch-images.ts](../web/build/launch-images.ts)).
+
+The logo: in the app,
+[components/common/AppLogo.tsx](../web/src/components/common/AppLogo.tsx) (the sidebar,
+the first run, the signed-out screen) draws its tile in `--accent` and the hand and coin in
+`--accent-ink`, so it follows the accent and theme as they change. The browser tab's
+icon, [web/public/icon.svg](../web/public/icon.svg), follows the device's light or dark.
+The icons that can't change (installing, the iPhone's, maskable, a reminder's icon, and
+the PNG tab icons) stay cobalt, and a reminder's badge is the mark alone;
+[tools/icons/make-icons.js](../tools/icons/make-icons.js) makes them all from icon.svg.
 
 **Flow.** A page load waits up to 3 seconds for the network; offline, slower, or a 5xx
 or non-page answer, and the kept page opens instead, marked as opened from the device.
@@ -1987,11 +1998,14 @@ account's saved copy ([ProfileContext](../web/src/profile/ProfileContext.tsx)).
 - The kept page is only replaced once every file it and `precache.json` name is kept,
   so a stopped update leaves the old page whole. Built files of the newest two pages are
   kept, for a tab still open on the older one.
-- The manifest and the icons it names are kept beside the page and answered from there
-  when the network fails or Access answers in their place, so a page opened from the
-  device still installs properly (`INSTALL_FILES` in `sw.js`).
+- The manifest, the icons it names and the browser tab's icons are kept beside the page
+  and answered from there when the network fails or Access answers in their place, so a
+  page opened from the device still installs properly (`INSTALL_FILES` in `sw.js`).
 
-**Tests.** [cache.test.ts](../web/src/offline/cache.test.ts),
+**Tests.** [AppLogo.test.tsx](../web/src/components/common/AppLogo.test.tsx) (the logo
+takes the accent and theme, and every copy of the mark is the same),
+[icons.test.ts](../web/src/pwa/icons.test.ts) (every icon named is there at its size; the
+tab icon's colours are the app's), [cache.test.ts](../web/src/offline/cache.test.ts),
 [shell.test.ts](../web/src/offline/shell.test.ts) (slow, failing and redirected page
 loads, stopped updates, which files are kept),
 [sw.test.ts](../web/src/offline/sw.test.ts) (web fonts, the API left alone, background

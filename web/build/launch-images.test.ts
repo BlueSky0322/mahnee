@@ -12,22 +12,28 @@ const firstScreenScript = /<script>([\s\S]*?)<\/script>/.exec(indexHtml)![1];
 
 /**
  * Runs index.html's first-screen script with `saved` stored and the phone set to `system`:
- * the theme it paints, and the status bar's colour
+ * the theme it paints, and the status bar's colour on a light device and a dark one
  */
-function openApp(saved: string | null, system: 'light' | 'dark') {
-  const set: Record<string, string> = {};
-  const statusBar = { setAttribute: (_name: string, value: string) => (set.statusBar = value) };
+function openApp(saved: string | null, system: 'light' | 'dark', accent?: string) {
+  const set: Record<string, string | string[]> = {};
+  const statusBars: string[] = ['', ''];
+  const bars = statusBars.map((_, i) => ({
+    setAttribute: (_name: string, value: string) => (statusBars[i] = value),
+  }));
   runInNewContext(firstScreenScript, {
     localStorage: {
-      getItem: () => (saved == null ? null : JSON.stringify({ theme: saved })),
+      getItem: () => (saved == null ? null : JSON.stringify({ theme: saved, accent })),
     },
     matchMedia: (query: string) => ({ matches: query === `(prefers-color-scheme: ${system})` }),
     document: {
-      documentElement: { setAttribute: (_name: string, value: string) => (set.theme = value) },
-      querySelector: () => statusBar,
+      documentElement: {
+        setAttribute: (name: string, value: string) =>
+          (set[name === 'data-launch' ? 'theme' : name] = value),
+      },
+      querySelectorAll: () => bars,
     },
   });
-  return set;
+  return { ...set, statusBars };
 }
 
 describe('the first screen', () => {
@@ -40,8 +46,13 @@ describe('the first screen', () => {
   ] as const)('takes %s (saved %s, phone %s)', (_what, saved, system, expected) => {
     expect(openApp(saved, system)).toEqual({
       theme: expected,
-      statusBar: LAUNCH_BACKGROUNDS[expected],
+      statusBars: [LAUNCH_BACKGROUNDS[expected], LAUNCH_BACKGROUNDS[expected]],
     });
+  });
+
+  test('marks the saved accent, for the logo’s tile, and ignores one the app never offered', () => {
+    expect(openApp('light', 'light', 'rust')).toMatchObject({ 'data-accent': 'rust' });
+    expect(openApp('light', 'light', 'teal')).not.toHaveProperty('data-accent');
   });
 
   test("uses the app's own backgrounds, as the iPhone launch screens do", () => {

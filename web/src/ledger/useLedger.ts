@@ -9,10 +9,11 @@ import type {
   MonthTrend,
   SearchPage,
   Transaction,
-  TransactionPage,
 } from '@shared/api';
 import type { SearchQuery } from '@shared/search';
 import type { CategoryTree } from './category-tree';
+import type { OnDevice, PageOnDevice } from './history';
+import { historyUnavailable, subscribeHistory } from './history';
 import { categoryTree } from './category-tree';
 import type { Found as SearchFound } from './search-totals';
 import { searchTotals } from './search-totals';
@@ -145,7 +146,15 @@ export interface Transactions {
   hasMore: boolean;
   loadMore: () => void;
   loadingMore: boolean;
+  /**
+   * Read from the history on this device (offline), and how much of it the device holds;
+   * null when from the server
+   */
+  onDevice: OnDevice | null;
 }
+
+/** How much the device holds, from the last page loaded when it came from there */
+const onDeviceOf = (pages: PageOnDevice[]) => pages.at(-1)?.onDevice ?? null;
 
 /**
  * Loads the next page. One loaded before the server changed how it names where a page
@@ -169,8 +178,10 @@ export function useAccountTransactions(accountId: string): Transactions {
   // Worked out again whenever what's still to send changes
   const pending = useSyncExternalStore(subscribeUnsaved, pendingChanges);
   const select = useCallback(
-    (data: { pages: TransactionPage[]; pageParams: (string | null)[] }) =>
-      shownPages(accountTransactionsKey(accountId), data, pending),
+    (data: { pages: PageOnDevice[]; pageParams: (string | null)[] }) => ({
+      transactions: shownPages(accountTransactionsKey(accountId), data, pending),
+      onDevice: onDeviceOf(data.pages),
+    }),
     [accountId, pending],
   );
   const { data, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } =
@@ -184,12 +195,13 @@ export function useAccountTransactions(accountId: string): Transactions {
       networkMode: 'offlineFirst',
     });
   return {
-    transactions: data ?? null,
+    transactions: data?.transactions ?? null,
     failed: isError && data == null,
     retry: () => void refetch(),
     hasMore: hasNextPage,
     loadMore: () => void loadNext(fetchNextPage, refetch),
     loadingMore: isFetchingNextPage,
+    onDevice: data?.onDevice ?? null,
   };
 }
 
@@ -215,9 +227,13 @@ export function useSearch(query: SearchQuery, { enabled = true } = {}): Found {
   const pending = useSyncExternalStore(subscribeUnsaved, pendingChanges);
   const value = key[2];
   const select = useCallback(
-    (data: { pages: TransactionPage[]; pageParams: (string | null)[] }) => {
+    (data: { pages: PageOnDevice[]; pageParams: (string | null)[] }) => {
       const transactions = shownPages(['transactions', 'search', value], data, pending);
-      return { transactions, totals: searchTotals(transactions, data.pages as SearchPage[]) };
+      return {
+        transactions,
+        totals: searchTotals(transactions, data.pages as SearchPage[]),
+        onDevice: onDeviceOf(data.pages),
+      };
     },
     [value, pending],
   );
@@ -229,6 +245,8 @@ export function useSearch(query: SearchQuery, { enabled = true } = {}): Found {
       getNextPageParam: (last) => last.nextBefore,
       select,
       enabled,
+      // Asked for offline too, so what's found in the history on this device shows
+      networkMode: 'offlineFirst',
     });
   const loadAll = async (enough: number) => {
     let found = data?.transactions ?? [];
@@ -249,6 +267,7 @@ export function useSearch(query: SearchQuery, { enabled = true } = {}): Found {
     hasMore: hasNextPage,
     loadMore: () => void loadNext(fetchNextPage, refetch),
     loadingMore: isFetchingNextPage,
+    onDevice: data?.onDevice ?? null,
     loadAll,
   };
 }
@@ -328,3 +347,10 @@ export function useImports(): Imports {
   });
   return { imports: data ?? null, failed: isError && data == null, retry: () => void refetch() };
 }
+
+/**
+ * Whether this device couldn't keep or read the history it downloads, so what needs it
+ * offline needs a connection instead
+ */
+export const useHistoryUnavailable = (): boolean =>
+  useSyncExternalStore(subscribeHistory, historyUnavailable);

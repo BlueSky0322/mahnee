@@ -71,15 +71,20 @@ function d1(db: DatabaseSync): D1Database {
   } as unknown as D1Database;
 }
 
-/** The schema, someone in MYR with an account, a category and `count` entries */
-function person(count: number) {
+/** The migrations, in order */
+const MIGRATIONS = readdirSync(DIR)
+  .filter((f) => f.endsWith('.sql'))
+  .sort();
+const migrate = (db: DatabaseSync, file: string) => db.exec(readFileSync(join(DIR, file), 'utf8'));
+
+/**
+ * The schema (up to and including the migration numbered `upTo`, every one without), someone
+ * in MYR with an account, a category and `count` entries
+ */
+function person(count: number, upTo = '9999') {
   const db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys = ON');
-  for (const file of readdirSync(DIR)
-    .filter((f) => f.endsWith('.sql'))
-    .sort()) {
-    db.exec(readFileSync(join(DIR, file), 'utf8'));
-  }
+  for (const file of MIGRATIONS.filter((f) => f.slice(0, 4) <= upTo)) migrate(db, file);
   db.prepare('INSERT INTO profiles (email, created_at, updated_at) VALUES (?, 1, 1)').run(ME);
   db.prepare('INSERT INTO user_settings (email, updated_at) VALUES (?, 1)').run(ME);
   db.prepare(
@@ -179,6 +184,34 @@ describe('converting, step by step', () => {
       { cents: 51, typed: 101 },
       { cents: 51, typed: 102 },
     ]);
+  });
+
+  it('a conversion under way as 0014 rebuilds its worked-out amounts starts over once, and finishes', async () => {
+    const db = person(450, '0013');
+    const before = amounts(db);
+    const job = await switchTo(db, 'USD', 1_000);
+    // Two pages of three worked out, then the migration lands
+    expect(await convertStep(d1(db), job, flat(0.5))).toBe(true);
+    expect(await convertStep(d1(db), job, flat(0.5))).toBe(true);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({ n: 400 });
+    migrate(db, MIGRATIONS.find((f) => f.startsWith('0014'))!);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({ n: 0 });
+
+    let restarts = 0;
+    while (await convertStep(d1(db), job, flat(0.5))) {
+      const row = db.prepare('SELECT restarts FROM conversions').get() as
+        | { restarts: number }
+        | undefined;
+      restarts = Math.max(restarts, row?.restarts ?? 0);
+    }
+    expect(restarts).toBe(1);
+    // Finished: every amount converted once, from what was typed, and nothing left over
+    expect(db.prepare('SELECT COUNT(*) AS n FROM conversions').get()).toEqual({ n: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({ n: 0 });
+    expect(db.prepare('SELECT currency FROM accounts').get()).toEqual({ currency: 'USD' });
+    expect(amounts(db)).toEqual(
+      before.map(({ cents }) => ({ cents: Math.round(cents * 0.5), typed: cents })),
+    );
   });
 
   it('gives the currency back when it keeps finding worked-out amounts gone, rather than loop', async () => {

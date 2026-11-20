@@ -3567,6 +3567,33 @@ describe('transactions', () => {
       },
     );
 
+    it('refuses a second opening balance change for the same import', async () => {
+      const { me, wallet } = await withWallet();
+      const mine = rowId();
+      await send(me, [
+        recordImport(mine, wallet),
+        { op: 'updateAccount', id: wallet, openingCents: 11_000, importId: mine },
+      ]);
+      const again = { op: 'updateAccount', id: wallet, openingCents: 12_000, importId: mine };
+      const refused = {
+        status: 409,
+        data: { error: 'That import changed the opening balance already' },
+      };
+      expect(await send(me, [again])).toEqual(refused);
+      // Nor twice in one batch
+      const other = rowId();
+      expect(
+        await send(me, [
+          recordImport(other, wallet),
+          { op: 'updateAccount', id: wallet, openingCents: 11_500, importId: other },
+          { op: 'updateAccount', id: wallet, openingCents: 12_000, importId: other },
+        ]),
+      ).toEqual(refused);
+      expect(await openingOf(me, wallet)).toBe(11_000);
+      await send(me, [{ op: 'undoImport', id: mine }]);
+      expect(await openingOf(me, wallet)).toBe(10_000);
+    });
+
     it('refuses an opening balance changed by an import already undone', async () => {
       const { me, wallet } = await withWallet();
       const mine = rowId();

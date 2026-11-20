@@ -221,6 +221,8 @@ export interface FakeServer {
     undoneAt: number | null;
     /** How much it changed its account's opening balance (imports.opening_change_cents; 0 unless said) */
     openingChangeCents?: number;
+    /** Whether it changed it already: only once */
+    openingChanged?: boolean;
   })[];
   /** The import each transaction came in with, by transaction id (transactions.import_id) */
   importIds: Map<string, string>;
@@ -512,7 +514,7 @@ function answerNow(server: FakeServer) {
         .filter((i) => i.undoneAt == null)
         .sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : -1))
         .slice(0, MAX_RECENT_IMPORTS)
-        .map(({ undoneAt: _undone, openingChangeCents, ...i }) => ({
+        .map(({ undoneAt: _undone, openingChangeCents, openingChanged: _once, ...i }) => ({
           ...i,
           openingChanged: (openingChangeCents ?? 0) !== 0,
         }));
@@ -1142,6 +1144,10 @@ function saveChanges(server: FakeServer, body: Partial<ChangesBody>): [number, s
       if (record.accountId !== account.id) {
         return [409, "An import changes only its own account's opening balance"];
       }
+      if (record.openingChanged === true) {
+        return [409, 'That import changed the opening balance already'];
+      }
+      record.openingChanged = true;
       if (!fitsOpeningCents(change.openingCents)) return [400, openingError];
       record.openingChangeCents =
         (record.openingChangeCents ?? 0) + change.openingCents - account.openingCents;

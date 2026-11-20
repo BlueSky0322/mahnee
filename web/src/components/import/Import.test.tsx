@@ -503,6 +503,52 @@ describe('what an import does to the balance', () => {
     },
   );
 
+  test('changes the opening balance last, so a later batch refused leaves it as it was', async () => {
+    const server = startedToday();
+    // 250 rows from October, RM 1.00 each: more than one batch of changes
+    const file = [
+      'Date,Description,Amount',
+      ...Array.from(
+        { length: 250 },
+        (_, i) => `${String(1 + (i % 28)).padStart(2, '0')}/10/2026,Shop ${i},-1.00`,
+      ),
+    ].join('\n');
+    const user = await previewOctober(server, 'phone', file, 'These 250 come to −RM 250.00');
+    await user.click(screen.getByRole('radio', { name: /^Keep the balance as it is/ }));
+    const first = holdNext(server, 'POST', '/api/changes');
+    await user.click(
+      screen.getByRole('button', { name: 'Add 250 transactions and change the opening balance' }),
+    );
+    // The first batch is saved; the next is refused, and what's queued after it goes
+    await waitFor(() => expect(server.imports).toHaveLength(1));
+    server.failNext.changes = { status: 409, error: 'Changed somewhere else at the same time.' };
+    first.release();
+    await waitFor(() => expect(server.failNext.changes).toBeUndefined());
+    await settle();
+    expect(server.transactions.length).toBeGreaterThan(1);
+    expect(server.transactions.length).toBeLessThan(251);
+    expect(server.accounts[0].openingCents).toBe(123_456);
+  });
+
+  test("reads the day tracking began in the person's own time zone", async () => {
+    const server = startedToday();
+    // Added at 11:30 UTC on Nov 1: already Nov 2 where the person is (UTC+14)
+    server.accounts[0].createdAt = Date.UTC(2026, 10, 1, 11, 30);
+    server.me.settings.timeZone = 'Pacific/Kiritimati';
+    // This device's own zone isn't saved over it (the app sends it once, refused here)
+    server.failNext.profile = 500;
+    await previewOctober(
+      server,
+      'phone',
+      'Date,Description,Amount\n02/11/2026,Kopi Corner,-7.25\n03/11/2026,Grab,-32.10\n',
+    );
+    expect(
+      screen.getByText(
+        '1 of these is dated on or before Nov 2, when you started tracking Maybank. Its opening balance of RM 1,234.56 may already include it.',
+      ),
+    ).toBeTruthy();
+  });
+
   test.each(SIZES)(
     'asks nothing when every row is after the account started (%s)',
     async (size) => {

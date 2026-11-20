@@ -16,6 +16,7 @@ import {
 } from '@shared/csv-import';
 import type { AccountKind } from '@shared/ledger';
 import { ACCOUNT_KINDS, MAX_NOTE, MAX_PAYEE, fitsOpeningCents } from '@shared/ledger';
+import { dayIn } from '@shared/scheduled';
 import { api } from '../../api';
 import { goUp, navigate } from '../../hooks/useRoute';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
@@ -296,7 +297,14 @@ export default function ImportPage() {
   );
   // A bank's file: what the ticked rows do to the account's balance, and those from on or
   // before the day it started being tracked, which its opening balance may already count
-  const startDay = account?.createdAt == null ? null : toDateInput(new Date(account.createdAt));
+  // Its day where the person is (their stored time zone), else on this device
+  const startDay =
+    account?.createdAt == null
+      ? null
+      : (profile?.settings.timeZone == null
+          ? null
+          : dayIn(profile.settings.timeZone, account.createdAt)) ??
+        toDateInput(new Date(account.createdAt));
   const impact =
     plan?.source === 'bank' && choices != null && account != null
       ? balanceImpact(plan, choices.ticked, account.id, startDay)
@@ -337,9 +345,10 @@ export default function ImportPage() {
     const lines = plan.rows.filter((r) => r.repeats == null).length;
     const id = newId();
     // Kept from counting twice: the opening balance changes as part of this import, so its
-    // Undo changes it back
+    // Undo changes it back. Last, so it's in the last batch sent: a batch refused before it
+    // drops it with the rest, never leaving the opening balance changed for rows not added.
     const opening: LedgerChange[] =
-      keeping && account != null && keptOpening != null
+      keeping && account != null && keptOpening != null && keptOpening !== account.openingCents
         ? [{ op: 'updateAccount', id: account.id, openingCents: keptOpening, importId: id }]
         : [];
     return [
@@ -353,8 +362,8 @@ export default function ImportPage() {
           skippedCount: Math.max(0, lines - added),
         },
       },
-      ...opening,
       ...changes.map((c): LedgerChange => (c.op === 'addTransaction' ? { ...c, importId: id } : c)),
+      ...opening,
     ];
   }
 

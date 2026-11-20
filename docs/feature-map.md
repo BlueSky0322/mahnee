@@ -1625,7 +1625,8 @@ case; empty only matches empty) as a saved or waiting one says "Looks already sa
 is left unticked; it can be ticked anyway. For a bank's file the preview says what the
 ticked rows come to and the account's balance before and after ("These 2 come to
 −RM 39.35", "RM 1,215.11 now, RM 1,175.76 after"), following each tick. Ticked rows dated on
-or before the day the account was added (its `createdAt`: tracking began then, and the
+or before the day the account was added (its `createdAt`, as a day in the person's stored
+time zone, else this device's: tracking began then, and the
 opening balance is what it held; none for a copy kept from before, so nothing is asked) may
 already be in the opening balance, and the page says so under "Already in the balance?" and
 asks, choosing nothing for the person (Add waits): "Keep the balance as it is" (the opening
@@ -1699,10 +1700,12 @@ column names per email and account (`localStorage`, let go on signing out).
   the file's name, the account a bank's file went into or none for an export, how many
   transactions it added and how many of the file's transaction lines it left out) goes
   first in the same ordered changes, then each `addTransaction` with `importId`, so the
-  0007 trigger always finds it; the server dates it. Keeping the balance sends, right after
-  `addImport`, `updateAccount` with the new `openingCents` and `importId`: only the opening
-  balance of the account the file went into (else 400 "An import changes only an opening
-  balance", 409 "An import changes only its own account's opening balance"), what it changed
+  0007 trigger always finds it; the server dates it. Keeping the balance sends, last (after its
+  entries, so it's in the last batch and a batch refused before it drops it with them),
+  `updateAccount` with the new `openingCents` and `importId`: only the opening balance of
+  the account the file went into, once (else 400 "An import changes only an opening
+  balance", 409 "An import changes only its own account's opening balance", 409 "That
+  import changed the opening balance already"), what it changed
   by kept on the import (`openingChanged` in `GET /api/imports`). Recent imports
   (`GET /api/imports`, at most `MAX_RECENT_IMPORTS`, newest first, none undone) are owned
   by [ledger/ledger.ts](../web/src/ledger/ledger.ts) (`useImports()`, `applyToImports`,

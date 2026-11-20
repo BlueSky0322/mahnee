@@ -151,7 +151,16 @@ interface Model {
   counts: Map<string, number>;
   recurring: Map<string, RecurringState>;
   /** The imports the batch names, and whether each was undone (one not here doesn't exist) */
-  imports: Map<string, { undone: boolean; accountId: string | null; opening: OpeningRead | null }>;
+  imports: Map<
+    string,
+    {
+      undone: boolean;
+      accountId: string | null;
+      /** Whether it changed its account's opening balance already */
+      openingChanged: boolean;
+      opening: OpeningRead | null;
+    }
+  >;
   /** The day the person's month starts on (read only when the batch sets a budget) */
   monthStart: number;
   /**
@@ -379,9 +388,15 @@ function changeStatements(
         if (!('openingCents' in change) || 'name' in change || 'kind' in change) {
           throw new Refused(400, 'An import changes only an opening balance');
         }
-        if (model.imports.get(importId)?.accountId !== change.id) {
+        const record = model.imports.get(importId)!;
+        if (record.accountId !== change.id) {
           throw new Refused(409, "An import changes only its own account's opening balance");
         }
+        // Once: what it changed by is one figure, taken back as one by its Undo
+        if (record.openingChanged) {
+          throw new Refused(409, 'That import changed the opening balance already');
+        }
+        record.openingChanged = true;
         byImport.push(
           db
             .prepare(
@@ -739,7 +754,12 @@ function changeStatements(
       }
       const added = readImportCount(record.addedCount);
       const skipped = readImportCount(record.skippedCount);
-      model.imports.set(record.id, { undone: false, accountId, opening: null });
+      model.imports.set(record.id, {
+        undone: false,
+        accountId,
+        openingChanged: false,
+        opening: null,
+      });
       return [
         db
           .prepare(
@@ -1551,7 +1571,12 @@ export async function applyChanges(
     imports: new Map(
       imports.results.map(({ id, undoneAt, accountId, ...opening }) => [
         id,
-        { undone: undoneAt != null, accountId, opening },
+        {
+          undone: undoneAt != null,
+          accountId,
+          openingChanged: opening.changeCents !== 0 || opening.changeCurrency != null,
+          opening,
+        },
       ]),
     ),
     // A budget is set from the person's month (shared/period.ts)

@@ -335,6 +335,19 @@ describe('whose history', () => {
 });
 
 describe('when the device can’t keep it', () => {
+  test('nothing is read from it while the currency its amounts are in isn’t known', async () => {
+    const server = withHistory();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    await download();
+    const { localAccountPage, localSince } = await import('../ledger/history');
+    // Kept in ringgit: read in ringgit, and not at all before the profile says
+    expect((await localAccountPage(CASH, null, 'MYR'))?.transactions.length).toBeGreaterThan(0);
+    expect(await localAccountPage(CASH, null, null)).toBeNull();
+    expect(await localAccountPage(CASH, null, 'SGD')).not.toBeNull();
+    expect(await localSince(CASH, '2026-09-01', null)).toBeNull();
+  }, 30_000);
+
   test('offline, Activity says searching needs a connection', async () => {
     const server = withHistory();
     await openOnline(server);

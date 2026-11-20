@@ -343,6 +343,12 @@ export async function writeOutbox(email: string, queued: Queued[]): Promise<bool
   return writeCacheAs(email, outboxKey(email), queued);
 }
 
+/**
+ * Whether this browser can send what's waiting while the app is closed (Background Sync:
+ * Chrome and Edge, not Safari or Firefox); without it, the app sends it when next open
+ */
+export const canSyncInBackground = () => typeof window !== 'undefined' && 'SyncManager' in window;
+
 /** Asks the service worker to send what's waiting once there's a connection */
 export function requestBackgroundSync() {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;

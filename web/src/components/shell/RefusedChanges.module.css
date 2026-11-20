@@ -28,6 +28,12 @@
   font-size: 0.875rem;
 }
 
+/* Discarding would leave part of an import in: said plainly, before the buttons */
+.warning {
+  color: var(--ink);
+  font-size: 0.875rem;
+}
+
 .actions {
   display: flex;
   gap: 8px;

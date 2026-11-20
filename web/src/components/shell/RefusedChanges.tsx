@@ -4,7 +4,7 @@ import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { discardRefused, tryAgainRefused } from '../../ledger/ledger';
 import { useAccounts, useCategories, useNeedsAttention } from '../../ledger/useLedger';
 import { useCurrency } from '../../profile/ProfileContext';
-import { describeChange } from './describe-change';
+import { describeChange, partImportText } from './describe-change';
 import classes from './RefusedChanges.module.css';
 
 /** "and 1 more change made with it" */
@@ -41,46 +41,50 @@ export default function RefusedChanges({
       subtitle="The server couldn't save these. Try again, or discard them."
     >
       <ul className={classes.list}>
-        {refused.map(({ set, reason, queued }) => (
-          <li
-            key={set}
-            className={classes.item}
-          >
-            <span className={classes.what}>
-              {describeChange(queued[0].change, queued[0].currency ?? home, {
-                accounts,
-                categories,
-              })}
-            </span>
-            <span className={classes.reason}>{reason}</span>
-            {queued.length > 1 && (
-              <span className={classes.held}>{heldText(queued.length - 1)}</span>
-            )}
-            <span className={classes.actions}>
-              <Button
-                size="compact-sm"
-                onClick={() => {
-                  tryAgainRefused(set);
-                  after(refused.length - 1);
-                }}
-              >
-                Try again
-              </Button>
-              <Button
-                size="compact-sm"
-                variant="subtle"
-                color="red"
-                disabled={going.has(set)}
-                onClick={() => {
-                  setGoing((was) => new Set([...was, set]));
-                  void discardRefused(set).then(() => after(refused.length - 1));
-                }}
-              >
-                Discard
-              </Button>
-            </span>
-          </li>
-        ))}
+        {refused.map(({ set, reason, queued }) => {
+          const partImport = partImportText(queued.map((q) => q.change));
+          return (
+            <li
+              key={set}
+              className={classes.item}
+            >
+              <span className={classes.what}>
+                {describeChange(queued[0].change, queued[0].currency ?? home, {
+                  accounts,
+                  categories,
+                })}
+              </span>
+              <span className={classes.reason}>{reason}</span>
+              {queued.length > 1 && (
+                <span className={classes.held}>{heldText(queued.length - 1)}</span>
+              )}
+              {partImport != null && <span className={classes.warning}>{partImport}</span>}
+              <span className={classes.actions}>
+                <Button
+                  size="compact-sm"
+                  onClick={() => {
+                    tryAgainRefused(set);
+                    after(refused.length - 1);
+                  }}
+                >
+                  Try again
+                </Button>
+                <Button
+                  size="compact-sm"
+                  variant="subtle"
+                  color="red"
+                  disabled={going.has(set)}
+                  onClick={() => {
+                    setGoing((was) => new Set([...was, set]));
+                    void discardRefused(set).then(() => after(refused.length - 1));
+                  }}
+                >
+                  Discard
+                </Button>
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </ResponsiveDialog>
   );

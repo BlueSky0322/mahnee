@@ -96,7 +96,12 @@ the profile, keeps a device copy, and owns every change through
 `useProfile().change(show, save)` (the picture through `changePicture`, which shows a
 chosen photo from the device until the server has kept it), which shows the change at once and undoes it if
 `save` fails (the caller says what went wrong). `rememberSettings` does the same for a
-preference and explains a failure itself.
+preference and explains a failure itself. The name and preferences (`update`, so
+`rememberSettings` too) are kept on the device first, for the account they're made as
+([profile/unsent.ts](../web/src/profile/unsent.ts), `profile-outbox:<email>`, one merged
+patch): without a connection, or signed out, they stay shown and wait, through the app
+being closed, and are sent on the `online` event or once `/api/me` answers; any other
+failure undoes them as before. The picture and the home currency still need a connection.
 
 **Parts.**
 
@@ -177,6 +182,19 @@ preference and explains a failure itself.
 - A profile kept on the device from before a setting existed opens with that setting's
   default (`ProfileContext.tsx`).
 - A stale save answer never overwrites a newer change (`ProfileContext.tsx`).
+- What waits to be sent is shown over the server's profile and over the device's copy of
+  it, so an older copy never replaces a newer preference; each server answer to a save is
+  kept as the device's copy, so a preference saved online shows when the app is next
+  opened offline. A field changed again while one was on its way stays to send. A waiting
+  patch is kept for its own account when someone else signs in here (`UNSENT_PREFIXES`)
+  and dropped on signing out, which asks first, naming the settings ("Your change to Start
+  with hasn't been saved yet. Signing out removes it from this device."). Each change to it
+  reads and writes it under a lock per person (`mahnee-profile-outbox:<email>`), so quick
+  changes never lose one another; a save on its way when the connection drops is kept
+  under any change made since, never over it. A waiting patch the server refuses is sent again a field
+  at a time, so only the field it won't take is let go (and said). Sending it twice changes
+  nothing, so it carries no ids. The service worker doesn't send it: the app does when next
+  open.
 - Theme and accent are also kept in `localStorage` (`sf-appearance`), so the first
   screen paints in the right colours before the profile loads.
 - Each stored accent is drawn in its own colour ([theme/theme.ts](../web/src/theme/theme.ts),
@@ -1413,7 +1431,14 @@ changing it (its first due date the next one after the person's own today).
   `triggers.crons`, `*/15 * * * *`, shared with reminders, see Reminders). Each run works out each
   stored time zone's day from the run's scheduled time and adds every occurrence whose day
   has begun where its person is: an entry dated that day, "from Scheduled", and "amount to
-  check" when the item's amount changes. Missed runs are caught up from the item's next due
+  check" when the item's amount changes. Offline, the device can't hear of those: each
+  occurrence of an item that doesn't ask first, due on or before today in its copy of the
+  ledger, shows in Home's Due now as projected ("Scheduled, adds when back online", no
+  buttons; `addedOnReturn` in `forecast.ts`), never queued, so once back the server's one
+  entry replaces it. It's worked out as the run does: by the day in the person's stored
+  time zone (none without one), skipping items on an archived account or category and
+  while converting, at most `MAX_POSTED_PER_ITEM` of one item and `MAX_POSTED_PER_RUN` in
+  all. Missed runs are caught up from the item's next due
   date, oldest first, at most 31 occurrences of one item and 200 entries a run; the rest
   come in the runs after. Someone with no stored time zone is left until the app sends one.
 - **Asks first (D19, "Ask once, then automatic").** An item that was overdue when 0009 ran,
@@ -1852,6 +1877,8 @@ is shown, marked `fromDevice`.
   preview and on the server.
 - An amount asked about is at most `MAX_AMOUNT`; a rate outside `MIN_RATE` to `MAX_RATE`
   is never used.
+- A service answering that it has no rate for a pair (Frankfurter 404 or 422, Wise 400,
+  404 or 422) is not down: with every service answering so and no copy kept, it's `NoRate`.
 - An earlier day's rate is the ECB's for that day (the working day before, on a
   weekend), else Wise's (its history covers TWD and VND), else the closest earlier day
   either has within `MAX_EARLIER_DAYS` (7), else today's. Its time (`rate_at`) is always on
@@ -1973,6 +2000,21 @@ deleted entries back as they were typed. Travel sense is
 **Invariants.**
 
 - One conversion path: the server converts on saving; the app's figure is a preview.
+- Offline with no rate for the pair on the device (one never asked for here), a one-off
+  entry still saves as typed: Add says
+  "Conversion pending: converted at the rate of Nov 12 once online", and until saved the
+  entry shows "−THB 120.00" with "conversion pending" (its `original.pending`, the device's
+  alone) and counts as 0 in every total. The server converts it on saving at the entry's
+  own day's rate, as any typed entry. A repeating one still needs a rate, and so does any
+  entry online: a rate that can't be had with a connection still reads "Needs a rate for
+  JPY". Edited offline (amount, day), it stays pending on its new day (`sendEdit`); deleted,
+  Undo puts it back pending. Activity and an account's page say "Leaves out 1 entry waiting
+  for a rate" while one is listed. The server refuses (400, "No rate for ISK to MYR is
+  available", kept for Review) a pair no service has a rate for on the day, the days before
+  it or today; a service that's down is 503, tried again. Offline Activity
+  reads which accounts' history to search from the kept ledger, after waiting up to 5
+  seconds for the profile, when it opens before the ledger has loaded. History is never
+  read while the currency amounts are in isn't known.
 - What was typed is kept (currency, cents, rate, source, when), and an entry converted past
   `MAX_TRANSACTION_CENTS` is refused; Add says "Comes to more than 10,000,000 MYR" first.
   Typed in another currency, the figure may go past `MAX_TRANSACTION` (an IDR 15,000,000
@@ -2015,7 +2057,12 @@ is back, even with the app closed. The offline notice says so on the due tint ("
 Your changes are kept on this phone.", "this device" from 768px, "this computer" from
 1024px, by width as the layout goes; the tablet word is the run's); how many wait is the
 label's to say. It offers Sign in when the session ran out, and warns when the device can't
-keep changes, those two with how many are waiting.
+keep changes, those two with how many are waiting. Offline with changes waiting, a second
+line says what happens once back (the count stays the label's): "Open Mahnee when
+connected to finish syncing." where the browser has no Background Sync (Safari, Firefox),
+else "They're sent when the connection is back, even with Mahnee closed." Review warns,
+beside the held rest of an import whose first rows were saved already, that discarding
+leaves that part in (without its opening balance change) and to use Undo import instead.
 
 **Owner.**
 

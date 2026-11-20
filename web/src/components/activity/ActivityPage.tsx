@@ -24,7 +24,7 @@ import { clockText, dayHeading, toDateInput } from '../../utils/date-input';
 import { showRefusal } from '../../utils/notify';
 import EntryTile from '../common/EntryTile';
 import MainAmount from '../common/MainAmount';
-import { amountWords, typedAmount } from '../common/typed-amount';
+import { amountWords, leavesOutText, typedAmount } from '../common/typed-amount';
 import { categoryName } from '../common/category-name';
 import { scheduledNote } from '../common/scheduled-note';
 import { showUndo } from '../common/undo-toast';
@@ -154,6 +154,8 @@ export default function ActivityPage({ query }: { query: string }) {
   const partial = found.onDevice != null && !holdsFrom(found.onDevice, days.from);
   const unavailable = useHistoryUnavailable();
   const deviceLine = found.onDevice == null ? null : onDeviceLine(found.onDevice, days, today);
+  // Entries typed offline with no rate yet count as nothing in the totals: said so
+  const leavesOut = rows == null ? null : leavesOutText(rows);
   const currency = useCurrency();
   const nothingSet =
     filters.account == null &&
@@ -458,6 +460,14 @@ export default function ActivityPage({ query }: { query: string }) {
               role="status"
             >
               {deviceLine}
+            </p>
+          )}
+          {ready && leavesOut != null && (
+            <p
+              className={classes.muted}
+              role="status"
+            >
+              {leavesOut}
             </p>
           )}
           {!ready || rows == null || accounts == null || categories == null ? (

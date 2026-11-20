@@ -4,6 +4,7 @@ import { convertCents } from '@shared/rates';
 import type { ShownRate } from '../../hooks/useRate';
 import { useRate } from '../../hooks/useRate';
 import { change, changeTyped } from '../../ledger/ledger';
+import { isOffline } from '../../offline/network';
 import { useCurrency, useProfile } from '../../profile/ProfileContext';
 
 // The currency an entry is typed in, as its editors change it (Activity's and an account's):
@@ -48,13 +49,19 @@ export function sendsAmount(
 
 /**
  * Sends an entry's edit, then `more` changes. Its amount in another currency is sent as
- * typed and shown at `quote`'s rate. False, sending nothing, when that needs a rate there
- * isn't one for.
+ * typed and shown at `quote`'s rate; offline with no rate here, shown as pending (counted
+ * as nothing) on `day`, the entry's day after the edit. False, sending nothing, when that
+ * needs a rate there isn't one for online.
  */
 export function sendEdit(
   update: Update,
   more: LedgerChange[],
-  { typedIn, home, quote }: { typedIn: string; home: string; quote: ShownRate | null },
+  {
+    typedIn,
+    home,
+    quote,
+    day,
+  }: { typedIn: string; home: string; quote: ShownRate | null; day: string },
 ): boolean {
   const changed = Object.keys(update).length > 2;
   if (typedIn === home || update.amountCents == null) {
@@ -62,18 +69,29 @@ export function sendEdit(
     if (changes.length > 0) change(...changes);
     return true;
   }
-  if (quote == null) return false;
-  const original: Original = {
-    currency: typedIn,
-    cents: update.amountCents,
-    rate: quote.rate,
-    source: quote.source,
-    at: quote.fetchedAt,
-    ...(quote.day != null && { day: quote.day }),
-  };
+  if (quote == null && !isOffline()) return false;
+  const original: Original =
+    quote == null
+      ? {
+          currency: typedIn,
+          cents: update.amountCents,
+          rate: 0,
+          source: 'wise',
+          at: Date.parse(`${day}T12:00:00Z`),
+          day,
+          pending: true,
+        }
+      : {
+          currency: typedIn,
+          cents: update.amountCents,
+          rate: quote.rate,
+          source: quote.source,
+          at: quote.fetchedAt,
+          ...(quote.day != null && { day: quote.day }),
+        };
   const shown = {
     ...update,
-    amountCents: Math.max(1, convertCents(update.amountCents, quote.rate)),
+    amountCents: quote == null ? 0 : Math.max(1, convertCents(update.amountCents, quote.rate)),
     original,
   } as Update;
   changeTyped(typedIn, [update], [shown]);

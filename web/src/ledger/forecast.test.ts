@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 import type { Account, Ledger, LedgerChange, Recurring } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import { MAX_TRANSACTION_CENTS } from '@shared/ledger';
 import { MAX_RECURRING, fallsOn, nextAfter } from '@shared/recurring';
 import { apply } from './apply';
-import { comingUp, dueNow, monthEndForecast, nextThirtyDays } from './forecast';
+import { addedOnReturn, comingUp, dueNow, monthEndForecast, nextThirtyDays } from './forecast';
 
 // What's expected at the end of this month: today's balances of every listed account (what's
 // owed on a card counts against it), less the repeating bills still due this month, plus the
@@ -733,5 +733,48 @@ describe('the next 30 days', () => {
     expect(lows(ledgerWith(most), '2026-11-09')).toEqual([
       ['Maybank', 300_000 - MAX_RECURRING * 5 * MAX_TRANSACTION_CENTS, '2026-12-07'],
     ]);
+  });
+});
+
+describe('addedOnReturn', () => {
+  test('stops at what one of the server’s runs adds: 31 of an item, 200 in all', () => {
+    const items = Array.from({ length: 8 }, (_, i) => ({
+      id: `${i}`.padStart(16, '0'),
+      kind: 'expense' as const,
+      accountId: 'a'.repeat(16),
+      toAccountId: null,
+      amountCents: 100,
+      categoryId: null,
+      payee: `Item ${i}`,
+      schedule: 'weekly' as const,
+      day: 1,
+      startDate: '2025-01-06',
+      nextDue: '2025-01-06',
+      archived: false,
+      amountVaries: false,
+      askFirst: false,
+    }));
+    const ledger = {
+      accounts: [
+        {
+          id: 'a'.repeat(16),
+          name: 'Wallet',
+          kind: 'cash' as const,
+          currency: 'MYR',
+          openingCents: 0,
+          position: 0,
+          archived: false,
+          balanceCents: 0,
+        },
+      ],
+      categories: [],
+      recurring: items,
+    } as unknown as Ledger;
+    const found = addedOnReturn(ledger, Date.parse('2026-11-20T04:00:00Z'), 'Asia/Kathmandu');
+    expect(found).toHaveLength(200);
+    for (const item of items) {
+      expect(found.filter((f) => f.recurring.id === item.id).length).toBeLessThanOrEqual(31);
+    }
+    expect(addedOnReturn(ledger, Date.parse('2026-11-20T04:00:00Z'), null)).toEqual([]);
   });
 });

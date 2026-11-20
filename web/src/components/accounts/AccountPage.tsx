@@ -13,7 +13,7 @@ import AccountForm from './AccountForm';
 import { useAccountActions } from './account-actions';
 import { balanceText, entryRow, kindLine } from './account-text';
 import MainAmount from '../common/MainAmount';
-import { amountWords, typedAmount } from '../common/typed-amount';
+import { amountWords, leavesOutText, typedAmount } from '../common/typed-amount';
 import classes from './AccountsPage.module.css';
 import BackButton from '../ui/BackButton';
 
@@ -281,6 +281,9 @@ function Entries({
         >
           Show 50 more
         </Button>
+      )}
+      {leavesOutText(transactions) != null && (
+        <p className={classes.muted}>{leavesOutText(transactions)}</p>
       )}
       {!hasMore && onDevice?.complete === false && (
         <p className={classes.muted}>

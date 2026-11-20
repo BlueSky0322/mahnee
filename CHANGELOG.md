@@ -15,6 +15,7 @@ For agents:
 ## 2026-11-20
 
 - Fixed: importing older bank rows no longer counts them twice: the preview shows the balance before and after, and asks whether rows from before you started tracking are already in the opening balance [#?]
+- Changed: the new logo, a hand holding a coin, in the app, the browser tab and the installed app; in the app its tile takes your accent and theme [#57]
 
 ## 2026-11-19
 
@@ -150,3 +151,4 @@ For agents:
 [#54]: https://github.com/BlueSky0322/mahnee/pull/54
 [#55]: https://github.com/BlueSky0322/mahnee/pull/55
 [#56]: https://github.com/BlueSky0322/mahnee/pull/56
+[#57]: https://github.com/BlueSky0322/mahnee/pull/57

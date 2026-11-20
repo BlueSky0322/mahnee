@@ -41,8 +41,9 @@ const PRECACHE_LIST = '/precache.json';
 /** Kept in SHELL beside the page: which built files it and the page before it need */
 const SHELL_FILES = '/shell-files';
 /**
- * What installing the app reads: the manifest, the icons it names, and the one iPhones use
- * (web/public/manifest.webmanifest and web/index.html; shell.test.ts checks they match).
+ * What installing the app reads: the manifest, the icons it names, the one iPhones use and
+ * the browser tab's (web/public/manifest.webmanifest and web/index.html; shell.test.ts
+ * checks they match).
  * Kept beside the page, so a page opened from here can still be installed properly, with
  * its name, icon and launch screen, when Cloudflare Access or the connection would turn
  * the browser's request for them away.
@@ -54,6 +55,8 @@ const INSTALL_FILES = [
   '/icon-maskable-512.png',
   '/icon.svg',
   '/apple-touch-icon.png',
+  '/favicon-16.png',
+  '/favicon-32.png',
 ];
 /** How long a page may take to come before the kept one is shown instead */
 const PAGE_WAIT_MS = 3000;
@@ -591,6 +594,8 @@ async function showReminder(data) {
     body,
     tag,
     icon: '/icon-192.png',
+    // Android's small icon in the status bar: the mark alone, as only its shape shows
+    badge: '/badge-96.png',
     data: { url },
   });
 }

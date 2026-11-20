@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
+import { useKeepScroll } from '../../hooks/useKeepScroll';
 import type { Route } from '../../hooks/useRoute';
 import { placeOf } from '../../hooks/useRoute';
 import { focusSearch, useShortcuts } from '../../hooks/useShortcuts';
@@ -61,6 +62,8 @@ export default function AppLayout({ route, children }: { route: Route; children:
   const month = homeMonth != null && homeMonth < current.month ? homeMonth : current.month;
   // Months kept for the old days go when the day the month starts on changes
   useForgetMonthsWhenTheStartChanges();
+  // Each page opens at the top, or where it was left when the person comes back to it
+  useKeepScroll(pageOf(route, isDesktop === true), route);
   return (
     <div
       className={classes.layout}
@@ -102,4 +105,24 @@ export default function AppLayout({ route, children }: { route: Route; children:
       <UpdateNotice />
     </div>
   );
+}
+
+/**
+ * The page as the person sees it, whose place on the screen is kept: a computer's account
+ * opens beside the list, and its category beside Plan's table, so each is still that page
+ */
+function pageOf(route: Route, isDesktop: boolean): string {
+  switch (route.view) {
+    case 'home':
+    case 'activity':
+    case 'accounts':
+    case 'import':
+      return route.view;
+    case 'account':
+      return isDesktop ? 'accounts' : `account:${route.id}`;
+    case 'plan':
+      return `plan:${route.half}${!isDesktop && route.category != null ? `:${route.category}` : ''}`;
+    case 'settings':
+      return `settings:${route.section ?? ''}`;
+  }
 }

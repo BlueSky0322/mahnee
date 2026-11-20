@@ -599,8 +599,16 @@ set to use (`defaultAccountId`) while it's running, else the one used last on th
 ("last used"), else the first; the category picked, else the kind's used last, else its
 first. For a transfer From and To with their balances (To is the account moved to last,
 never the one it comes from). The five recent categories of the kind are chips, newest
-first, topped up with its top-level ones in order. One field, "Payee or note", fills the
-payee (owner decision D10; the note is kept apart and edited on the entry's own sheet).
+first, topped up with its top-level ones in order. The Payee field fills the payee; Note,
+beside Today and Repeat, opens a field for the note (and with one typed, goes back to it
+rather than hiding it). On a short phone (under 768px wide and 800px tall or less,
+`useIsMobile` and `useIsShort`, decided as Add opens so the browser's bars or the keyboard
+never unfold or fold it while typing; tablets never fold) the payee, chips, Today, Repeat
+and Note fold under Details, which says what they hold, so the amount, From and For, the
+keypad and Save show together; a day that can't be saved keeps Details open, said on the
+day. A computer's
+currency and figure are one field, with the hint ("Type an amount. Sums work: 8+4.5") under
+it and Save reading Save until there's an amount.
 Today opens the day (2000 up to today, in the person's own time zone; a day left as Today
 follows the clock); Repeat sets it to repeat monthly or weekly from that day. Save says what
 it will do ("Save RM 12.50", "Move RM 12.50") or why it can't ("Type an amount", "The total
@@ -1256,7 +1264,13 @@ everything found (loading every page, stopping past 500), and the foot says what
 ("3 entries · RM 30.90 · all Kedai") with Delete N and Change category. On a computer
 it's a register (Date, Payee and note, Category, Account, Amount), every row with a tick
 box, and the open row (the first until another is picked) is changed beside it, its payee,
-day and amount typed where the pane shows them (R-Desk-Activity); J and K
+day and amount typed where the pane shows them, each in a field's box (R-Desk-Activity).
+Under 1200px (`useIsWide`), where the register and the pane don't both fit, there's no
+pane: a row's click or Enter opens it in a dialog whose Delete and Save stay at its foot,
+J and K move the picked row and its focus, and closing gives focus back to the row. The
+window growing or shrinking past where the pane fits (1200px, or 1024px down to a
+tablet's or phone's sheet) moves an open edit between the pane and the dialog or sheet,
+typed changes and all, so there is only ever one editor. J and K
 move the open row, X ticks it, C changes the category of what's ticked (or of the open
 row), and a row's category opens Change category for it alone. Esc closes the top dialog;
 with a row always open, there's no pane to close. Anything that would lose the open entry's changes not saved asks "Save your changes?"
@@ -2167,6 +2181,16 @@ Activity (`&select`), and a category's page under Plan on a phone or tablet
 (`?plan&category=<id>`), which then have no freshness strip either. Plan is budgets and
 where the money went (see Plan); its Scheduled half is every scheduled item (see
 Scheduled). Home is at a glance (see Home at a glance).
+
+**Where a page opens.** The window scrolls for every page, so `hooks/useKeepScroll.ts`
+(called by `AppLayout`) keeps each page's place by its name (an account beside the list,
+or a category beside Plan's table, is still that page). A page opens at the top, unless it
+is being come back to: a place's tab or sidebar link (`navigate(..., { back: true })`),
+Back or Forward, or `goUp`. Then it opens where it was left on that visit (each place in the
+browser's history is named, `visit` in its state), else on its last visit, held there while
+what it shows is still drawn, until the person moves it; where it gets to while settling
+isn't kept. A reload opens where its page was (kept for the tab in sessionStorage). A change within a page (Activity's
+filters, Home's month) leaves it where it is.
 
 **Addresses.** Later pieces link to these; each is a query string read by `readRoute`.
 

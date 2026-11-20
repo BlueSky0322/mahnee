@@ -27,10 +27,10 @@ export const SW_USER_KEY = 'mahnee:user';
 export const IMAGE_CACHE_PREFIX = 'mahnee-pictures-v1:';
 /**
  * Keys of work not yet on the server: the outbox of changes (OUTBOX_PREFIX in
- * outbox.ts). Kept for their own account when someone else signs in, readable and
+ * outbox.ts) and profile changes (PROFILE_OUTBOX_PREFIX in profile/unsent.ts). Kept for their own account when someone else signs in, readable and
  * sendable by nobody else (outbox.test.ts checks these match)
  */
-export const UNSENT_PREFIXES = ['outbox:'];
+export const UNSENT_PREFIXES = ['outbox:', 'profile-outbox:'];
 /**
  * Marks the page when the service worker opened it from the copy it keeps, because the
  * server didn't send it in time (OPENED_FROM_DEVICE in public/sw.js)

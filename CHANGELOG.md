@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-20
 
+- Fixed: offline, an entry in a currency with no rate on the device saves as typed with "conversion pending", preferences are kept and sent once back, scheduled items due show as projected, and the offline notice says how to finish syncing [#?]
 - Added: each account's history downloads to the device in the background, so Activity, its filters and an account's entries work offline, saying which days it holds while a download isn't finished [#63]
 - Changed: every list you pick from is the app's own, a list under the field on a computer and a sheet on a phone, and Repeats picks a day from a calendar or a weekday [#62]
 - Fixed: a change is kept on the device the moment it's made, even while another is saving; one the server refuses waits for you to try again or discard it, and the rest still save [#60]

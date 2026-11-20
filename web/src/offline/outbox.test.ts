@@ -12,6 +12,7 @@ import {
 import { ApiError, NetworkError } from '../api';
 import { signOut } from '../profile/ProfileContext';
 import { backgroundSync, load, ok, respond } from '../testing/sw';
+import { PROFILE_OUTBOX_PREFIX } from '../profile/unsent';
 import { UNSENT_PREFIXES, clearCache, setCacheUser } from './cache';
 import type { Queued } from './outbox';
 import {
@@ -251,7 +252,7 @@ describe('the service worker and the app', () => {
 
 describe('work not yet sent', () => {
   test('is kept under the keys the app saves it under', () => {
-    expect(UNSENT_PREFIXES).toEqual([OUTBOX_PREFIX]);
+    expect(UNSENT_PREFIXES).toEqual([OUTBOX_PREFIX, PROFILE_OUTBOX_PREFIX]);
   });
 
   test("someone else signing in keeps it, theirs alone; signing out lets go of one's own only", async () => {

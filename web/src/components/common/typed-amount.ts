@@ -13,6 +13,9 @@ export const typedAmount = (t: Pick<Transaction, 'original'>, sign: string) =>
     ? null
     : `${sign}${t.original.currency} ${formatAmount(t.original.cents, t.original.currency)}`;
 
+/** Beside an entry typed offline with no rate known yet, in place of what it came to */
+export const CONVERSION_PENDING = 'conversion pending';
+
 /** Where a rate came from, as it's said */
 export const SOURCE_NAMES = { wise: 'Wise', frankfurter: 'the ECB' } as const;
 
@@ -37,6 +40,8 @@ export const rateDate = (at: number, day?: string) =>
 export function rateLine(t: Pick<Transaction, 'original'>, home: string) {
   const o = t.original;
   if (o == null) return null;
+  if (o.pending)
+    return `Conversion pending: converted at the rate of ${shortDay(o.day!)} once online`;
   return `1 ${o.currency} = ${Number(o.rate.toPrecision(6))} ${home}, rate of ${rateDate(o.at, o.day)}, from ${SOURCE_NAMES[o.source]}`;
 }
 
@@ -51,5 +56,6 @@ export function amountWords(
   currency: string,
 ) {
   const typed = typedAmount(t, sign);
-  return typed == null ? shown : `${typed}, ${formatMoney(t.amountCents, currency)}`;
+  if (typed == null) return shown;
+  return `${typed}, ${t.original?.pending ? CONVERSION_PENDING : formatMoney(t.amountCents, currency)}`;
 }

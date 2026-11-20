@@ -445,6 +445,73 @@ describe('Add in another currency', () => {
       original: { currency: 'THB', cents: 12_000 },
     });
   }, 30_000);
+
+  test('offline with no rate for it, saves what was typed with conversion pending, then converts it once at its own day’s rate', async () => {
+    const server = withWallet(['THB']);
+    // Never asked for on this device: the rate on the entry's own day differs from today's
+    server.rates.set('THBMYR@2026-11-12', 0.12);
+    renderApp(server, `/?account=${WALLET}`, { size: 'phone' });
+    await screen.findByLabelText('Balance RM 100.00');
+    // Opened again as a fresh page, so the ledger read below is the one this page runs
+    await reloadApp(server, `/?account=${WALLET}`, { size: 'phone' });
+    expect(await screen.findByLabelText('Balance RM 100.00')).toBeTruthy();
+    // The history downloaded, as the app does in the background once online
+    const { syncHistory } = await import('../../ledger/ledger');
+    await act(() => syncHistory());
+    const back = goOffline(server);
+
+    const { user, form: opened } = await openAdd();
+    const form = await inCurrency(user, opened, 'THB');
+    await typeAmount(form, '120');
+    await user.click(form.getByRole('button', { name: /^Today/ }));
+    fireEvent.change(form.getByLabelText('Date'), { target: { value: '2026-11-12' } });
+    expect(
+      await form.findByText('Conversion pending: converted at the rate of Nov 12 once online'),
+    ).toBeTruthy();
+    const save = addSaveButton(form);
+    expect(save.textContent).toContain('Save THB 120.00');
+    expect(save.getAttribute('aria-disabled')).not.toBe('true');
+    await user.click(save);
+    await waitFor(() =>
+      expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull(),
+    );
+
+    // Closed and opened again offline: still there, as typed, and out of the balance
+    await reloadApp(server, `/?account=${WALLET}`, { size: 'phone' });
+    const entry = await screen.findByRole('button', {
+      name: /, −THB 120\.00, conversion pending$/,
+    });
+    expect(within(entry).getByText('−THB 120.00')).toBeTruthy();
+    expect(within(entry).getByText('conversion pending')).toBeTruthy();
+    expect(screen.getByLabelText('Balance RM 100.00')).toBeTruthy();
+    expect(server.transactions).toEqual([]);
+    // Activity offline, from the history kept on the device, lists it the same way
+    await reloadApp(server, '/?activity', { size: 'phone' });
+    const listed = await screen.findByRole(
+      'button',
+      { name: /, −THB 120\.00, conversion pending$/ },
+      { timeout: 6000 },
+    );
+    expect(within(listed).getByText('conversion pending')).toBeTruthy();
+    await reloadApp(server, `/?account=${WALLET}`, { size: 'phone' });
+    await screen.findByLabelText('Balance RM 100.00');
+
+    back();
+    await waitFor(() => expect(server.transactions).toHaveLength(1), { timeout: 10_000 });
+    expect(server.transactions[0]).toMatchObject({
+      amountCents: 1_440,
+      date: '2026-11-12',
+      original: { currency: 'THB', cents: 12_000, rate: 0.12, day: '2026-11-12' },
+    });
+    // Sent once, as typed
+    const sent = sentBodies().filter((b) => b.changes.some((c) => c.op === 'addTransaction'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].currencies).toEqual(['THB']);
+    expect(await screen.findByLabelText('Balance RM 85.60')).toBeTruthy();
+    // The entry as the server converted it, in place of the pending one
+    expect(await screen.findByRole('button', { name: /, −THB 120\.00, RM 14\.40$/ })).toBeTruthy();
+    expect(screen.queryByText('conversion pending')).toBeNull();
+  }, 30_000);
 });
 
 describe('entries in another currency', () => {

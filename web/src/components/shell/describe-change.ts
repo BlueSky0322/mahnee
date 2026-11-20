@@ -86,3 +86,22 @@ export function describeChange(
       return 'Undo an import';
   }
 }
+
+/**
+ * Said beside the held rest of an import whose first rows the server saved already (a
+ * large one, sent in parts): discarding it leaves those rows in, and the opening balance
+ * change that comes last goes with the rest, so Undo import is the way to take it all back.
+ * Null for any other set, an import held whole included.
+ */
+export function partImportText(changes: LedgerChange[]): string | null {
+  const recorded = new Set(changes.flatMap((c) => (c.op === 'addImport' ? [c.import.id] : [])));
+  const ofImport = (c: LedgerChange) =>
+    (c.op === 'addTransaction' || c.op === 'updateAccount') &&
+    c.importId != null &&
+    !recorded.has(c.importId);
+  if (!changes.some(ofImport)) return null;
+  const opening = changes.some((c) => c.op === 'updateAccount' && ofImport(c));
+  return `Part of this import is saved already. Discarding leaves that part in${
+    opening ? ', without its opening balance change' : ''
+  }. To take the whole import back, use Undo import in Settings › Import and export.`;
+}

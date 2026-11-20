@@ -130,6 +130,27 @@ export function dueNow(ledger: Ledger, today: string): DueNow[] {
   ).map(({ recurring, date }) => ({ recurring, due: date }));
 }
 
+/** The most occurrences of one item the server adds in a run (worker/ledger/post-scheduled.ts) */
+const MOST_ADDED_AT_ONCE = 31;
+
+/**
+ * Every occurrence the server adds on its day that this copy of the ledger doesn't hold yet
+ * (next due `today` or before, not asking first), oldest first: offline, the device can't
+ * know the server has added them, so they're shown as projected, never recorded here
+ */
+export function addedOnReturn(ledger: Ledger, today: string): DueNow[] {
+  const found: { recurring: Recurring; date: string }[] = [];
+  for (const r of ledger.recurring ?? []) {
+    if (!active(ledger, r) || r.askFirst === true) continue;
+    let date = r.nextDue;
+    for (let n = 0; n < MOST_ADDED_AT_ONCE && date <= today; n++) {
+      found.push({ recurring: r, date });
+      date = nextAfter(r.schedule, r.day, date);
+    }
+  }
+  return byDay(found).map(({ recurring, date }) => ({ recurring, due: date }));
+}
+
 /** Whether anything repeats: listed items, whether due or not */
 export const anyRepeating = (ledger: Ledger) => (ledger.recurring ?? []).some((r) => !r.archived);
 

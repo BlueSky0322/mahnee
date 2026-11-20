@@ -279,6 +279,8 @@ function applyToAccounts(accounts: Account[], change: LedgerChange): Account[] {
           balanceCents: openingCents,
           position,
           archived: false,
+          // Tracking begins today, as the server dates it
+          createdAt: Date.now(),
         },
       ];
     }

@@ -1622,7 +1622,16 @@ as income, each in the category its payee was last filed under (`GET
 /api/payee-categories`; when that fails online the page says so), else Other or Other income, changeable per row. Dates are read day first, as the page says. A row with the
 same account, day, amount (money in and money out differ) and payee (trimmed, ignoring
 case; empty only matches empty) as a saved or waiting one says "Looks already saved" and
-is left unticked; it can be ticked anyway. A row it can't read, or that can't go where it
+is left unticked; it can be ticked anyway. For a bank's file the preview says what the
+ticked rows come to and the account's balance before and after ("These 2 come to
+−RM 39.35", "RM 1,215.11 now, RM 1,175.76 after"), following each tick. Ticked rows dated on
+or before the day the account was added (its `createdAt`: tracking began then, and the
+opening balance is what it held; none for a copy kept from before, so nothing is asked) may
+already be in the opening balance, and the page says so under "Already in the balance?" and
+asks, choosing nothing for the person (Add waits): "Keep the balance as it is" (the opening
+balance changes by what those rows come to, old and new said, and Add says "and change the
+opening balance") or "Add them as new activity" (the balance moves). Later rows are always
+new activity. A row it can't read, or that can't go where it
 says (an archived account), says why and can't be ticked; a payee or note cut to fit says
 so. Mahnee's own export (known by its header) needs no mapping: its accounts are found by
 name and those missing added (the file doesn't say their kinds, so each is asked), its
@@ -1690,7 +1699,11 @@ column names per email and account (`localStorage`, let go on signing out).
   the file's name, the account a bank's file went into or none for an export, how many
   transactions it added and how many of the file's transaction lines it left out) goes
   first in the same ordered changes, then each `addTransaction` with `importId`, so the
-  0007 trigger always finds it; the server dates it. Recent imports
+  0007 trigger always finds it; the server dates it. Keeping the balance sends, right after
+  `addImport`, `updateAccount` with the new `openingCents` and `importId`: only the opening
+  balance of the account the file went into (else 400 "An import changes only an opening
+  balance", 409 "An import changes only its own account's opening balance"), what it changed
+  by kept on the import (`openingChanged` in `GET /api/imports`). Recent imports
   (`GET /api/imports`, at most `MAX_RECENT_IMPORTS`, newest first, none undone) are owned
   by [ledger/ledger.ts](../web/src/ledger/ledger.ts) (`useImports()`, `applyToImports`,
   `fetchImports`): what's recorded or undone here shows at once on top of the server's
@@ -1702,8 +1715,10 @@ column names per email and account (`localStorage`, let go on signing out).
   all in the batch; one undone already changes nothing more, and the receipt counts a
   resent one once. The row goes at once; the entries leave balances and lists when the
   server has done it (at once online, offline once back), since a device can't know every
-  entry an import added. Accounts, categories, opening balances and repeating items an
-  import added stay. An entry naming an import not the person's own, or none, is refused
+  entry an import added. The opening balance an import changed to keep the balance goes
+  back by as much (the dialog then says "Its 2 entries are deleted and the opening balance
+  it changed goes back, on every device."); other opening balances, accounts, categories
+  and repeating items an import added stay. An entry naming an import not the person's own, or none, is refused
   404 "Import not found", one undone 409 "That import was undone".
 - Banks it remembers lists this device's column layouts for the signed-in person by
   account, each with Forget (`rememberedMappings`, `forgetMapping`).
@@ -1714,7 +1729,9 @@ repeating lines and what's wrong with them, the duplicate rule, the limit), [Imp
 (the steps, heading and counts, a computer's tabs and Cancel, recording an import and its
 entries, offline in order, nothing recorded without an entry, a file of some dates as
 transactions only, mapping and remembering it, money in and out, already saved and ticked anyway, the
-same file twice, categories from payees, shortened text, 5,001 refused, 5,000 on a phone
+same file twice, categories from payees, shortened text, what the ticked rows do to the
+balance and rows from before the account was tracked (kept by changing the opening balance,
+or added as new, each undone; only the older ones; none asked when none are older), 5,001 refused, 5,000 on a phone
 with a lost answer counted once, offline, the export round trip, opening balances, an
 export picked before the accounts load; repeating items: the round trip, a next due kept
 or moved on by the person's own day, what counts as already there, two alike, what each
@@ -1724,7 +1741,8 @@ imports, Undo asked, kept and confirmed, offline and resent once, an import undo
 it was sent, the stand-in's refusals, Banks it remembers and Forget, choosing and dropping
 a file), and the payee categories and recent imports cases in
 [worker/test/api.test.ts](../worker/test/api.test.ts) (recording, listing, every refusal,
-the same id for two people, Undo exactly and once).
+the same id for two people, Undo exactly and once, an opening balance changed with an import
+and put back by its Undo, and its refusals).
 
 ## Exchange rates
 

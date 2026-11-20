@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-20
+
+- Fixed: importing older bank rows no longer counts them twice: the preview shows the balance before and after, and asks whether rows from before you started tracking are already in the opening balance [#?]
+
 ## 2026-11-19
 
 - Changed: the reminder settings say plainly what they do: "Heads-up before scheduled entries", and when reminders come [#56]

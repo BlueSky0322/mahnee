@@ -55,6 +55,7 @@ import {
   MAX_NOTE,
   MAX_PAYEE,
   MAX_TRANSACTION,
+  MAX_TRANSACTION_CENTS,
   MAX_TRANSACTIONS_PER_ACCOUNT,
   fitsOpeningCents,
   fitsTransactionCents,
@@ -150,7 +151,7 @@ interface Model {
   counts: Map<string, number>;
   recurring: Map<string, RecurringState>;
   /** The imports the batch names, and whether each was undone (one not here doesn't exist) */
-  imports: Map<string, { undone: boolean }>;
+  imports: Map<string, { undone: boolean; accountId: string | null }>;
   /** The day the person's month starts on (read only when the batch sets a budget) */
   monthStart: number;
   /**
@@ -366,9 +367,32 @@ function changeStatements(
       ];
     }
     case 'updateAccount': {
-      onlyFields(change, ['op', 'id', 'name', 'kind', 'openingCents']);
+      onlyFields(change, ['op', 'id', 'name', 'kind', 'openingCents', 'importId']);
       const account = isRowId(change.id) ? model.accounts.get(change.id) : undefined;
       if (account == null) throw new Refused(404, NOT_FOUND);
+      // Part of an import, to keep its older rows from counting twice: only the opening
+      // balance of the account its file went into. What it changes by is kept on the import
+      // (worked out before the opening balance changes), for its Undo to take back.
+      const importId = 'importId' in change ? readImport(model, change.importId) : null;
+      const byImport: D1PreparedStatement[] = [];
+      if (importId != null) {
+        if (!('openingCents' in change) || 'name' in change || 'kind' in change) {
+          throw new Refused(400, 'An import changes only an opening balance');
+        }
+        if (model.imports.get(importId)?.accountId !== change.id) {
+          throw new Refused(409, "An import changes only its own account's opening balance");
+        }
+        byImport.push(
+          db
+            .prepare(
+              `UPDATE imports
+               SET opening_change_cents = opening_change_cents + ?1 -
+                 (SELECT opening_cents FROM accounts WHERE email = ?2 AND id = ?3)
+               WHERE email = ?2 AND id = ?4`,
+            )
+            .bind(readOpening(change.openingCents), email, change.id, importId),
+        );
+      }
       const sets: string[] = [];
       const values: (string | number)[] = [];
       if ('name' in change) {
@@ -388,6 +412,7 @@ function changeStatements(
       }
       if (sets.length === 0) throw new Refused(400, 'Nothing to change');
       return [
+        ...byImport,
         db
           .prepare(
             `UPDATE accounts SET ${sets.join(', ')}, updated_at = ? WHERE email = ? AND id = ?`,
@@ -713,7 +738,7 @@ function changeStatements(
       }
       const added = readImportCount(record.addedCount);
       const skipped = readImportCount(record.skippedCount);
-      model.imports.set(record.id, { undone: false });
+      model.imports.set(record.id, { undone: false, accountId });
       return [
         db
           .prepare(
@@ -732,6 +757,18 @@ function changeStatements(
       if (record.undone) return [];
       record.undone = true;
       return [
+        // The opening balance it changed goes back by as much, so a change made by hand
+        // since stays; kept within an opening balance's limit
+        db
+          .prepare(
+            `UPDATE accounts
+             SET opening_cents = MAX(-?1, MIN(?1, opening_cents - i.opening_change_cents)),
+                 updated_at = ?2
+             FROM imports i
+             WHERE i.email = ?3 AND i.id = ?4 AND i.opening_change_cents != 0
+               AND accounts.email = i.email AND accounts.id = i.account_id`,
+          )
+          .bind(MAX_TRANSACTION_CENTS, now, email, change.id),
         db
           .prepare('DELETE FROM transactions WHERE email = ? AND import_id = ?')
           .bind(email, change.id),
@@ -1393,11 +1430,11 @@ export async function applyChanges(
       ? { results: [] }
       : db
           .prepare(
-            `SELECT id, undone_at AS undoneAt FROM imports
+            `SELECT id, undone_at AS undoneAt, account_id AS accountId FROM imports
              WHERE email = ? AND id IN (SELECT value FROM json_each(?))`,
           )
           .bind(email, JSON.stringify([...importIds]))
-          .all<{ id: string; undoneAt: number | null }>(),
+          .all<{ id: string; undoneAt: number | null; accountId: string | null }>(),
   ]);
   const model: Model = {
     accounts: new Map(
@@ -1412,7 +1449,9 @@ export async function applyChanges(
         { ...r, archived: archived === 1, amountVaries: amountVaries === 1 },
       ]),
     ),
-    imports: new Map(imports.results.map((r) => [r.id, { undone: r.undoneAt != null }])),
+    imports: new Map(
+      imports.results.map((r) => [r.id, { undone: r.undoneAt != null, accountId: r.accountId }]),
+    ),
     // A budget is set from the person's month (shared/period.ts)
     monthStart: budgeting ? await readMonthStart(db, email) : 1,
     today: repeating || askingToday ? await readToday(db, email, now) : utcDay(now),

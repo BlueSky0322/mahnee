@@ -709,6 +709,19 @@ describe('the first run', () => {
     await user.click(await screen.findByRole('button', { name: /^Card/ }));
     const dialog = within(await screen.findByRole('dialog', { name: 'Add account' }));
     expect(dialog.getByRole<HTMLInputElement>('radio', { name: 'Card' }).checked).toBe(true);
+    // What the opening balance is, and that older entries imported later can adjust it
+    expect(
+      dialog.getByText(
+        "What's owed on the first day you'll track. Importing older transactions later? We'll offer to adjust it.",
+      ),
+    ).toBeTruthy();
+    await user.click(dialog.getByRole('radio', { name: 'Bank' }));
+    expect(
+      dialog.getByText(
+        "Your balance on the first day you'll track. Importing older transactions later? We'll offer to adjust it.",
+      ),
+    ).toBeTruthy();
+    await user.click(dialog.getByRole('radio', { name: 'Card' }));
     await user.type(dialog.getByRole('textbox', { name: 'Name' }), 'Visa');
     await user.type(dialog.getByRole('textbox', { name: 'Amount owed' }), '120');
     await user.click(dialog.getByRole('button', { name: 'Add account' }));

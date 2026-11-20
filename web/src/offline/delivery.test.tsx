@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { get } from 'idb-keyval';
+import { get, set } from 'idb-keyval';
 import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Account, ChangesBody } from '@shared/api';
 import type { FakeServer } from '../testing/app';
@@ -15,6 +15,7 @@ import {
   renderApp,
   setupAppTests,
 } from '../testing/app';
+import { LAST_EMAIL_KEY } from './cache';
 import { outboxKey } from './outbox';
 
 // Changes made without a connection: shown at once, kept on the device through a reload,
@@ -496,5 +497,125 @@ describe('someone else signing in on this device', () => {
     expect(await keptForRyan()).toHaveLength(1);
     answer.release();
     await waitFor(async () => expect(await keptForRyan()).toEqual([]));
+  });
+});
+
+describe('what happens once the connection is back', () => {
+  test.each(SIZES)(
+    'without background sync, says to open Mahnee to finish (%s)',
+    async (size) => {
+      const server = fakeServer();
+      seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
+      renderApp(server, '/?accounts', { size });
+      await row('Wallet');
+      goOffline(server);
+      // Nothing waiting yet: only that changes are kept
+      expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
+      expect(screen.queryByText(/finish syncing/)).toBeNull();
+      await rename('Wallet', 'Purse');
+      await addAccount('Savings');
+      expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
+      expect(await screen.findByText('Open Mahnee when connected to finish syncing.')).toBeTruthy();
+    },
+    15_000,
+  );
+
+  test('with background sync, says they are sent even with the app closed', async () => {
+    vi.stubGlobal('SyncManager', class {});
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
+    renderApp(server, '/?accounts', { size: 'phone' });
+    await row('Wallet');
+    goOffline(server);
+    await rename('Wallet', 'Purse');
+    expect(
+      await screen.findByText("It's sent when the connection is back, even with Mahnee closed."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/finish syncing/)).toBeNull();
+  });
+});
+
+describe('reviewing the rest of a large import', () => {
+  const WALLET = 'a'.repeat(16);
+  const IMPORT = 'f'.repeat(16);
+  const entry = (n: number) => ({
+    cid: `c${n}`.padEnd(16, '0'),
+    group: 'c0'.padEnd(16, '0'),
+    change: {
+      op: 'addTransaction',
+      importId: IMPORT,
+      transaction: {
+        id: n.toString(16).padStart(16, 'e'),
+        kind: 'expense',
+        accountId: WALLET,
+        toAccountId: null,
+        amountCents: 100,
+        categoryId: null,
+        payee: `Row ${n}`,
+        note: null,
+        date: '2026-01-05',
+      },
+    },
+    currency: 'MYR',
+  });
+  /** What waits of an import, refused: its rows from `from` on, and its opening change */
+  async function heldImport(server: FakeServer, from: number, withRecord: boolean) {
+    seed(server, { id: WALLET, name: 'Wallet' });
+    const first = withRecord ? 'c0'.padEnd(16, '0') : `c${from}`.padEnd(16, '0');
+    const refused = { reason: 'Enter an amount', set: first };
+    const record = {
+      cid: 'c0'.padEnd(16, '0'),
+      group: 'c0'.padEnd(16, '0'),
+      change: {
+        op: 'addImport',
+        import: {
+          id: IMPORT,
+          fileName: 'bank.csv',
+          accountId: WALLET,
+          addedCount: 3,
+          skippedCount: 0,
+        },
+      },
+      currency: 'MYR',
+      refused,
+    };
+    const rows = [from, from + 1].map((n) => ({ ...entry(n), refused }));
+    const opening = {
+      cid: 'c9'.padEnd(16, '0'),
+      group: 'c0'.padEnd(16, '0'),
+      change: { op: 'updateAccount', id: WALLET, openingCents: 5000, importId: IMPORT },
+      currency: 'MYR',
+      refused,
+    };
+    localStorage.setItem(LAST_EMAIL_KEY, RYAN);
+    await set(outboxKey(RYAN), {
+      email: RYAN,
+      value: [...(withRecord ? [record] : []), ...rows, opening],
+    });
+  }
+
+  test('warns that discarding leaves part of the import, and points to Undo import', async () => {
+    const server = fakeServer();
+    await heldImport(server, 2, false);
+    renderApp(server, '/?accounts', { size: 'phone' });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Review' }));
+    const item = within(within(await dialog()).getByRole('listitem'));
+    expect(
+      item.getByText(
+        'Part of this import is saved already. Discarding leaves that part in, without its opening balance change. To take the whole import back, use Undo import in Settings › Import and export.',
+      ),
+    ).toBeTruthy();
+  });
+
+  test('says nothing more when none of the import is saved yet', async () => {
+    const server = fakeServer();
+    await heldImport(server, 1, true);
+    renderApp(server, '/?accounts', { size: 'phone' });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Review' }));
+    const item = within(within(await dialog()).getByRole('listitem'));
+    expect(item.getByText('Enter an amount')).toBeTruthy();
+    expect(item.queryByText(/Part of this import/)).toBeNull();
   });
 });

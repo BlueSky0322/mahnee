@@ -631,14 +631,45 @@ export async function fetchTransactionPage(
   return shown;
 }
 
+/** How long a read from the device waits for the profile (offline, from the device's copy) */
+const PROFILE_WAIT_MS = 5000;
+
+/** Resolves once a profile is shown, or after PROFILE_WAIT_MS without one */
+function profileShown(): Promise<void> {
+  if (queryClient.getQueryData(ME_KEY) != null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      stop();
+      resolve();
+    };
+    const timer = setTimeout(done, PROFILE_WAIT_MS);
+    const stop = queryClient.getQueryCache().subscribe(() => {
+      if (queryClient.getQueryData(ME_KEY) != null) done();
+    });
+  });
+}
+
 /** A page of a list from the history on this device, or null when it holds none of it */
-function pageOnDevice(key: TransactionsKey, before: string | null) {
+async function pageOnDevice(key: TransactionsKey, before: string | null) {
   const [, by, value] = key;
+  // Opened offline straight onto a list, the profile (which says what currency amounts are
+  // in) may still be on its way: read nothing until it's known
+  if (homeCurrency() == null) await profileShown();
   if (by === 'account') return localAccountPage(value, before, homeCurrency());
   const query = readSearch(new URLSearchParams(value));
-  if ('error' in query) return Promise.resolve(null);
-  const categories = queryClient.getQueryData<Ledger>(LEDGER_KEY)?.categories ?? [];
-  const accounts = confirmed?.accounts.map((a) => a.id) ?? [];
+  if ('error' in query) return null;
+  // Opened offline straight onto Activity, the ledger may still be on its way: its copy kept
+  // on the device says which accounts' history to read meanwhile, once the profile says
+  // which currency amounts are in (a history kept in another one isn't read as current)
+  const ledger =
+    confirmed ??
+    (homeCurrency() == null
+      ? null
+      : queryClient.getQueryData<Ledger>(LEDGER_KEY) ?? (await readCache<Ledger>(CACHE_KEY)));
+  const categories =
+    queryClient.getQueryData<Ledger>(LEDGER_KEY)?.categories ?? ledger?.categories ?? [];
+  const accounts = ledger?.accounts.map((a) => a.id) ?? [];
   return localSearchPage(query, categories, accounts, homeCurrency(), before, SEARCH_PAGE_SIZE);
 }
 
@@ -684,7 +715,7 @@ export async function transactionsSince(
     const kept = await readCache<TransactionPage>(pageCacheKey(accountId));
     const loaded = queryClient.getQueryData<Pages>(key)?.pages ?? [];
     // The history on this device, as far as it goes
-    const local = await localSince(accountId, fromDay);
+    const local = await localSince(accountId, fromDay, homeCurrency());
     const byId = new Map(
       [
         ...(local?.transactions ?? []),

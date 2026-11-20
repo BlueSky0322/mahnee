@@ -5,8 +5,19 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { Profile } from '../api';
 import { ApiError, api } from '../api';
 import { ME_KEY, queryClient } from '../query-client';
-import { isOfflineFailure } from '../offline/network';
-import { editOutbox } from '../offline/outbox';
+import { isOffline, isOfflineFailure } from '../offline/network';
+import { editOutbox, isRetryable } from '../offline/outbox';
+import {
+  canWait,
+  dropUnsent,
+  eachField,
+  keepUnsent,
+  keepUnsentUnder,
+  readUnsent,
+  settleUnsent,
+  unsentNow,
+  withPatch,
+} from './unsent';
 import {
   assumeLastUser,
   cacheUser,
@@ -17,6 +28,7 @@ import {
   setCacheUser,
   signInAddress,
   writeCache,
+  writeCacheAs,
 } from '../offline/cache';
 import { isAccent } from '@shared/accents';
 import { isTimeZone } from '@shared/settings';
@@ -143,6 +155,12 @@ export function useCurrency() {
 export const nameFor = (email: string, displayName?: string | null) =>
   displayName?.trim() || email.split('@')[0];
 
+/**
+ * Keeps a profile the server answered with as the device's copy, for whoever it's for,
+ * only while they're the one signed in here
+ */
+const keepCopy = (profile: Profile) => void writeCacheAs(profile.email, ME_CACHE_KEY, profile);
+
 /** Cloudflare Access sent the request to sign in: the session ran out */
 const isSignInAnswer = (err: unknown) => err instanceof ApiError && err.status === 401;
 
@@ -167,6 +185,7 @@ export async function signOut() {
   // in again; what's still waiting to be sent goes. If the device can't be written, it all
   // stays, still theirs alone.
   if (leaving != null) {
+    await dropUnsent(leaving);
     await editOutbox(leaving, (kept) => kept.filter((q) => q.refused != null)).catch(
       () => undefined,
     );
@@ -177,6 +196,8 @@ export async function signOut() {
 
 export function ProfileProvider({ children }: { children: ReactNode }) {
   const fromDevice = useRef(false);
+  // Sends what was changed here without a connection (set below, once update's parts are)
+  const sendUnsent = useRef<() => Promise<void>>(async () => {});
   const [signInToSync, setSignInToSync] = useState(false);
   // Whose saved copies were shown while the server couldn't say who's signed in
   const assumed = useRef<string | null>(null);
@@ -187,15 +208,18 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     if (email == null) return undefined;
     assumed.current = email;
     const saved = await readCache<Profile>(ME_CACHE_KEY);
-    // Kept before some settings (or the picture) existed: those have their defaults
-    return (
-      saved && {
+    if (saved == null) return undefined;
+    // Kept before some settings (or the picture) existed: those have their defaults. What
+    // was changed here and not sent yet goes on top.
+    return withPatch(
+      {
         ...saved,
         picture: saved.picture ?? null,
         googlePicture: saved.googlePicture ?? false,
         settings: { ...DEFAULT_SETTINGS, ...saved.settings },
         conversion: saved.conversion ?? null,
-      }
+      },
+      await readUnsent(email),
     );
   }, []);
 
@@ -235,6 +259,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         // now: start afresh as the person signed in
         if (shown != null && shown !== me.email) window.location.reload();
         void writeCache(ME_CACHE_KEY, me);
+        // What was changed here without a connection goes back over the server's older
+        // copy once this answer is shown, and is sent
+        setTimeout(() => void sendUnsent.current(), 0);
         return me;
       } catch (err) {
         answered = true;
@@ -268,10 +295,12 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const unreachable = error != null && !signedOut;
   const retry = useCallback(() => void refetch(), [refetch]);
 
-  // Back online: fetch the real profile if this one came from the device
+  // Back online: fetch the real profile if this one came from the device (which sends what
+  // was changed meanwhile), else send what was changed meanwhile
   useEffect(() => {
     const refresh = () => {
       if (fromDevice.current) void queryClient.invalidateQueries({ queryKey: ME_KEY });
+      else void sendUnsent.current();
     };
     window.addEventListener('online', refresh);
     return () => window.removeEventListener('online', refresh);
@@ -331,6 +360,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       try {
         const saved = await save();
         const now = profileRef.current;
+        // The server's copy is kept on the device too, so opening the app offline later
+        // shows this change, not the profile as it was before
+        if (saved && typeof saved !== 'function') keepCopy(saved);
         if (saved && now != null && id === latest.current) {
           replace(typeof saved === 'function' ? saved(now) : saved);
         }
@@ -342,18 +374,88 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     [replace],
   );
 
+  // The name and preferences: shown at once and kept on the device for the account until
+  // the server has them, so without a connection (or signed in no longer) they wait and are
+  // sent once it's back, surviving the app being closed. A save the server answers with
+  // anything else is undone, and rejects for the caller to say so.
   const update = useCallback(
-    (patch: ProfilePatch) =>
-      change(
-        (current) => ({
-          ...current,
-          ...('displayName' in patch ? { displayName: patch.displayName ?? null } : {}),
-          settings: { ...current.settings, ...patch.settings },
-        }),
-        () => api.updateMe(patch),
-      ),
-    [change],
+    async (patch: ProfilePatch) => {
+      const current = profileRef.current;
+      if (current == null) return;
+      if (!canWait(patch)) {
+        return change(
+          (p) => withPatch(p, patch),
+          () => api.updateMe(patch),
+        );
+      }
+      const { email } = current;
+      const id = ++latest.current;
+      replace(withPatch(current, patch));
+      // Kept on the device before it's sent while the browser says there's no connection;
+      // online it's sent straight away, and kept only if that finds no connection
+      const offline = isOffline();
+      const kept = offline && (await keepUnsent(email, patch));
+      try {
+        const saved = await api.updateMe(patch);
+        if (kept) await settleUnsent(email, patch);
+        keepCopy(saved);
+        if (id === latest.current) replace(withPatch(saved, unsentNow(email)));
+      } catch (err) {
+        const waiting = isOfflineFailure(err) || isSignInAnswer(err);
+        // A change made since (kept offline, say) is newer: this one goes under it
+        const keep = id === latest.current ? keepUnsent : keepUnsentUnder;
+        if (waiting && (kept || (await keep(email, patch)))) return;
+        if (kept) await settleUnsent(email, patch);
+        if (id === latest.current) replace(current);
+        throw err;
+      }
+    },
+    [change, replace],
   );
+
+  // Sends what was changed here and waits, once there's a connection: taken off the device
+  // once saved, and shown as the server has it with anything changed since on top. One the
+  // server refuses is let go, the server's profile shown, and said; anything else keeps it
+  // for next time.
+  const sending = useRef(false);
+  sendUnsent.current = async () => {
+    const email = cacheUser();
+    if (email == null || sending.current) return;
+    const unsent = await readUnsent(email);
+    if (unsent == null) return;
+    sending.current = true;
+    // Shown at once over whatever copy is showing, before the server has it
+    if (profileRef.current?.email === email) replace(withPatch(profileRef.current, unsent));
+    const asked = latest.current;
+    /** Sends a patch: whether to carry on (saved or refused), false to keep the rest waiting */
+    const send = async (patch: ProfilePatch, alone: boolean): Promise<boolean> => {
+      try {
+        const saved = await api.updateMe(patch);
+        await settleUnsent(email, patch);
+        keepCopy(saved);
+        if (asked === latest.current && profileRef.current?.email === email) {
+          replace(withPatch(saved, await readUnsent(email)));
+        }
+        return true;
+      } catch (err) {
+        if (isRetryable(err)) return false;
+        // Refused: one field at a time, so only what the server won't take is let go
+        if (!alone) {
+          for (const one of eachField(patch)) if (!(await send(one, true))) return false;
+          return true;
+        }
+        await settleUnsent(email, patch);
+        showError(err, 'Could not save your settings');
+        void queryClient.invalidateQueries({ queryKey: ME_KEY });
+        return true;
+      }
+    };
+    try {
+      await send(unsent, eachField(unsent).length === 1);
+    } finally {
+      sending.current = false;
+    }
+  };
 
   // The picture shown in place of the initial. A chosen photo shows from this device until
   // the server has kept it (then the server's copy, which the browser loads); one refused

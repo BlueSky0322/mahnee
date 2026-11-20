@@ -298,7 +298,7 @@ describe('Plan: budgets and where it went', () => {
       await waitFor(() =>
         expect(items(within(budgets).getByRole('list'))).toEqual([
           'Food RM 266.00 left RM 84.00 of RM 350.00 incl. RM 50.00 carried over',
-          'Transport RM 10.00 over RM 30.00 of RM 20.00 · over',
+          'Transport RM 10.00 over RM 30.00 of RM 20.00',
           'Shopping RM 10.00 left RM 150.00 of RM 160.00 · faster than the month',
         ]),
       );
@@ -371,17 +371,20 @@ describe('Plan: budgets and where it went', () => {
       'Budget, with today marked',
       'Left',
     ]);
-    // Largest first, then the categories with nothing this month, in their order
+    // Largest first, then the categories with nothing this month, in their order. Bills is
+    // open beside the table, so it alone offers Set a budget; the others say No budget, and
+    // a row with nothing this month says nothing more than its 0.00.
     expect(tableRows(table)).toEqual([
       'Bills Rent | 1,200.00 | Set a budget',
-      'Groceries 3 entries | 180.00 | Set a budget',
+      'Groceries 3 entries | 180.00 | No budget',
       'Shopping 2 entries | 150.00 | 10.00',
       'Food Dining out, Coffee · carries over | 84.00 | 266.00',
       'Transport Petrol | 30.00 | 10.00 over',
-      'Health 1 entry | 6.00 | Set a budget',
-      'Fun Arcade | 0.50 | Set a budget',
-      'Other Nothing this month | 0.00 | Set a budget',
+      'Health 1 entry | 6.00 | No budget',
+      'Fun Arcade | 0.50 | No budget',
+      'Other | 0.00 | No budget',
     ]);
+    expect(within(table).getAllByRole('button', { name: 'Set a budget' })).toHaveLength(1);
     for (const name of ['Food: 24% spent', 'Transport: 150% spent', 'Shopping: 94% spent']) {
       expect(within(table).getByRole('meter', { name })).toBeTruthy();
     }
@@ -437,11 +440,16 @@ describe('Plan: budgets and where it went', () => {
     const groceries = within(table)
       .getAllByRole('row')
       .find((row) => text(row).startsWith('Groceries'))!;
-    await user.click(within(groceries).getByRole('button', { name: 'Set a budget' }));
+    // Not open yet: it says No budget, and picking it brings its one action
+    expect(within(groceries).queryByRole('button', { name: 'Set a budget' })).toBeNull();
+    await user.click(within(groceries).getByRole('button', { name: 'Groceries' }));
+    await user.click(await within(groceries).findByRole('button', { name: 'Set a budget' }));
     const pane_ = await pane('Groceries');
     const field = within(pane_).getByLabelText<HTMLInputElement>('Monthly budget');
     await waitFor(() => expect(document.activeElement).toBe(field));
+    // Empty, with no sample amount that could pass for a real one
     expect(field.value).toBe('');
+    expect(field.getAttribute('placeholder')).toBeNull();
     await user.type(field, '200{Enter}');
 
     // At once on screen: RM 180.00 of RM 200.00 by day 10 of 30 is ahead of the month
@@ -679,7 +687,7 @@ describe('Plan: budgets and where it went', () => {
         await waitFor(() =>
           expect(tableRows(table)[0]).toBe('Food 1 entry · carries over | 250.00 | 50.00'),
         );
-        expect(tableRows(table)).toContain('Bills Nothing in October | 0.00');
+        expect(tableRows(table)).toContain('Bills | 0.00 | No budget');
       }
       const income = await screen.findByRole('region', { name: 'Income' });
       await waitFor(() => expect(text(income)).toBe('Income RM 0.00'));
@@ -741,6 +749,9 @@ describe('Plan: budgets and where it went', () => {
       const dialog = within(await screen.findByRole('dialog', { name: 'Edit category' }));
       const field = dialog.getByLabelText<HTMLInputElement>('Monthly budget');
       await waitFor(() => expect(document.activeElement).toBe(field));
+      // Empty, with no sample amount that could pass for a real one
+      expect(field.value).toBe('');
+      expect(field.getAttribute('placeholder')).toBeNull();
       await user.type(field, '250{Enter}');
       await waitFor(() =>
         expect(server.budgets).toEqual([
@@ -797,7 +808,7 @@ describe('Plan: budgets and where it went', () => {
   });
 
   test.each(SIZES)(
-    'with spending but no budgets, offers one on every category (%s)',
+    'with spending but no budgets, offers one Set a budget, for the category picked (%s)',
     async (size) => {
       tenthJustAfterMidnight();
       const server = aPlannedMonth();
@@ -811,10 +822,91 @@ describe('Plan: budgets and where it went', () => {
       } else {
         const table = await expensesTable();
         await waitFor(() => expect(tableRows(table)).toHaveLength(8));
-        expect(within(table).getAllByRole('button', { name: 'Set a budget' })).toHaveLength(8);
+        expect(within(table).getAllByRole('button', { name: 'Set a budget' })).toHaveLength(1);
+        expect(within(table).getAllByText('No budget')).toHaveLength(7);
+        expect(within(table).queryByText(/^Nothing/)).toBeNull();
         expect(screen.queryByRole('heading', { name: 'No budgets yet' })).toBeNull();
       }
       expect(screen.queryAllByRole('meter')).toEqual([]);
+    },
+  );
+
+  test('on a computer, sets several budgets one after another, each from its own row', async () => {
+    tenthJustAfterMidnight();
+    const server = aPlannedMonth();
+    server.budgets = [];
+    renderApp(server, '/?plan', { size: 'desktop' });
+    const user = userEvent.setup();
+    const table = await expensesTable();
+    const rowOf = (name: string) =>
+      within(table)
+        .getAllByRole('row')
+        .find((row) => text(row).startsWith(name))!;
+    for (const [name, typed] of [
+      ['Groceries', '200'],
+      ['Health', '50'],
+      ['Other', '30'],
+    ] as const) {
+      await user.click(within(rowOf(name)).getByRole('button', { name }));
+      await user.click(await within(rowOf(name)).findByRole('button', { name: 'Set a budget' }));
+      const field = within(await pane(name)).getByLabelText<HTMLInputElement>('Monthly budget');
+      await waitFor(() => expect(document.activeElement).toBe(field));
+      await user.type(field, `${typed}{Enter}`);
+    }
+    await waitFor(() =>
+      expect(tableRows(table)).toEqual([
+        'Bills Rent | 1,200.00 | No budget',
+        'Groceries 3 entries · carries over | 180.00 | 20.00',
+        'Shopping 2 entries | 150.00 | No budget',
+        'Food Dining out, Coffee | 84.00 | No budget',
+        'Transport Petrol | 30.00 | No budget',
+        'Health 1 entry · carries over | 6.00 | 44.00',
+        'Fun Arcade | 0.50 | No budget',
+        // Other is open beside the table
+        'Other Carries over | 0.00 | 30.00',
+      ]),
+    );
+    await waitFor(() =>
+      expect(budgetsOf(server).map((b) => [b.categoryId, b.amountCents])).toEqual([
+        [GROCERIES, 20_000],
+        [HEALTH, 5_000],
+        [id('Other'), 3_000],
+      ]),
+    );
+  });
+
+  test.each(SIZES)(
+    'tells no budget, exactly on budget and over budget apart in words, not colour alone (%s)',
+    async (size) => {
+      tenthJustAfterMidnight();
+      const server = aPlannedMonth();
+      // Groceries: RM 180.00 of RM 180.00; Transport: RM 30.00 of RM 20.00; Health: none
+      server.budgets = [
+        { categoryId: GROCERIES, fromMonth: '2026-11', amountCents: 18_000, carryOver: false },
+        { categoryId: TRANSPORT, fromMonth: '2026-11', amountCents: 2_000, carryOver: false },
+      ];
+      renderApp(server, '/?plan', { size });
+      if (size === 'phone') {
+        const budgets = await budgetsRegion();
+        await waitFor(() =>
+          expect(items(within(budgets).getByRole('list'))).toEqual([
+            'Transport RM 10.00 over RM 30.00 of RM 20.00',
+            'Groceries RM 0.00 left RM 180.00 of RM 180.00 · faster than the month',
+          ]),
+        );
+      } else {
+        const table = await expensesTable();
+        await waitFor(() =>
+          expect(tableRows(table).filter((r) => /^(Groceries|Transport|Health)/.test(r))).toEqual([
+            'Groceries 3 entries | 180.00 | 0.00',
+            'Transport Petrol | 30.00 | 10.00 over',
+            'Health 1 entry | 6.00 | No budget',
+          ]),
+        );
+      }
+      expect(screen.getByRole('meter', { name: 'Groceries: 100% spent' })).toBeTruthy();
+      expect(screen.getByRole('meter', { name: 'Transport: 150% spent' })).toBeTruthy();
+      expect(screen.queryByRole('meter', { name: /^Health/ })).toBeNull();
     },
   );
 

@@ -337,6 +337,12 @@ export interface Original {
   at: number;
   /** For an earlier day's rate, the calendar day it's from (2026-11-12), the same everywhere */
   day?: string;
+  /**
+   * Only on the device, before it's saved: typed offline with no rate known here, so its
+   * amount is 0 (out of every total) and its rate a placeholder until the server converts it
+   * at the entry's own day's rate. Never sent or stored.
+   */
+  pending?: true;
 }
 
 /** Where an entry from Scheduled came from, and whether its amount is still to check */

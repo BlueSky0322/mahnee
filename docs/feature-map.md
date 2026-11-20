@@ -96,7 +96,12 @@ the profile, keeps a device copy, and owns every change through
 `useProfile().change(show, save)` (the picture through `changePicture`, which shows a
 chosen photo from the device until the server has kept it), which shows the change at once and undoes it if
 `save` fails (the caller says what went wrong). `rememberSettings` does the same for a
-preference and explains a failure itself.
+preference and explains a failure itself. The name and preferences (`update`, so
+`rememberSettings` too) are kept on the device first, for the account they're made as
+([profile/unsent.ts](../web/src/profile/unsent.ts), `profile-outbox:<email>`, one merged
+patch): without a connection, or signed out, they stay shown and wait, through the app
+being closed, and are sent on the `online` event or once `/api/me` answers; any other
+failure undoes them as before. The picture and the home currency still need a connection.
 
 **Parts.**
 
@@ -177,6 +182,19 @@ preference and explains a failure itself.
 - A profile kept on the device from before a setting existed opens with that setting's
   default (`ProfileContext.tsx`).
 - A stale save answer never overwrites a newer change (`ProfileContext.tsx`).
+- What waits to be sent is shown over the server's profile and over the device's copy of
+  it, so an older copy never replaces a newer preference; each server answer to a save is
+  kept as the device's copy, so a preference saved online shows when the app is next
+  opened offline. A field changed again while one was on its way stays to send. A waiting
+  patch is kept for its own account when someone else signs in here (`UNSENT_PREFIXES`)
+  and dropped on signing out, which asks first, naming the settings ("Your change to Start
+  with hasn't been saved yet. Signing out removes it from this device."). Each change to it
+  reads and writes it under a lock per person (`mahnee-profile-outbox:<email>`), so quick
+  changes never lose one another; a save on its way when the connection drops is kept
+  under any change made since, never over it. A waiting patch the server refuses is sent again a field
+  at a time, so only the field it won't take is let go (and said). Sending it twice changes
+  nothing, so it carries no ids. The service worker doesn't send it: the app does when next
+  open.
 - Theme and accent are also kept in `localStorage` (`sf-appearance`), so the first
   screen paints in the right colours before the profile loads.
 - Each stored accent is drawn in its own colour ([theme/theme.ts](../web/src/theme/theme.ts),
@@ -311,9 +329,9 @@ browser refusing, blocked, the server refusing, no notifications, an iPhone, sig
 **What it is.** The places a person's money is: cash, bank accounts, cards and
 e-wallets, each with its balance, listed on Accounts (`?accounts`, R-Accounts). Until the first one is
 added, the first run asks where the money is kept (see Home at a glance). Accounts opens with "All together" (every running account's
-balance, less what's owed on cards), what's in accounts and what's owed (a part left out
-when there's no account of its kind), then "Cash, banks and e-wallets" and "Cards", each
-with its total, and the archived ones behind "Archived · N", each with the day it was
+balance, less what's owed on cards), what's in accounts and what's owed, then "Cash, banks
+and e-wallets" and "Cards", each with its total. With no card the breakdown would only
+repeat the total, so it is left out: the total, then each balance on its row. Then the archived ones behind "Archived · N", each with the day it was
 archived ("E-wallet · archived Aug 14"; just "archived" for one archived before the day was
 kept). Archived accounts count in no total. List amounts have no RM; a card's says owed (or
 in credit). On a phone or tablet a row opens the account's own page (`?account=<id>`,
@@ -770,7 +788,8 @@ Scheduled).
 - Budgets (phone and tablet): "Budgets Day 10 of 30" with "Budget" (Categories, where a
   budget is set on a phone); each budget "RM 584.78 left" (or "RM 40.00 over"), a bar named
   "Food: 27% spent" with a marker for how much of the month has gone (this month only),
-  "RM 215.22 of RM 800.00" with " · faster than the month" or " · over" (amber or red), and
+  "RM 215.22 of RM 800.00" with " · faster than the month" (amber; over says so once, by
+  what's left, in red), and
   "Carry over on", or "incl. RM 50.00 carried over" when something carried. None this
   month: "No budgets yet", "A monthly amount per category, with a bar for what's left." and
   "Set a budget".
@@ -788,11 +807,13 @@ Scheduled).
   on a computer, where the one open is marked).
 - On a computer: "Expenses by category" ("RM 2,753.10 spent", "Edit categories"), a table of
   every category spent in (largest first) and every other listed top-level spending category
-  ("Nothing this month"): Category (its subcategories' names, payee or entries, " · carries
-  over"), Spent, "Budget, with today marked" (the bar, or "Set a budget" this month), Left
+  (its 0.00 says nothing was spent): Category (its subcategories' names, payee or entries,
+  " · carries over"), Spent, "Budget, with today marked" (the bar, or "No budget"; the row
+  open on the right offers "Set a budget" this month, which puts the cursor in its Monthly
+  budget, so picking row after row sets several), Left
   ("584.78", "40.00 over"). The category chosen (the first row unless the address names one,
   `?plan&category=<id>`, which picking a row replaces) is open on the right, with its
-  budget changed in place this month: "Monthly budget" (saved on Enter or on leaving the
+  budget changed in place this month: "Monthly budget" (empty when none, no sample amount; saved on Enter or on leaving the
   field when changed; emptied, it's taken away; what can't be a budget says why and sends
   nothing) and a "Carry over" switch (sent at once, the amount kept; off without a budget).
   With no budgets and nothing spent, the same cards as a phone.
@@ -1066,8 +1087,8 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   marker for how much of the month has gone, and "RM 24.00 of RM 60.00 · faster than the
   month" (on track, faster than the month, or over; amber when faster, with a warning icon on
   a phone, the negative colour when over). "All of Plan" opens Plan. None: "No budgets yet." with
-  "Set a budget" (only while Getting started isn't offering its own, one way in to each
-  step left; `?settings=categories&budget`, where budgets are set: it says "Choose an
+  "Set a budget" (only once it's known that Getting started isn't offering its own, one way
+  in to each step left; `?settings=categories&budget`, where budgets are set: it says "Choose an
   expense category to set its monthly budget", and the category opened has Monthly budget
   ready to type, the first one opened only; Getting started's and Plan's "Set a budget" go
   there too).
@@ -1086,7 +1107,9 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   their words; no Tidy up, Coming up or Getting started.
 - With no account: the first run, in place of everything (no tab bar or sidebar): "Where
   do you keep your money?", Bank, E-wallet, Card and Cash, each opening Add account with
-  that kind chosen, and how many categories it comes with, worked out from the defaults.
+  that kind chosen. How many categories it comes with is said on Categories, worked out
+  from the defaults, and adding a bank's account before its CSV beside Import (Settings ›
+  Data).
 
 Home shows (Look and start, owner decision D13): "Everything" is all of the above;
 "Essentials" is the month-end figure (or what an earlier month left), what's due now (Log
@@ -1095,11 +1118,12 @@ next scheduled item and any whose amount is to check (`essentialRows` in home-te
 the calendar and the budgets are left out, on every size. The theme is chosen in Settings ›
 Look and start; installing the app is offered on Settings › My account only.
 
-On a phone (under 768px), Essentials is the glance (owner audit, 2026-11-20) in place of the
-month end, which Everything keeps; tablets and computers are as above:
+On a phone (under 768px), Essentials is the glance (owner audit, 2026-11-20), the month end
+a quiet line in it and its breakdown in Everything; tablets and computers are as above:
 
 - "Spent so far" and the month's expenses to today, large (`spentSoFar` over `spentByDay`, the
-  person's month), opening `?activity&kind=expense&from=<first day>&to=<today>`.
+  person's month), opening `?activity&kind=expense&from=<first day>&to=<today>`. Under it,
+  this month only, "Expected at month end RM 16,681.50", opening `?plan=scheduled`.
 - "Today RM 57.00 · RM 18.00 above median" ("below median", "at median" on a tie, even at a
   median of RM 0.00), against the calendar's median daily spend from the first day through
   today, days with nothing counted; a tap shows "Median daily spend RM 39.00 · Nov 1 to Nov
@@ -1118,7 +1142,9 @@ month end, which Everything keeps; tablets and computers are as above:
   with the changes still to send on top, so an entry made offline moves them all at once.
   Offline, when the device doesn't hold every day (History offline), the week's biggest says
   "These days aren't on this device yet" and Recent activity which days it shows, never a
-  zero or a biggest it can't know.
+  zero or a biggest it can't know. Without the month's totals (offline, never kept), "Couldn't
+  load this month." takes the month figures' place and the week and days still show. An entry
+  waiting for a rate is listed as typed with "conversion pending" and isn't a biggest.
 
 **Owner.** No state of its own: it reads the ledger (`useWholeLedger`, `useAccounts`), this
 month's and last month's totals (`useMonthSummary`) and the person's settings
@@ -1445,7 +1471,14 @@ changing it (its first due date the next one after the person's own today).
   `triggers.crons`, `*/15 * * * *`, shared with reminders, see Reminders). Each run works out each
   stored time zone's day from the run's scheduled time and adds every occurrence whose day
   has begun where its person is: an entry dated that day, "from Scheduled", and "amount to
-  check" when the item's amount changes. Missed runs are caught up from the item's next due
+  check" when the item's amount changes. Offline, the device can't hear of those: each
+  occurrence of an item that doesn't ask first, due on or before today in its copy of the
+  ledger, shows in Home's Due now as projected ("Scheduled, adds when back online", no
+  buttons; `addedOnReturn` in `forecast.ts`), never queued, so once back the server's one
+  entry replaces it. It's worked out as the run does: by the day in the person's stored
+  time zone (none without one), skipping items on an archived account or category and
+  while converting, at most `MAX_POSTED_PER_ITEM` of one item and `MAX_POSTED_PER_RUN` in
+  all. Missed runs are caught up from the item's next due
   date, oldest first, at most 31 occurrences of one item and 200 entries a run; the rest
   come in the runs after. Someone with no stored time zone is left until the app sends one.
 - **Asks first (D19, "Ask once, then automatic").** An item that was overdue when 0009 ran,
@@ -1884,6 +1917,8 @@ is shown, marked `fromDevice`.
   preview and on the server.
 - An amount asked about is at most `MAX_AMOUNT`; a rate outside `MIN_RATE` to `MAX_RATE`
   is never used.
+- A service answering that it has no rate for a pair (Frankfurter 404 or 422, Wise 400,
+  404 or 422) is not down: with every service answering so and no copy kept, it's `NoRate`.
 - An earlier day's rate is the ECB's for that day (the working day before, on a
   weekend), else Wise's (its history covers TWD and VND), else the closest earlier day
   either has within `MAX_EARLIER_DAYS` (7), else today's. Its time (`rate_at`) is always on
@@ -2005,6 +2040,21 @@ deleted entries back as they were typed. Travel sense is
 **Invariants.**
 
 - One conversion path: the server converts on saving; the app's figure is a preview.
+- Offline with no rate for the pair on the device (one never asked for here), a one-off
+  entry still saves as typed: Add says
+  "Conversion pending: converted at the rate of Nov 12 once online", and until saved the
+  entry shows "−THB 120.00" with "conversion pending" (its `original.pending`, the device's
+  alone) and counts as 0 in every total. The server converts it on saving at the entry's
+  own day's rate, as any typed entry. A repeating one still needs a rate, and so does any
+  entry online: a rate that can't be had with a connection still reads "Needs a rate for
+  JPY". Edited offline (amount, day), it stays pending on its new day (`sendEdit`); deleted,
+  Undo puts it back pending. Activity and an account's page say "Leaves out 1 entry waiting
+  for a rate" while one is listed. The server refuses (400, "No rate for ISK to MYR is
+  available", kept for Review) a pair no service has a rate for on the day, the days before
+  it or today; a service that's down is 503, tried again. Offline Activity
+  reads which accounts' history to search from the kept ledger, after waiting up to 5
+  seconds for the profile, when it opens before the ledger has loaded. History is never
+  read while the currency amounts are in isn't known.
 - What was typed is kept (currency, cents, rate, source, when), and an entry converted past
   `MAX_TRANSACTION_CENTS` is refused; Add says "Comes to more than 10,000,000 MYR" first.
   Typed in another currency, the figure may go past `MAX_TRANSACTION` (an IDR 15,000,000
@@ -2047,7 +2097,12 @@ is back, even with the app closed. The offline notice says so on the due tint ("
 Your changes are kept on this phone.", "this device" from 768px, "this computer" from
 1024px, by width as the layout goes; the tablet word is the run's); how many wait is the
 label's to say. It offers Sign in when the session ran out, and warns when the device can't
-keep changes, those two with how many are waiting.
+keep changes, those two with how many are waiting. Offline with changes waiting, a second
+line says what happens once back (the count stays the label's): "Open Mahnee when
+connected to finish syncing." where the browser has no Background Sync (Safari, Firefox),
+else "They're sent when the connection is back, even with Mahnee closed." Review warns,
+beside the held rest of an import whose first rows were saved already, that discarding
+leaves that part in (without its opening balance change) and to use Undo import instead.
 
 **Owner.**
 

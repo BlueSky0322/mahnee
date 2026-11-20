@@ -67,7 +67,8 @@ export function againstMedian(
 
 /**
  * The largest single expense from `from` to `to` (both included), among `transactions`;
- * of two the same, the later one (they come newest first); null for none
+ * of two the same, the later one (they come newest first); null for none. One still
+ * waiting for a rate isn't known in the home currency yet, so it's left out.
  */
 export function biggestSpend(
   transactions: readonly Transaction[],
@@ -76,7 +77,8 @@ export function biggestSpend(
 ): Transaction | null {
   let best: Transaction | null = null;
   for (const t of transactions) {
-    if (t.kind !== 'expense' || t.date < from || t.date > to) continue;
+    // One typed offline with no rate yet counts as nothing, as totals count it
+    if (t.kind !== 'expense' || t.original?.pending || t.date < from || t.date > to) continue;
     if (best == null || t.amountCents > best.amountCents) best = t;
   }
   return best;

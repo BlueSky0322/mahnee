@@ -435,9 +435,14 @@ describe('the offline notice', () => {
       expect(notice.textContent?.trim()).toBe(text);
 
       await addAccount('Savings');
-      // The count is the label's to say; the notice reads the same
+      // The count is the label's to say; the notice adds what happens once back (this
+      // browser has no Background Sync)
       expect(await screen.findByText('Offline · 1 change waiting to save')).toBeTruthy();
-      expect((await screen.findByRole('status')).textContent?.trim()).toBe(text);
+      await waitFor(async () =>
+        expect((await screen.findByRole('status')).textContent?.trim()).toBe(
+          `${text}Open Mahnee when connected to finish syncing.`,
+        ),
+      );
     },
   );
 });

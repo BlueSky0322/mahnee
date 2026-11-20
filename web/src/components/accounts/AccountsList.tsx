@@ -26,7 +26,8 @@ const LOADING_ROWS = 3;
 
 // Accounts' list (R-Accounts, R-Desk-Accounts): all together, what's in accounts and what's
 // owed, then cash, banks and e-wallets and the cards, each with its total, and the archived
-// ones behind "Archived · N". On a phone a row opens the account's own page; on a computer
+// ones behind "Archived · N". With no card the total is all there is to add up, so it shows
+// alone, and each balance once on its row: no breakdown repeating the same figure. On a phone a row opens the account's own page; on a computer
 // (`selected`) it opens beside the list, in the list's place in history.
 export default function AccountsList({ selected }: { selected?: string | null }) {
   const homeCurrency = useCurrency();
@@ -44,6 +45,8 @@ export default function AccountsList({ selected }: { selected?: string | null })
   const cards = running.filter((a) => a.kind === 'card');
   const currency = running[0]?.currency ?? homeCurrency;
   const totals = accountTotals(running);
+  // What's owed on cards is what makes the breakdown say more than the total
+  const breakdown = cards.length > 0;
   const open = (account: Account) => (e: MouseEvent) => {
     e.preventDefault();
     navigate(`?account=${account.id}`, { replace: desktop });
@@ -79,7 +82,7 @@ export default function AccountsList({ selected }: { selected?: string | null })
                 <span className={`${classes.inkFigure} sf-tabular`}>
                   {signedMoneyText(totals.togetherCents, currency)}
                 </span>{' '}
-                all together · {totalsLine(totals, currency)}
+                all together{breakdown && ` · ${totalsLine(totals, currency)}`}
               </p>
             </div>
           )}
@@ -108,7 +111,7 @@ export default function AccountsList({ selected }: { selected?: string | null })
           <p className={`${classes.together} sf-tabular`}>
             {signedMoneyText(totals.togetherCents, currency)}
           </p>
-          <p className={classes.soft}>{totalsLine(totals, currency)}</p>
+          {breakdown && <p className={classes.soft}>{totalsLine(totals, currency)}</p>}
         </div>
       )}
 
@@ -190,9 +193,11 @@ export default function AccountsList({ selected }: { selected?: string | null })
                 >
                   Cash, banks and e-wallets
                 </h2>
-                <span className={`${classes.groupTotal} sf-tabular`}>
-                  {groupText('have', totals.haveCents, currency)}
-                </span>
+                {breakdown && (
+                  <span className={`${classes.groupTotal} sf-tabular`}>
+                    {groupText('have', totals.haveCents, currency)}
+                  </span>
+                )}
               </div>
               <div className={classes.groupCard}>{rowsOf(have)}</div>
             </section>

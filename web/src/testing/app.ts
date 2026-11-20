@@ -599,7 +599,14 @@ function answerNow(server: FakeServer) {
         if (err instanceof TypedTooLarge) return json({ error: err.message }, 400);
         throw err;
       }
-      if (typed == null) return json({ error: 'No rate right now' }, 503);
+      // No rate for a pair is refused, as the real one does when every service answers
+      // without one (a service down is the real one's 503)
+      if ('missing' in typed) {
+        return json(
+          { error: `No rate for ${typed.missing} to ${server.me.settings.currency} is available` },
+          400,
+        );
+      }
       const refusal = saveChanges(server, typed.body);
       if (refusal != null) return json({ error: refusal[1] }, refusal[0]);
       for (const [id, original] of typed.originals) {
@@ -1694,12 +1701,12 @@ class TypedTooLarge extends Error {
 /**
  * Changes typed in a home currency the person has since left, with their amounts converted
  * into the home currency at their rate, as the real one does (worker/currency/typed-in.ts):
- * an entry's on its day, anything else today's. Null when a rate can't be had.
+ * an entry's on its day, anything else today's. Names the currency when a rate can't be had.
  */
 function typedInHome(
   server: FakeServer,
   body: Partial<ChangesBody>,
-): { body: Partial<ChangesBody>; originals: Map<string, Original | null> } | null {
+): { body: Partial<ChangesBody>; originals: Map<string, Original | null> } | { missing: string } {
   const { changes, currencies } = body;
   // What each entry saved was typed as: null for one whose amount was typed in the home
   // currency, which lets go of what it was before
@@ -1765,7 +1772,7 @@ function typedInHome(
           ? null
           : { ...change, recurring: { ...change.recurring, amountCents: cents } };
     }
-    if (next == null) return null;
+    if (next == null) return { missing: from };
     converted.push(next);
   }
   return { body: { ...body, changes: converted }, originals };

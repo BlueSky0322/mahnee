@@ -75,6 +75,12 @@ describe('the glance', () => {
     ];
     expect(biggestSpend(list, '2026-11-16', '2026-11-20')).toBe(newer);
     expect(biggestSpend(list.slice(0, 2), '2026-11-16', '2026-11-20')).toBeNull();
+    // Typed offline in another currency, still waiting for a rate: not known yet
+    const waiting = t('2026-11-20', 0, {
+      original: { currency: 'THB', cents: 50_000, rate: 0, source: 'wise', at: 0, pending: true },
+    });
+    expect(biggestSpend([waiting, newer], '2026-11-16', '2026-11-20')).toBe(newer);
+    expect(biggestSpend([waiting], '2026-11-16', '2026-11-20')).toBeNull();
   });
 
   test('entries by day, newest day first, keeping each day’s order', () => {

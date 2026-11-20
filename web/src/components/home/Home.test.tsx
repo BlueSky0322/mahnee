@@ -844,12 +844,14 @@ describe('the first run', () => {
       for (const words of [
         'Mahnee',
         "Add each one with today's balance. No bank login.",
-        'Comes with 8 expense and 2 income categories. Edit them any time.',
-        "Importing a bank's CSV? Add that account first.",
         'Works offline',
       ]) {
         expect(screen.getByText(words)).toBeTruthy();
       }
+      // The kinds explain the choice: the categories are told of on Categories, and the
+      // CSV hint beside Import
+      expect(screen.queryByText(/categories/i)).toBeNull();
+      expect(screen.queryByText(/CSV/)).toBeNull();
       expect(
         screen.getAllByRole('button', { name: /^(Bank|E-wallet|Card|Cash)/ }).map(text),
       ).toEqual([

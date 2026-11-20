@@ -30,6 +30,7 @@ import { useBackDismiss } from '../../hooks/useBackDismiss';
 import { useIsDesktop, useIsMobile, useIsShort } from '../../hooks/useBreakpoints';
 import { useRate } from '../../hooks/useRate';
 import { change, changeTyped } from '../../ledger/ledger';
+import { isOffline } from '../../offline/network';
 import { lastUsed, recentCategoryIds, rememberUsed } from '../../ledger/last-used';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
 import { useProfile, useCurrency } from '../../profile/ProfileContext';
@@ -341,11 +342,23 @@ function AddForm({
       : quote == null
         ? null
         : Math.max(1, convertCents(total, quote.rate));
+  // Offline with no rate on this device (a pair never asked for here): saved as typed, its
+  // conversion pending until the server makes it at the entry's own day's rate. Only for
+  // want of a connection: online, a rate that can't be had still stops Add. Not for a
+  // repeating one, whose amount is needed as it's set up.
+  const conversionPending =
+    elsewhere &&
+    total > 0 &&
+    quote == null &&
+    repeat === '' &&
+    (rate.fetchStatus === 'paused' || (rate.isError && isOffline()));
   const rateReason =
     !elsewhere || total <= 0
       ? null
       : quote == null
-        ? `Needs a rate for ${typedIn}`
+        ? conversionPending
+          ? null
+          : `Needs a rate for ${typedIn}`
         : estimate! > MAX_TRANSACTION_CENTS
           ? `Comes to more than ${MAX_TRANSACTION.toLocaleString('en')} ${currency}`
           : null;
@@ -454,28 +467,41 @@ function AddForm({
     }
     if (!elsewhere) change(...changes);
     else {
-      // Sent as typed; shown until saved at the rate this device has, saying what was typed
-      const original: Original = {
-        currency: typedIn,
-        cents: total,
-        rate: quote!.rate,
-        source: quote!.source,
-        at: quote!.fetchedAt,
-        ...(quote!.day != null && { day: quote!.day }),
-      };
+      // Sent as typed; shown until saved at the rate this device has, saying what was typed,
+      // or with no rate here, at nothing and marked as pending
+      const original: Original =
+        quote == null
+          ? {
+              currency: typedIn,
+              cents: total,
+              rate: 0,
+              source: 'wise',
+              at: Date.parse(`${day}T12:00:00Z`),
+              day,
+              pending: true,
+            }
+          : {
+              currency: typedIn,
+              cents: total,
+              rate: quote.rate,
+              source: quote.source,
+              at: quote.fetchedAt,
+              ...(quote.day != null && { day: quote.day }),
+            };
+      const shownCents = quote == null ? 0 : estimate!;
       const shown = changes.map((c): LedgerChange => {
         if (c.op === 'addTransaction') {
           return {
             ...c,
             transaction: {
               ...c.transaction,
-              amountCents: estimate!,
+              amountCents: shownCents,
               original,
             } as typeof c.transaction,
           };
         }
         if (c.op === 'addRecurring') {
-          return { ...c, recurring: { ...c.recurring, amountCents: estimate! } };
+          return { ...c, recurring: { ...c.recurring, amountCents: shownCents } };
         }
         return c;
       });
@@ -723,7 +749,11 @@ function AddForm({
   const lines =
     elsewhere && total > 0 ? (
       <div className={classes.rateLines}>
-        {quote == null ? (
+        {conversionPending ? (
+          <span className={classes.rateHint}>
+            {`Conversion pending: converted at the rate of ${shortDay(day)} once online`}
+          </span>
+        ) : quote == null ? (
           !rate.isPending && (
             <span className={classes.rateHint}>
               {`No rate for ${typedIn} yet. Connect to fetch one.`}

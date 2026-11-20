@@ -39,6 +39,17 @@ export interface Rate {
 export class RatesUnavailable extends Error {}
 
 /**
+ * Every service answered, and none has a rate for the pair (nor a copy kept): asking again
+ * won't find one, so a change needing it is refused rather than tried again. Still a
+ * RatesUnavailable for everything that only needs to know there's no rate.
+ */
+export class NoRate extends RatesUnavailable {
+  constructor(from: string, to: string) {
+    super(`No rate for ${from} to ${to} is available`);
+  }
+}
+
+/**
  * The services were asked as often as one conversion step or request may (RateLookups):
  * the rest wait for the next step, or the change is tried again
  */
@@ -130,6 +141,8 @@ async function fromWise(env: RatesEnv, from: string, to: string, deps: Deps) {
     headers: { Authorization: `Bearer ${env.WISE_TOKEN}` },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
+  // Wise has no rate for the pair, as for an earlier day's (noRateFor); anything else is it failing
+  if (noRateFor(res.status)) return null;
   if (!res.ok) throw new Error(`Wise rates: ${res.status}`);
   const body = await res.json<{ rate?: unknown }[]>();
   return isValidRate(body[0]?.rate) ? body[0].rate : null;
@@ -209,6 +222,7 @@ export async function getRate(
 
   // The ECB doesn't publish every currency, so the other service is always the fallback
   const order = [prefer, ...RATE_PREFERENCES.filter((p) => p !== prefer)];
+  let down = false;
   for (const preference of order) {
     const source = RATE_PROVIDERS[preference];
     let rate: number | null;
@@ -217,6 +231,7 @@ export async function getRate(
     } catch (err) {
       if (err instanceof LookupsSpent) throw err;
       console.error(err);
+      down = true;
       continue;
     }
     if (rate == null) continue;
@@ -227,6 +242,7 @@ export async function getRate(
 
   // Both down: an older rate beats none
   if (saved) return saved;
+  if (!down) throw new NoRate(from, to);
   throw new RatesUnavailable(`No rate for ${from} to ${to} right now`);
 }
 

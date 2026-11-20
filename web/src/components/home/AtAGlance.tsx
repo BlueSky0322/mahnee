@@ -10,7 +10,8 @@ import { isOffline } from '../../offline/network';
 import { useCurrency } from '../../profile/ProfileContext';
 import { dayHeading, monthHeading } from '../../utils/date-input';
 import { formatMoney } from '../../utils/money';
-import { fullDay, headlineAmount, onDeviceLine, shortDay } from '../activity/activity-text';
+import { SIGNS, fullDay, headlineAmount, onDeviceLine, shortDay } from '../activity/activity-text';
+import { CONVERSION_PENDING, typedAmount } from '../common/typed-amount';
 import { categoryName } from '../common/category-name';
 import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
 import Skeleton from '../ui/Skeleton';
@@ -416,7 +417,9 @@ function Recent({
                         : classes.recentAmount
                     }
                   >
-                    {headlineAmount(t, currency)}
+                    {t.original?.pending
+                      ? `${typedAmount(t, SIGNS[t.kind])} · ${CONVERSION_PENDING}`
+                      : headlineAmount(t, currency)}
                   </span>
                 </button>
               </li>

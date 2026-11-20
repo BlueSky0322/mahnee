@@ -445,6 +445,14 @@
 }
 
 /* Reached from Set a budget: what to do next */
+.intro {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .budgetPrompt {
   margin: 0;
   padding: 12px 14px;

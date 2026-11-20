@@ -518,7 +518,6 @@ function BudgetField({
           input: classes.budgetInput,
         }}
         inputMode="decimal"
-        placeholder="300"
         value={shownText}
         error={error}
         onChange={(e) => {

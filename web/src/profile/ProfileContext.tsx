@@ -424,8 +424,10 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     const unsent = await readUnsent(email);
     if (unsent == null) return;
     sending.current = true;
-    // Shown at once over whatever copy is showing, before the server has it
-    if (profileRef.current?.email === email) replace(withPatch(profileRef.current, unsent));
+    // Shown at once over whatever copy is showing, before the server has it: the copy as
+    // last set, not as last drawn, since the server's answer may not be drawn yet
+    const shown = queryClient.getQueryData<Profile>(ME_KEY);
+    if (shown?.email === email) replace(withPatch(shown, unsent));
     const asked = latest.current;
     /** Sends a patch: whether to carry on (saved or refused), false to keep the rest waiting */
     const send = async (patch: ProfilePatch, alone: boolean): Promise<boolean> => {
@@ -433,7 +435,10 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         const saved = await api.updateMe(patch);
         await settleUnsent(email, patch);
         keepCopy(saved);
-        if (asked === latest.current && profileRef.current?.email === email) {
+        if (
+          asked === latest.current &&
+          queryClient.getQueryData<Profile>(ME_KEY)?.email === email
+        ) {
           replace(withPatch(saved, await readUnsent(email)));
         }
         return true;

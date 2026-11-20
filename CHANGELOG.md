@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-20
 
+- Fixed: a preference changed offline and not sent yet stays shown when the app opens online, even before the server takes it [#?]
 - Changed: a phone's Essentials Home shows spent so far, today against the median, the week's biggest spend and the last 7 days; Getting started folds what's done [#67]
 - Changed: Plan says No budget with one Set a budget for the category picked; Accounts and the first run stop repeating figures and hints [#66]
 - Fixed: offline, an entry in a currency with no rate on the device saves as typed with "conversion pending", preferences are kept and sent once back, scheduled items due show as projected, and the offline notice says how to finish syncing [#65]

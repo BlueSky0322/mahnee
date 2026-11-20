@@ -183,7 +183,9 @@ failure undoes them as before. The picture and the home currency still need a co
   default (`ProfileContext.tsx`).
 - A stale save answer never overwrites a newer change (`ProfileContext.tsx`).
 - What waits to be sent is shown over the server's profile and over the device's copy of
-  it, so an older copy never replaces a newer preference; each server answer to a save is
+  it, so an older copy never replaces a newer preference, whichever of the device's read,
+  the server's answer being drawn and a held save comes first (it goes on the profile as
+  last set, not as last drawn); each server answer to a save is
   kept as the device's copy, so a preference saved online shows when the app is next
   opened offline. A field changed again while one was on its way stays to send. A waiting
   patch is kept for its own account when someone else signs in here (`UNSENT_PREFIXES`)
@@ -239,7 +241,8 @@ failing, again only when it changes, nothing from elsewhere),
 host only: no lookalike, sign-in, port or redirect; the size cut off as it streams), [App.test.tsx](../web/src/App.test.tsx) (who's
 signed in, signed out, unreachable, saving the theme and undoing a failed save),
 [profile/time-zone.test.tsx](../web/src/profile/time-zone.test.tsx) (the time zone sent
-at start), the profile cases in [worker/test/api.test.ts](../worker/test/api.test.ts), and
+at start), [profile/pending-wins.test.tsx](../web/src/profile/pending-wins.test.tsx) (a
+waiting preference over the server's older profile, read before or after it is drawn), the profile cases in [worker/test/api.test.ts](../worker/test/api.test.ts), and
 [worker/test/migrations.test.ts](../worker/test/migrations.test.ts) (0007 on rows from
 before, and every CHECK against what the API takes).
 

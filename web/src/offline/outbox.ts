@@ -366,7 +366,7 @@ export const classifySaveFailure = (err: unknown): 'refused' | 'retry' =>
 
 /**
  * Answers that say nothing about the change: signed out (401), took too long (408, tried
- * again a few times only: see TIMEOUT_TRIES), too early for something in between (425),
+ * less often after TIMEOUT_TRIES in a row), too early for something in between (425),
  * busy (429). A 413 with the server's reason is one change over the size it takes: refused.
  */
 const RETRY_STATUSES = new Set([401, 408, 425, 429]);
@@ -375,8 +375,8 @@ const RETRY_STATUSES = new Set([401, 408, 425, 429]);
 export const isTimedOut = (err: unknown) => err instanceof ApiError && err.status === 408;
 
 /**
- * How many times in a row a request may take too long before its changes are held for the
- * person, with why, rather than tried for ever (waiting 3, 6, 12 and 24 seconds between)
+ * How many times in a row a request may take too long (waiting 3, 6, 12 and 24 seconds
+ * between) before it's tried only every few minutes; its changes keep waiting
  */
 export const TIMEOUT_TRIES = 5;
 

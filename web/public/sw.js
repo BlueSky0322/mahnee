@@ -590,8 +590,8 @@ async function post(path, body, account) {
   // The same rule as isRetryable in web/src/offline/outbox.ts: busy, a problem on the
   // server's side, or signed out. Nothing wrong with what was sent.
   // A 408 is left to the browser, which tries background sync again a few times, waiting
-  // longer each time; the app holds one that keeps timing out (TIMEOUT_TRIES). A 413 with
-  // the server's reason is one change over the size it takes: refused, below.
+  // longer each time; the app then tries it less often (TIMEOUT_TRIES). A 413 with the
+  // server's reason is one change over the size it takes: refused, below.
   if ([401, 408, 425, 429].includes(res.status) || res.status >= 500) {
     throw new TryLater(`HTTP ${res.status}`);
   }

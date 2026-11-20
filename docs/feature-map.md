@@ -406,9 +406,9 @@ minute; offline it waits for the connection, and a 401 or `account_mismatch` wai
 the person to be back (the connection returning, the page shown again or restored),
 since a timer would only fail. A 425, or any 4xx without the server's own reason in
 JSON (a page from Cloudflare Access, a proxy or a deploy in between), is tried again the
-same way, so it never holds changes back. A 408 is tried again too, but after
-`TIMEOUT_TRIES` (5) in a row its batch is treated as refused (halved, then held with the
-reason); a 413 with the server's reason is one change over the size it takes, refused. The server refuses a batch whole
+same way, so it never holds changes back. A 408 is tried again too, and after
+`TIMEOUT_TRIES` (5) in a row only every 5 minutes, its changes still waiting (a slow
+connection, not a refusal); a 413 with the server's reason is one change over the size it takes, refused. The server refuses a batch whole
 (any other 4xx, with its reason), so a
 refused batch of several groups is halved, and halved again, until the group it refuses
 is found. That group, every later change naming something it adds (an entry on an

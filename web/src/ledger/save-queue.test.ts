@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from 'vitest';
-import type { ChangesBody, LedgerChange } from '@shared/api';
+import type { ChangesBody, LedgerChange, Transaction } from '@shared/api';
 import { MAX_CHANGES, isRowId } from '@shared/api';
 import { ApiError, NetworkError } from '../api';
 import { clearCache, setCacheUser } from '../offline/cache';
@@ -719,12 +719,18 @@ describe('the save queue, when the server says a change is too large or too slow
     ]);
   });
 
-  test('a request that keeps taking too long is tried again, waiting longer, then held with why', async () => {
+  test('a request that keeps taking too long keeps waiting, tried less often, never held', async () => {
     controlTimers();
     const slow = new ApiError(408, 'Took too long to send', 'Took too long to send');
-    const { send, sent } = answering(() => Promise.reject(slow));
+    let answer: Error | null = slow;
+    const sent: LedgerChange[][] = [];
+    const send = vi.fn((body: ChangesBody) => {
+      sent.push(body.changes);
+      return answer ? Promise.reject(answer) : Promise.resolve({ ok: true });
+    });
     const { queue, events } = await openQueue(send);
     queue.add([editIn(ACCOUNT_A)]);
+    queue.add([expense('1', ACCOUNT_B)]);
     await moveOn(0);
     expect(sent).toHaveLength(1);
     for (const wait of [3, 6, 12, 24].map((s) => s * 1000)) {
@@ -733,14 +739,80 @@ describe('the save queue, when the server says a change is too large or too slow
       await moveOn(1);
       expect(sent.length).toBe(before + 1);
     }
-    // The fifth time, it's held for the person rather than tried for ever
-    await vi.waitFor(() =>
-      expect(queue.needsAttention()).toEqual([
-        expect.objectContaining({ reason: 'Took too long to send', changes: [editIn(ACCOUNT_A)] }),
-      ]),
-    );
-    expect(events.failed).toHaveBeenCalledWith(slow);
-    await moveOn(10 * 60_000);
+    // Five in a row: still waiting, as on a slow connection, and tried every 5 minutes
+    expect(queue.needsAttention()).toEqual([]);
+    expect(events.failed).not.toHaveBeenCalled();
+    expect(queue.state()).toMatchObject({ waiting: 2, refused: 0 });
+    expect(sent.every((batch) => batch.length === 2)).toBe(true);
+    await moveOn(5 * 60_000 - 1);
     expect(sent).toHaveLength(5);
+    answer = null;
+    await moveOn(1);
+    await vi.waitFor(async () => expect(await kept()).toEqual([]));
+    expect(sent).toHaveLength(6);
+  });
+});
+
+describe('the save queue, with an import that changes the opening balance', () => {
+  /** An import as Import sends it: recorded first, its entries, the opening change last */
+  function importOf(count: number, bad: number): LedgerChange[] {
+    const id = 'i'.repeat(16);
+    const entry = (expense('0', ACCOUNT_A) as unknown as { transaction: Transaction }).transaction;
+    return [
+      {
+        op: 'addImport',
+        import: {
+          id,
+          fileName: 'bank.csv',
+          accountId: ACCOUNT_A,
+          addedCount: count,
+          skippedCount: 0,
+        },
+      },
+      ...Array.from(
+        { length: count },
+        (_, i): LedgerChange => ({
+          op: 'addTransaction',
+          importId: id,
+          transaction: {
+            ...entry,
+            id: i.toString(16).padStart(16, '0'),
+            amountCents: i === bad ? 0 : 100,
+          },
+        }),
+      ),
+      { op: 'updateAccount', id: ACCOUNT_A, openingCents: 5000, importId: id },
+    ];
+  }
+  const refusesZero = (c: LedgerChange) =>
+    c.op === 'addTransaction' && c.transaction.amountCents === 0 ? 'Enter an amount' : null;
+
+  test('a refused entry holds the whole import, its opening change too; others still go', async () => {
+    const changes = importOf(3, 1);
+    const online = server(refusesZero);
+    const { queue, events } = await openQueue(online.send);
+    queue.add(changes);
+    queue.add([expense('9', ACCOUNT_B)]);
+    await vi.waitFor(() => expect(events.idle).toHaveBeenCalled());
+    expect(online.has()).toEqual([expense('9', ACCOUNT_B)]);
+    expect(queue.needsAttention()).toEqual([
+      expect.objectContaining({ reason: 'Enter an amount', changes }),
+    ]);
+  });
+
+  test('refused past its first request, the rest of the import and its opening change wait', async () => {
+    const changes = importOf(MAX_CHANGES + 50, MAX_CHANGES + 10);
+    const online = server(refusesZero);
+    const { queue, events } = await openQueue(online.send);
+    queue.add(changes);
+    await vi.waitFor(() => expect(events.idle).toHaveBeenCalled());
+    // The first request was saved; the opening balance wasn't changed for rows not added
+    const first = online.send.mock.calls[0][0].changes.length;
+    expect(first).toBeLessThan(MAX_CHANGES + 10);
+    expect(online.has()).toEqual(changes.slice(0, first));
+    expect(queue.needsAttention()).toEqual([
+      expect.objectContaining({ changes: changes.slice(first) }),
+    ]);
+    expect(online.has().some((c) => c.op === 'updateAccount')).toBe(false);
   });
 });

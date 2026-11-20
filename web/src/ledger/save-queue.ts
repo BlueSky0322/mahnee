@@ -37,7 +37,8 @@ import { newId } from '../utils/id';
 // - Signed out, or signed in as someone else now: kept, and tried again on coming back
 //   to the app or the connection coming back, since a timer would only fail until then.
 // - Too large for the server (a 413 with its reason): refused, as below. Taking too long
-//   (408): tried again as above, and held as a refused one is after TIMEOUT_TRIES in a row.
+//   (408): tried again as above, and every 5 minutes after TIMEOUT_TRIES in a row, still
+//   waiting (a slow connection says nothing against the changes).
 // - Refused: the server says no to a whole request, so requests are halved until the
 //   change it refuses is found. That change, the rest of what was made with it and what
 //   was made on top of it are kept, with the server's reason, for the person to try again
@@ -50,6 +51,8 @@ import { newId } from '../utils/id';
 /** Retries wait this long, doubling each time up to the most */
 export const RETRY_DELAY_MS = 3000;
 const MAX_RETRY_DELAY_MS = 60_000;
+/** How long to wait between tries once the server has taken too long TIMEOUT_TRIES times in a row */
+const SLOW_RETRY_DELAY_MS = 5 * 60_000;
 
 export interface SaveQueueEvents {
   /** Sends one batch; resolves once it's saved, rejects if it's refused or never arrives */
@@ -349,14 +352,7 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
           try {
             await events.send(changesBody(batch));
           } catch (err) {
-            if (mine !== round) throw err;
-            // One that keeps taking too long is held, as a refusal is, after a few tries
-            if (isTimedOut(err)) timeouts++;
-            const refused =
-              classifySaveFailure(err) === 'refused' ||
-              (isTimedOut(err) && timeouts >= TIMEOUT_TRIES);
-            if (!refused) throw err;
-            timeouts = 0;
+            if (mine !== round || classifySaveFailure(err) !== 'refused') throw err;
             refusal = err;
             // The server refuses a request whole: halved until the change it refuses is found
             if (groupsIn(batch) > 1) {
@@ -421,7 +417,13 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
     signedOut = isSignedOut(err);
     changed();
     if (isOffline() || signedOut || isOtherAccount(err)) return;
-    const delay = Math.min(MAX_RETRY_DELAY_MS, RETRY_DELAY_MS * 2 ** failures++);
+    // Taking too long again and again is a slow connection, not the changes: they keep
+    // waiting, tried less often
+    timeouts = isTimedOut(err) ? timeouts + 1 : 0;
+    const delay =
+      timeouts >= TIMEOUT_TRIES
+        ? SLOW_RETRY_DELAY_MS
+        : Math.min(MAX_RETRY_DELAY_MS, RETRY_DELAY_MS * 2 ** failures++);
     timer = setTimeout(() => void run(), delay);
   }
 

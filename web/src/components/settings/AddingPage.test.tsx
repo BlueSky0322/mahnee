@@ -97,7 +97,7 @@ async function openAdd(server: FakeServer, size: (typeof SIZES)[number]) {
 
 /** The payees Add's field suggests, or null when it names no list */
 function suggested(form: Within) {
-  const field = form.getByLabelText<HTMLInputElement>('Payee or note');
+  const field = form.getByLabelText<HTMLInputElement>('Payee');
   const listId = field.getAttribute('list');
   if (listId == null) return null;
   const list = document.getElementById(listId);

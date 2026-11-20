@@ -1,5 +1,5 @@
 import { Modal } from '@mantine/core';
-import { CalendarIcon, CloseIcon, DownIcon, ForwardIcon, RepeatIcon } from '../ui/icons';
+import { CalendarIcon, CloseIcon, DownIcon, ForwardIcon, NoteIcon, RepeatIcon } from '../ui/icons';
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { LedgerChange, Original } from '@shared/api';
@@ -16,6 +16,7 @@ import {
 } from '@shared/keypad';
 import type { TransactionKind } from '@shared/ledger';
 import {
+  MAX_NOTE,
   MAX_PAYEE,
   MAX_TRANSACTION,
   MAX_TRANSACTION_CENTS,
@@ -26,7 +27,7 @@ import { ENTRY_CURRENCIES, MAX_TYPED_CENTS, convertCents } from '@shared/rates';
 import type { Schedule } from '@shared/recurring';
 import { dayFor, nextAfter } from '@shared/recurring';
 import { useBackDismiss } from '../../hooks/useBackDismiss';
-import { useIsDesktop } from '../../hooks/useBreakpoints';
+import { useIsDesktop, useIsMobile, useIsShort } from '../../hooks/useBreakpoints';
 import { useRate } from '../../hooks/useRate';
 import { change, changeTyped } from '../../ledger/ledger';
 import { lastUsed, recentCategoryIds, rememberUsed } from '../../ledger/last-used';
@@ -70,10 +71,11 @@ import classes from './AddEntry.module.css';
 // with a keypad that works sums out in whole cents (shared/keypad.ts); on a computer it's a
 // dialog, "New entry", whose figure takes the same sums typed (R-Desk-Add). Which way it went;
 // the account it's From (Into, for income) and the category it's For (From), or for a
-// transfer the two accounts with their balances; the five recent categories as chips; one
-// "Payee or note" field, which fills the payee (owner decision D10: the note stays apart,
-// edited on the entry); Today (the day) and Repeat. Save says what it will do, or why it
-// can't yet. What's typed is kept as a draft on this device when Add is closed any way but
+// transfer the two accounts with their balances; the five recent categories as chips; the
+// Payee; Today (the day), Repeat and a Note, folded until wanted. Save says what it will do,
+// or why it can't yet (on a computer, the hint by the amount says it). On a short phone the
+// payee, the chips, the day, Repeat and the note fold under Details, which says what they
+// hold, so the amount, From and For, the keypad and Save show together. What's typed is kept as a draft on this device when Add is closed any way but
 // Save, and Add says so, with Discard draft to throw it away. It opens on the amount, or on the categories when the person chose to start with
 // the category (D9). Saving is one change() through the ledger and its outbox, a new
 // category first. The figure's currency is a pill before it, with an arrow: a tap opens every
@@ -227,6 +229,23 @@ function AddForm({
   });
   const [made, setMade] = useState<NewCategory | null>(draft?.newCategory ?? null);
   const [payee, setPayee] = useState(draft?.payee ?? '');
+  const [note, setNote] = useState(draft?.note ?? '');
+  const [showNote, setShowNote] = useState(note !== '');
+  // A short phone's optional details, folded until opened. Whether it folds is decided as
+  // Add opens, so the browser's bars or the keyboard changing the height never take away a
+  // field being typed in; tablets never fold.
+  const mobile = useIsMobile() === true;
+  const shortScreen = useIsShort() === true;
+  const shortNow = mobile && shortScreen && !desktop;
+  const [short] = useState(shortNow);
+  const [showDetails, setShowDetails] = useState(false);
+  const noteField = useRef<HTMLInputElement>(null);
+  const focusNote = useRef(false);
+  useEffect(() => {
+    if (!focusNote.current) return;
+    focusNote.current = false;
+    noteField.current?.focus();
+  });
   const [date, setDate] = useState<string | null>(draft?.date ?? null);
   // Ask for a time: the time Add was opened, until another is typed; what the day says is
   // what's saved
@@ -254,7 +273,7 @@ function AddForm({
   // Add account, over a transfer with nowhere to go; the one made is where it goes
   const [addingAccount, setAddingAccount] = useState(false);
   const [showRepeat, setShowRepeat] = useState(false);
-  const ids = { hint: useId(), way: useId() };
+  const ids = { hint: useId(), way: useId(), day: useId() };
   // A computer's For row, where the category is typed while its list is open
   const [forSlot, setForSlot] = useState<HTMLElement | null>(null);
   // A phone's entry under a list's sheet takes no focus or taps until the sheet closes
@@ -311,6 +330,9 @@ function AddForm({
   const today = toDateInput(new Date());
   const day = date ?? today;
   const dayOk = isPastDay(day);
+  // A day that can't be saved is never folded away: Details opens, and the day says why
+  const folded = short && !showDetails && dayOk;
+  const dateShown = showDate || !dayOk;
   const total = totalCents(keypad.expr);
   // In another currency: what it comes to in the home one, at the rate this device has
   const estimate =
@@ -345,7 +367,12 @@ function AddForm({
   // What's typed is kept as it changes, so Close, Back and Esc all keep it; an Add with
   // nothing typed in it keeps none, so what was used last still decides next time
   const typedSomething =
-    keypad.expr !== '' || payee.trim() !== '' || made != null || date != null || repeat !== '';
+    keypad.expr !== '' ||
+    payee.trim() !== '' ||
+    note.trim() !== '' ||
+    made != null ||
+    date != null ||
+    repeat !== '';
   // A currency picked alone isn't kept: next time opens as it would
   const kept: AddDraft = {
     kind,
@@ -355,6 +382,7 @@ function AddForm({
     categoryId: categoryKind == null ? null : listedOne(picked[categoryKind])?.id ?? null,
     newCategory,
     payee,
+    ...(note !== '' && { note }),
     date: dayOk ? date : null,
     repeat,
     ...(typedIn !== homeCurrency && { currency: typedIn }),
@@ -387,7 +415,7 @@ function AddForm({
       amountCents: total,
       categoryId: transfer ? null : categoryId ?? null,
       payee: readOptionalText(payee, MAX_PAYEE) ?? null,
-      note: null,
+      note: readOptionalText(note, MAX_NOTE) ?? null,
       date: day,
       ...(askForTime && { time }),
     };
@@ -758,7 +786,7 @@ function AddForm({
             total < 0 ? 'neg' : kind === 'income' ? 'pos' : keypad.expr === '' ? 'empty' : 'ink'
           }
         >
-          {amountShown(keypad)}
+          {desktop && keypad.expr === '' ? '0.00' : amountShown(keypad)}
         </span>
       </span>
       {/* A refused key is said as well as shown on Save: the live region speaks its content */}
@@ -802,7 +830,7 @@ function AddForm({
         <button
           type="button"
           className={classes.opt}
-          aria-expanded={showDate}
+          aria-expanded={dateShown}
           onClick={() => setShowDate((shown) => !shown)}
         >
           <CalendarIcon
@@ -824,14 +852,54 @@ function AddForm({
           />
           {REPEATS.find((r) => r.value === repeat && r.value !== '')?.label ?? 'Repeat'}
         </button>
+        <button
+          type="button"
+          className={classes.opt}
+          aria-expanded={showNote}
+          onClick={() => {
+            // A note typed is never hidden away unseen: Note goes back to it
+            if (note.trim() !== '') noteField.current?.focus();
+            else {
+              focusNote.current = !showNote;
+              setShowNote(!showNote);
+            }
+          }}
+        >
+          <NoteIcon
+            size={16}
+            aria-hidden
+          />
+          Note
+        </button>
       </div>
-      {showDate && (
+      {showNote && (
+        <label className={classes.dateRow}>
+          <span>Note</span>
+          <input
+            ref={noteField}
+            className={`${classes.input} ${classes.noteInput}`}
+            aria-label="Note"
+            placeholder="Optional"
+            value={note}
+            maxLength={MAX_NOTE}
+            autoComplete="off"
+            onChange={(e) => setNote(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              // Enter saves, as in any form, but only what can be saved
+              if (e.key === 'Enter' && !savable) e.preventDefault();
+            }}
+          />
+        </label>
+      )}
+      {dateShown && (
         <label className={classes.dateRow}>
           <span>Date</span>
           <input
             type="date"
             className={classes.input}
             aria-label="Date"
+            aria-invalid={!dayOk || undefined}
+            aria-describedby={dayOk ? undefined : ids.day}
             value={day}
             min="2000-01-01"
             max={today}
@@ -842,7 +910,16 @@ function AddForm({
           />
         </label>
       )}
-      {showDate && askForTime && (
+      {!dayOk && (
+        <p
+          id={ids.day}
+          role="alert"
+          className={classes.fieldError}
+        >
+          {BAD_DAY}
+        </p>
+      )}
+      {dateShown && askForTime && (
         <label className={classes.dateRow}>
           <span>Time</span>
           <input
@@ -885,13 +962,15 @@ function AddForm({
     </>
   );
 
+  // A computer's hint by the amount asks for one; its Save just says Save until then
+  const askForAmount = label === 'Type an amount';
   const save = (
     <button
       type="submit"
       className={desktop ? classes.saveSmall : classes.save}
       aria-disabled={!savable}
     >
-      {label}
+      {desktop && askForAmount ? 'Save' : label}
       {desktop && <Key>Enter</Key>}
     </button>
   );
@@ -918,20 +997,20 @@ function AddForm({
     </div>
   );
 
-  const note = (
+  const payeeRow = (
     <label className={classes.row}>
-      <span className={classes.k}>Note</span>
+      <span className={classes.k}>Payee</span>
       <input
         className={classes.note}
-        aria-label="Payee or note"
-        placeholder="Payee or note, optional"
+        aria-label="Payee"
+        placeholder="Optional"
         value={payee}
         maxLength={MAX_PAYEE}
         autoComplete="off"
         list={suggestions == null ? undefined : suggestionsId}
         onChange={(e) => setPayee(e.currentTarget.value)}
         onKeyDown={(e) => {
-          // Enter in the note saves, as in any form, but only what can be saved
+          // Enter in the payee saves, as in any form, but only what can be saved
           if (e.key === 'Enter' && !savable) e.preventDefault();
         }}
       />
@@ -946,6 +1025,34 @@ function AddForm({
         </datalist>
       )}
     </label>
+  );
+
+  // A short phone's: what's folded, said on the row that opens it
+  const held = [
+    payee.trim(),
+    date != null ? dayHeading(day) : '',
+    REPEATS.find((r) => r.value === repeat && r.value !== '')?.label ?? '',
+    note.trim() !== '' ? 'Note' : '',
+  ].filter((part) => part !== '');
+  const detailsRow = (
+    <button
+      type="button"
+      className={classes.row}
+      aria-expanded={!folded}
+      onClick={() => setShowDetails((shown) => !shown)}
+    >
+      <span className={classes.k}>Details</span>
+      <span className={`${classes.v} ${held.length === 0 ? classes.vQuiet : ''}`}>
+        <span className={classes.vText}>
+          {held.length === 0 ? 'Payee, day, repeat, note' : held.join(' · ')}
+        </span>
+      </span>
+      <DownIcon
+        size={16}
+        aria-hidden
+        className={`${classes.caret} ${folded ? '' : classes.caretUp}`}
+      />
+    </button>
   );
 
   // Drawn outside the entry's form, so its own Save sends nothing of the entry's
@@ -976,10 +1083,14 @@ function AddForm({
             />
           </div>
           {draftLine}
+          {way}
+          {/* The currency and the figure are one field: what's typed is worked out as shown */}
           <div className={classes.deskTop}>
-            {way}
-            {/* The figure is the field: what's typed is worked out as it's shown */}
-            <div className={classes.deskFigure}>
+            <div
+              role="group"
+              aria-label="Amount and currency"
+              className={classes.deskFigure}
+            >
               {pill}
               <label className={classes.deskAmount}>
                 <input
@@ -1001,23 +1112,23 @@ function AddForm({
                 {status}
               </label>
             </div>
+            <span
+              id={ids.hint}
+              className={classes.hint}
+            >
+              {askForAmount ? 'Type an amount. Sums work: 8+4.5' : 'Sums work: 8+4.5'}
+            </span>
           </div>
           {lines}
           {(picking === 'currency' || picking === 'today') && pickerShown}
           <div className={classes.fields}>
             {rows}
-            {note}
+            {payeeRow}
           </div>
           {picking === 'category' && pickerShown}
           {chips}
           {options}
           <div className={classes.deskFoot}>
-            <span
-              id={ids.hint}
-              className={classes.hint}
-            >
-              Sums work: 8+4.5
-            </span>
             <button
               type="button"
               className={classes.cancel}
@@ -1042,6 +1153,7 @@ function AddForm({
       <form
         aria-label="Add a transaction"
         className={classes.phoneForm}
+        data-short={short || undefined}
         onSubmit={submit}
         // Under a list's sheet, it's out of reach until the sheet closes
         ref={phoneForm}
@@ -1061,10 +1173,11 @@ function AddForm({
         {lines}
         <div className={classes.fields}>
           {rows}
-          {note}
+          {short && detailsRow}
+          {!folded && payeeRow}
         </div>
-        {chips}
-        {options}
+        {!folded && chips}
+        {!folded && options}
         <div className={classes.bottom}>
           <KeypadKeys onPress={(key) => setKeypad((state) => press(state, key, typedLimit))} />
           {save}

@@ -226,6 +226,8 @@ export const AlertIcon = icon(
   2,
 );
 export const TransferIcon = icon(<path d="M4 8h14l-3-3M20 16H6l3 3" />);
+/** A note: lines of writing on a page */
+export const NoteIcon = icon(<path d="M6 4h12v16H6zM9 9h6M9 13h6M9 17h3" />);
 export const TidyIcon = icon(<path d="M4 7h16M7 12h10M10 17h4" />);
 export const CalendarIcon = icon(
   <>

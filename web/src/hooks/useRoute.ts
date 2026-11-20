@@ -227,13 +227,34 @@ export function useLeaveGuard(guard: LeaveGuard | null) {
   }, []);
 }
 
-export function navigate(search: string, { replace = false, force = false } = {}) {
-  if (!force && leaveGuard?.(search, () => navigate(search, { replace, force: true }))) return;
+/**
+ * Set when the page about to show is one the person is coming back to (its place's tab,
+ * Back, or going up to it): it opens where it was left, rather than at the top
+ */
+let comingBack = false;
+
+/** Whether the page now showing was come back to; asked once per page shown */
+export function takeComingBack() {
+  const was = comingBack;
+  comingBack = false;
+  return was;
+}
+
+/**
+ * Opens `search`. replace: in this page's place in the history; back: the page is one
+ * being come back to, so it opens where it was left (a place's tab)
+ */
+export function navigate(search: string, { replace = false, force = false, back = false } = {}) {
+  if (!force && leaveGuard?.(search, () => navigate(search, { replace, force: true, back }))) {
+    return;
+  }
+  comingBack = back;
   const url = `${window.location.pathname}${search}`;
-  // A page opened from another remembers which, so going "up" can be Back
+  // A page opened from another remembers which, so going "up" can be Back; each visit has
+  // its own name, kept when a page takes its place
   const from = replace ? cameFrom() : window.location.search;
-  if (replace) window.history.replaceState({ from }, '', url);
-  else window.history.pushState({ from }, '', url);
+  if (replace) window.history.replaceState({ from, visit: visitOf() ?? newVisit() }, '', url);
+  else window.history.pushState({ from, visit: newVisit() }, '', url);
   window.dispatchEvent(new Event(ROUTE_CHANGE));
 }
 
@@ -246,7 +267,7 @@ export function goUp(address: string) {
     window.history.back();
     return;
   }
-  navigate(address, { replace: true });
+  navigate(address, { replace: true, back: true });
 }
 
 /**
@@ -262,6 +283,31 @@ export function closeSettings() {
   navigate('', { replace: true });
 }
 
+/** A new name for a visit: a place in the browser's history */
+const newVisit = () => Math.random().toString(36).slice(2, 10);
+
+/**
+ * The name of the visit showing (one place in the browser's history), naming it first if it
+ * has none (the page the app opened on)
+ */
+export function nameVisit(): string {
+  const named = visitOf();
+  if (named != null) return named;
+  const visit = newVisit();
+  const state: unknown = window.history.state;
+  const kept = typeof state === 'object' && state != null ? state : {};
+  window.history.replaceState({ ...kept, visit }, '', window.location.href);
+  return visit;
+}
+
+/** The visit showing's name, if it has one */
+const visitOf = (): string | null => {
+  const state: unknown = window.history.state;
+  const visit =
+    typeof state === 'object' && state != null ? (state as { visit?: unknown }).visit : null;
+  return typeof visit === 'string' ? visit : null;
+};
+
 /** The address this page was opened from in the app, if it was */
 const cameFrom = (): string | null => {
   const state: unknown = window.history.state;
@@ -276,10 +322,15 @@ export function useRoute(): Route {
 
   useEffect(() => {
     const update = () => setRoute(readRoute());
-    window.addEventListener('popstate', update);
+    // Back and Forward come back to a page, which opens where it was left
+    const traverse = () => {
+      comingBack = true;
+      update();
+    };
+    window.addEventListener('popstate', traverse);
     window.addEventListener(ROUTE_CHANGE, update);
     return () => {
-      window.removeEventListener('popstate', update);
+      window.removeEventListener('popstate', traverse);
       window.removeEventListener(ROUTE_CHANGE, update);
     };
   }, []);

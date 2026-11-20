@@ -123,8 +123,9 @@
   flex-direction: column;
 }
 
+/* The editor is beside the register only where both fit (1200px and up), else a dialog */
 .page[data-layout='register'] .body {
-  flex-flow: row wrap;
+  flex-flow: row nowrap;
   align-items: flex-start;
   gap: 20px;
 }
@@ -562,7 +563,7 @@
 .editorHead {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   font-size: 0.8125rem;
 }
@@ -579,7 +580,8 @@
   font-weight: 500;
 }
 
-/* The pane's payee and amount, typed where they're shown: no box until focused */
+/* The pane's payee, day and amount, typed where they're shown, each in a field's box like
+   Category and Account under them */
 .editorHead .editorTitle.inlineField {
   font-size: 1.0625rem;
   font-weight: 600;
@@ -587,18 +589,23 @@
 
 .inlineField {
   min-width: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: none;
+  padding: 2px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--surface);
   color: inherit;
   font: inherit;
   letter-spacing: inherit;
 }
 
+.inlineField:hover {
+  border-color: var(--ink-3);
+}
+
 .inlineField:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-tint);
+  outline-offset: 0;
 }
 
 .editorHead .inlineField {
@@ -613,15 +620,24 @@
 
 .headline .inlineField {
   field-sizing: content;
+  min-width: 5ch;
   max-width: 100%;
   font-variant-numeric: inherit;
 }
 
-/* The day, written out, with its field over it */
+/* The day, written out, in a field's box with the field over it */
 .dayField {
   position: relative;
   flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--surface);
   cursor: pointer;
+}
+
+.dayField:hover {
+  border-color: var(--ink-3);
 }
 
 .dayField input {
@@ -633,9 +649,8 @@
 }
 
 .dayField:focus-within {
-  border-radius: 4px;
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-tint);
 }
 
 .fieldError {
@@ -662,6 +677,16 @@
   display: flex;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* A narrower computer's dialog: Delete and Save stay at its foot as the fields scroll */
+.editor[data-save-in-view] .editorActions {
+  position: sticky;
+  bottom: 0;
+  margin: 0 -24px -24px;
+  padding: 12px 24px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
 }
 
 /* ---------- Change category ---------- */

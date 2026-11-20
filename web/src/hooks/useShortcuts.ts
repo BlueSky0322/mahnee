@@ -29,8 +29,8 @@ const TYPED_INPUTS = new Set([
 ]);
 
 /**
- * Whether `target` is where a person types: a text-like field, a list to pick from, or
- * editable text
+ * Whether `target` is where a person types: a text-like field, a list to pick from (the
+ * browser's, or the app's pickers, open or closed), or editable text
  */
 function inField(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -40,7 +40,7 @@ function inField(target: EventTarget | null) {
   ) {
     return true;
   }
-  const field = target.closest('input, textarea, select');
+  const field = target.closest('input, textarea, select, [role="combobox"], [role="listbox"]');
   if (field == null) return false;
   return field instanceof HTMLInputElement ? TYPED_INPUTS.has(field.type) : true;
 }

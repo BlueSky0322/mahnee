@@ -16,6 +16,7 @@ import {
   setupAppTests,
 } from '../../testing/app';
 import { outboxKey } from '../../offline/outbox';
+import { pick } from '../../testing/pick';
 
 // Bills and income that repeat. Each due one that asks first (D19: these were set up before
 // Scheduled added entries on their day) is on Home, "Due: Rent RM 1,200.00 from Maybank",
@@ -483,7 +484,7 @@ describe('repeating bills and income on Home', () => {
       if (sheet.getByRole('button', { name: 'More' }).getAttribute('aria-expanded') !== 'true') {
         await user.click(sheet.getByRole('button', { name: 'More' }));
       }
-      await user.selectOptions(sheet.getByLabelText('Repeat'), 'Monthly');
+      await pick(user, sheet.getByLabelText('Repeat'), 'Monthly');
       await user.click(sheet.getByRole('button', { name: 'Save' }));
 
       await waitFor(() =>
@@ -535,7 +536,7 @@ describe('repeating bills and income on Home', () => {
     if (sheet.getByRole('button', { name: 'More' }).getAttribute('aria-expanded') !== 'true') {
       await user.click(sheet.getByRole('button', { name: 'More' }));
     }
-    await user.selectOptions(sheet.getByLabelText('Repeat'), 'Weekly');
+    await pick(user, sheet.getByLabelText('Repeat'), 'Weekly');
     await user.click(sheet.getByRole('button', { name: 'Save' }));
     await waitFor(() =>
       expect(server.recurring).toEqual([
@@ -750,7 +751,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
     if (sheet.getByRole('button', { name: 'More' }).getAttribute('aria-expanded') !== 'true') {
       await user.click(sheet.getByRole('button', { name: 'More' }));
     }
-    await user.selectOptions(sheet.getByLabelText('Repeat'), schedule);
+    await pick(user, sheet.getByLabelText('Repeat'), schedule);
     await user.click(sheet.getByRole('button', { name: 'Save' }));
     return user;
   }
@@ -947,7 +948,7 @@ describe('repeating items: edges, refusals and the order of answers', () => {
         await user.click(sheet.getByRole('button', { name: 'More' }));
       }
       const backOnline = goOffline(server);
-      await user.selectOptions(sheet.getByLabelText('Repeat'), 'Monthly');
+      await pick(user, sheet.getByLabelText('Repeat'), 'Monthly');
       await user.click(sheet.getByRole('button', { name: 'Save' }));
       await pause(100);
       expect(server.recurring).toEqual([]);

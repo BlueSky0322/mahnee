@@ -1,4 +1,4 @@
-import { Button, Modal, NativeSelect, SegmentedControl } from '@mantine/core';
+import { Button, Modal, SegmentedControl } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { FileArrowUp } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
@@ -45,7 +45,8 @@ import {
 import { rememberMapping, rememberedMapping } from './remembered-mapping';
 import classes from './Import.module.css';
 import BackButton from '../ui/BackButton';
-import { CloseIcon, DownIcon } from '../ui/icons';
+import Picker from '../ui/Picker';
+import { CloseIcon } from '../ui/icons';
 import Settings from '../settings/SettingsPage';
 
 // The Import page (?import): pick an account and a CSV file, say which column holds what
@@ -342,7 +343,7 @@ export default function ImportPage() {
     });
 
   const columnSelect = (label: string, key: keyof ColumnMapping, optional = false) => (
-    <NativeSelect
+    <Picker
       label={label}
       // A computer's: the name beside its column (R-Desk-Import)
       classNames={
@@ -350,22 +351,12 @@ export default function ImportPage() {
           ? { root: classes.map, label: classes.mapLabel, input: classes.mapInput }
           : undefined
       }
-      // The board's down chevron beside each column on a computer
-      rightSection={
-        isDesktop ? (
-          <DownIcon
-            size={14}
-            aria-hidden
-          />
-        ) : undefined
-      }
       value={picked[key]}
-      onChange={(e) => {
-        const value = e.currentTarget.value;
+      onChange={(value) => {
         setPicked((p) => ({ ...p, [key]: value }));
         startOver();
       }}
-      data={[
+      options={[
         { value: '', label: optional ? 'None' : 'Pick a column' },
         ...[...new Set(header)].filter((h) => h !== '').map((h) => ({ value: h, label: h })),
       ]}
@@ -458,11 +449,11 @@ export default function ImportPage() {
         A CSV file from your bank, or one exported from Mahnee. Nothing is saved until you look it
         over and say Import.
       </p>
-      <NativeSelect
+      <Picker
         label="Account"
         value={accountId}
-        onChange={(e) => chooseAccount(e.currentTarget.value)}
-        data={
+        onChange={chooseAccount}
+        options={
           listed.length === 0
             ? [{ value: '', label: 'No accounts yet' }]
             : listed.map((a) => ({ value: a.id, label: a.name }))
@@ -816,14 +807,16 @@ function Preview({
                 {a.name}
                 <span className={classes.muted}> {signedMoney(a.openingCents, currency)}</span>
               </span>
-              <NativeSelect
-                aria-label={`Kind of ${a.name}`}
+              <Picker
+                look="plain"
+                className={classes.kindPick}
+                label={`Kind of ${a.name}`}
                 value={choices.kinds.get(a.id) ?? 'bank'}
-                onChange={(e) => {
-                  const kind = e.currentTarget.value as AccountKind;
+                onChange={(value) => {
+                  const kind = value as AccountKind;
                   update((c) => c.kinds.set(a.id, kind));
                 }}
-                data={ACCOUNT_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k] }))}
+                options={ACCOUNT_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k] }))}
               />
             </div>
           ))}
@@ -1134,19 +1127,19 @@ function PreviewRow({
   );
   const select =
     fromBank && t != null && t.categoryId != null ? (
-      <NativeSelect
-        size="xs"
-        aria-label="Category"
-        classNames={{
-          root: desktop ? classes.categoryPick : classes.inlinePick,
-          input: desktop ? classes.categoryButton : classes.inlineSelect,
-          section: classes.inlineArrow,
-        }}
+      <span
+        className={desktop ? classes.categoryPick : classes.inlinePick}
         data-other={other || undefined}
-        value={categoryId ?? ''}
-        onChange={(e) => onCategory(e.currentTarget.value)}
-        data={categoryOptions(categories, t.kind === 'income' ? 'income' : 'expense')}
-      />
+      >
+        <Picker
+          look="plain"
+          label="Category"
+          className={desktop ? classes.categoryButton : classes.inlineSelect}
+          value={categoryId ?? ''}
+          onChange={onCategory}
+          options={categoryOptions(categories, t.kind === 'income' ? 'income' : 'expense')}
+        />
+      </span>
     ) : null;
   const amount =
     t == null ? null : (

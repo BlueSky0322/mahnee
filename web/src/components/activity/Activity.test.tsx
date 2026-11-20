@@ -7,6 +7,7 @@ import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
 import { fakeServer, goToPlace, reloadApp, renderApp, setupAppTests } from '../../testing/app';
 import { change } from '../../ledger/ledger';
+import { pick as pickIn } from '../../testing/pick';
 
 // Activity (?activity, R-Activity, R-Desk-Activity): the one list of every entry, this
 // month's unless the filters say otherwise, with a search and four chips (account,
@@ -851,7 +852,7 @@ describe('changing one', () => {
     await waitFor(() => expect(titles('desktop')).toEqual(SHOWN));
     await user.click(screen.getByRole('cell', { name: 'Restoran Hana' }));
     const pane = within(await screen.findByRole('complementary', { name: 'Restoran Hana, Nov 6' }));
-    await user.selectOptions(pane.getByLabelText('Category'), 'Transport');
+    await pickIn(user, pane.getByLabelText('Category'), 'Transport');
     const amount = pane.getByLabelText('Amount');
     await user.clear(amount);
     await user.type(amount, '70{Enter}');

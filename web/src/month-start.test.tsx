@@ -8,6 +8,7 @@ import type { MonthSummary, Recurring, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES, OTHER_EXPENSE_ID } from '@shared/categories';
 import type { FakeServer } from './testing/app';
 import { fakeServer, holdNext, reloadApp, renderApp, setupAppTests } from './testing/app';
+import { pickRepeats } from './testing/pick';
 
 // Every monthly figure follows the month start day (owner decision D7): Home's month, its
 // days, Tidy up, the month end and budgets; Plan and its budgets with what carried over;
@@ -392,10 +393,7 @@ describe('a pay changed in Plan › Scheduled while the month starts on payday',
     const income = await screen.findByRole('region', { name: 'Income' });
     await user.click(within(income).getByRole('button', { name: /^Salary/ }));
     let sheet = within(await screen.findByRole('dialog', { name: 'Salary' }));
-    await user.selectOptions(
-      sheet.getByRole('combobox', { name: 'Repeats' }),
-      'Monthly on the 25th',
-    );
+    await pickRepeats(user, sheet.getByRole('combobox', { name: 'Repeats' }), 'Monthly', 25);
     await user.click(sheet.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(server.recurring[0].day).toBe(25));
 

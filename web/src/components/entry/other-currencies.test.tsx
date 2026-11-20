@@ -16,6 +16,7 @@ import {
   setupAppTests,
   typeAmount,
 } from '../../testing/app';
+import { pick } from '../../testing/pick';
 
 // Other currencies (owner request 2026-11-19; R-Set-Money's "Other currencies", R-Add,
 // R-Desk-Add): the person keeps a short list of other currencies in Settings › Money, in
@@ -499,11 +500,11 @@ describe('entries in another currency', () => {
         ? await screen.findByRole('complementary', { name: /^Night market/ })
         : await screen.findByRole('dialog', { name: 'Night market' }),
     );
-    const currency = editor.getByRole<HTMLSelectElement>('combobox', { name: 'Currency' });
-    expect(currency.value).toBe('THB');
+    const currency = editor.getByRole('combobox', { name: 'Currency' });
+    expect(currency.textContent).toBe('THB');
     const amount = editor.getByRole<HTMLInputElement>('textbox', { name: 'Amount' });
     expect(amount.value).toMatch(/^120(\.00)?$/);
-    await user.selectOptions(currency, 'USD');
+    await pick(user, currency, 'USD');
     await user.clear(amount);
     await user.type(amount, '20');
     await user.click(editor.getByRole('button', { name: /^Save/ }));
@@ -527,7 +528,7 @@ describe('entries in another currency', () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: /^Night market, / }));
     const editor = within(await screen.findByRole('dialog', { name: 'Night market' }));
-    await user.selectOptions(editor.getByRole('combobox', { name: 'Currency' }), 'MYR');
+    await pick(user, editor.getByRole('combobox', { name: 'Currency' }), 'MYR');
     const amount = editor.getByRole<HTMLInputElement>('textbox', { name: 'Amount' });
     await user.clear(amount);
     await user.type(amount, '15.30');

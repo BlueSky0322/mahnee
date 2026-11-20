@@ -1,6 +1,6 @@
 import { Button, SegmentedControl } from '@mantine/core';
 import { useCurrency } from '../../profile/ProfileContext';
-import type { CSSProperties, FormEvent, ReactNode } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { useId, useState } from 'react';
 import type { LedgerChange, Recurring } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
@@ -15,9 +15,10 @@ import { currencySymbol } from '../../utils/money';
 import { showUndo } from '../common/undo-toast';
 import { readAmount } from '../entry/entry-text';
 import ResponsiveDialog, { DialogTitle } from '../ui/ResponsiveDialog';
-import { ForwardIcon } from '../ui/icons';
+import Picker from '../ui/Picker';
+import RepeatsPicker from '../ui/RepeatsPicker';
 import classes from './Scheduled.module.css';
-import { REPEATS, itemTitle, nextLine, repeatsLabel } from './scheduled-text';
+import { itemTitle, nextLine, repeatsLabel } from './scheduled-text';
 
 /** What a new schedule starts with: a common one, or a payment into a card */
 export interface Prefill {
@@ -111,70 +112,6 @@ function Row({
         </label>
       )}
       {children}
-    </div>
-  );
-}
-
-/**
- * A row that picks one of a list: what's chosen, and a chevron; the device's own list opens
- * from anywhere on it
- */
-function PickRow({
-  label,
-  value,
-  options,
-  onChange,
-  dot,
-}: {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (value: string) => void;
-  /** The colour of the category chosen */
-  dot?: string;
-}) {
-  const id = useId();
-  const chosen = options.find((o) => o.value === value)?.label ?? '';
-  return (
-    <div className={`${classes.frow} ${classes.pick}`}>
-      <label
-        htmlFor={id}
-        className={classes.k}
-      >
-        {label}
-      </label>
-      <span
-        className={classes.v}
-        aria-hidden
-      >
-        {dot != null && (
-          <span
-            className={classes.dot}
-            style={{ '--dot': dot } as CSSProperties}
-          />
-        )}
-        <span className={classes.vText}>{chosen}</span>
-      </span>
-      <ForwardIcon
-        size={16}
-        className={classes.chevron}
-        aria-hidden
-      />
-      <select
-        id={id}
-        className={classes.pickSelect}
-        value={value}
-        onChange={(e) => onChange(e.currentTarget.value)}
-      >
-        {options.map((o) => (
-          <option
-            key={o.value}
-            value={o.value}
-          >
-            {o.label}
-          </option>
-        ))}
-      </select>
     </div>
   );
 }
@@ -390,40 +327,43 @@ function Fields({
             data={EACH_TIME}
           />
         </Row>
-        <PickRow
+        <Picker
+          look="row"
+          className={classes.frow}
           label={kind === 'income' ? 'Into' : 'From'}
           value={accountId}
           onChange={setAccountId}
           options={listed.map((a) => ({ value: a.id, label: a.name }))}
         />
         {transfer ? (
-          <PickRow
+          <Picker
+            look="row"
+            className={classes.frow}
             label="To"
             value={to?.id ?? ''}
             onChange={setToAccountId}
             options={destinations.map((a) => ({ value: a.id, label: a.name }))}
           />
         ) : (
-          <PickRow
+          <Picker
+            look="row"
+            className={classes.frow}
             label="For"
             value={categoryId ?? ''}
             onChange={(value) => setPicked((now) => ({ ...now, [kind]: value }))}
-            options={options}
-            dot={categoryId == null ? undefined : categoryColour(categories ?? [], categoryId)}
+            options={options.map((o) => ({ ...o, dot: categoryColour(categories ?? [], o.value) }))}
           />
         )}
-        <PickRow
+        <RepeatsPicker
+          className={classes.frow}
           label="Repeats"
-          value={repeats}
-          onChange={(next) => {
-            setRepeats(next);
-            const [s, d] = next.split(':');
-            setFirstOn(firstAfterToday(s as Recurring['schedule'], Number(d)));
+          schedule={schedule}
+          day={day}
+          shown={repeatsLabel({ schedule, day })}
+          onChange={(s, d) => {
+            setRepeats(`${s}:${d}`);
+            setFirstOn(firstAfterToday(s, d));
           }}
-          options={REPEATS.map((r) => ({
-            value: `${r.schedule}:${r.day}`,
-            label: repeatsLabel(r),
-          }))}
         />
         {item == null && (
           <Row

@@ -110,6 +110,16 @@
   gap: 12px;
 }
 
+/* What kind a new account is: a small outlined pick */
+.kindPick {
+  flex: none;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  font-size: 14px;
+}
+
 .newAccountName {
   display: flex;
   flex-direction: column;
@@ -237,7 +247,8 @@
   appearance: none;
 }
 
-.inlineArrow {
+/* Read in its line, without a chevron */
+.inlinePick .inlineSelect svg {
   display: none;
 }
 

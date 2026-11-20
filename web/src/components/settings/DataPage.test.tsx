@@ -20,6 +20,7 @@ import { navigate } from '../../hooks/useRoute';
 import { queryClient } from '../../query-client';
 import { handFile } from '../import/handed-file';
 import { rememberMapping, rememberedMapping } from '../import/remembered-mapping';
+import { pick } from '../../testing/pick';
 
 // Import and export (R-Set-Data, R-Desk-Data, R-Empty-Data, R-Desk-Empty-Data): choosing a
 // file to import, the imports recorded on the server with Undo for each (D16), the bank
@@ -447,7 +448,7 @@ describe('undoing an import', () => {
       ['Amount', 'Amount'],
       ['Payee', 'Description'],
     ]) {
-      await user.selectOptions(await screen.findByLabelText(label), column);
+      await pick(user, await screen.findByLabelText(label), column);
     }
     await user.click(screen.getByRole('button', { name: 'Preview' }));
     await user.click(await screen.findByRole('button', { name: 'Add 2 transactions' }));

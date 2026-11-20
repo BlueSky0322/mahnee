@@ -24,6 +24,7 @@ import {
   settle,
   setupAppTests,
 } from '../../testing/app';
+import { pick } from '../../testing/pick';
 
 // Importing a CSV file from Settings › Import and export: a bank's file mapped by column,
 // or Mahnee's own export; rows that look already saved; categories from what a payee was
@@ -124,15 +125,14 @@ async function pickFile(user: User, file: File, account?: string) {
   } else await user.upload(screen.getByLabelText('CSV file'), file);
   if (account != null) {
     // Once the accounts are there to pick from
-    await screen.findByRole('option', { name: account });
-    await user.selectOptions(screen.getByLabelText('Account'), account);
+    await pick(user, screen.getByLabelText('Account'), account);
   }
 }
 
 /** Says which column holds what, by the file's own column names */
 async function mapColumns(user: User, columns: Record<string, string>) {
   for (const [label, column] of Object.entries(columns)) {
-    await user.selectOptions(await screen.findByLabelText(label), column);
+    await pick(user, await screen.findByLabelText(label), column);
   }
 }
 
@@ -143,8 +143,7 @@ function row(text: string) {
   return within(found);
 }
 
-const shownCategory = (text: string) =>
-  row(text).getByLabelText<HTMLSelectElement>('Category').selectedOptions[0]?.textContent;
+const shownCategory = (text: string) => row(text).getByLabelText('Category').textContent;
 
 function goOffline(server: FakeServer) {
   server.health = 'unreachable';
@@ -249,9 +248,11 @@ describe("a bank's file", () => {
       expect(screen.getByLabelText('Amount')).toHaveProperty('value', 'Amount');
       expect(screen.getByLabelText('Payee')).toHaveProperty('value', 'Description');
       expect(screen.getByLabelText('Note')).toHaveProperty('value', 'Reference');
-      await user.selectOptions(screen.getByLabelText('Account'), 'Wallet');
+      await pick(user, screen.getByLabelText('Account'), 'Wallet');
       expect(screen.getByLabelText('Date')).toHaveProperty('value', '');
     },
+    // Two imports, each picking an account and four columns
+    20_000,
   );
 
   test.each(SIZES)('reads money in and money out from two columns (%s)', async (size) => {
@@ -457,7 +458,7 @@ describe('categories', () => {
       expect(shownCategory('kopi corner')).toBe('Food › Coffee');
       expect(shownCategory('New Shop')).toBe('Other');
       expect(shownCategory('Refund')).toBe('Other income');
-      await user.selectOptions(row('New Shop').getByLabelText('Category'), 'Shopping');
+      await pick(user, row('New Shop').getByLabelText('Category'), 'Shopping');
       await user.click(screen.getByRole('button', { name: 'Add 4 transactions' }));
 
       await waitFor(() => expect(server.transactions).toHaveLength(6));
@@ -648,13 +649,13 @@ describe("Mahnee's own export", () => {
       expect(await screen.findByText(/^This is a Mahnee export/)).toBeTruthy();
       // Its accounts are added; the file doesn't say their kinds, so they're asked
       for (const [name, kind] of [
-        ['Maybank', 'bank'],
-        ['Wallet', 'cash'],
-        ['Visa', 'card'],
-        ['Savings', 'bank'],
-        ['Old card', 'card'],
+        ['Maybank', 'Bank'],
+        ['Wallet', 'Cash'],
+        ['Visa', 'Card'],
+        ['Savings', 'Bank'],
+        ['Old card', 'Card'],
       ]) {
-        await user.selectOptions(screen.getByLabelText(`Kind of ${name}`), kind);
+        await pick(user, screen.getByLabelText(`Kind of ${name}`), kind);
       }
       await user.click(screen.getByRole('button', { name: 'Add 6 transactions' }));
 
@@ -874,7 +875,7 @@ describe("repeating bills in Mahnee's export", () => {
       const user = await openImport();
       await pickFile(user, new File([original], 'mahnee-2026-11-06.csv', { type: 'text/csv' }));
       await screen.findByLabelText('Kind of Wallet');
-      await user.selectOptions(screen.getByLabelText('Kind of Wallet'), 'cash');
+      await pick(user, screen.getByLabelText('Kind of Wallet'), 'Cash');
       await user.click(
         await screen.findByRole('button', { name: 'Add 2 transactions and 2 repeating items' }),
       );

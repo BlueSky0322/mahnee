@@ -24,12 +24,6 @@ export const repeatsLabel = (r: Pick<Recurring, 'schedule' | 'day'>) =>
     ? `Monthly on the ${ordinal(r.day)}`
     : `Weekly on ${WEEKDAYS[r.day - 1]}s`;
 
-/** Every Repeats choice: each day of the month, then each day of the week */
-export const REPEATS: { schedule: Recurring['schedule']; day: number }[] = [
-  ...Array.from({ length: 31 }, (_, i) => ({ schedule: 'monthly' as const, day: i + 1 })),
-  ...Array.from({ length: 7 }, (_, i) => ({ schedule: 'weekly' as const, day: i + 1 })),
-];
-
 const accountName = (accounts: readonly Account[], id: string | null) =>
   accounts.find((a) => a.id === id)?.name ?? 'an account';
 const categoryOf = (categories: readonly Category[], id: string | null) =>

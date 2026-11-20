@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-20
 
+- Changed: every list you pick from is the app's own, a list under the field on a computer and a sheet on a phone, and Repeats picks a day from a calendar or a weekday [#?]
 - Changed: the new logo, a hand holding a coin, in the app, the browser tab and the installed app; in the app its tile takes your accent and theme [#57]
 
 ## 2026-11-19

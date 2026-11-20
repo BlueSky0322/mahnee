@@ -1,13 +1,4 @@
-import {
-  Anchor,
-  Button,
-  Chip,
-  Input,
-  NativeSelect,
-  SegmentedControl,
-  TextInput,
-  Textarea,
-} from '@mantine/core';
+import { Anchor, Button, Chip, Input, SegmentedControl, TextInput, Textarea } from '@mantine/core';
 import { Trash } from '@phosphor-icons/react';
 import { DownIcon, ForwardIcon } from '../ui/icons';
 import type { FormEvent } from 'react';
@@ -29,6 +20,7 @@ import { currencySymbol, formatMoney } from '../../utils/money';
 import { sendEdit, sendsAmount, useEntryCurrency } from '../common/entry-currency';
 import { rateLine } from '../common/typed-amount';
 import { showUndo } from '../common/undo-toast';
+import Picker from '../ui/Picker';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { amountText, readAmount, transactionSummary } from './entry-text';
 import classes from './Entry.module.css';
@@ -256,12 +248,11 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
         <p className={classes.rateLine}>{rateLine(editing, homeCurrency)}</p>
       )}
       {currencies.length > 1 && (
-        <NativeSelect
+        <Picker
           label="Currency"
           value={typedIn}
-          onChange={(e) => setTypedIn(e.currentTarget.value)}
-          data={currencies}
-          rightSection={<DownIcon size={16} />}
+          onChange={setTypedIn}
+          options={currencies}
         />
       )}
       <SegmentedControl
@@ -274,18 +265,18 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
         }}
         data={KIND_OPTIONS}
       />
-      <NativeSelect
+      <Picker
         label={transfer ? 'From' : 'Account'}
         value={account?.id ?? ''}
-        onChange={(e) => setAccountId(e.currentTarget.value)}
-        data={listedAccounts.map((a) => ({ value: a.id, label: a.name }))}
+        onChange={setAccountId}
+        options={listedAccounts.map((a) => ({ value: a.id, label: a.name }))}
       />
       {transfer && (
-        <NativeSelect
+        <Picker
           label="To"
           value={toAccount?.id ?? ''}
-          onChange={(e) => setToAccountId(e.currentTarget.value)}
-          data={destinations.map((a) => ({ value: a.id, label: a.name }))}
+          onChange={setToAccountId}
+          options={destinations.map((a) => ({ value: a.id, label: a.name }))}
           error={toAccount == null ? NO_DESTINATION : null}
         />
       )}
@@ -401,14 +392,11 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
             autosize
             minRows={2}
           />
-          <NativeSelect
+          <Picker
             label="Repeat"
             value={repeat}
-            onChange={(e) => {
-              const value = e.currentTarget.value;
-              setRepeat(isSchedule(value) ? value : '');
-            }}
-            data={[
+            onChange={(value) => setRepeat(isSchedule(value) ? value : '')}
+            options={[
               { value: '', label: "Doesn't repeat" },
               { value: 'monthly', label: 'Monthly' },
               { value: 'weekly', label: 'Weekly' },

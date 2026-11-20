@@ -6,6 +6,7 @@ import type { Recurring, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
 import { fakeServer, reloadApp, renderApp, setupAppTests } from '../../testing/app';
+import { pick, pickRepeats } from '../../testing/pick';
 
 // Plan › Scheduled (R-Bills, R-Desk-Bills; R-Empty-Bills, R-Desk-Empty-Bills; edit
 // R-Bill-Edit, R-Bill-Edit-Tnb and their desktop boards; digest 3.8, 4.5, 4.6; owner
@@ -188,9 +189,9 @@ async function open(server: FakeServer, size: (typeof SIZES)[number]) {
   return userEvent.setup();
 }
 
-/** What a select shows chosen */
+/** What a picker shows chosen */
 const selected = (name: string, scope: Pick<typeof screen, 'getByRole'> = screen) =>
-  scope.getByRole<HTMLSelectElement>('combobox', { name }).selectedOptions[0]?.textContent;
+  scope.getByRole('combobox', { name: new RegExp(`^${name} `) }).textContent;
 
 describe('every scheduled item', () => {
   test('on a phone: Expenses and Income with what each comes to a month, then Transfers', async () => {
@@ -384,12 +385,9 @@ describe('setting one up', () => {
       await user.type(form.getByRole('textbox', { name: 'Name' }), 'Water');
       await user.type(form.getByRole('textbox', { name: 'Amount' }), '30.15');
       await user.click(form.getByRole('radio', { name: 'It changes' }));
-      await user.selectOptions(form.getByRole('combobox', { name: 'From' }), 'Maybank');
-      await user.selectOptions(form.getByRole('combobox', { name: 'For' }), 'Bills');
-      await user.selectOptions(
-        form.getByRole('combobox', { name: 'Repeats' }),
-        'Monthly on the 12th',
-      );
+      await pick(user, form.getByRole('combobox', { name: /^From / }), 'Maybank');
+      await pick(user, form.getByRole('combobox', { name: /^For / }), 'Bills');
+      await pickRepeats(user, form.getByRole('combobox', { name: /^Repeats / }), 'Monthly', 12);
       // The first one after today, on its day
       expect(form.getByLabelText('First on')).toHaveProperty('value', '2026-11-12');
       await user.click(form.getByRole('button', { name: 'Save' }));
@@ -615,10 +613,30 @@ describe('setting one up: weekly, offline and refused', () => {
     const form = within(await screen.findByRole('dialog', { name: 'New schedule' }));
     await user.type(form.getByRole('textbox', { name: 'Name' }), 'Water');
     await user.type(form.getByRole('textbox', { name: 'Amount' }), '30.15');
-    await user.selectOptions(form.getByRole('combobox', { name: 'From' }), 'Maybank');
-    await user.selectOptions(form.getByRole('combobox', { name: 'For' }), 'Bills');
+    await pick(user, form.getByRole('combobox', { name: /^From / }), 'Maybank');
+    await pick(user, form.getByRole('combobox', { name: /^For / }), 'Bills');
     return form;
   }
+
+  test('on a phone, Back closes the Repeats sheet first, leaving the schedule as it was', async () => {
+    const server = everything();
+    const user = await open(server, 'phone');
+    const form = await newWater(user, 'phone');
+    const repeats = form.getByRole('combobox', { name: /^Repeats / });
+    expect(repeats.textContent).toBe('Monthly on the 1st');
+    await user.click(repeats);
+    const sheet = await screen.findByRole('dialog', { name: 'Repeats' });
+    await user.click(within(sheet).getByRole('radio', { name: 'Weekly' }));
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Repeats' })).toBeNull());
+    expect(screen.getByRole('dialog', { name: 'New schedule' })).toBeTruthy();
+    expect(repeats.textContent).toBe('Monthly on the 1st');
+    expect(form.getByLabelText('First on')).toHaveProperty('value', '2026-12-01');
+    // Back again closes the schedule itself, with nothing saved
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New schedule' })).toBeNull());
+    expect(server.recurring.some((r) => r.payee === 'Water')).toBe(false);
+  });
 
   test.each(SIZES)(
     'a weekly one falls on its weekday, first on the next one (%s)',
@@ -626,9 +644,11 @@ describe('setting one up: weekly, offline and refused', () => {
       const server = everything();
       const user = await open(server, size);
       const form = await newWater(user, size);
-      await user.selectOptions(
-        form.getByRole('combobox', { name: 'Repeats' }),
-        'Weekly on Thursdays',
+      await pickRepeats(
+        user,
+        form.getByRole('combobox', { name: /^Repeats / }),
+        'Weekly',
+        'Thursday',
       );
       // Tuesday the 10th: the next Thursday is the 12th
       expect(form.getByLabelText('First on')).toHaveProperty('value', '2026-11-12');
@@ -650,10 +670,7 @@ describe('setting one up: weekly, offline and refused', () => {
       const user = await open(server, size);
       const backOnline = goOffline(server);
       const form = await newWater(user, size);
-      await user.selectOptions(
-        form.getByRole('combobox', { name: 'Repeats' }),
-        'Monthly on the 12th',
-      );
+      await pickRepeats(user, form.getByRole('combobox', { name: /^Repeats / }), 'Monthly', 12);
       await user.click(form.getByRole('button', { name: 'Save' }));
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
       expect(rows('Expenses').some((r) => r.startsWith('Water 12th'))).toBe(true);
@@ -671,10 +688,7 @@ describe('setting one up: weekly, offline and refused', () => {
     const server = everything();
     const user = await open(server, size);
     const form = await newWater(user, size);
-    await user.selectOptions(
-      form.getByRole('combobox', { name: 'Repeats' }),
-      'Monthly on the 12th',
-    );
+    await pickRepeats(user, form.getByRole('combobox', { name: /^Repeats / }), 'Monthly', 12);
     server.failNext.changes = {
       status: 409,
       error: 'You can have up to 200 repeating items, stopped ones included',

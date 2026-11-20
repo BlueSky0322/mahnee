@@ -645,7 +645,7 @@
 }
 
 /* A list's chevron in ink, 14px in from the edge, as drawn */
-.editor :global(.mantine-NativeSelect-section) {
+.editor :global(.mantine-InputBase-section) {
   color: var(--ink);
 }
 

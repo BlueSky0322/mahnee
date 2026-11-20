@@ -17,6 +17,7 @@ import {
 } from '../../testing/app';
 import { outboxKey } from '../../offline/outbox';
 import { thisMonth } from '../../utils/date-input';
+import { openPicker, pick } from '../../testing/pick';
 
 setupAppTests();
 
@@ -255,7 +256,7 @@ describe('the categories page', () => {
 
     await user.click(await chip('Coffee', 'Food'));
     let form = within(await dialog());
-    await user.selectOptions(form.getByLabelText('Under'), 'Fun');
+    await pick(user, form.getByLabelText('Under'), 'Fun');
     await user.click(form.getByRole('button', { name: 'Save' }));
     expect(await chip('Coffee', 'Fun')).toBeTruthy();
     await waitFor(() => expect(savedUnder(server, id('Fun'))).toEqual(['Coffee']));
@@ -263,7 +264,7 @@ describe('the categories page', () => {
 
     await user.click(await chip('Coffee', 'Fun'));
     form = within(await dialog());
-    await user.selectOptions(form.getByLabelText('Under'), 'Top level');
+    await pick(user, form.getByLabelText('Under'), 'Top level');
     await user.click(form.getByRole('button', { name: 'Save' }));
     await waitFor(async () => expect((await shown('Expenses')).at(-1)).toBe('Coffee'));
     await waitFor(() => expect(savedUnder(server, null).at(-1)).toBe('Coffee'));
@@ -345,9 +346,14 @@ describe('the categories page', () => {
 
     await user.click(await chip('Coffee', 'Food'));
     form = within(await dialog());
-    const full = form.getByRole('option', { name: 'Bills (full)' });
-    expect(full).toHaveProperty('disabled', true);
-    expect(form.getByRole('option', { name: 'Fun' })).toHaveProperty('disabled', false);
+    const under = await openPicker(user, form.getByLabelText('Under'));
+    const full = under.getByRole('option', { name: 'Bills (full)' });
+    expect(full.getAttribute('aria-disabled')).toBe('true');
+    expect(under.getByRole('option', { name: 'Fun' }).getAttribute('aria-disabled')).toBeNull();
+    // Tapping the full one picks nothing, and leaves the list open
+    await user.click(full);
+    expect(under.getByRole('option', { name: 'Fun' })).toBeTruthy();
+    await user.keyboard('{Escape}');
     // Nothing was sent: there was nothing to change
     expect(vi.mocked(fetch).mock.calls.some(([path]) => path === '/api/changes')).toBe(false);
   });
@@ -412,7 +418,7 @@ describe('the categories page', () => {
 
       await user.click(await chip('Coffee', 'Food'));
       const form = within(await dialog());
-      await user.selectOptions(form.getByLabelText('Under'), 'Fun');
+      await pick(user, form.getByLabelText('Under'), 'Fun');
       await user.click(form.getByRole('button', { name: 'Save' }));
       // Shown straight away, before the server answers
       expect(await chip('Coffee', 'Fun')).toBeTruthy();

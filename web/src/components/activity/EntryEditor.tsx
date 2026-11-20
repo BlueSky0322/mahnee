@@ -1,4 +1,4 @@
-import { Button, NativeSelect, SegmentedControl, TextInput } from '@mantine/core';
+import { Button, SegmentedControl, TextInput } from '@mantine/core';
 import type { FormEvent, MutableRefObject } from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { LedgerChange, Transaction } from '@shared/api';
@@ -17,7 +17,7 @@ import { rateLine, typedAmount } from '../common/typed-amount';
 import { showUndo } from '../common/undo-toast';
 import { amountText, readAmount, transactionSummary } from '../entry/entry-text';
 import Key from '../ui/Key';
-import { DownIcon } from '../ui/icons';
+import Picker from '../ui/Picker';
 import { SIGNS, fullDay, headlineAmount, headlinePrefix } from './activity-text';
 import classes from './Activity.module.css';
 
@@ -127,12 +127,6 @@ export default function EntryEditor({
   // said aloud and tied to its field
   const inline = title != null;
   const errorIds = { date: useId(), amount: useId() };
-  const chevron = (
-    <DownIcon
-      size={16}
-      aria-hidden
-    />
-  );
 
   const save = (): boolean => {
     const typed = readAmount(amount, typedIn === home ? undefined : MAX_TYPED_CENTS);
@@ -353,14 +347,12 @@ export default function EntryEditor({
         data={WAYS}
       />
       {currencies.length > 1 && (
-        <NativeSelect
+        <Picker
           label="Currency"
           value={typedIn}
-          onChange={(e) => setTypedIn(e.currentTarget.value)}
-          data={currencies}
+          onChange={setTypedIn}
+          options={currencies}
           error={errors.currency}
-          rightSection={chevron}
-          rightSectionWidth={44}
         />
       )}
       {editing.original != null && <p className={classes.muted}>{rateLine(editing, currency)}</p>}
@@ -382,35 +374,30 @@ export default function EntryEditor({
         />
       )}
       {transfer ? (
-        <NativeSelect
+        <Picker
           label="To"
           value={
             destinations.some((a) => a.id === toAccountId) ? toAccountId : destinations[0]?.id ?? ''
           }
-          onChange={(e) => setToAccountId(e.currentTarget.value)}
-          data={destinations.map((a) => ({ value: a.id, label: a.name }))}
+          onChange={setToAccountId}
+          options={destinations.map((a) => ({ value: a.id, label: a.name }))}
           error={errors.to}
-          rightSection={chevron}
-          rightSectionWidth={44}
         />
       ) : (
-        <NativeSelect
+        <Picker
           label="Category"
           value={categoryId ?? ''}
-          onChange={(e) => setPicked((now) => ({ ...now, [kind]: e.currentTarget.value }))}
-          data={[{ value: '', label: 'Pick a category', disabled: true }, ...options]}
+          onChange={(value) => setPicked((now) => ({ ...now, [kind]: value }))}
+          options={options}
+          placeholder="Pick a category"
           error={errors.category}
-          rightSection={chevron}
-          rightSectionWidth={44}
         />
       )}
-      <NativeSelect
+      <Picker
         label={transfer ? 'From' : 'Account'}
         value={account?.id ?? ''}
-        onChange={(e) => setAccountId(e.currentTarget.value)}
-        data={listed.map((a) => ({ value: a.id, label: a.name }))}
-        rightSection={chevron}
-        rightSectionWidth={44}
+        onChange={setAccountId}
+        options={listed.map((a) => ({ value: a.id, label: a.name }))}
       />
       {!inline && (
         <TextInput

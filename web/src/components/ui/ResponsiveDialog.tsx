@@ -33,6 +33,8 @@ interface ResponsiveDialogProps {
    * DialogTitle, Save) in place of the title and Close
    */
   grouped?: boolean;
+  /** Opened from inside another dialog or sheet, so it shows over that one */
+  stacked?: boolean;
 }
 
 /** Which shape the dialog it's in takes, so DialogTitle names the right one */
@@ -66,7 +68,10 @@ const ResponsiveDialog = ({
   onBack,
   floating,
   grouped = false,
+  stacked = false,
 }: ResponsiveDialogProps) => {
+  // Over Mantine's own dialogs (200), as its popovers are
+  const zIndex = stacked ? 300 : undefined;
   const isMobile = useIsMobile();
   // Back closes the sheet, rather than leaving the page under it
   useBackDismiss(opened, onBack ?? onClose);
@@ -82,6 +87,7 @@ const ResponsiveDialog = ({
         onClose={onClose}
         position="bottom"
         size="auto"
+        zIndex={zIndex}
         classNames={{
           content: floating
             ? `${classes.sheet} ${classes.floating}`
@@ -141,6 +147,7 @@ const ResponsiveDialog = ({
       onClose={onClose}
       size={width}
       yOffset={top}
+      zIndex={zIndex}
       classNames={{
         content: grouped ? `${classes.dialog} ${classes.grouped}` : classes.dialog,
         header: classes.dialogHeader,

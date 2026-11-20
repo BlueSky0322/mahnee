@@ -329,9 +329,9 @@ browser refusing, blocked, the server refusing, no notifications, an iPhone, sig
 **What it is.** The places a person's money is: cash, bank accounts, cards and
 e-wallets, each with its balance, listed on Accounts (`?accounts`, R-Accounts). Until the first one is
 added, the first run asks where the money is kept (see Home at a glance). Accounts opens with "All together" (every running account's
-balance, less what's owed on cards), what's in accounts and what's owed (a part left out
-when there's no account of its kind), then "Cash, banks and e-wallets" and "Cards", each
-with its total, and the archived ones behind "Archived · N", each with the day it was
+balance, less what's owed on cards), what's in accounts and what's owed, then "Cash, banks
+and e-wallets" and "Cards", each with its total. With no card the breakdown would only
+repeat the total, so it is left out: the total, then each balance on its row. Then the archived ones behind "Archived · N", each with the day it was
 archived ("E-wallet · archived Aug 14"; just "archived" for one archived before the day was
 kept). Archived accounts count in no total. List amounts have no RM; a card's says owed (or
 in credit). On a phone or tablet a row opens the account's own page (`?account=<id>`,
@@ -788,7 +788,8 @@ Scheduled).
 - Budgets (phone and tablet): "Budgets Day 10 of 30" with "Budget" (Categories, where a
   budget is set on a phone); each budget "RM 584.78 left" (or "RM 40.00 over"), a bar named
   "Food: 27% spent" with a marker for how much of the month has gone (this month only),
-  "RM 215.22 of RM 800.00" with " · faster than the month" or " · over" (amber or red), and
+  "RM 215.22 of RM 800.00" with " · faster than the month" (amber; over says so once, by
+  what's left, in red), and
   "Carry over on", or "incl. RM 50.00 carried over" when something carried. None this
   month: "No budgets yet", "A monthly amount per category, with a bar for what's left." and
   "Set a budget".
@@ -806,11 +807,13 @@ Scheduled).
   on a computer, where the one open is marked).
 - On a computer: "Expenses by category" ("RM 2,753.10 spent", "Edit categories"), a table of
   every category spent in (largest first) and every other listed top-level spending category
-  ("Nothing this month"): Category (its subcategories' names, payee or entries, " · carries
-  over"), Spent, "Budget, with today marked" (the bar, or "Set a budget" this month), Left
+  (its 0.00 says nothing was spent): Category (its subcategories' names, payee or entries,
+  " · carries over"), Spent, "Budget, with today marked" (the bar, or "No budget"; the row
+  open on the right offers "Set a budget" this month, which puts the cursor in its Monthly
+  budget, so picking row after row sets several), Left
   ("584.78", "40.00 over"). The category chosen (the first row unless the address names one,
   `?plan&category=<id>`, which picking a row replaces) is open on the right, with its
-  budget changed in place this month: "Monthly budget" (saved on Enter or on leaving the
+  budget changed in place this month: "Monthly budget" (empty when none, no sample amount; saved on Enter or on leaving the
   field when changed; emptied, it's taken away; what can't be a budget says why and sends
   nothing) and a "Carry over" switch (sent at once, the amount kept; off without a budget).
   With no budgets and nothing spent, the same cards as a phone.
@@ -897,10 +900,10 @@ for Home and Plan:
 
 - `spentByDay`: spending by day, oldest first, only days with any (at most 31), for Home's
   calendar. [ledger/day-by-day.ts](../web/src/ledger/day-by-day.ts) (`dayByDay`) lays out
-  the period's days against the middle day so far: the median of each day's spending from
+  the period's days against the median daily spend so far: the median of each day's spending from
   the period's first day to today, a day with nothing counting as 0, an even count taking
   the mean of the two middle days in whole cents rounded half up; a day above it is
-  "more", at or below it "less", a day still to come neither.
+  "more", below it "less", on it "same", a day still to come none of them.
 - `tidyUp { from, entries, categoryIds }`: how many spending transactions from the first
   day of the month before (`tidyUpFrom` in [shared/categories.ts](../shared/categories.ts))
   to the month's last day are in Other (`OTHER_EXPENSE_ID`, the default's fixed id, renamed
@@ -1006,7 +1009,7 @@ a reload: never counted twice, at any moment),
 [summary.test.ts](../web/src/ledger/summary.test.ts) (adding, moving across categories
 and months, deleting and Undo, spending to income, transfers, unknown ones; days, entries
 and a lone payee, Tidy up's window; the 12 months without days or Tidy up),
-[day-by-day.test.ts](../web/src/ledger/day-by-day.test.ts) (the middle day, zeros, even
+[day-by-day.test.ts](../web/src/ledger/day-by-day.test.ts) (the median daily spend, zeros, even
 counts rounded half up, days to come, other periods, two time zones),
 [summary-copies.test.tsx](../web/src/ledger/summary-copies.test.tsx) (v2 copies kept,
 older ones never read offline),
@@ -1075,22 +1078,27 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   `?plan=scheduled`.
 - "Day by day": the month's days in weeks from the Week starts on setting (Monday unless
   set), each a link to `?activity&day=<day>` named as it reads ("November 10, spent RM
-  9.00, more than the middle day, TNB electricity due"), against "middle day RM 1.50"
-  (`dayByDay`): above it an amber up arrow, at or below it a green down arrow, days to come
+  9.00, more than the median daily spend, TNB electricity due"), against "Median daily spend
+  RM 1.50" (`dayByDay`): above it an amber up arrow, below it a green down arrow, on it a
+  plain tile with no arrow ("at the median daily spend"), days to come
   grey, today ringed (`aria-current="date"`), a dot on a day with a bill (amber) or pay
   (green) still to come. Nothing spent this month: "Fills in as you log."
 - "Budgets": each budget with "RM 36.00 left" (on a computer "36.00 left"), a bar with a
   marker for how much of the month has gone, and "RM 24.00 of RM 60.00 · faster than the
   month" (on track, faster than the month, or over; amber when faster, with a warning icon on
   a phone, the negative colour when over). "All of Plan" opens Plan. None: "No budgets yet." with
-  "Set a budget" (`?settings=categories&budget`, where budgets are set: it says "Choose an
+  "Set a budget" (only once it's known that Getting started isn't offering its own, one way
+  in to each step left; `?settings=categories&budget`, where budgets are set: it says "Choose an
   expense category to set its monthly budget", and the category opened has Monthly budget
   ready to type, the first one opened only; Getting started's and Plan's "Set a budget" go
   there too).
 - Getting started, this month while any of its five steps is left and it isn't hidden:
-  where the money is (always done), the first expense (spending this month), past months
-  (anything last month), rent, bills and pay (a repeating item), a budget (one this month);
-  "2 of 5 done", each step left a tap from where it's done (Add opens Add). Hide puts it
+  where the money is (always done), the first expense (spending this month), "Import past
+  transactions" (anything last month), rent, bills and pay (a repeating item), a budget (one
+  this month); "2 of 5 done", each step left a tap from where it's done (Add opens Add). The
+  steps done fold away under "Show 2 done" (and "Hide 2 done"); with one step left it's that
+  row alone, with a progress bar and "4 of 5 done · Hide". On a computer, Tidy up sits at the
+  top of its column while it shows, not across the page. Hide puts it
   away on this device for the signed-in account (local storage; without it, until the app
   is opened again); it's decided only once who's signed in is known, and never kept
   without an account.
@@ -1099,7 +1107,9 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   their words; no Tidy up, Coming up or Getting started.
 - With no account: the first run, in place of everything (no tab bar or sidebar): "Where
   do you keep your money?", Bank, E-wallet, Card and Cash, each opening Add account with
-  that kind chosen, and how many categories it comes with, worked out from the defaults.
+  that kind chosen. How many categories it comes with is said on Categories, worked out
+  from the defaults, and adding a bank's account before its CSV beside Import (Settings ›
+  Data).
 
 Home shows (Look and start, owner decision D13): "Everything" is all of the above;
 "Essentials" is the month-end figure (or what an earlier month left), what's due now (Log
@@ -1107,6 +1117,34 @@ it / Skip), Tidy up, Getting started on a first day, and on a computer Coming up
 next scheduled item and any whose amount is to check (`essentialRows` in home-text.ts); the two cards,
 the calendar and the budgets are left out, on every size. The theme is chosen in Settings ›
 Look and start; installing the app is offered on Settings › My account only.
+
+On a phone (under 768px), Essentials is the glance (owner audit, 2026-11-20), the month end
+a quiet line in it and its breakdown in Everything; tablets and computers are as above:
+
+- "Spent so far" and the month's expenses to today, large (`spentSoFar` over `spentByDay`, the
+  person's month), opening `?activity&kind=expense&from=<first day>&to=<today>`. Under it,
+  this month only, "Expected at month end RM 16,681.50", opening `?plan=scheduled`.
+- "Today RM 57.00 · RM 18.00 above median" ("below median", "at median" on a tie, even at a
+  median of RM 0.00), against the calendar's median daily spend from the first day through
+  today, days with nothing counted; a tap shows "Median daily spend RM 39.00 · Nov 1 to Nov
+  20, days with nothing spent counted".
+- "Biggest spend this week": the largest single expense from the week's first day (Week starts
+  on) through today, "RM 185.00" / "Kedai · Wed, Nov 18", opening that entry; "Nothing spent
+  this week" only when the device holds every day of it.
+- "Recent activity" · "Last 7 days" with See all (`?activity&kind=all&from=&to=`, the same
+  days): newest first, by day ("Today", "Yesterday", "Wed, Nov 18"), at most 20, each "−RM
+  35.00" spent, "+RM 3,250.00" received, a transfer unsigned as "Transfer · Maybank to Cash";
+  a row opens the entry.
+- Then what's due now, Tidy up and Getting started. An earlier month is seen from its last
+  day: "Spent in October", "Oct 31" for today, "Biggest spend Oct 26 to Oct 31", "Oct 25 to
+  Oct 31". Income, transfers and bills still to come never count as spending.
+- The figures come from the month's totals and the entries from a search of the 7 days, both
+  with the changes still to send on top, so an entry made offline moves them all at once.
+  Offline, when the device doesn't hold every day (History offline), the week's biggest says
+  "These days aren't on this device yet" and Recent activity which days it shows, never a
+  zero or a biggest it can't know. Without the month's totals (offline, never kept), "Couldn't
+  load this month." takes the month figures' place and the week and days still show. An entry
+  waiting for a rate is listed as typed with "conversion pending" and isn't a biggest.
 
 **Owner.** No state of its own: it reads the ledger (`useWholeLedger`, `useAccounts`), this
 month's and last month's totals (`useMonthSummary`) and the person's settings
@@ -1128,9 +1166,13 @@ thing it keeps, per device.
   [home-text.ts](../web/src/components/home/home-text.ts); the budget bar is
   [ui/Bar.tsx](../web/src/components/ui/Bar.tsx) (`today` null draws no marker).
 - Ledger: `monthEndForecast` (with `billsCents` and `payCents`), `comingUp` and `nextPay` in
-  [ledger/forecast.ts](../web/src/ledger/forecast.ts); `budgetLines`; `dayByDay`.
+  [ledger/forecast.ts](../web/src/ledger/forecast.ts); `budgetLines`; `dayByDay`; the phone
+  glance's figures in [ledger/glance.ts](../web/src/ledger/glance.ts), drawn by
+  [AtAGlance.tsx](../web/src/components/home/AtAGlance.tsx) (its entries from `useSearch`,
+  opened with EntrySheet).
 - Shared: `budgetPace` in [shared/budgets.ts](../shared/budgets.ts); `periodDay` in
-  [shared/period.ts](../shared/period.ts); the month end is the last day of the person's
+  [shared/period.ts](../shared/period.ts) (with `addDays` and `weekStartOf` for the glance's
+  week); the month end is the last day of the person's
   month (Month view, The month start day).
 
 **Invariants.**
@@ -1156,7 +1198,10 @@ per account, never without one),
 [home-text.test.ts](../web/src/components/home/home-text.test.ts) (the words, "running
 fast" exact and its tie-break, day names, weeks),
 [ComingUp.test.tsx](../web/src/components/home/ComingUp.test.tsx) (rows, amounts to check,
-added this month), and [forecast.test.ts](../web/src/ledger/forecast.test.ts) (bills and pay,
+added this month), [glance.test.tsx](../web/src/components/home/glance.test.tsx) (the phone
+glance: a month from the 25th, a week into last month, a zero median, a week without
+spending, an earlier month, an entry made offline, history not on the device) with
+[glance.test.ts](../web/src/ledger/glance.test.ts), and [forecast.test.ts](../web/src/ledger/forecast.test.ts) (bills and pay,
 coming up).
 
 ## Budgets

@@ -5,11 +5,13 @@ import { isBudgetMonth } from './budgets';
 import { tidyUpFrom } from './categories';
 import {
   MAX_PERIOD_DAYS,
+  addDays,
   monthStartDayOf,
   periodDay,
   periodDays,
   periodMonthOf,
   periodOf,
+  weekStartOf,
 } from './period';
 import { LAST_DAY_OF_MONTH } from './settings';
 
@@ -308,5 +310,27 @@ describe.each([
       // Half an hour earlier, tomorrow in UTC is still the 24th
       expect(isBudgetMonth('2026-12', Date.UTC(2026, 10, 23, 23, 30), 25)).toBe(false);
     });
+  });
+});
+
+// Home's week and its last few days: counted from the days' digits, across months and years
+describe('weeks and days', () => {
+  test('a week starts on the Monday or Sunday on or before the day', () => {
+    // Friday 20 November 2026
+    expect(weekStartOf('2026-11-20', 'monday')).toBe('2026-11-16');
+    expect(weekStartOf('2026-11-20', 'sunday')).toBe('2026-11-15');
+    expect(weekStartOf('2026-11-16', 'monday')).toBe('2026-11-16');
+    expect(weekStartOf('2026-11-15', 'monday')).toBe('2026-11-09');
+    expect(weekStartOf('2026-11-15', 'sunday')).toBe('2026-11-15');
+    // Into the month and the year before
+    expect(weekStartOf('2026-12-01', 'monday')).toBe('2026-11-30');
+    expect(weekStartOf('2027-01-02', 'sunday')).toBe('2026-12-27');
+  });
+
+  test('days are added across months, leap days and years', () => {
+    expect(addDays('2026-11-20', -6)).toBe('2026-11-14');
+    expect(addDays('2026-12-01', -6)).toBe('2026-11-25');
+    expect(addDays('2028-03-01', -1)).toBe('2028-02-29');
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
   });
 });

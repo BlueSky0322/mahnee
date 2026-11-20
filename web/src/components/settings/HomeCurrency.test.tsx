@@ -143,9 +143,9 @@ describe('Main currency', () => {
 
     // Amounts now show in the new currency
     await goToPlace('Accounts');
-    expect(
-      await screen.findAllByText((text) => text.includes('$ 23.00 in accounts')),
-    ).not.toHaveLength(0);
+    // One wallet: its balance is the total, said once over the list
+    const together = await screen.findByRole('group', { name: 'All together' });
+    expect(await within(together).findByText('$ 23.00')).toBeTruthy();
   });
 
   test.each([

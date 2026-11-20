@@ -2,19 +2,19 @@ import type { DayTotal } from '@shared/api';
 import { periodDays } from '@shared/period';
 
 // Home's "Day by day" calendar: each day of the period with what was spent on it, against
-// the middle day so far. The middle day is the median of each day's spending from the
+// the median daily spend so far. That is the median of each day's spending from the
 // period's first day to today, a day with nothing spent counting as 0; with an even count
 // it's the mean of the two middle days, in whole cents rounded half up. A day so far above
-// it is "more", at or below it "less" (against the figure as shown); a day still to come is
-// neither. `today` is the person's own day, as toDateInput(new Date()) gives it.
+// it is "more", below it "less" and on it "same" (against the figure as shown); a day still
+// to come is none of them. `today` is the person's own day, as toDateInput(new Date()) gives it.
 
 /** One day of the period as the calendar shows it */
 export interface DaySpent {
   date: string;
   /** Spent on it, whole cents; 0 for nothing */
   cents: number;
-  /** Against the middle day; null for a day still to come */
-  against: 'more' | 'less' | null;
+  /** Against the median daily spend; null for a day still to come */
+  against: 'more' | 'less' | 'same' | null;
 }
 
 /**
@@ -39,7 +39,13 @@ export function dayByDay(
     days: days.map((d) => ({
       ...d,
       against:
-        middleCents == null || d.date > today ? null : d.cents > middleCents ? 'more' : 'less',
+        middleCents == null || d.date > today
+          ? null
+          : d.cents > middleCents
+            ? 'more'
+            : d.cents < middleCents
+              ? 'less'
+              : 'same',
     })),
   };
 }

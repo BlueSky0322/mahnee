@@ -19,7 +19,7 @@ import {
 // Home at a glance (R-Home, R-Desk-Home; first day R-Empty-Home, R-Desk-Empty-Home; first
 // run R-FirstRun, R-Desk-FirstRun). Where the month will land, with the sum under it;
 // spent so far and what came in; what needs you (Tidy up, Coming up); a day-by-day
-// calendar against the middle day; and budgets with a today marker. With no account yet,
+// calendar against the median daily spend; and budgets with a today marker. With no account yet,
 // the first run asks where the money is kept.
 
 // Where the person is: Malaysia, eight hours ahead of UTC. The clock reads 00:30 on Tuesday
@@ -113,7 +113,7 @@ function aMonthUnderWay() {
   });
   server.categories = DEFAULT_CATEGORIES.map((c) => ({ ...c }));
   // Spent on the 1st to the 10th: 10.00, 0, 3.00, 0, 5.00, 0, 0, 0, 12.00, 9.00, so the
-  // middle day is the mean of 0 and 3.00 (the 5th and 6th of ten), 1.50
+  // median daily spend is the mean of 0 and 3.00 (the 5th and 6th of ten), 1.50
   entry(server, '2026-11-01', 1_000, FOOD);
   entry(server, '2026-11-03', 300, TRANSPORT);
   entry(server, '2026-11-05', 500, FOOD);
@@ -249,14 +249,14 @@ describe('Home at a glance', () => {
   );
 
   test.each(SIZES)(
-    'lays out each day against the middle day, opening each in Activity (%s)',
+    'lays out each day against the median daily spend, opening each in Activity (%s)',
     async (size) => {
       tenthJustAfterMidnight();
       renderApp(aMonthUnderWay(), '/', { size });
       const days = await screen.findByRole('region', { name: 'Day by day' });
-      await waitFor(() => expect(text(days)).toContain('middle day RM 1.50'));
+      await waitFor(() => expect(text(days)).toContain('Median daily spend RM 1.50'));
       const grid = within(days).getByRole('grid', {
-        name: 'November 2026, each day against the middle day so far',
+        name: 'November 2026, each day against the median daily spend so far',
       });
       // Weeks start on Monday, the setting's default; 1 November is a Sunday
       expect(within(grid).getAllByRole('columnheader').map(text)).toEqual([
@@ -273,17 +273,17 @@ describe('Home at a glance', () => {
       expect(cells).toHaveLength(7);
       expect(cells.slice(0, 6).every((c) => c.textContent === '')).toBe(true);
       expect(within(cells[6]).getByRole('link').getAttribute('aria-label')).toBe(
-        'November 1, spent RM 10.00, more than the middle day',
+        'November 1, spent RM 10.00, more than the median daily spend',
       );
 
       const day = (name: string) => within(grid).getByRole('link', { name });
       expect(within(grid).getAllByRole('link')).toHaveLength(30);
-      const today = day('November 10, spent RM 9.00, more than the middle day');
+      const today = day('November 10, spent RM 9.00, more than the median daily spend');
       expect(today.getAttribute('href')).toBe('?activity&day=2026-11-10');
       expect(today.getAttribute('aria-current')).toBe('date');
-      expect(day('November 2, spent RM 0.00, less than the middle day')).toBeTruthy();
-      expect(day('November 3, spent RM 3.00, more than the middle day')).toBeTruthy();
-      expect(day('November 9, spent RM 12.00, more than the middle day')).toBeTruthy();
+      expect(day('November 2, spent RM 0.00, less than the median daily spend')).toBeTruthy();
+      expect(day('November 3, spent RM 3.00, more than the median daily spend')).toBeTruthy();
+      expect(day('November 9, spent RM 12.00, more than the median daily spend')).toBeTruthy();
       expect(day('November 11').getAttribute('aria-current')).toBeNull();
       expect(day('November 20, TNB electricity due')).toBeTruthy();
       expect(day('November 25, Salary due')).toBeTruthy();
@@ -416,7 +416,7 @@ describe('Home at a glance', () => {
     server.me.settings.weekStart = 'sunday';
     renderApp(server, '/', { size });
     const grid = await screen.findByRole('grid', {
-      name: 'November 2026, each day against the middle day so far',
+      name: 'November 2026, each day against the median daily spend so far',
     });
     expect(within(grid).getAllByRole('columnheader').map(text)).toEqual([
       'S',
@@ -429,7 +429,7 @@ describe('Home at a glance', () => {
     ]);
     const firstWeek = within(within(grid).getAllByRole('row')[1]).getAllByRole('gridcell');
     expect(within(firstWeek[0]).getByRole('link').getAttribute('aria-label')).toBe(
-      'November 1, spent RM 10.00, more than the middle day',
+      'November 1, spent RM 10.00, more than the median daily spend',
     );
   });
 
@@ -478,12 +478,12 @@ describe('Home at a glance', () => {
       expect(screen.queryByText('Expected at month end')).toBeNull();
       expect(tidyUp()).toBeNull();
       const grid = await screen.findByRole('grid', {
-        name: 'October 2026, each day against the middle day so far',
+        name: 'October 2026, each day against the median daily spend so far',
       });
       expect(within(grid).getAllByRole('link')).toHaveLength(31);
       expect(
         within(grid).getByRole('link', {
-          name: 'October 20, spent RM 4.00, more than the middle day',
+          name: 'October 20, spent RM 4.00, more than the median daily spend',
         }),
       ).toBeTruthy();
       expect(within(grid).queryAllByRole('link', { name: /due$/ })).toEqual([]);
@@ -510,33 +510,39 @@ describe('the first day', () => {
       expect(tidyUp()).toBeNull();
       expect(screen.queryByRole('region', { name: 'Coming up' })).toBeNull();
 
+      // Setting a budget has one way in: Getting started's step, not a second in Budgets
       const budgets = screen.getByRole('region', { name: 'Budgets' });
       expect(within(budgets).getByText('No budgets yet.')).toBeTruthy();
-      expect(within(budgets).getByRole('link', { name: 'Set a budget' }).getAttribute('href')).toBe(
-        '?settings=categories&budget',
-      );
+      await screen.findByRole('region', { name: 'Getting started' });
+      expect(within(budgets).queryByRole('link', { name: 'Set a budget' })).toBeNull();
+      expect(screen.getAllByRole('link', { name: /^Set a budget/ })).toHaveLength(1);
       const days = screen.getByRole('region', { name: 'Day by day' });
       expect(within(days).getByText('Fills in as you log.')).toBeTruthy();
       expect(within(days).queryByRole('grid')).toBeNull();
     },
   );
 
-  test.each(SIZES)('lists the five steps to get going, one done (%s)', async (size) => {
+  test.each(SIZES)('lists the four steps left, the one done folded away (%s)', async (size) => {
     tenthJustAfterMidnight();
     renderApp(firstDay(), '/', { size });
     const started = await screen.findByRole('region', { name: 'Getting started' });
     await waitFor(() => expect(text(started)).toContain('1 of 5 done ·'));
     expect(rows(started)).toEqual([
-      'Add where your money is Maybank Savings, RM 5,000.00',
       'Log your first expense Amount, category, Save Add',
-      "Bring in past months From a bank's CSV Import",
+      "Import past transactions From a bank's CSV Import",
       'Add rent, bills and pay Counted in the month end Schedule',
       'Set a budget A monthly amount per category Set one',
     ]);
+    // What's done is a tap away, crossed off
+    const done = within(started).getByRole('button', { name: 'Show 1 done' });
+    expect(done.getAttribute('aria-expanded')).toBe('false');
+    await userEvent.setup().click(done);
+    expect(rows(started)[0]).toBe('Add where your money is Maybank Savings, RM 5,000.00');
+    expect(within(started).getByRole('button', { name: 'Hide 1 done' })).toBeTruthy();
     // Each step still to do is a tap from where it's done: the whole row, named by what it says
     const go = (title: string) =>
       within(started).getByRole('link', { name: new RegExp(`^${title}`) });
-    expect(go('Bring in past months').getAttribute('href')).toBe('?settings=data');
+    expect(go('Import past transactions').getAttribute('href')).toBe('?settings=data');
     expect(go('Add rent, bills and pay').getAttribute('href')).toBe('?plan=scheduled');
     expect(go('Set a budget').getAttribute('href')).toBe('?settings=categories&budget');
     // Add opens a new entry; logging one ticks off its step
@@ -560,8 +566,8 @@ describe('the first day', () => {
         // Spending last month only: the past is filled in, this month's first expense isn't
         entry(server, '2026-10-14', 500, FOOD);
       },
-      "Bring in past months From a bank's CSV",
-      'Bring in past months',
+      "Import past transactions From a bank's CSV",
+      'Import past transactions',
     ],
     [
       'a repeating item',
@@ -593,6 +599,9 @@ describe('the first day', () => {
     renderApp(server, '/', { size: 'phone' });
     const started = await screen.findByRole('region', { name: 'Getting started' });
     await waitFor(() => expect(text(started)).toContain('2 of 5 done ·'));
+    // Done steps fold away as the person goes, a tap from showing again
+    expect(rows(started)).not.toContain(step);
+    await userEvent.setup().click(within(started).getByRole('button', { name: 'Show 2 done' }));
     expect(rows(started)).toContain(step);
     expect(within(started).queryByRole('link', { name: new RegExp(`^${go}`) })).toBeNull();
     expect(within(started).queryByRole('button', { name: new RegExp(`^${go}`) })).toBeNull();
@@ -610,6 +619,135 @@ describe('the first day', () => {
     await reloadApp(server, '/', { size });
     await screen.findByRole('region', { name: 'Day by day' });
     expect(screen.queryByRole('region', { name: 'Getting started' })).toBeNull();
+  });
+});
+
+describe('Getting started nearly done', () => {
+  /** Everything but past months: an expense this month, a repeating item and a budget */
+  function allButPastMonths(density: 'everything' | 'essentials') {
+    const server = firstDay();
+    server.me.settings.homeDensity = density;
+    server.accounts.push({ ...account(CASH, 'Cash', 'cash', 20_000), position: 1 });
+    server.categories = DEFAULT_CATEGORIES.map((c) => ({ ...c }));
+    entry(server, '2026-11-03', 500, FOOD);
+    server.recurring.push(repeating('Rent', { amountCents: 120_000, nextDue: '2026-12-01' }));
+    server.budgets.push({
+      categoryId: FOOD,
+      fromMonth: '2026-11',
+      amountCents: 6_000,
+      carryOver: false,
+    });
+    return server;
+  }
+
+  test.each(
+    SIZES.flatMap((size) => (['everything', 'essentials'] as const).map((d) => [size, d] as const)),
+  )('one step left is one row, with how far along and Hide (%s, %s)', async (size, density) => {
+    tenthJustAfterMidnight();
+    renderApp(allButPastMonths(density), '/', { size });
+    const started = await screen.findByRole('region', { name: 'Getting started' });
+    await waitFor(() => expect(text(started)).toContain('4 of 5 done'));
+    expect(text(started)).toBe("Import past transactions From a bank's CSV 4 of 5 done · Hide");
+    expect(
+      within(started)
+        .getByRole('link', { name: /^Import past transactions/ })
+        .getAttribute('href'),
+    ).toBe('?settings=data');
+    expect(within(started).queryByRole('list')).toBeNull();
+    expect(within(started).queryByRole('button', { name: /done$/ })).toBeNull();
+    await userEvent.setup().click(within(started).getByRole('button', { name: 'Hide' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Getting started' })).toBeNull(),
+    );
+  });
+
+  test.each(SIZES)(
+    'Budgets waits to know whether Getting started offers a budget (%s)',
+    async (size) => {
+      tenthJustAfterMidnight();
+      const server = firstDay();
+      // This month's totals, then last month's, which Getting started needs, held back
+      const thisMonth = holdNext(server, 'GET', '/api/summary');
+      const lastMonth = holdNext(server, 'GET', '/api/summary');
+      renderApp(server, '/', { size });
+      thisMonth.release();
+      const budgets = await screen.findByRole('region', { name: 'Budgets' });
+      await new Promise((r) => setTimeout(r, 200));
+      expect(within(budgets).getByText('No budgets yet.')).toBeTruthy();
+      expect(within(budgets).queryByRole('link', { name: 'Set a budget' })).toBeNull();
+      lastMonth.release();
+      await screen.findByRole('region', { name: 'Getting started' });
+      expect(within(budgets).queryByRole('link', { name: 'Set a budget' })).toBeNull();
+      expect(screen.getAllByRole('link', { name: /^Set a budget/ })).toHaveLength(1);
+    },
+  );
+
+  test.each(SIZES)(
+    'with Getting started hidden, Budgets offers its own way in (%s)',
+    async (size) => {
+      tenthJustAfterMidnight();
+      const server = firstDay();
+      localStorage.setItem(`getting-started-hidden:${server.me.email}`, '1');
+      renderApp(server, '/', { size });
+      const budgets = await screen.findByRole('region', { name: 'Budgets' });
+      await waitFor(() =>
+        expect(
+          within(budgets).getByRole('link', { name: 'Set a budget' }).getAttribute('href'),
+        ).toBe('?settings=categories&budget'),
+      );
+    },
+  );
+
+  test('on a computer, Tidy up sits with Getting started rather than across the page', async () => {
+    tenthJustAfterMidnight();
+    const server = firstDay();
+    server.accounts.push({ ...account(CASH, 'Cash', 'cash', 20_000), position: 1 });
+    entry(server, '2026-11-03', 500, OTHER_EXPENSE_ID);
+    renderApp(server, '/', { size: 'desktop' });
+    const started = await screen.findByRole('region', { name: 'Getting started' });
+    await waitFor(() => expect(tidyUp()).not.toBeNull());
+    expect(started.parentElement!.contains(tidyUp())).toBe(true);
+  });
+});
+
+describe('Day by day against the median daily spend', () => {
+  test.each(SIZES)('a day at the median is neither more nor less (%s)', async (size) => {
+    tenthJustAfterMidnight();
+    const server = firstDay();
+    server.accounts.push({ ...account(CASH, 'Cash', 'cash', 20_000), position: 1 });
+    // RM 5.00 on the 1st to the 6th, RM 9.00 on the 7th, nothing since: the median is RM 5.00
+    for (let d = 1; d <= 6; d++) entry(server, `2026-11-0${d}`, 500, FOOD);
+    entry(server, '2026-11-07', 900, FOOD);
+    renderApp(server, '/', { size });
+    const days = await screen.findByRole('region', { name: 'Day by day' });
+    await waitFor(() => expect(text(days)).toContain('Median daily spend RM 5.00'));
+    const day = (name: string) => within(days).getByRole('link', { name });
+    const at = day('November 1, spent RM 5.00, at the median daily spend');
+    // A neutral tile: no arrow either way
+    expect(at.querySelector('svg')).toBeNull();
+    expect(
+      day('November 7, spent RM 9.00, more than the median daily spend').querySelector('svg'),
+    ).not.toBeNull();
+    expect(day('November 8, spent RM 0.00, less than the median daily spend')).toBeTruthy();
+  });
+
+  test('with a median of nothing, a day with nothing spent is at it, not less', async () => {
+    tenthJustAfterMidnight();
+    const server = firstDay();
+    server.accounts.push({ ...account(CASH, 'Cash', 'cash', 20_000), position: 1 });
+    entry(server, '2026-11-03', 500, FOOD);
+    renderApp(server, '/', { size: 'desktop' });
+    const days = await screen.findByRole('region', { name: 'Day by day' });
+    await waitFor(() => expect(text(days)).toContain('Median daily spend RM 0.00'));
+    const zero = within(days).getByRole('link', {
+      name: 'November 2, spent RM 0.00, at the median daily spend',
+    });
+    expect(zero.querySelector('svg')).toBeNull();
+    expect(
+      within(days).getByRole('link', {
+        name: 'November 3, spent RM 5.00, more than the median daily spend',
+      }),
+    ).toBeTruthy();
   });
 });
 
@@ -706,12 +844,14 @@ describe('the first run', () => {
       for (const words of [
         'Mahnee',
         "Add each one with today's balance. No bank login.",
-        'Comes with 8 expense and 2 income categories. Edit them any time.',
-        "Importing a bank's CSV? Add that account first.",
         'Works offline',
       ]) {
         expect(screen.getByText(words)).toBeTruthy();
       }
+      // The kinds explain the choice: the categories are told of on Categories, and the
+      // CSV hint beside Import
+      expect(screen.queryByText(/categories/i)).toBeNull();
+      expect(screen.queryByText(/CSV/)).toBeNull();
       expect(
         screen.getAllByRole('button', { name: /^(Bank|E-wallet|Card|Cash)/ }).map(text),
       ).toEqual([

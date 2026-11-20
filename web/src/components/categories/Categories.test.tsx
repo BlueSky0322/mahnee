@@ -116,6 +116,10 @@ describe('the categories page', () => {
       ]),
     );
     expect(await shown('Income')).toEqual(['Salary', 'Other income']);
+    // What it starts with, said here rather than on the first run
+    expect(
+      screen.getByText('Comes with 8 expense and 2 income categories. Edit them any time.'),
+    ).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'New expense category' })).toHaveProperty(
       'placeholder',
       'New expense category',

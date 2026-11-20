@@ -138,24 +138,17 @@ describe("a category row's subtitle", () => {
         { id: 'c'.repeat(16), name: 'Coffee', cents: 1_500, entries: 1 },
       ],
     });
-    const november = { month: '2026-11', isCurrent: true };
-    expect(deskSubtitle(food, { ...november, carriesOver: true })).toBe(
-      'Dining out, Coffee · carries over',
+    expect(deskSubtitle(food, { carriesOver: true })).toBe('Dining out, Coffee · carries over');
+    expect(deskSubtitle(food, { carriesOver: false })).toBe('Dining out, Coffee');
+    expect(deskSubtitle(row('Bills', 120_000, 1, { payee: 'Rent' }), { carriesOver: false })).toBe(
+      'Rent',
     );
-    expect(deskSubtitle(food, { ...november, carriesOver: false })).toBe('Dining out, Coffee');
-    expect(
-      deskSubtitle(row('Bills', 120_000, 1, { payee: 'Rent' }), {
-        ...november,
-        carriesOver: false,
-      }),
-    ).toBe('Rent');
-    expect(deskSubtitle(row('Groceries', 18_000, 3), { ...november, carriesOver: true })).toBe(
+    expect(deskSubtitle(row('Groceries', 18_000, 3), { carriesOver: true })).toBe(
       '3 entries · carries over',
     );
-    expect(deskSubtitle(null, { ...november, carriesOver: false })).toBe('Nothing this month');
-    expect(deskSubtitle(null, { month: '2026-10', isCurrent: false, carriesOver: false })).toBe(
-      'Nothing in October',
-    );
+    // Nothing in the month: the row's 0.00 says so, so only whether its budget carries over
+    expect(deskSubtitle(null, { carriesOver: false })).toBeNull();
+    expect(deskSubtitle(null, { carriesOver: true })).toBe('Carries over');
   });
 });
 
@@ -250,14 +243,28 @@ describe("a budget's figures on Plan", () => {
     });
   });
 
-  it('over: how far over, and says over', () => {
+  it('over: how far over, said once, before the figures', () => {
     expect(
       budgetWords(line('Transport', 2_000, 3_000), DAY_10_OF_30, { short: false, currency: 'MYR' }),
     ).toEqual({
       left: 'RM 10.00 over',
-      meta: 'RM 30.00 of RM 20.00 · over',
+      meta: 'RM 30.00 of RM 20.00',
       label: 'Transport: 150% spent',
       pace: 'over',
+    });
+  });
+
+  it('exactly on budget: nothing left, never over', () => {
+    expect(
+      budgetWords(line('Groceries', 18_000, 18_000), DAY_30_OF_30, {
+        short: false,
+        currency: 'MYR',
+      }),
+    ).toEqual({
+      left: 'RM 0.00 left',
+      meta: 'RM 180.00 of RM 180.00',
+      label: 'Groceries: 100% spent',
+      pace: 'onTrack',
     });
   });
 

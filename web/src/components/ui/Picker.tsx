@@ -159,7 +159,7 @@ export function PickerShell({
       onChange={setOpen}
       position="bottom-start"
       offset={6}
-      width={look === 'field' ? 'target' : undefined}
+      width={look === 'plain' ? undefined : 'target'}
       zIndex={300}
       withinPortal
       withRoles={false}
@@ -230,22 +230,25 @@ export function PickerShell({
         >
           {label}
         </label>
-        <button
-          ref={trigger}
-          id={ids.trigger}
-          type="button"
-          className={classes.rowButton}
-          disabled={disabled}
-          {...roles}
-        >
-          <span className={classes.rowValue}>{value}</span>
-          <ForwardIcon
-            size={16}
-            className={classes.chevron}
-            aria-hidden
-          />
-        </button>
-        {popover}
+        {/* The list opens under what's chosen, as wide as it, not under the row's name */}
+        <span className={`${classes.anchored} ${classes.rowAnchor}`}>
+          <button
+            ref={trigger}
+            id={ids.trigger}
+            type="button"
+            className={classes.rowButton}
+            disabled={disabled}
+            {...roles}
+          >
+            <span className={classes.rowValue}>{value}</span>
+            <ForwardIcon
+              size={16}
+              className={classes.chevron}
+              aria-hidden
+            />
+          </button>
+          {popover}
+        </span>
       </div>
     );
   } else {

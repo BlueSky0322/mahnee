@@ -140,15 +140,30 @@ export const entriesText = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}
 export function foundLine(
   found: SearchTotals,
   currency: string,
-  selecting?: { category: string | null },
+  selecting?: { category: string | null } | null,
+  partial = false,
 ) {
+  // Counted from what this device holds, which isn't every day asked for
+  const where = partial ? ' on this device' : '';
   if (selecting != null) {
-    return `${found.entries} found${selecting.category == null ? '' : ` in ${selecting.category}`}`;
+    return `${found.entries} found${where}${selecting.category == null ? '' : ` in ${selecting.category}`}`;
   }
-  const parts = [`${found.entries} found`];
+  const parts = [`${found.entries} found${where}`];
   if (found.spentCents > 0) parts.push(`${formatMoney(found.spentCents, currency)} spent`);
   if (found.receivedCents > 0) parts.push(`${formatMoney(found.receivedCents, currency)} received`);
   return parts.join(' · ');
+}
+
+/**
+ * Offline, when the history on this device doesn't hold every day asked for: "Showing Oct 1
+ * to Nov 20. Older entries aren't on this device yet.", from the first day it holds whole
+ * (`held`, null for none) to the last asked for (today when not said)
+ */
+export function onDeviceLine(held: string | null, looked: Period, today: string) {
+  const from = held != null && looked.from != null && looked.from > held ? looked.from : held;
+  const to = looked.to != null && looked.to < today ? looked.to : today;
+  if (from == null || from > to) return "Entries for these days aren't on this device yet.";
+  return `Showing ${shortDay(from, today)} to ${shortDay(to, today)}. Older entries aren't on this device yet.`;
 }
 
 /** 'No "bolt" in Transport this month. 2 in other months.' */

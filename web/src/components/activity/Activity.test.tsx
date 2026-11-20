@@ -797,7 +797,7 @@ describe('nothing to show', () => {
       const back = goOffline(server);
       await goToPlace('Activity');
       expect(await screen.findByRole('heading', { name: 'Connect to search' })).toBeTruthy();
-      expect(screen.getByText("Search results aren't kept on this device.")).toBeTruthy();
+      expect(screen.getByText("Your entries aren't on this device yet.")).toBeTruthy();
       back();
       await waitFor(() => expect(titles(size)).toEqual(SHOWN), { timeout: 8000 });
     },

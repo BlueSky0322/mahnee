@@ -215,9 +215,8 @@ function Entries({
   onOpen: (transaction: Transaction) => void;
 }) {
   const { categories } = useCategories();
-  const { transactions, failed, retry, hasMore, loadMore, loadingMore } = useAccountTransactions(
-    account.id,
-  );
+  const { transactions, failed, retry, hasMore, loadMore, loadingMore, onDevice } =
+    useAccountTransactions(account.id);
 
   if (transactions == null) {
     return failed ? (
@@ -282,6 +281,9 @@ function Entries({
         >
           Show 50 more
         </Button>
+      )}
+      {!hasMore && onDevice?.complete === false && (
+        <p className={classes.muted}>Older entries aren't on this device yet.</p>
       )}
     </section>
   );

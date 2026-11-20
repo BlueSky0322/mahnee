@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-20
 
+- Added: each account's history downloads to the device in the background, so Activity, its filters and an account's entries work offline, saying which days it holds while a download isn't finished [#?]
 - Fixed: a change is kept on the device the moment it's made, even while another is saving; one the server refuses waits for you to try again or discard it, and the rest still save [#60]
 - Fixed: a change of home currency that pauses now and then but keeps going is no longer given back, rates are fetched fewer times, and rate days show the right day east of UTC+12 [#61]
 - Fixed: importing older bank rows no longer counts them twice: the preview shows the balance before and after, and asks whether rows from before you started tracking are already in the opening balance [#59]

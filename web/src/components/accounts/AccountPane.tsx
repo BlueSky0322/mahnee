@@ -177,9 +177,8 @@ function Register({
   onOpen: (t: Transaction) => void;
 }) {
   const { categories } = useCategories();
-  const { transactions, failed, retry, hasMore, loadMore, loadingMore } = useAccountTransactions(
-    account.id,
-  );
+  const { transactions, failed, retry, hasMore, loadMore, loadingMore, onDevice } =
+    useAccountTransactions(account.id);
   if (transactions == null) return failed ? <Failed retry={retry} /> : <EntriesLoading />;
   if (transactions.length === 0) return <NoEntries account={account} />;
   const after = balancesAfter(account.balanceCents, account.id, transactions);
@@ -205,6 +204,9 @@ function Register({
             Show 50 more
           </Button>
         </div>
+      )}
+      {!hasMore && onDevice?.complete === false && (
+        <p className={classes.muted}>Older entries aren't on this device yet.</p>
       )}
     </>
   );

@@ -1281,8 +1281,13 @@ has any entry at all, `anywhere`: a transfer alone shows the filters, with nothi
 it says "No transactions yet" with Log your first
 one and Import a bank's CSV; with nothing found, 'No "bolt" in Transport this month. 2 in
 other months.' with Clear filters (the chips, not the words or the days) and Search all
-months. Offline with nothing loaded: "Connect to search" (results aren't kept on the
-device). Catching up is this page alone (Tidy up links to Other since a day, selecting);
+months. Offline, it searches the history downloaded to the device, with the changes
+still to send on top, found, ordered and counted as the server would; where the device
+doesn't hold every day asked for yet it says "Showing Sep 6 to Sep 30. Older entries
+aren't on this device yet." (or "Entries for these days aren't on this device yet."), and
+counts "12 found on this device". Offline with none of it held: "Connect to search" ("Your
+entries aren't on this device yet.", or "This device couldn't keep your entries, so
+searching needs a connection." when storage failed). Catching up is this page alone (Tidy up links to Other since a day, selecting);
 there is no review queue.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts): a search's results are a list
@@ -2009,6 +2014,20 @@ keep changes, those two with how many are waiting.
   changes are held with a refused one (`heldWith`). The ledger's save queue sends from it;
   what it can't keep, and what was refused, the notice says
   ([components/shell/OfflineNotice.tsx](../web/src/components/shell/OfflineNotice.tsx)).
+- [ledger/history.ts](../web/src/ledger/history.ts): each signed-in account's transaction
+  history on the device, for Activity, its filters, an account's entries and an import's
+  duplicate check offline (read by `fetchTransactionPage` and `transactionsSince` in
+  ledger.ts when the server can't be reached). `syncHistory` downloads what's missing, 5
+  seconds after the balances come fresh: each account newest first, 200 a page, how far
+  it got kept with each page (`coverage`), so a stopped download carries on from its
+  cursor; a complete or started one first looks for new entries at the top (50 a page,
+  down to the newest it held). Kept up to date by each change saved here (`recordSaved`)
+  and each page the server sends (an account's page replaces what was held over its
+  range); an import undone or a new home currency starts the downloads again from the
+  top. Reads say how much of the days asked for they hold (`onDevice`). Stored in
+  [offline/history-store.ts](../web/src/offline/history-store.ts): its own IndexedDB
+  database, rows by [email, id] indexed by day, account, the account a transfer went to
+  and category; coverage by [email, account].
 - [offline/storage.ts](../web/src/offline/storage.ts): once the app is installed, asks
   the browser (once per device) not to clear what's kept when space runs low.
 - [pwa/install.ts](../web/src/pwa/install.ts): the browser's install prompt, kept for
@@ -2066,6 +2085,12 @@ account's saved copy ([ProfileContext](../web/src/profile/ProfileContext.tsx)).
   reloads. Signing out drops everything kept for the account, its unsaved changes too,
   after asking when any are waiting
   ([components/common/useConfirmSignOut.tsx](../web/src/components/common/useConfirmSignOut.tsx)).
+- The history on the device is read for the signed-in email alone, written only while
+  that email is still signed in (a page on its way when the cache is emptied is dropped),
+  and deleted with the device's copies. At most `MAX_TRANSACTIONS_PER_ACCOUNT` per
+  account. Online, Activity and accounts read the server as before; offline, a part is
+  never counted as if it were all. Entries changed on another device below the newest
+  held are only refreshed when a page holding them is fetched again.
 - The app and the service worker read a failed send the same way: no answer, a non-JSON
   answer, 401, 429, 5xx and `account_mismatch` are kept; any other 4xx drops the rest.
 - Every write names the account it was made as (`X-Expected-Account`, from `writeAs` in
@@ -2096,6 +2121,10 @@ it's drawn at each size, ages, which label wins, the offline notice's words, and
 toast: announced, Undo its only button, gone after 6 seconds; refusals keep their close
 button), [freshness-text.test.ts](../web/src/components/common/freshness-text.test.ts)
 (age edges and the order of the labels),
+[history.test.tsx](../web/src/offline/history.test.tsx) (offline cold start: a month
+never opened, page by page, with the server's figures; a transfer; an edit made offline;
+an account's entries past the first page; a download stopped, said so, and carried on
+from where it stopped; another account's never shown; signing out; storage refused),
 [first-read.test.tsx](../web/src/offline/first-read.test.tsx) (the first read of the
 balances goes while the server is slow to say who's signed in, and never waits for good
 when signed out),

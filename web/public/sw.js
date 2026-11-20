@@ -19,7 +19,8 @@
 //   the account holds is kept here.
 // - Changes made offline are kept by the app (in IndexedDB, web/src/offline/outbox.ts);
 //   background sync sends them here when the connection is back, even if the app is
-//   closed.
+//   closed. A change the server refuses is kept, marked with why, with the changes held
+//   with it, for the person to review in the app; the rest are still sent.
 // - Reminders the server pushes (worker/push/reminders.ts) are shown as notifications,
 //   and a tap opens the app at the page the reminder points to.
 const SHELL = 'mahnee-shell-v1';
@@ -70,10 +71,12 @@ const SYNC_TAG = 'mahnee-outbox';
 /**
  * OUTBOX_PREFIX and LOCK_PREFIX in web/src/offline/outbox.ts: each person's outbox is
  * kept under their email, as { email, value } with value the changes in order, each
- * { cid, change }
+ * { cid, change, currency?, group?, refused? }
  */
 const OUTBOX_PREFIX = 'outbox:';
 const LOCK_PREFIX = 'mahnee-outbox:';
+/** REFUSED_REASON in web/src/offline/outbox.ts: why a change was refused, when the server didn't say */
+const REFUSED_REASON = "The server couldn't save this change.";
 /** SW_USER_KEY in web/src/offline/cache.ts: who the app last said is signed in */
 const USER_KEY = 'mahnee:user';
 /** CLIENT_ID_HEADER in shared/api.ts */
@@ -86,20 +89,62 @@ const MAX_CHANGES_BYTES = 48 * 1024;
 
 const utf8 = new TextEncoder();
 
+/** The group a change was made in, as groupOf in web/src/offline/outbox.ts */
+const groupOf = (q) => q.group ?? q.cid;
+const groupsIn = (batch) => new Set(batch.map(groupOf)).size;
+
 /** The next request's changes, as nextBatch in web/src/offline/outbox.ts picks them */
-function nextBatch(queued) {
+function nextBatch(queued, maxGroups = Infinity) {
   let bytes = utf8.encode('{"changes":[],"ids":[],"currencies":[]}').length;
   let count = 0;
+  const groups = new Set();
   for (const q of queued.slice(0, MAX_CHANGES)) {
+    if (!groups.has(groupOf(q)) && groups.size >= maxGroups) break;
     bytes +=
       utf8.encode(JSON.stringify(q.change)).length +
       utf8.encode(JSON.stringify(q.cid)).length +
       utf8.encode(JSON.stringify(q.currency ?? null)).length +
       (count > 0 ? 3 : 0);
     if (count > 0 && bytes > MAX_CHANGES_BYTES) break;
+    groups.add(groupOf(q));
     count++;
   }
   return queued.slice(0, count);
+}
+
+/** What a change adds, by id, as addedBy in web/src/offline/outbox.ts */
+const addedBy = (change) =>
+  ['account', 'category', 'transaction', 'recurring', 'import']
+    .map((key) => change[key]?.id)
+    .filter((id) => typeof id === 'string');
+
+/** Whether a change names any of these ids anywhere in it */
+function names(value, ids) {
+  if (typeof value === 'string') return ids.has(value);
+  if (Array.isArray(value)) return value.some((v) => names(v, ids));
+  if (typeof value === 'object' && value != null) {
+    return Object.values(value).some((v) => names(v, ids));
+  }
+  return false;
+}
+
+/**
+ * The changes held with refused ones, as heldWith in web/src/offline/outbox.ts finds them:
+ * those, the rest of their groups, and every later change naming something they add
+ */
+function heldWith(queued, refused) {
+  const held = new Set();
+  const groups = new Set();
+  const added = new Set();
+  for (const q of queued) {
+    if (q.refused != null) continue;
+    if (refused.has(q.cid) || groups.has(groupOf(q)) || names(q.change, added)) {
+      held.add(q.cid);
+      groups.add(groupOf(q));
+      addedBy(q.change).forEach((id) => added.add(id));
+    }
+  }
+  return held;
 }
 
 /**
@@ -447,9 +492,31 @@ const withLock = (email, fn) =>
 class TryLater extends Error {}
 
 /**
+ * Reads `account`'s outbox and writes back what `edit` makes of it, in one transaction, as
+ * the app does (editOutbox in web/src/offline/outbox.ts): a change the app keeps meanwhile
+ * is never written over
+ */
+function editOutbox(db, account, key, edit) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('keyval', 'readwrite');
+    const store = tx.objectStore('keyval');
+    const read = store.get(key);
+    read.onsuccess = () => {
+      const entry = read.result;
+      if (entry?.email !== account || !Array.isArray(entry.value)) return;
+      const after = edit(entry.value);
+      if (after.length > 0) store.put({ ...entry, value: after }, key);
+      else store.delete(key);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = tx.onabort = () => reject(tx.error);
+  });
+}
+
+/**
  * Sends changes `account` kept; the server refuses them if someone else is signed in
- * now. Resolves with whether they were saved (false: refused); throws TryLater to keep
- * them for next time.
+ * now. Resolves with whether they were saved, and if not why the server refused them;
+ * throws TryLater to keep them for next time.
  */
 async function post(path, body, account) {
   let res;
@@ -480,11 +547,17 @@ async function post(path, body, account) {
   // Answered by something other than the API (a proxy, say), as the app sees it too:
   // anything that isn't JSON, or is JSON null
   if (res.ok && answer == null) throw new TryLater('Not answered with JSON');
-  // Otherwise saved, or refused (4xx): the app shows the ledger as the server has it
-  return res.ok;
+  if (res.ok) return { saved: true };
+  // Refused (4xx), with the server's reason, as refusalReason in web/src/offline/outbox.ts
+  const reason = typeof answer?.error === 'string' && answer.error ? answer.error : REFUSED_REASON;
+  return { saved: false, reason };
 }
 
-/** Sends the signed-in account's changes, in order; nobody else's */
+/**
+ * Sends the signed-in account's changes, in order; nobody else's. One the server refuses
+ * is found by halving the requests, as the app does, then kept with why and with what's
+ * held with it; the rest still go.
+ */
 async function sendOutbox() {
   const db = await openDb();
   try {
@@ -492,21 +565,31 @@ async function sendOutbox() {
     if (typeof user !== 'string') return;
     const key = `${OUTBOX_PREFIX}${user}`;
     await withLock(user, async () => {
-      // Read under the lock, in case the app sent them meanwhile
-      const entry = await idb(db, 'readonly', (s) => s.get(key));
-      if (entry?.email !== user || !Array.isArray(entry.value)) return;
-      // As many at a time as the server takes. Each request's changes are crossed off
-      // once saved, so a failure later on leaves only what wasn't sent.
-      let left = entry.value;
-      while (left.length > 0) {
-        const batch = nextBatch(left);
-        const saved = await post('/api/changes', changesBody(batch), entry.email);
-        // Refused: the rest was made on top of it, so it goes too
-        left = saved ? left.slice(batch.length) : [];
-        const now = left;
-        await idb(db, 'readwrite', (s) =>
-          now.length > 0 ? s.put({ ...entry, value: now }, key) : s.delete(key),
-        );
+      let maxGroups = Infinity;
+      for (;;) {
+        // Read each time, under the lock: the app may have sent some meanwhile, or kept
+        // new ones (which never waits for this lock)
+        const entry = await idb(db, 'readonly', (s) => s.get(key));
+        if (entry?.email !== user || !Array.isArray(entry.value)) return;
+        const waiting = entry.value.filter((q) => q.refused == null);
+        if (waiting.length === 0) return;
+        // As many at a time as the server takes. Each request's changes are crossed off
+        // once saved, so a failure later on leaves only what wasn't sent.
+        const batch = nextBatch(waiting, maxGroups);
+        const sent = new Set(batch.map((q) => q.cid));
+        const answer = await post('/api/changes', changesBody(batch), entry.email);
+        if (answer.saved) {
+          await editOutbox(db, user, key, (kept) => kept.filter((q) => !sent.has(q.cid)));
+        } else if (groupsIn(batch) > 1) {
+          maxGroups = Math.ceil(groupsIn(batch) / 2);
+        } else {
+          maxGroups = Infinity;
+          const refused = { reason: answer.reason, set: batch[0].cid };
+          await editOutbox(db, user, key, (kept) => {
+            const held = heldWith(kept, sent);
+            return kept.map((q) => (held.has(q.cid) ? { ...q, refused } : q));
+          });
+        }
       }
     });
   } finally {

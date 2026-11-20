@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { LedgerChange } from '@shared/api';
 import { IMAGE_VIEWER_HEADER, MAX_CHANGES, MAX_CHANGES_BYTES, PICTURE_PATH } from '@shared/api';
 import { clear, set } from 'idb-keyval';
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import type { Answer } from '../testing/sw';
 import {
   appWindow,
@@ -20,7 +20,16 @@ import {
 } from '../testing/sw';
 import { IMAGE_CACHE_PREFIX, SW_USER_KEY, clearCache, setCacheUser } from './cache';
 import type { Queued } from './outbox';
-import { changesBody, classifySaveFailure, nextBatch, readOutbox, writeOutbox } from './outbox';
+import {
+  REFUSED_REASON,
+  changesBody,
+  classifySaveFailure,
+  heldWith,
+  refusalReason,
+  nextBatch,
+  readOutbox,
+  writeOutbox,
+} from './outbox';
 
 // What the service worker (public/sw.js) does besides page loads, which shell.test.ts
 // covers: web fonts are kept once fetched, the API is never answered from the device,
@@ -194,6 +203,20 @@ describe('the service worker, sending changes kept on the device', () => {
     }));
   /** What Ryan has waiting, as the app reads it */
   const kept = () => readOutbox(RYAN);
+  const transaction = (id: string, accountId: string, amountCents = 1000): LedgerChange => ({
+    op: 'addTransaction',
+    transaction: {
+      id,
+      kind: 'expense',
+      accountId,
+      toAccountId: null,
+      amountCents,
+      categoryId: 'f'.repeat(16),
+      payee: null,
+      note: null,
+      date: '2026-11-20',
+    },
+  });
 
   beforeEach(() => setCacheUser(RYAN));
   afterEach(() => clearCache());
@@ -242,12 +265,74 @@ describe('the service worker, sending changes kept on the device', () => {
     expect(await kept()).toEqual([]);
   });
 
-  test('drops what is left when the server refuses a request, since it was made on it', async () => {
-    await writeOutbox(RYAN, queued(MAX_CHANGES + 1));
-    const { outcome, batches } = await backgroundSync({ status: 404, body: '{"error":"No"}' });
+  test('keeps a refused change with its reason, sends the rest, and never sends it again by itself', async () => {
+    const edit = queued(1)[0];
+    const expense: Queued = {
+      cid: 'e'.repeat(16),
+      change: transaction('9'.repeat(16), 'b'.repeat(16)),
+    };
+    await writeOutbox(RYAN, [edit, expense]);
+    const server = (changes: LedgerChange[]): Answer =>
+      changes.some((c) => c.op === 'updateAccount')
+        ? { status: 404, body: '{"error":"Account not found"}' }
+        : ok;
+    const { outcome, batches } = await backgroundSync(server);
     expect(outcome).toBe('done');
-    expect(batches).toHaveLength(1);
-    expect(await kept()).toEqual([]);
+    // Refused together, then each alone: the edit is refused, the expense saved
+    expect(batches).toEqual([[edit.change, expense.change], [edit.change], [expense.change]]);
+    expect(await kept()).toEqual([
+      { ...edit, refused: { reason: 'Account not found', set: edit.cid } },
+    ]);
+
+    // Kept for the person to review in the app: not sent by itself again
+    const again = await backgroundSync(server);
+    expect(again.fetch).not.toHaveBeenCalled();
+    expect(await kept()).toHaveLength(1);
+  });
+
+  test('holds what was made on a refused change, and the rest of its group, as the app does', async () => {
+    const newAccount = 'c'.repeat(16);
+    const all: Queued[] = [
+      {
+        cid: '1'.repeat(16),
+        change: {
+          op: 'addAccount',
+          account: { id: newAccount, name: 'New', kind: 'bank', openingCents: 0 },
+        },
+      },
+      { cid: '2'.repeat(16), change: transaction('2'.repeat(16), newAccount) },
+      { cid: '3'.repeat(16), change: transaction('3'.repeat(16), 'b'.repeat(16)) },
+      // An import, sent and held whole
+      {
+        cid: '4'.repeat(16),
+        change: transaction('4'.repeat(16), 'b'.repeat(16)),
+        group: '4'.repeat(16),
+      },
+      {
+        cid: '5'.repeat(16),
+        change: transaction('5'.repeat(16), 'b'.repeat(16), 0),
+        group: '4'.repeat(16),
+      },
+      { cid: '6'.repeat(16), change: transaction('6'.repeat(16), 'a'.repeat(16)) },
+    ];
+    await writeOutbox(RYAN, all);
+    const refused = (c: LedgerChange) =>
+      c.op === 'addAccount' ||
+      (c.op === 'addTransaction' &&
+        (c.transaction.accountId === newAccount || c.transaction.amountCents === 0));
+    const { outcome } = await backgroundSync((changes) =>
+      changes.some(refused) ? { status: 400, body: '{"error":"No"}' } : ok,
+    );
+    expect(outcome).toBe('done');
+    const left = await kept();
+    expect(left.map((q) => q.cid)).toEqual(['1', '2', '4', '5'].map((c) => c.repeat(16)));
+    expect(left.every((q) => q.refused?.reason === 'No')).toBe(true);
+    // The same changes the app holds with each refused one
+    const sets = new Map<string, string[]>();
+    for (const q of left) sets.set(q.refused!.set, [...(sets.get(q.refused!.set) ?? []), q.cid]);
+    for (const [set, cids] of sets) {
+      expect([...heldWith(all, new Set([set]))]).toEqual(cids);
+    }
   });
 
   test('keeps each request under the size the server takes, split where the app would', async () => {
@@ -338,11 +423,33 @@ describe('reading the answer to sending changes', () => {
     if (expected === 'retry') {
       expect(outcome).toBe('try later');
       expect(await readOutbox(RYAN)).toEqual(one);
-    } else {
-      // Sent, or refused: either way not sent again
+    } else if (expected === 'sent') {
       expect(outcome).toBe('done');
       expect(await readOutbox(RYAN)).toEqual([]);
+    } else {
+      // Refused: kept with the server's reason for the person to review, not sent again
+      expect(outcome).toBe('done');
+      const reason = (JSON.parse((answer as { body: string }).body) as { error: string }).error;
+      expect(await readOutbox(RYAN)).toEqual([{ ...one[0], refused: { reason, set: one[0].cid } }]);
     }
+  });
+});
+
+describe('a refusal without a reason', () => {
+  const RYAN = 'ryan@example.com';
+  beforeEach(() => setCacheUser(RYAN));
+  afterEach(() => clearCache());
+
+  test('reads the same in the app and the service worker', async () => {
+    const one: Queued[] = [
+      { cid: 'c'.repeat(16), change: { op: 'undoImport', id: 'd'.repeat(16) } },
+    ];
+    await writeOutbox(RYAN, one);
+    await backgroundSync({ status: 400, body: '{}' });
+    expect(await readOutbox(RYAN)).toEqual([
+      { ...one[0], refused: { reason: REFUSED_REASON, set: one[0].cid } },
+    ]);
+    expect(refusalReason(new ApiError(400, 'POST /api/changes failed'))).toBe(REFUSED_REASON);
   });
 });
 

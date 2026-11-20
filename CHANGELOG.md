@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-20
+
+- Fixed: a change is kept on the device the moment it's made, even while another is saving; one the server refuses waits for you to try again or discard it, and the rest still save [#?]
+
 ## 2026-11-19
 
 - Changed: the reminder settings say plainly what they do: "Heads-up before scheduled entries", and when reminders come [#56]

@@ -6,7 +6,6 @@ import type { Profile } from '../api';
 import { ApiError, api } from '../api';
 import { ME_KEY, queryClient } from '../query-client';
 import { isOfflineFailure } from '../offline/network';
-import { reportKept } from '../offline/storage-health';
 import {
   assumeLastUser,
   cacheUser,
@@ -163,7 +162,6 @@ export async function signOut() {
   await letGoHere();
   const leaving = cacheUser();
   await clearCache((owner) => leaving != null && owner !== leaving);
-  reportKept(true);
   window.location.href = '/cdn-cgi/access/logout';
 }
 

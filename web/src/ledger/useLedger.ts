@@ -16,7 +16,7 @@ import type { CategoryTree } from './category-tree';
 import { categoryTree } from './category-tree';
 import type { Found as SearchFound } from './search-totals';
 import { searchTotals } from './search-totals';
-import type { QueueState } from './save-queue';
+import type { QueueState, Refused } from './save-queue';
 import {
   IMPORTS_KEY,
   LEDGER_KEY,
@@ -40,6 +40,7 @@ import {
   subscribeDataAge,
   subscribeUnsaved,
   unsavedState,
+  needsAttention,
 } from './ledger';
 import { ApiError } from '../api';
 import { queryClient } from '../query-client';
@@ -130,6 +131,10 @@ export const useLedgerShown = (): boolean =>
  * sending them waits on signing in again
  */
 export const useUnsaved = (): QueueState => useSyncExternalStore(subscribeUnsaved, unsavedState);
+
+/** Changes the server refused, kept for the person to try again or discard */
+export const useNeedsAttention = (): Refused[] =>
+  useSyncExternalStore(subscribeUnsaved, needsAttention);
 
 export interface Transactions {
   /** Newest first, changes still to send included; null until the first page loads */

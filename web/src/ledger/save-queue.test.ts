@@ -32,7 +32,14 @@ function controlledSend() {
 
 /** A queue for Ryan, with what it has kept on the device picked up */
 async function openQueue(send: (body: ChangesBody) => Promise<unknown>) {
-  const events = { send, saved: vi.fn(), found: vi.fn(), failed: vi.fn(), idle: vi.fn() };
+  const events = {
+    send,
+    saved: vi.fn(),
+    found: vi.fn(),
+    failed: vi.fn(),
+    withdrawn: vi.fn(),
+    idle: vi.fn(),
+  };
   const queue = createSaveQueue(events);
   queues.push(queue);
   await queue.pickUp(RYAN);
@@ -110,27 +117,30 @@ describe('the save queue', () => {
     expect(queue.state().waiting).toBe(0);
   });
 
-  test('a refused batch drops everything queued after it, on the device too', async () => {
+  test('a refused change is kept for review, with its reason; the rest still go', async () => {
     const { send, requests } = controlledSend();
     const { queue, events } = await openQueue(send);
 
     queue.add([rename('refused')]);
     await vi.waitFor(() => expect(requests).toHaveLength(1));
-    queue.add([rename('made on top of it')]);
+    queue.add([rename('made after it')]);
     const refusal = new ApiError(404, 'Account not found', 'Account not found');
     requests[0].answer(refusal);
     await vi.waitFor(() => expect(events.failed).toHaveBeenCalledWith(refusal));
-    expect(events.saved).not.toHaveBeenCalled();
-    expect(events.idle).toHaveBeenCalledTimes(1);
-    expect(queue.pending()).toEqual([]);
-    await vi.waitFor(async () => expect(await kept()).toEqual([]));
+    // Not shown as waiting any more, but kept on the device with why
+    expect(queue.pending()).toEqual([rename('made after it')]);
+    expect(queue.needsAttention()).toEqual([
+      expect.objectContaining({ reason: 'Account not found', changes: [rename('refused')] }),
+    ]);
+    expect(queue.state()).toMatchObject({ waiting: 1, refused: 1 });
 
-    // Later changes are sent as usual
-    queue.add([rename('later')]);
+    // The one made after it is independent of it, so it's sent on its own
     await vi.waitFor(() => expect(requests).toHaveLength(2));
-    expect(requests[1].body.changes).toEqual([rename('later')]);
+    expect(requests[1].body.changes).toEqual([rename('made after it')]);
     requests[1].answer();
-    await vi.waitFor(() => expect(events.idle).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(events.idle).toHaveBeenCalledTimes(1));
+    expect(events.saved).toHaveBeenCalledWith([rename('made after it')], requests[1].body.ids);
+    expect(await kept()).toEqual([rename('refused')]);
   });
 
   test('sends nothing more that was made before it was forgotten', async () => {
@@ -172,7 +182,14 @@ describe('the save queue', () => {
     // Ann signs in on the same device
     await setCacheUser('ann@example.com');
     const { send, sent } = answering(() => Promise.resolve({ ok: true }));
-    const events = { send, saved: vi.fn(), found: vi.fn(), failed: vi.fn(), idle: vi.fn() };
+    const events = {
+      send,
+      saved: vi.fn(),
+      found: vi.fn(),
+      failed: vi.fn(),
+      withdrawn: vi.fn(),
+      idle: vi.fn(),
+    };
     const anns = createSaveQueue(events);
     queues.push(anns);
     await anns.pickUp('ann@example.com');
@@ -252,7 +269,7 @@ describe('the save queue, when a send fails for want of a connection or the serv
     await moveOn(0);
     expect(sent).toEqual([[rename('kept')], [rename('kept')]]);
     expect(await kept()).toEqual([]);
-    expect(queue.state()).toEqual({ waiting: 0, signedOut: false });
+    expect(queue.state()).toEqual({ waiting: 0, signedOut: false, unkept: 0, refused: 0 });
   });
 
   test('offline: sends nothing until the connection is back', async () => {
@@ -268,5 +285,293 @@ describe('the save queue, when a send fails for want of a connection or the serv
     queue.resume();
     await vi.waitFor(async () => expect(await kept()).toEqual([]));
     expect(sent).toEqual([[rename('made offline')]]);
+  });
+});
+
+/**
+ * A stand-in for the server: saves a request's changes all or none, each once by its id
+ * (as receipts do), refusing a request with any change `refuses` gives a reason for
+ */
+function server(refuses: (change: LedgerChange) => string | null = () => null) {
+  const saved = new Map<string, LedgerChange>();
+  const send = vi.fn((body: ChangesBody) => {
+    const why = body.changes.map(refuses).find((r) => r != null);
+    if (why != null) return Promise.reject(new ApiError(404, why, why));
+    body.ids.forEach((id, i) => {
+      if (!saved.has(id)) saved.set(id, body.changes[i]);
+    });
+    return Promise.resolve({ ok: true });
+  });
+  /** Each change saved, once, in the order it was */
+  const has = () => [...saved.values()];
+  return { send, has, saved };
+}
+
+const ACCOUNT_A = 'a'.repeat(16);
+const ACCOUNT_B = 'b'.repeat(16);
+const NEW_ACCOUNT = 'c'.repeat(16);
+const expense = (id: string, accountId: string, cents = 1000): LedgerChange => ({
+  op: 'addTransaction',
+  transaction: {
+    id: id.repeat(16).slice(0, 16),
+    kind: 'expense',
+    accountId,
+    toAccountId: null,
+    amountCents: cents,
+    categoryId: 'f'.repeat(16),
+    payee: null,
+    note: null,
+    date: '2026-11-20',
+  },
+});
+const editIn = (accountId: string): LedgerChange => ({
+  op: 'updateAccount',
+  id: accountId,
+  name: 'Edited offline',
+});
+const offline = () => Promise.reject(new NetworkError('No connection'));
+const unanswered = () => new Promise<unknown>(() => {});
+
+/**
+ * A page of the app opened afresh (a reload, another tab): its own copy of the app's code,
+ * sharing only the device's storage, with Ryan's kept changes picked up
+ */
+async function openPage(send: (body: ChangesBody) => Promise<unknown>) {
+  vi.resetModules();
+  const cache = await import('../offline/cache');
+  const { createSaveQueue: create } = await import('./save-queue');
+  await cache.setCacheUser(RYAN);
+  const events = {
+    send,
+    saved: vi.fn(),
+    found: vi.fn(),
+    failed: vi.fn(),
+    withdrawn: vi.fn(),
+    idle: vi.fn(),
+  };
+  const queue = create(events);
+  queues.push(queue);
+  await queue.pickUp(RYAN);
+  return { queue, events };
+}
+
+describe('the save queue, when the page closes while a save is on its way', () => {
+  test('a change made meanwhile is kept on the device at once, and each reaches the server once', async () => {
+    // The first request reaches the server, which saves it, but its answer never comes
+    // back before the page closes
+    const online = server();
+    let calls = 0;
+    const slow = (body: ChangesBody) =>
+      calls++ === 0 ? online.send(body).then(unanswered) : unanswered();
+    const before = await openPage(slow);
+    before.queue.add([expense('1', ACCOUNT_A, 200)]);
+    await vi.waitFor(() => expect(online.send).toHaveBeenCalledTimes(1));
+    before.queue.add([expense('2', ACCOUNT_A, 200)]);
+
+    // Kept on the device while the first is still on its way, so closing now is safe
+    await vi.waitFor(async () =>
+      expect(await kept()).toEqual([expense('1', ACCOUNT_A, 200), expense('2', ACCOUNT_A, 200)]),
+    );
+    // The page closes; the request it was waiting on goes with it
+    before.queue.forget();
+
+    // Opened again: both go, and the server holds each once
+    const after = await openPage(online.send);
+    await vi.waitFor(() => expect(after.events.idle).toHaveBeenCalled());
+    expect(online.has()).toEqual([expense('1', ACCOUNT_A, 200), expense('2', ACCOUNT_A, 200)]);
+    expect(await kept()).toEqual([]);
+  });
+});
+
+describe('the save queue, when the server refuses a change', () => {
+  test('a refused edit stays recoverable through a restart; an expense in another account is saved once', async () => {
+    const before = await openQueue(offline);
+    before.queue.add([editIn(ACCOUNT_A)]);
+    before.queue.add([expense('9', ACCOUNT_B)]);
+    await vi.waitFor(async () => expect(await kept()).toHaveLength(2));
+    before.queue.forget();
+
+    // Back online, the server refuses the edit (the account is gone) and takes the expense
+    const online = server((c) => (c.op === 'updateAccount' ? 'Account not found' : null));
+    const second = await openQueue(online.send);
+    await vi.waitFor(() => expect(second.events.idle).toHaveBeenCalled());
+    expect(online.has()).toEqual([expense('9', ACCOUNT_B)]);
+    second.queue.forget();
+
+    // Restarted again: the edit is still there to review, with why, and isn't sent again
+    const sent = online.send.mock.calls.length;
+    const third = await openQueue(online.send);
+    expect(third.queue.needsAttention()).toEqual([
+      expect.objectContaining({ reason: 'Account not found', changes: [editIn(ACCOUNT_A)] }),
+    ]);
+    expect(third.queue.state()).toMatchObject({ waiting: 0, refused: 1 });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(online.send.mock.calls.length).toBe(sent);
+    expect(online.has()).toEqual([expense('9', ACCOUNT_B)]);
+    expect(await kept()).toEqual([editIn(ACCOUNT_A)]);
+  });
+
+  test('changes made on a refused one are held with it; independent ones are saved', async () => {
+    const before = await openQueue(offline);
+    const addAccount: LedgerChange = {
+      op: 'addAccount',
+      account: { id: NEW_ACCOUNT, name: 'Refused', kind: 'bank', openingCents: 0 },
+    };
+    before.queue.add([addAccount]);
+    // An expense on the new account, and one on an account the server has
+    before.queue.add([expense('1', NEW_ACCOUNT)]);
+    before.queue.add([expense('2', ACCOUNT_B)]);
+    await vi.waitFor(async () => expect(await kept()).toHaveLength(3));
+    before.queue.forget();
+
+    const online = server((c) =>
+      c.op === 'addAccount'
+        ? 'That account already exists'
+        : c.op === 'addTransaction' && c.transaction.accountId === NEW_ACCOUNT
+          ? 'Account not found'
+          : null,
+    );
+    const { queue, events } = await openQueue(online.send);
+    await vi.waitFor(() => expect(events.idle).toHaveBeenCalled());
+    expect(online.has()).toEqual([expense('2', ACCOUNT_B)]);
+    // One thing to review: the account, with the expense made on it
+    expect(queue.needsAttention()).toEqual([
+      expect.objectContaining({
+        reason: 'That account already exists',
+        changes: [addAccount, expense('1', NEW_ACCOUNT)],
+      }),
+    ]);
+    expect(queue.state()).toMatchObject({ waiting: 0, refused: 2 });
+  });
+
+  test('an import is held whole when one of its entries is refused', async () => {
+    const before = await openQueue(offline);
+    const imported: LedgerChange[] = [
+      expense('1', ACCOUNT_A),
+      expense('2', ACCOUNT_A, 0),
+      expense('3', ACCOUNT_A),
+    ];
+    before.queue.add(imported);
+    before.queue.add([expense('4', ACCOUNT_B)]);
+    await vi.waitFor(async () => expect(await kept()).toHaveLength(4));
+    before.queue.forget();
+
+    const online = server((c) =>
+      c.op === 'addTransaction' && c.transaction.amountCents === 0 ? 'Enter an amount' : null,
+    );
+    const { queue, events } = await openQueue(online.send);
+    await vi.waitFor(() => expect(events.idle).toHaveBeenCalled());
+    expect(online.has()).toEqual([expense('4', ACCOUNT_B)]);
+    expect(queue.needsAttention()).toEqual([
+      expect.objectContaining({ reason: 'Enter an amount', changes: imported }),
+    ]);
+  });
+
+  test('try again sends it; discard lets it go, from the device too', async () => {
+    const before = await openQueue(offline);
+    before.queue.add([editIn(ACCOUNT_A)]);
+    before.queue.add([editIn(ACCOUNT_B)]);
+    await vi.waitFor(async () => expect(await kept()).toHaveLength(2));
+    before.queue.forget();
+
+    let refusing = true;
+    const online = server((c) => (refusing && c.op === 'updateAccount' ? 'Busy elsewhere' : null));
+    const { queue, events } = await openQueue(online.send);
+    await vi.waitFor(() => expect(queue.needsAttention()).toHaveLength(2));
+    const [first, second] = queue.needsAttention();
+    expect([first.changes, second.changes]).toEqual([[editIn(ACCOUNT_A)], [editIn(ACCOUNT_B)]]);
+
+    refusing = false;
+    queue.retry(first.set);
+    // Shown again while it's on its way
+    expect(events.found).toHaveBeenLastCalledWith([editIn(ACCOUNT_A)]);
+    await vi.waitFor(() => expect(online.has()).toEqual([editIn(ACCOUNT_A)]));
+    await queue.discard(second.set);
+    expect(queue.needsAttention()).toEqual([]);
+    await vi.waitFor(async () => expect(await kept()).toEqual([]));
+    expect(queue.state()).toMatchObject({ waiting: 0, refused: 0 });
+    expect(online.has()).toEqual([editIn(ACCOUNT_A)]);
+  });
+});
+
+describe("the save queue, when the device's storage fails", () => {
+  test('a read that fails once is not taken for an empty outbox', async () => {
+    const before = await openQueue(offline);
+    before.queue.add([expense('1', ACCOUNT_A)]);
+    await vi.waitFor(async () => expect(await kept()).toHaveLength(1));
+    before.queue.forget();
+
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    const online = server();
+    const { queue } = await openQueue(online.send);
+    expect(queue.pending()).toEqual([expense('1', ACCOUNT_A)]);
+    // The next read of the device fails, once
+    const get = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementationOnce(() => {
+      throw new DOMException('Unreadable', 'UnknownError');
+    });
+    queue.add([expense('2', ACCOUNT_A)]);
+    queue.resume();
+    await new Promise((r) => setTimeout(r, 20));
+    get.mockRestore();
+    if (queue.state().unkept > 0) queue.keepAgain();
+    await vi.waitFor(async () =>
+      expect(await kept()).toEqual([expense('1', ACCOUNT_A), expense('2', ACCOUNT_A)]),
+    );
+    expect(queue.state().unkept).toBe(0);
+
+    onLine.mockRestore();
+    queue.resume();
+    await vi.waitFor(async () => expect(await kept()).toEqual([]));
+    expect(online.has()).toEqual([expense('1', ACCOUNT_A), expense('2', ACCOUNT_A)]);
+  });
+
+  test('a change the device could not keep says so, and is kept once trying again works', async () => {
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    const { queue } = await openQueue(offline);
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    });
+    queue.add([expense('1', ACCOUNT_A)]);
+    await vi.waitFor(() => expect(queue.state()).toMatchObject({ waiting: 1, unkept: 1 }));
+    expect(await kept()).toEqual([]);
+
+    // Space is made, and they try again
+    put.mockRestore();
+    queue.keepAgain();
+    await vi.waitFor(() => expect(queue.state()).toMatchObject({ waiting: 1, unkept: 0 }));
+    expect(await kept()).toEqual([expense('1', ACCOUNT_A)]);
+    onLine.mockRestore();
+  });
+});
+
+describe('the save queue, in two tabs at once without Web Locks', () => {
+  test('both tabs keep every change, and each reaches the server once', async () => {
+    expect(navigator.locks).toBeUndefined();
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    const online = server();
+    // One after the other, so each has its own copy of the app's code
+    const opened = [(await openPage(online.send)).queue, (await openPage(online.send)).queue];
+    const made = (tab: number, i: number) =>
+      expense(`${tab}${i}`, tab === 0 ? ACCOUNT_A : ACCOUNT_B);
+    for (let i = 0; i < 5; i++) {
+      opened[0].add([made(0, i)]);
+      opened[1].add([made(1, i)]);
+    }
+    const all = [0, 1, 2, 3, 4].flatMap((i) => [made(0, i), made(1, i)]);
+    await vi.waitFor(async () => expect(new Set(await kept())).toEqual(new Set(all)));
+    expect(await kept()).toHaveLength(10);
+
+    onLine.mockRestore();
+    opened.forEach((q) => q.resume());
+    await vi.waitFor(async () => expect(await kept()).toEqual([]));
+    expect(online.has()).toHaveLength(10);
+    expect(new Set(online.has())).toEqual(new Set(all));
+    // Each tab's own in the order it made them
+    for (const tab of [0, 1]) {
+      const own = online
+        .has()
+        .filter((c) => c.op === 'addTransaction' && c.transaction.id.startsWith(`${tab}`));
+      expect(own).toEqual([0, 1, 2, 3, 4].map((i) => made(tab, i)));
+    }
   });
 });

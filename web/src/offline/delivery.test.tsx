@@ -151,33 +151,69 @@ describe('changes made offline', () => {
     15_000,
   );
 
-  test('a change refused once back is put back, and explained', async () => {
+  test('a change refused once back is kept to review; the others are saved', async () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
     renderApp(server, '/?accounts');
     await row('Wallet');
     goOffline(server);
     await rename('Wallet', 'Purse');
-    await addAccount('Made on top');
+    await addAccount('Made later');
     await reloadApp(server, '/?accounts');
     expect(await row('Purse')).toBeTruthy();
-    expect(await screen.findByText(OFFLINE_NOTICE.desktop)).toBeTruthy();
     expect(await screen.findByText(waiting(2))).toBeTruthy();
 
-    server.failNext.changes = { status: 409, error: 'Changed somewhere else at the same time.' };
+    // Meanwhile the account went from the server, so the rename can't be saved
+    const wallet = server.accounts.splice(0, 1);
     const back = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
     onTestFinished(() => back.mockRestore());
     server.health = 'up';
     act(() => void window.dispatchEvent(new Event('online')));
 
-    expect(await screen.findByText('Changed somewhere else at the same time.')).toBeTruthy();
-    expect(await row('Wallet')).toBeTruthy();
+    expect(await screen.findByText('Account not found')).toBeTruthy();
+    await waitFor(() => expect(server.accounts.map((a) => a.name)).toEqual(['Made later']));
+    expect(await row('Made later')).toBeTruthy();
     expect(screen.queryByRole('link', { name: /^Purse,/ })).toBeNull();
-    expect(screen.queryByRole('link', { name: /^Made on top,/ })).toBeNull();
-    expect(await keptForRyan()).toEqual([]);
-    // Sent once, both together, and nothing after
+    const notice = await screen.findByText("1 change couldn't be saved.");
+    expect(await keptForRyan()).toHaveLength(1);
+
+    // Still there after closing the app
+    await reloadApp(server, '/?accounts');
+    expect(await screen.findByText("1 change couldn't be saved.")).toBeTruthy();
+    expect(notice).toBeTruthy();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Review' }));
+    const review = within(await dialog());
+    const item = within(review.getByRole('listitem'));
+    expect(item.getByText('Rename an account to "Purse"')).toBeTruthy();
+    expect(item.getByText('Account not found')).toBeTruthy();
+
+    // The account is back on the server, so trying again saves it
+    server.accounts.unshift(...wallet);
+    await user.click(item.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(server.accounts[0].name).toBe('Purse'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(async () => expect(await keptForRyan()).toEqual([]));
+    expect(screen.queryByText(/couldn't be saved/)).toBeNull();
+    expect(await row('Purse')).toBeTruthy();
+  }, 15_000);
+
+  test('a refused change can be discarded', async () => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
+    renderApp(server, '/?accounts');
+    await row('Wallet');
+    server.accounts.splice(0, 1);
+    await rename('Wallet', 'Purse');
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Review' }));
+    const item = within(within(await dialog()).getByRole('listitem'));
+    await user.click(item.getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(async () => expect(await keptForRyan()).toEqual([]));
+    expect(screen.queryByText(/couldn't be saved/)).toBeNull();
+    // Sent once together with nothing else, refused, and never again
     expect(requests()).toHaveLength(1);
-    expect(server.accounts.map((a) => a.name)).toEqual(['Wallet']);
   });
 
   test('archiving and Undo offline are both kept, and saved in order', async () => {
@@ -233,7 +269,7 @@ describe('changes waiting when the session runs out', () => {
 });
 
 describe("when this device can't keep changes", () => {
-  test('says so, and still saves from the open page', async () => {
+  test('says so, still saves from the open page, and keeps it once trying again works', async () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
     renderApp(server, '/?accounts');
@@ -243,16 +279,65 @@ describe("when this device can't keep changes", () => {
       throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
     });
     onTestFinished(() => put.mockRestore());
-    const held = holdNext(server, 'POST', '/api/changes');
+    const back = goOffline(server);
     await rename('Wallet', 'Purse');
     expect(
       await screen.findByText(
-        "This device's storage is full or blocked. Keep the app open until your changes are saved. 1 change waiting.",
+        "Couldn't save on this device. Keep the app open until your changes are saved. 1 change waiting.",
       ),
     ).toBeTruthy();
-    held.release();
+    expect(await keptForRyan()).toEqual([]);
+
+    // Space is made: trying again keeps it on the device
+    put.mockRestore();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(async () => expect(await keptForRyan()).toHaveLength(1));
+    expect(await screen.findByText(OFFLINE_NOTICE.desktop)).toBeTruthy();
+    expect(screen.queryByText(/Couldn't save on this device/)).toBeNull();
+    back();
     await waitFor(() => expect(server.accounts[0].name).toBe('Purse'));
   });
+
+  test('a change the device never kept is still saved from the open page', async () => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
+    renderApp(server, '/?accounts');
+    await row('Wallet');
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    });
+    onTestFinished(() => put.mockRestore());
+    const held = holdNext(server, 'POST', '/api/changes');
+    await rename('Wallet', 'Purse');
+    expect(await screen.findByText(/^Couldn't save on this device\./)).toBeTruthy();
+    held.release();
+    await waitFor(() => expect(server.accounts[0].name).toBe('Purse'));
+    await waitFor(() => expect(screen.queryByText(/Couldn't save on this device/)).toBeNull());
+  });
+});
+
+describe('closing the app while a save is on its way', () => {
+  test('a change made meanwhile is kept on the device, and each reaches the server once', async () => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
+    renderApp(server, '/?accounts');
+    await row('Wallet');
+    // The server saves the first, but its answer never comes back before the app closes
+    const lost = holdNext(server, 'POST', '/api/changes');
+    await rename('Wallet', 'Purse');
+    await waitFor(() => expect(requests()).toHaveLength(1));
+    await addAccount('Savings');
+    expect(await screen.findByText('Saving 2 changes')).toBeTruthy();
+    await waitFor(async () => expect(await keptForRyan()).toHaveLength(2));
+
+    await reloadApp(server, '/?accounts');
+    await waitFor(async () => expect(await keptForRyan()).toEqual([]));
+    expect(server.accounts.map((a) => a.name)).toEqual(['Purse', 'Savings']);
+    expect(await row('Savings')).toBeTruthy();
+    expect(await row('Purse')).toBeTruthy();
+    // The closed page's request is let go of, as the browser does with the page
+    lost.release();
+  }, 15_000);
 });
 
 describe('saving while the app is in the background', () => {

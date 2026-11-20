@@ -381,9 +381,11 @@ sends them in order, one request at a time, in batches of at most `MAX_CHANGES` 
   [shared/api.ts](../shared/api.ts); kinds, limits and the name and opening-balance
   checks in [shared/ledger.ts](../shared/ledger.ts).
 
-**Flow.** A change shows at once, joins the queue and is written to the outbox. Nothing
-is sent while a batch is on its way; what's made meanwhile goes in the next one. Each
-saved batch is crossed off the outbox; once nothing is left to send, the ledger is
+**Flow.** A change shows at once, joins the queue and is added to the outbox in a short
+IndexedDB transaction of its own that never waits for a send, so closing the app straight
+after is safe. The changes from one `change(...)` call are a group (`group`), sent and held
+together. Nothing is sent while a batch is on its way; what's made meanwhile goes in the
+next one. Each saved batch's ids, and only those, are taken off the outbox; once nothing is left to send, the ledger is
 fetched again. A copy fetched (or read from the device) while changes are still to send
 has them applied on top; one that was on its way while a batch was saved is set aside
 for the next. A batch the server saved whose answer was lost stays waiting, so a copy
@@ -401,9 +403,19 @@ up, shown and sent. A batch that
 got no answer, or a 429 or 5xx, is kept and tried again after 3 seconds, doubling to a
 minute; offline it waits for the connection, and a 401 or `account_mismatch` waits for
 the person to be back (the connection returning, the page shown again or restored),
-since a timer would only fail. A refused batch (any other 4xx) is put back to what the
-server last had, the server's explanation is shown (`showError`), and it and everything
-queued after it are dropped from the outbox, since they were made on top of it. While
+since a timer would only fail. The server refuses a batch whole (any other 4xx), so a
+refused batch of several groups is halved, and halved again, until the group it refuses
+is found. That group, and every later change naming something it adds (an entry on an
+account it creates, an import's entries), are marked refused in the outbox with the
+server's reason (`refused: { reason, set }`), the ledger is shown without them, and the
+explanation is shown (`showError`); everything else carries on being sent. The notice at
+the bottom says "1 change couldn't be saved." with Review
+([components/shell/RefusedChanges.tsx](../web/src/components/shell/RefusedChanges.tsx)),
+which lists each refused set in plain words with its reason, Try again (shown and sent
+again) and Discard (gone from the device). They stay through reloads until then. A change
+the device can't keep (storage full or blocked) is still sent from the open page, and
+the notice says "Couldn't save on this device." with Try again. A read of the outbox that
+fails is never taken for an empty one: the page carries on with what it holds. While
 the page is hidden, batches go with `keepalive`. With the app closed, the service
 worker's background sync sends the outbox (see Offline start).
 
@@ -438,18 +450,27 @@ worker's background sync sends the outbox (see Offline start).
   the failure as it stands and doesn't ask again by itself (`retryOnMount: false` in
   `useLedger.ts`), so the places never drop behind a loading state; Try again, the
   connection coming back, the page shown again and a saved change still ask.
-- A change leaves the outbox only once the server has saved it (or refused it), and is
-  sent by one sender at a time (the outbox lock); one sent again after its answer was
+- A change leaves the outbox only once the server has saved it, or the person discards it
+  after a refusal. Every write to the outbox (adding, taking off what's saved, marking
+  refused, trying again, discarding) reads and writes it in one IndexedDB transaction, so
+  two tabs or the service worker never write over each other's changes, with or without
+  Web Locks. Keeping a change never waits for sending. Batches are sent by one sender at
+  a time where Web Locks exist (the outbox lock); one sent again after its answer was
   lost is counted once by its id, by the server and in the balances shown
   (`alreadySaved`), even when a fresh copy is fetched before it's sent again.
 
 **Tests.** [apply.test.ts](../web/src/ledger/apply.test.ts),
 [save-queue.test.ts](../web/src/ledger/save-queue.test.ts) (order, kept on the device
-until saved and crossed off per batch, a refusal dropping the rest, picked up after a
-reload, another person's never picked up, retries and waits for each kind of failure),
+until saved and crossed off per batch, a change made while a save hangs kept at once and
+each saved once after the page closes, a refused edit kept through restarts while an
+expense in another account is saved once, changes on a refused account and a whole import
+held with it, Try again and Discard, a one-off read error, storage full and Try again, two
+tabs adding at once without Web Locks, picked up after a reload, another person's never
+picked up, retries and waits for each kind of failure),
 [outbox.test.ts](../web/src/offline/outbox.test.ts) (batching by count and bytes),
 [delivery.test.tsx](../web/src/offline/delivery.test.tsx) (offline, a reload, a lost
-answer, a refusal once back, Undo offline, signed out, storage full, hidden pages,
+answer, a refusal once back kept to review, tried again and discarded, Undo offline,
+signed out, storage full and Try again, closing the app while a save hangs, hidden pages,
 signing out, another person signing in),
 [Accounts.test.tsx](../web/src/components/accounts/Accounts.test.tsx) (adding,
 cards, renaming and archiving from an account's page, Unarchive, Undo, refusals put back, a
@@ -1928,11 +1949,11 @@ keep changes, those two with how many are waiting.
   answer clears it, and months shown from the device are fetched again once the ledger
   comes fresh.
 - [offline/outbox.ts](../web/src/offline/outbox.ts): each person's changes not yet saved
-  (`outbox:<email>`), the lock the app and the service worker share
-  (`mahnee-outbox:<email>`, Web Locks or turns within the page), how a queue is split into
-  requests, and which failures are kept. The ledger's save queue sends from it.
-- [offline/storage-health.ts](../web/src/offline/storage-health.ts): whether the last
-  write to the outbox was kept, for the notice
+  (`outbox:<email>`), each written in one transaction (`editOutbox`), the lock for sending
+  the app and the service worker share (`mahnee-outbox:<email>`, Web Locks or turns within
+  the page), how a queue is split into requests, which failures are kept, and which
+  changes are held with a refused one (`heldWith`). The ledger's save queue sends from it;
+  what it can't keep, and what was refused, the notice says
   ([components/shell/OfflineNotice.tsx](../web/src/components/shell/OfflineNotice.tsx)).
 - [offline/storage.ts](../web/src/offline/storage.ts): once the app is installed, asks
   the browser (once per device) not to clear what's kept when space runs low.
@@ -1944,7 +1965,9 @@ keep changes, those two with how many are waiting.
 **Parts.** [web/public/sw.js](../web/public/sw.js) keeps the page, the built files, the
 manifest and icons, and web fonts. It never keeps anything from `/api`. On background
 sync (`mahnee-outbox`, registered by the app when a send fails or it's offline) it sends
-the signed-in account's outbox under the same lock, as that account. It can't import
+the signed-in account's outbox under the same lock, as that account, writing it in one
+transaction at a time as the app does; a refused change is found by halving and kept
+marked with what's held with it (`heldWith`), as the app does, and the rest still go. It can't import
 app code, so the names and limits it shares with `offline/cache.ts`, `offline/outbox.ts`
 and `shared/api.ts` are copied in it, each naming its twin. The build
 writes `precache.json`, every built file the app needs offline

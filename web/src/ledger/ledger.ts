@@ -46,8 +46,9 @@ import { applyToSummary, applyToTrend } from './summary';
 // transactions a page at a time), kept in the query cache so every screen shows the same copy. change() is the
 // only way it changes: each change shows straight away, is kept on the device until it's
 // saved, and is sent in order with the others (save-queue.ts), offline or not. A refused
-// change is put back and explained, with everything made after it, and once nothing is
-// left to send the ledger is fetched again, so it shows what the server has. The screens
+// change is put back and explained, with what was made with it or on top of it, and kept
+// for the person to try again or discard; once nothing is left to send the ledger is
+// fetched again, so it shows what the server has. The screens
 // read it through useLedger.ts.
 //
 // The accounts and categories in the cache are shown as they are, changes still to send
@@ -223,6 +224,18 @@ const waitingBut = (holds: ReadonlySet<string>) =>
     .filter((q) => !holds.has(q.cid))
     .map(shownOf);
 
+/**
+ * Shows the ledger as the server last had it with what's still waiting on top, once
+ * changes shown are no longer waiting (refused)
+ */
+function showWithoutWithdrawn() {
+  if (confirmed == null) return;
+  queryClient.setQueryData(
+    LEDGER_KEY,
+    apply(confirmed, waitingBut(confirmedHolds), savedTransaction),
+  );
+}
+
 /** Which of the changes waiting may have been sent already, for a read to answer */
 const maybeSent = () =>
   queue
@@ -312,10 +325,13 @@ const queue = createSaveQueue({
     void queryClient.invalidateQueries({ queryKey: SUMMARY_KEY });
     void queryClient.invalidateQueries({ queryKey: TREND_KEY });
   },
+  // Refused: kept for the person to review (needsAttention), and shown without it and
+  // what's held with it
   failed: (err) => {
     showError(err, "Couldn't save that change.");
-    if (confirmed != null) queryClient.setQueryData(LEDGER_KEY, confirmed);
+    showWithoutWithdrawn();
   },
+  withdrawn: () => showWithoutWithdrawn(),
   idle: () => {
     void reloadLedger();
     void queryClient.invalidateQueries({ queryKey: IMPORTS_KEY });
@@ -433,6 +449,14 @@ const trendsFromDevice = new Set<string>();
 /** How many changes are waiting to be saved, and whether sending waits on signing in */
 export const unsavedState = () => queue.state();
 export const subscribeUnsaved = (listener: () => void) => queue.subscribe(listener);
+/** Changes the server refused, with those held with them, kept for the person to review */
+export const needsAttention = () => queue.needsAttention();
+/** Sends refused changes again, shown again meanwhile */
+export const tryAgainRefused = (set: string) => queue.retry(set);
+/** Lets refused changes go, from this device too */
+export const discardRefused = (set: string) => queue.discard(set);
+/** Tries again to keep on this device the changes it couldn't */
+export const keepChangesAgain = () => queue.keepAgain();
 
 /**
  * Sends what's waiting as soon as it can: back online, back to the app, or the page
@@ -730,10 +754,10 @@ export const isDueOn = (id: string, due: string) =>
 export const reloadLedger = () => queryClient.refetchQueries({ queryKey: LEDGER_KEY });
 
 /**
- * Makes changes to the ledger: shown straight away, kept on the device, then saved in
- * the background, in order, once there's a connection. Check them first
- * (shared/ledger.ts, shared/categories.ts); one the server refuses is put back with
- * everything made after it, and its explanation shown.
+ * Makes changes to the ledger, together: shown straight away, kept on the device, then
+ * saved in the background, in order, once there's a connection. Check them first
+ * (shared/ledger.ts, shared/categories.ts); one the server refuses is put back with what
+ * was made with it or on top of it, its explanation shown, and kept to try again.
  */
 export function change(...changes: LedgerChange[]) {
   queryClient.setQueryData<Ledger>(

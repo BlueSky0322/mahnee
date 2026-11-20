@@ -225,6 +225,9 @@ hack-proof, and the limits below are real.
   by the app or, while it's closed, by the service worker's background sync, which sends
   only the outbox of the account the app last said is signed in. The server refuses one
   sent while someone else is signed in, and it's kept.
+- A change the server refuses for good stays in that account's outbox on the device, with
+  the server's reason, until the person tries it again or discards it; signing out
+  deletes it with the rest of the account's unsent changes.
 - The service worker keeps the app's own files and web fonts, and from the API only the
   profile picture: one copy per account, in a cache named with the account's email
   (`mahnee-pictures-v1:<email>`), kept only when the server said whose it is

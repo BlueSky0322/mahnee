@@ -75,15 +75,23 @@ export function load(globals: object, self: object = {}): Handlers {
 
 /**
  * Loads the service worker, fires its background sync with the app's own tag, and
- * answers its requests in turn with `answers` (the last one repeating). `outcome` is
- * whether it finished, or failed so the browser tries again later.
+ * answers its requests in turn with `answers` (the last one repeating), or as a server
+ * would answer each request's changes. `outcome` is whether it finished, or failed so the
+ * browser tries again later.
  */
-export async function backgroundSync(answers: Answer | Answer[], self: object = {}) {
+export async function backgroundSync(
+  answers: Answer | Answer[] | ((changes: LedgerChange[]) => Answer),
+  self: object = {},
+) {
   const list = Array.isArray(answers) ? answers : [answers];
   let answered = 0;
   // Called with (path, init), which the tests read back from fetch.mock.calls
-  const fetch = vi.fn<(path: string, init: RequestInit) => Promise<Response>>(() =>
-    respond(list[Math.min(answered++, list.length - 1)]),
+  const fetch = vi.fn<(path: string, init: RequestInit) => Promise<Response>>((_, init) =>
+    respond(
+      typeof answers === 'function'
+        ? answers((JSON.parse(init.body as string) as { changes: LedgerChange[] }).changes)
+        : (list[Math.min(answered++, list.length - 1)] as Answer),
+    ),
   );
   const handlers = load({ fetch }, self);
   let done: Promise<unknown> = Promise.resolve();

@@ -8,7 +8,7 @@ import type { Account, Category, Transaction } from '@shared/api';
 import { MAX_BULK_TRANSACTIONS } from '@shared/ledger';
 import { MAX_SEARCH_TEXT } from '@shared/search';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
-import { navigate } from '../../hooks/useRoute';
+import { navigate, useLeaveGuard } from '../../hooks/useRoute';
 import { takeSearchFocus, useShortcuts } from '../../hooks/useShortcuts';
 import { addAgain, change } from '../../ledger/ledger';
 import { useMonthStart } from '../../ledger/month-start';
@@ -27,7 +27,7 @@ import Key from '../ui/Key';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import ChangeCategory from './ChangeCategory';
-import EntryEditor from './EntryEditor';
+import EntryEditor, { type EditorControl } from './EntryEditor';
 import FilterChips from './Filters';
 import {
   dayTotal,
@@ -161,7 +161,61 @@ export default function ActivityPage({ query }: { query: string }) {
   const [openId, setOpenId] = useState<string | null>(null);
   // Not ticked any more once they're gone (deleted, or filtered out)
   const chosen = useMemo(() => (rows ?? []).filter((t) => ticked.has(t.id)), [rows, ticked]);
-  const open = (rows ?? []).find((t) => t.id === openId) ?? rows?.[0] ?? null;
+  // The editor open (beside the register, or in a phone's sheet), whether it has changes not
+  // saved, and the entry it holds then: kept open even once a search leaves it out
+  const editor = useRef<EditorControl | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [kept, setKept] = useState<Transaction | null>(null);
+  const open =
+    (rows ?? []).find((t) => t.id === openId) ??
+    (kept != null && kept.id === openId ? kept : null) ??
+    rows?.[0] ??
+    null;
+  // What would lose those changes, asked about first: another row (null for the first
+  // found), leaving Activity, or closing the sheet
+  const [ask, setAsk] = useState<Ask | null>(null);
+  /** Opens a row beside the register; with changes not saved, asks first */
+  const openRow = (id: string) => {
+    if (open != null && id !== open.id && dirty) setAsk({ kind: 'row', id });
+    else setOpenId(id);
+  };
+  // The open entry, changed, is no longer among what's found: ask once
+  const keptGone = dirty && kept != null && rows != null && !rows.some((t) => t.id === kept.id);
+  useEffect(() => {
+    if (keptGone) setAsk((asked) => asked ?? { kind: 'row', id: null });
+  }, [keptGone]);
+  // Leaving Activity asks too; its own filters don't leave it
+  useLeaveGuard((search, go) => {
+    if (!dirty || new URLSearchParams(search).has('activity')) return false;
+    setAsk({ kind: 'leave', go });
+    return true;
+  });
+  // Reloading or closing the tab: the browser's own question
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+  /** Does what was asked about, the changes saved or not */
+  const goOn = (asked: Ask) => {
+    setAsk(null);
+    if (asked.kind === 'row') {
+      setKept(null);
+      setOpenId(asked.id);
+    } else if (asked.kind === 'leave') {
+      setDirty(false);
+      asked.go();
+    } else {
+      setDirty(false);
+      setSheet(null);
+    }
+  };
+  /** The sheet closes, or asks first when it has changes */
+  const closeSheet = () => {
+    if (dirty) setAsk({ kind: 'sheet' });
+    else setSheet(null);
+  };
 
   const toggle = (id: string) =>
     setTicked((now) => {
@@ -211,7 +265,7 @@ export default function ActivityPage({ query }: { query: string }) {
       0,
       rows.findIndex((t) => t.id === open?.id),
     );
-    setOpenId(rows[Math.min(rows.length - 1, Math.max(0, at + by))].id);
+    openRow(rows[Math.min(rows.length - 1, Math.max(0, at + by))].id);
   };
   useShortcuts(
     {
@@ -223,6 +277,10 @@ export default function ActivityPage({ query }: { query: string }) {
     isDesktop && rows != null && rows.length > 0,
   );
 
+  const sheetTitle =
+    sheet == null || accounts == null || categories == null
+      ? null
+      : rowText(sheet, { accounts, categories, q: '', selecting: false, today }).title;
   const categoryShown =
     filters.category == null ? null : categoryName(categories ?? [], filters.category);
   const count = totals?.found.entries ?? 0;
@@ -445,7 +503,7 @@ export default function ActivityPage({ query }: { query: string }) {
               ticked={ticked}
               count={count}
               openId={open?.id ?? null}
-              onOpen={setOpenId}
+              onOpen={openRow}
               onToggle={toggle}
               onSelectAll={() =>
                 ticked.size > 0 && ticked.size >= count ? setTicked(new Set()) : void selectAll()
@@ -492,6 +550,13 @@ export default function ActivityPage({ query }: { query: string }) {
               key={open.id}
               transaction={open}
               title={paneTitle}
+              control={editor}
+              onDirty={(changed) => {
+                setDirty(changed);
+                // Kept open as it is while it has changes
+                setKept(changed ? open : null);
+                if (changed) setOpenId(open.id);
+              }}
               onDeleted={() => {
                 // The next one opens, or the one before at the end
                 const at = (rows ?? []).findIndex((t) => t.id === open.id);
@@ -534,25 +599,72 @@ export default function ActivityPage({ query }: { query: string }) {
       />
       <ResponsiveDialog
         opened={sheet != null}
-        onClose={() => setSheet(null)}
-        title={
-          sheet == null || accounts == null || categories == null
-            ? ''
-            : rowText(sheet, { accounts, categories, q: '', selecting: false, today }).title
-        }
+        onClose={closeSheet}
+        onBack={() => {
+          // Kept open to ask first
+          if (dirty) {
+            setAsk({ kind: 'sheet' });
+            return false;
+          }
+          setSheet(null);
+        }}
+        title={sheetTitle ?? ''}
       >
         {sheet != null && (
           <EntryEditor
             key={sheet.id}
             transaction={sheet}
+            control={editor}
+            onDirty={setDirty}
             onDeleted={() => setSheet(null)}
             onSaved={() => setSheet(null)}
           />
         )}
       </ResponsiveDialog>
+      <ResponsiveDialog
+        opened={ask != null}
+        onClose={() => setAsk(null)}
+        title="Save your changes?"
+        width={400}
+      >
+        <p className={classes.leaveText}>{`${
+          (ask?.kind === 'sheet' ? sheetTitle : paneTitle) ?? 'This entry'
+        } has changes that are not saved.`}</p>
+        <div className={classes.leaveActions}>
+          <Button
+            variant="default"
+            onClick={() => setAsk(null)}
+          >
+            Keep editing
+          </Button>
+          <Button
+            variant="default"
+            className="sf-danger-outline"
+            onClick={() => ask != null && goOn(ask)}
+          >
+            Discard
+          </Button>
+          <Button
+            onClick={() => {
+              if (ask == null) return;
+              // What can't be saved stays open, saying why
+              if (editor.current?.save() === true) goOn(ask);
+              else setAsk(null);
+            }}
+          >
+            Save
+          </Button>
+        </div>
+      </ResponsiveDialog>
     </div>
   );
 }
+
+/** What changes not saved would be lost to, asked about first */
+type Ask =
+  | { kind: 'row'; id: string | null }
+  | { kind: 'leave'; go: () => void }
+  | { kind: 'sheet' };
 
 /** "7 found · RM 92.05 spent", the amounts each in even-width figures */
 function FoundLine({ totals, currency }: { totals: Totals; currency: string }) {

@@ -13,6 +13,7 @@ import {
   readBankRows,
   readExportRange,
   readExportRows,
+  suggestMapping,
 } from '@shared/csv-import';
 import type { AccountKind } from '@shared/ledger';
 import { ACCOUNT_KINDS, MAX_NOTE, MAX_PAYEE } from '@shared/ledger';
@@ -133,23 +134,41 @@ export default function ImportPage() {
 
   const header = file?.table[0] ?? [];
 
-  /** The mapping remembered for `id`, as far as this file has those columns */
+  /**
+   * The mapping remembered for `id`, as far as this file has those columns; with none kept,
+   * or for a kept column it no longer has, the columns whose names say plainly what they
+   * hold, the rest left to pick
+   */
   function pickRemembered(id: string, columns: string[]) {
     const kept = id === '' ? null : rememberedMapping(email, id);
     const has = (name: string | null) => (name != null && columns.includes(name) ? name : '');
-    setTwoColumns(kept != null && kept.amount == null);
-    setPicked(
-      kept == null
-        ? NOTHING_PICKED
-        : {
-            date: has(kept.date),
-            amount: has(kept.amount),
-            moneyIn: has(kept.moneyIn),
-            moneyOut: has(kept.moneyOut),
-            payee: has(kept.payee),
-            note: has(kept.note),
-          },
-    );
+    if (kept == null) {
+      const suggested = suggestMapping(columns);
+      setTwoColumns(suggested.twoColumns);
+      setPicked({
+        date: has(suggested.columns.date),
+        amount: has(suggested.columns.amount),
+        moneyIn: has(suggested.columns.moneyIn),
+        moneyOut: has(suggested.columns.moneyOut),
+        payee: has(suggested.columns.payee),
+        note: has(suggested.columns.note),
+      });
+      return;
+    }
+    // A kept column this file no longer has (the bank renamed it) is suggested afresh; one
+    // never picked stays unpicked
+    const suggested = suggestMapping(columns).columns;
+    const keptOr = (key: keyof ColumnMapping) =>
+      has(kept[key]) || (kept[key] != null ? has(suggested[key]) : '');
+    setTwoColumns(kept.amount == null);
+    setPicked({
+      date: keptOr('date'),
+      amount: keptOr('amount'),
+      moneyIn: keptOr('moneyIn'),
+      moneyOut: keptOr('moneyOut'),
+      payee: keptOr('payee'),
+      note: keptOr('note'),
+    });
   }
 
   function startOver() {

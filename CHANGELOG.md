@@ -14,6 +14,14 @@ For agents:
 
 ## 2026-11-20
 
+- Changed: New entry says when it keeps a draft ("Keep draft"), and Discard draft throws it away, with Undo [#58]
+- Fixed: Search everything on Home looks through every month, and Activity's dates still narrow it [#58]
+- Changed: Set a budget asks you to choose an expense category, and opens its monthly budget ready to type [#58]
+- Added: a bank file's Date, Description and Amount (or Debit and Credit) columns are picked for you when their names are clear [#58]
+- Changed: one tap on Add's currency opens the list of currencies, yours and today's first [#58]
+- Added: Install the app on the Settings page, where the browser can install it [#58]
+- Fixed: Activity asks to Save, Discard or Keep editing before changes not saved would be lost: another row, a search, leaving, or closing the sheet [#58]
+- Added: a transfer with nowhere to go offers Add account, and goes on to the new account as typed [#58]
 - Changed: the new logo, a hand holding a coin, in the app, the browser tab and the installed app; in the app its tile takes your accent and theme [#57]
 
 ## 2026-11-19
@@ -151,3 +159,4 @@ For agents:
 [#55]: https://github.com/BlueSky0322/mahnee/pull/55
 [#56]: https://github.com/BlueSky0322/mahnee/pull/56
 [#57]: https://github.com/BlueSky0322/mahnee/pull/57
+[#58]: https://github.com/BlueSky0322/mahnee/pull/58

@@ -5,7 +5,7 @@ import { useState } from 'react';
 import type { Account, Category, Transaction } from '@shared/api';
 import { goUp } from '../../hooks/useRoute';
 import { useAccountTransactions, useAccounts, useCategories } from '../../ledger/useLedger';
-import { dayHeading } from '../../utils/date-input';
+import { dayHeading, dayText, toDateInput } from '../../utils/date-input';
 import EntryTile from '../common/EntryTile';
 import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
 import Skeleton, { Loading } from '../ui/Skeleton';
@@ -284,9 +284,11 @@ function Entries({
       )}
       {!hasMore && onDevice?.complete === false && (
         <p className={classes.muted}>
-          {onDevice.refreshing
-            ? 'Entries are being refreshed and may be out of date.'
-            : "Older entries aren't on this device yet."}
+          {onDevice.expired
+            ? `Not checked since ${onDevice.checkedAt == null ? 'it was downloaded' : dayText(toDateInput(new Date(onDevice.checkedAt)))}. Entries may be out of date.`
+            : onDevice.refreshing
+              ? 'Entries are being refreshed and may be out of date.'
+              : "Older entries aren't on this device yet."}
         </p>
       )}
     </section>

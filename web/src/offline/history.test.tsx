@@ -455,6 +455,24 @@ describe('kept up to date', () => {
     expect(screen.queryByText(/being refreshed/)).toBeNull();
   }, 40_000);
 
+  test('offline, it says when it was last checked, and when that was too long ago', async () => {
+    const server = withHistory();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    await download();
+
+    await coldStartOffline(server, SEPTEMBER_PATH);
+    expect((await foundLine()).textContent).toBe(SEPTEMBER_LINE);
+    expect(screen.getByText('Checked Nov 20.')).toBeTruthy();
+
+    // A week and more away, offline all along: nothing can be checked meanwhile
+    nineDaysOn();
+    await reloadApp(server, SEPTEMBER_PATH);
+    expect((await foundLine()).textContent).toBe('230 found on this device · RM 493.35 spent');
+    expect(screen.getByText('Not checked since Nov 20. Entries may be out of date.')).toBeTruthy();
+    expect(screen.queryByText(/being refreshed/)).toBeNull();
+  }, 30_000);
+
   test('kinds narrow it as the server does', async () => {
     const server = withHistory();
     await openOnline(server);

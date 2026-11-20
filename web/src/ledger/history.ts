@@ -83,6 +83,13 @@ export interface OnDevice {
    * being refreshed now; otherwise some aren't on the device yet
    */
   refreshing: boolean;
+  /**
+   * Every account concerned is held in full, but some weren't checked within RECHECK_MS
+   * (offline all that time, say): nothing can refresh them until back online
+   */
+  expired: boolean;
+  /** When the accounts concerned were last checked in full, the longest ago (ms); null if never */
+  checkedAt: number | null;
 }
 
 /** A page read from the device, saying how much it holds */
@@ -391,20 +398,31 @@ async function onDeviceFor(
   if (!accountIds.some((id) => kept.has(id))) return null;
   const now = Date.now();
   let complete = true;
+  let expired = true;
   let refreshing = true;
   let from: string | null = '';
+  let checkedAt: number | null = Infinity;
   for (const id of accountIds) {
     const c = kept.get(id);
     const sameMoney = c != null && (currency == null || c.currency === currency);
-    if (c != null && sameMoney && c.complete && lately(c, now)) continue;
+    const checked = c?.verifiedAt ?? null;
+    checkedAt = checked == null || checkedAt == null ? null : Math.min(checkedAt, checked);
+    if (c != null && sameMoney && c.complete) {
+      if (!lately(c, now)) complete = false;
+      continue;
+    }
     complete = false;
+    expired = false;
     if (c == null || !(c.held || c.complete)) refreshing = false;
     // Checked this pass, in this currency: the days after its oldest
     const whole = sameMoney && !c.complete && c.oldest != null ? dayAfter(c.oldest) : null;
     if (whole == null) from = null;
     else if (from != null && whole > from) from = whole;
   }
-  return complete ? { complete, from: null, refreshing: false } : { complete, from, refreshing };
+  if (checkedAt === Infinity) checkedAt = null;
+  if (complete) return { complete, from: null, refreshing: false, expired: false, checkedAt };
+  if (expired) return { complete, from: null, refreshing: false, expired, checkedAt };
+  return { complete, from, refreshing, expired: false, checkedAt };
 }
 
 /** Whether `onDevice` holds every day from `from` on, checked */
@@ -543,14 +561,18 @@ export async function localAccountPage(
   }
 }
 
-/** One account's entries held on the device from `fromDay`, or null when none are */
+/**
+ * One account's entries held on the device from `fromDay`, with how much of its history
+ * is held; null when none is
+ */
 export async function localSince(accountId: string, fromDay: string) {
   const email = cacheUser();
   if (email == null || unreadable) return null;
   try {
-    if ((await onDeviceFor(email, [accountId], null)) == null) return null;
+    const onDevice = await onDeviceFor(email, [accountId], null);
+    if (onDevice == null) return null;
     const rows = await readEntries(email, { by: 'account', accountId });
-    return rows.filter((t) => t.date >= fromDay);
+    return { transactions: rows.filter((t) => t.date >= fromDay), onDevice };
   } catch (err) {
     storageFailed(err);
     return null;

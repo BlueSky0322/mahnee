@@ -1287,7 +1287,9 @@ doesn't hold every day asked for yet it says "Showing Sep 6 to Sep 30. Older ent
 aren't on this device yet." (or "Entries for these days aren't on this device yet."), or,
 while it checks again what it holds, "Checked from Sep 6 to Sep 30. Older entries are
 being refreshed and may be out of date." (or "These entries are being refreshed and may
-be out of date."), and counts "12 found on this device". Offline with none of it held: "Connect to search" ("Your
+be out of date."), and counts "12 found on this device". Held in full it says when it was
+last checked ("Checked Nov 20."), or, past a week, "Not checked since Nov 12. Entries may
+be out of date." Offline with none of it held: "Connect to search" ("Your
 entries aren't on this device yet.", or "This device couldn't keep your entries, so
 searching needs a connection." when storage failed). Catching up is this page alone (Tidy up links to Other since a day, selecting);
 there is no review queue.
@@ -2033,7 +2035,11 @@ keep changes, those two with how many are waiting.
   said to be "being refreshed", never complete. One tab downloads at a time (a Web Lock,
   else a note in the database renewed each page, taken over after a minute). Reads say how
   much of the days asked for they hold (`onDevice`: complete, the first day checked, and
-  whether older ones are held but being refreshed); an account's next page is read
+  whether older ones are held but being refreshed, or held in full but not checked within
+  the week, and when last checked); an import offline says "Some older entries aren't on
+  this device, so duplicates from before 6 Sep 2026 may not be caught." when the history
+  doesn't hold every day of its file (`missingBefore` from `transactionsSince`); an
+  account's next page is read
   straight from its index. A write failing (full) says so once and stops downloads for the
   page, what's held still read; a read failing makes Activity offline ask for a
   connection. Stored in [offline/history-store.ts](../web/src/offline/history-store.ts):

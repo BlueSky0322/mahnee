@@ -649,12 +649,14 @@ const LARGEST_PAGE = 200;
  * An account's transactions back to `fromDay` (a few older ones too), as shown: what the
  * server has, with what was saved meanwhile and the changes still to send on top. For an
  * import to tell which of a file's rows look already saved. Offline, what this device
- * has: the account's pages loaded or kept, and the changes still to send.
+ * has: its history, the account's pages loaded or kept, and the changes still to send,
+ * with the day before which it may not hold them all (`missingBefore`; null when it does).
  */
 export async function transactionsSince(
   accountId: string,
   fromDay: string,
-): Promise<Transaction[]> {
+): Promise<{ transactions: Transaction[]; missingBefore: string | null }> {
+  let missingBefore: string | null = null;
   const key = accountTransactionsKey(accountId);
   const savedBefore = savedCount;
   let held: Transaction[] = [];
@@ -682,19 +684,34 @@ export async function transactionsSince(
     const kept = await readCache<TransactionPage>(pageCacheKey(accountId));
     const loaded = queryClient.getQueryData<Pages>(key)?.pages ?? [];
     // The history on this device, as far as it goes
-    const onDevice = (await localSince(accountId, fromDay)) ?? [];
+    const local = await localSince(accountId, fromDay);
     const byId = new Map(
-      [...onDevice, ...(kept?.transactions ?? []), ...loaded.flatMap((p) => p.transactions)].map(
-        (t) => [t.id, t],
-      ),
+      [
+        ...(local?.transactions ?? []),
+        ...(kept?.transactions ?? []),
+        ...loaded.flatMap((p) => p.transactions),
+      ].map((t) => [t.id, t]),
     );
     held = [...byId.values()];
+    const whole =
+      local == null
+        ? null
+        : local.onDevice.complete || local.onDevice.expired
+          ? fromDay
+          : local.onDevice.from;
+    if (whole == null || whole > fromDay) {
+      // Held whole from that day; with no history, from the oldest kept, else today
+      missingBefore =
+        whole ?? held.reduce<string | null>((o, t) => (o == null || t.date < o ? t.date : o), null);
+      missingBefore ??= new Date().toISOString().slice(0, 10);
+    }
   }
-  return shownPages(
+  const transactions = shownPages(
     key,
     { pages: [{ transactions: held, nextBefore: null }], pageParams: [null] },
     queue.pending(),
   );
+  return { transactions, missingBefore };
 }
 
 /**

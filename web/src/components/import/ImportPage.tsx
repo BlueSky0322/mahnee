@@ -134,6 +134,8 @@ export default function ImportPage() {
   const [preparing, setPreparing] = useState(false);
   /** Categories used before couldn't be looked up (the server failed) */
   const [filedUnknown, setFiledUnknown] = useState(false);
+  // Offline, the day before which this device may not hold every entry to check against
+  const [missingBefore, setMissingBefore] = useState<string | null>(null);
   const [shown, setShown] = useState(ROWS_AT_A_TIME);
   const [lines_, setLines] = useState<Lines>('all');
   const isDesktop = useIsDesktop() === true;
@@ -280,19 +282,28 @@ export default function ImportPage() {
         next = planBankFile(readBankRows(loaded.table, mapping), account, categories, filed);
       }
       const from = earliestDay(next);
-      const saved = new Map(
+      const checked =
         from == null
           ? []
           : await Promise.all(
               accountsToCheck(next).map(
                 async (id) => [id, await transactionsSince(id, from)] as const,
               ),
-            ),
+            );
+      const saved = new Map(checked.map(([id, found]) => [id, found.transactions]));
+      // The latest day any account checked may be missing entries before
+      const missing = checked.reduce<string | null>(
+        (latest, [, found]) =>
+          found.missingBefore != null && (latest == null || found.missingBefore > latest)
+            ? found.missingBefore
+            : latest,
+        null,
       );
       next = markSaved(next, saved);
       if (mine !== asked.current) return;
       setPlan(next);
       setFiledUnknown(lookupFailed);
+      setMissingBefore(missing);
       setChoices({
         ticked: new Set(next.rows.filter((r) => adds(r) && !r.looksSaved).map((r) => r.row)),
         categoryOf: new Map(),
@@ -722,6 +733,12 @@ export default function ImportPage() {
       </button>
     </p>
   );
+  const notAllHeld = plan != null && missingBefore != null && (
+    <p className={classes.muted}>
+      Some older entries aren't on this device, so duplicates from before {dayText(missingBefore)}{' '}
+      may not be caught.
+    </p>
+  );
   const reading = file?.isExport && preparing && plan == null && (
     <p className={classes.muted}>Reading the file…</p>
   );
@@ -797,6 +814,7 @@ export default function ImportPage() {
               {lines != null && (
                 <div className={classes.deskMain}>
                   {lookupProblem}
+                  {notAllHeld}
                   {lines}
                 </div>
               )}
@@ -824,6 +842,7 @@ export default function ImportPage() {
       {!checking && columnsCard}
       {reading}
       {lookupProblem}
+      {notAllHeld}
       {counts}
       {balance}
       {lines}

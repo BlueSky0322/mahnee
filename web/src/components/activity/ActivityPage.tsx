@@ -149,6 +149,7 @@ export default function ActivityPage({ query }: { query: string }) {
   // Offline, from a history this device doesn't hold every asked-for day of yet
   const partial = found.onDevice != null && !holdsFrom(found.onDevice, days.from);
   const unavailable = useHistoryUnavailable();
+  const deviceLine = found.onDevice == null ? null : onDeviceLine(found.onDevice, days, today);
   const currency = useCurrency();
   const nothingSet =
     filters.account == null &&
@@ -407,12 +408,12 @@ export default function ActivityPage({ query }: { query: string }) {
           className={classes.results}
           aria-label="Results"
         >
-          {ready && partial && found.onDevice != null && (
+          {ready && deviceLine != null && (
             <p
               className={classes.muted}
               role="status"
             >
-              {onDeviceLine(found.onDevice, days, today)}
+              {deviceLine}
             </p>
           )}
           {!ready || rows == null || accounts == null || categories == null ? (

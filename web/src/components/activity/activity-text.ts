@@ -2,7 +2,7 @@ import type { Account, Category, SearchTotals, Transaction } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
 import { periodMonthOf, periodOf, shiftMonth } from '@shared/period';
 import { foldCase, isCalendarDay } from '@shared/search';
-import { clockText, fromDateInput, monthHeading } from '../../utils/date-input';
+import { clockText, fromDateInput, monthHeading, toDateInput } from '../../utils/date-input';
 import { currencySymbol, formatAmount, formatMoney } from '../../utils/money';
 import { categoryName } from '../common/category-name';
 import { scheduledNote } from '../common/scheduled-note';
@@ -159,13 +159,36 @@ export function foundLine(
  * "Showing Oct 1 to Nov 20. Older entries aren't on this device yet.", from the first day
  * it holds whole (`held`, null for none) to the last asked for (today when not said). While
  * the older entries are held but being checked again (`refreshing`): "Checked from Oct 1 to
- * Nov 20. Older entries are being refreshed and may be out of date."
+ * Nov 20. Older entries are being refreshed and may be out of date." Held in full, it says
+ * when it was last checked ("Checked Nov 20."), or that that was too long ago ("Not checked
+ * since Nov 12. Entries may be out of date."); null when there's nothing to say.
  */
 export function onDeviceLine(
-  { from: held, refreshing }: { from: string | null; refreshing: boolean },
+  {
+    complete,
+    expired,
+    checkedAt,
+    from: held,
+    refreshing,
+  }: {
+    complete: boolean;
+    expired: boolean;
+    checkedAt: number | null;
+    from: string | null;
+    refreshing: boolean;
+  },
   looked: Period,
   today: string,
-) {
+): string | null {
+  // Held in full: when it was last checked against the server, "Checked Nov 20."
+  const checked = checkedAt == null ? null : shortDay(toDateInput(new Date(checkedAt)), today);
+  if (complete) return checked == null ? null : `Checked ${checked}.`;
+  // Held in full, but too long ago for anything to have refreshed it offline
+  if (expired) {
+    return checked == null
+      ? 'Entries may be out of date.'
+      : `Not checked since ${checked}. Entries may be out of date.`;
+  }
   const from = held != null && looked.from != null && looked.from > held ? looked.from : held;
   const to = looked.to != null && looked.to < today ? looked.to : today;
   const whole = from != null && from <= to;

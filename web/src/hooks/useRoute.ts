@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { START_SCREENS, type StartScreen, isRowId } from '@shared/api';
 import { isMonth } from '@shared/ledger';
 import { LAST_EMAIL_KEY, START_SCREEN_KEY } from '../offline/cache';
@@ -207,7 +207,28 @@ export function rememberStartScreen(email: string, start: StartScreen) {
   navigate(startAddress(start), { replace: true });
 }
 
-export function navigate(search: string, { replace = false } = {}) {
+/**
+ * A page with changes not saved can stop the app moving off it: given the address asked
+ * for and how to go there anyway, it answers true when it has taken over (to ask first)
+ */
+export type LeaveGuard = (search: string, go: () => void) => boolean;
+let leaveGuard: LeaveGuard | null = null;
+
+/** Sets the page's guard while it's drawn; null for none */
+export function useLeaveGuard(guard: LeaveGuard | null) {
+  const latest = useRef(guard);
+  latest.current = guard;
+  useEffect(() => {
+    const mine: LeaveGuard = (search, go) => latest.current?.(search, go) ?? false;
+    leaveGuard = mine;
+    return () => {
+      if (leaveGuard === mine) leaveGuard = null;
+    };
+  }, []);
+}
+
+export function navigate(search: string, { replace = false, force = false } = {}) {
+  if (!force && leaveGuard?.(search, () => navigate(search, { replace, force: true }))) return;
   const url = `${window.location.pathname}${search}`;
   // A page opened from another remembers which, so going "up" can be Back
   const from = replace ? cameFrom() : window.location.search;

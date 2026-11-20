@@ -60,8 +60,9 @@ Use Google picture (when a copy is kept and not showing) and Use initial (when a
 shows). The Google picture shows by default when the sign-in names one (see
 docs/security.md for the Access setting it needs), copied after `/api/me` has answered,
 so it shows from the next start; "This phone" or "This computer" saying "Saved" with the
-freshness label, and Install the app where the browser can install it (the only place it's
-offered; Home no longer has a card). Search (`components/settings/settings-search.ts`, a
+freshness label, and Install the app where the browser can install it (also on a phone's
+and a tablet's Settings index, under who's signed in; never once opened as the app; Home has
+no card). Search (`components/settings/settings-search.ts`, a
 static index; no server) finds a setting by its name, its line, or words not on it
 ("the month end" finds Main currency), name matches first, quoting what was found with the
 match marked; a result, or Enter for the first, opens `?settings=<section>&setting=<key>`
@@ -610,8 +611,13 @@ payee was last filed in ("Tealive was in Food", from `GET /api/payee-categories`
 own category, or under another picked; one with no room under it, a name an archived one
 has, or past `MAX_CATEGORIES`, is not offered. A new category is saved with the entry, first,
 in the same change. What's typed is kept as a draft on the device when Add is closed any
-way but Save (Close, Back, Esc, Cancel), and opens again as left; an Add with nothing typed
-keeps none. With "start with the category" (D9, `startWith`), Add opens on the category list.
+way but Save (Close, Back, Esc, Keep draft), and opens again as left; an Add with nothing
+typed keeps none. While there's something typed, Add says so ("Kept as a draft until
+saved", or "Draft kept from last time" when it opened on one) with Discard draft, which
+closes Add with nothing kept ("Draft discarded", with Undo); the close icon reads "Keep
+draft and close" (else "Close"), a computer's Cancel "Keep draft". A transfer with one
+account says "Add another account to move money to" with Add account, which opens Add
+account over Add; the account made becomes To, the rest as typed. With "start with the category" (D9, `startWith`), Add opens on the category list.
 With Suggest as you type on, the payee field lists the payees used before (Settings ›
 Adding entries). With Ask for a time on (owner decision D20, `askForTime`), the day reads
 "Today, 8:12 PM": the time Add opened, changeable under it ("Time"), saved as it's shown.
@@ -725,7 +731,8 @@ a floating-point multiply gets wrong, =, Delete, the largest amount, the keyboar
 sums, below zero, nothing, the limit, Delete held; From and For, income, transfers and
 their balances, one account; which account it opens on; recent chips; the payee only;
 Today and Repeat by the person's own clock in Kuala Lumpur, past midnight, days refused;
-the draft through Close, Back, Esc, Cancel, a reload, saving, things gone, another person;
+the draft through Close, Back, Esc, Keep draft, Discard draft and Undo, a reload, saving,
+things gone, another person; Add account from a one-account transfer;
 a new category from the payee's hint, its limits and the payees out of reach, sent first
 in one request, offline; start with the category; refusals by tapping and Enter; Add as a
 dialog so N and / do nothing more),
@@ -1012,7 +1019,7 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
 - The month's name between arrows ("Previous month"; "Next month" off on this month), the
   freshness label under it and the round initial on phones and tablets; on a computer
   "November 2026" and a search box, "Search everything" (/ puts the cursor there, Enter
-  opens `?activity&q=<words>`). The initial comes once the accounts are
+  opens `?activity&q=<words>&dates=all`, every month, Activity's dates there to narrow it). The initial comes once the accounts are
   known (it may be the first run, which has its own) or couldn't be loaded ("Couldn't load
   your accounts.", Try again), so Settings and Sign out are always a tap away.
 - "Expected at month end": the month-end sum (Repeating bills and month end) with its line,
@@ -1048,7 +1055,10 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   marker for how much of the month has gone, and "RM 24.00 of RM 60.00 · faster than the
   month" (on track, faster than the month, or over; amber when faster, with a warning icon on
   a phone, the negative colour when over). "All of Plan" opens Plan. None: "No budgets yet." with
-  "Set a budget" (`?settings=categories`, where budgets are set).
+  "Set a budget" (`?settings=categories&budget`, where budgets are set: it says "Choose an
+  expense category to set its monthly budget", and the category opened has Monthly budget
+  ready to type, the first one opened only; Getting started's and Plan's "Set a budget" go
+  there too).
 - Getting started, this month while any of its five steps is left and it isn't hidden:
   where the money is (always done), the first expense (spending this month), past months
   (anything last month), rent, bills and pay (a repeating item), a budget (one this month);
@@ -1247,7 +1257,14 @@ box, and the open row (the first until another is picked) is changed beside it, 
 day and amount typed where the pane shows them (R-Desk-Activity); J and K
 move the open row, X ticks it, C changes the category of what's ticked (or of the open
 row), and a row's category opens Change category for it alone. Esc closes the top dialog;
-with a row always open, there's no pane to close.
+with a row always open, there's no pane to close. Anything that would lose the open entry's changes not saved asks "Save your changes?"
+with Keep editing, Discard and Save (which stays put, saying why, when it can't be saved):
+another row (a click, J or K), a search or filter that leaves it out (it stays open beside
+the register until answered), leaving Activity (any move through `navigate()`, guarded by
+`useLeaveGuard` in `hooks/useRoute.ts`; reloading gets the browser's own question), and
+closing a phone's or tablet's entry sheet (its Cancel or Close, Esc, the backdrop, a
+phone's Back). An entry with nothing changed moves and closes at once (`EditorControl` and
+`onDirty` in `EntryEditor.tsx`). New entry (N) opens over it and leaves it as typed.
 
 Change category lists the kind's categories (each top-level one with its subcategories,
 searchable; not the one they are all in already), says what moves ("RM 30.90 from Other to Food") and what it does to that
@@ -1646,7 +1663,10 @@ bank file's file and columns are done: a phone shows only the lines (a done step
 to them), a computer the columns beside the lines' table. Pick the account and the file; for a bank's file, say which column
 is the date, the amount (one column, below zero or in brackets for money out) or money in
 and money out, the payee and the note. The mapping is remembered per account on this
-device. Preview shows every row before anything is saved: money out as spending, money in
+device; for an account with none kept, or a kept column the file no longer has (only
+that one), columns whose names say plainly what they hold are picked (`suggestMapping` in `shared/csv-import.ts`: Date, Description, Amount, Debit and
+Credit and common variants, any case), one only when exactly one column has such a name,
+the rest left to pick; every one can be changed. Preview shows every row before anything is saved: money out as spending, money in
 as income, each in the category its payee was last filed under (`GET
 /api/payee-categories`; when that fails online the page says so), else Other or Other income, changeable per row. Dates are read day first, as the page says. A row with the
 same account, day, amount (money in and money out differ) and payee (trimmed, ignoring
@@ -1864,9 +1884,9 @@ the `currencies` cases in [offline/outbox.test.ts](../web/src/offline/outbox.tes
 **What it is.** Settings › Money › Other currencies (R-Set-Money, R-Desk-Prefs; owner
 request 2026-11-19): chips in the person's order and "Add" (every currency not in use yet,
 searchable); a chip opens Move earlier, Move later and Remove THB; at most 8 ("Up to 8
-other currencies"). In Add the figure's currency is a pill before it: a tap goes to the next
-of the home currency and the list, a long press, right-click or Alt+Down opens every
-currency ("Yours", "All currencies") for a one-off. In another currency the figure reads
+other currencies"). In Add the figure's currency is a pill before it, with an arrow: a tap
+(or Alt+Down) opens every currency ("Yours": the home currency and the list; "Used today": others entries
+were added in today on this device; "All currencies") (owner audit 2026-11-20). In another currency the figure reads
 "THB 120.00", Save "Save THB 120.00", and under it "about RM 15.30 at today's rate" ("at the
 last rate known" offline), whose tap shows "1 THB = 0.1275 MYR, from Wise". Entries show
 "−THB 120.00" with "RM 15.30" beside it in ink-3 on Activity, the register, an account's
@@ -1914,7 +1934,7 @@ deleted entries back as they were typed. Travel sense is
 **Tests.** [worker/test/other-currencies.test.ts](../worker/test/other-currencies.test.ts),
 the 0012 cases in [worker/test/migrations.test.ts](../worker/test/migrations.test.ts), and
 [entry/other-currencies.test.tsx](../web/src/components/entry/other-currencies.test.tsx)
-(settings list, pill, long press, hint, offline, entry display, editing, travel sense).
+(settings list, the pill opening the list, today's currencies, offline, entry display, editing, travel sense).
 
 ## Offline start and installing
 
@@ -1966,7 +1986,7 @@ keep changes, those two with how many are waiting.
 - [offline/storage.ts](../web/src/offline/storage.ts): once the app is installed, asks
   the browser (once per device) not to clear what's kept when space runs low.
 - [pwa/install.ts](../web/src/pwa/install.ts): the browser's install prompt, kept for
-  Install the app on Settings › My account
+  Install the app on Settings › My account and a phone's Settings index
   ([components/common/use-install-action.tsx](../web/src/components/common/use-install-action.tsx),
   the steps by hand in [components/common/InstallApp.tsx](../web/src/components/common/InstallApp.tsx)).
 

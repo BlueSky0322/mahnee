@@ -433,7 +433,10 @@ function Header({
   );
 }
 
-/** Home's search on a computer: Enter looks through everything in Activity */
+/**
+ * Home's search on a computer: Enter looks through everything in Activity, every month, with
+ * Activity's own dates there to narrow it
+ */
 function SearchEverything() {
   const [words, setWords] = useState('');
   return (
@@ -443,7 +446,7 @@ function SearchEverything() {
       onSubmit={(e) => {
         e.preventDefault();
         const q = words.trim();
-        navigate(q === '' ? '?activity' : `?activity&q=${encodeURIComponent(q)}`, {
+        navigate(q === '' ? '?activity' : `?activity&q=${encodeURIComponent(q)}&dates=all`, {
           replace: true,
         });
       }}

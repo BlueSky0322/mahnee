@@ -352,6 +352,35 @@ describe('My account', () => {
     },
   );
 
+  test.each(['phone', 'tablet', 'desktop'] as const)(
+    'the page Settings opens on offers to install, without opening My account (%s)',
+    async (size) => {
+      const prompt = offerInstall();
+      renderApp(withWallet(), '/?settings', { size });
+      // A computer's Settings opens on My account; a phone's and a tablet's on the index
+      const install = await screen.findByRole('button', {
+        name: size === 'desktop' ? 'Install' : 'Install the app Opens offline',
+      });
+      expect(window.location.search).toBe('?settings');
+      await userEvent.setup().click(install);
+      expect(prompt).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test.each(['phone', 'desktop'] as const)(
+    'opened as the installed app, Settings offers no install (%s)',
+    async (size) => {
+      Object.defineProperty(navigator, 'standalone', { value: true, configurable: true });
+      onTestFinished(() => {
+        delete (navigator as Navigator & { standalone?: boolean }).standalone;
+      });
+      offerInstall();
+      renderApp(withWallet(), '/?settings', { size });
+      await screen.findByRole('button', { name: 'Sign out' });
+      expect(screen.queryByRole('button', { name: /Install/ })).toBeNull();
+    },
+  );
+
   // Its one home now: Home's card goes (R-Home, R-Desk-Home, R-FirstRun draw none)
   test.each([
     ['phone', true],

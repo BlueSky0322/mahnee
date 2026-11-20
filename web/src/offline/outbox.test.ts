@@ -80,7 +80,9 @@ describe('what a failed send means', () => {
     expect(isRetryable(new NetworkError('No connection'))).toBe(true);
     expect(isRetryable(new TypeError('x is undefined'))).toBe(false);
     expect(isRetryable(new ApiError(503, 'Down'))).toBe(true);
-    expect(isRetryable(new ApiError(400, 'Invalid'))).toBe(false);
+    expect(isRetryable(new ApiError(400, 'Invalid', 'Invalid'))).toBe(false);
+    // A 4xx without the server's own reason came from something in between
+    expect(isRetryable(new ApiError(400, 'Invalid'))).toBe(true);
   });
 });
 

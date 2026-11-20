@@ -44,7 +44,7 @@ rates.get('/rates', async (c) => {
     const prefer = await getRatePreference(c.env.DB, c.var.email);
     // Refresh asks for a recent rate rather than one from hours ago
     const maxAgeMs = c.req.query('fresh') != null ? REFRESH_MAX_AGE_MS : undefined;
-    const { rate, source, fetchedAt } =
+    const { rate, source, fetchedAt, day } =
       at == null
         ? await getRate(c.env, from, to, { prefer, maxAgeMs })
         : await getRateOn(c.env, from, to, at, { prefer });
@@ -54,6 +54,7 @@ rates.get('/rates', async (c) => {
       rate,
       source,
       fetchedAt,
+      ...(day != null && { day }),
       ...(amount != null && { convertedCents: convertCents(toCents(amount), rate) }),
     });
   } catch (err) {

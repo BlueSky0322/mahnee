@@ -166,7 +166,7 @@ const transactionColumns = (t = 'transactions') =>
   ${t}.date, ${t}.time, ${t}.created_at AS createdAt, ${t}.recurring_id AS recurringId,
   ${t}.recurring_due AS recurringDue, ${t}.to_check AS toCheck,
   ${t}.original_currency AS originalCurrency, ${t}.original_cents AS originalCents,
-  ${t}.rate, ${t}.rate_source AS rateSource, ${t}.rate_at AS rateAt`;
+  ${t}.rate, ${t}.rate_source AS rateSource, ${t}.rate_at AS rateAt, ${t}.rate_day AS rateDay`;
 
 /** A transaction's row as read with transactionColumns */
 type TransactionRow = Omit<Transaction, 'scheduled' | 'original'> & {
@@ -178,6 +178,7 @@ type TransactionRow = Omit<Transaction, 'scheduled' | 'original'> & {
   rate: number | null;
   rateSource: FetchedRateSource | null;
   rateAt: number | null;
+  rateDay: string | null;
 };
 
 /**
@@ -193,6 +194,7 @@ export function toTransaction({
   rate,
   rateSource,
   rateAt,
+  rateDay,
   ...t
 }: TransactionRow) {
   const out: Transaction = t;
@@ -206,6 +208,7 @@ export function toTransaction({
       rate,
       source: rateSource,
       at: rateAt ?? 0,
+      ...(rateDay != null && { day: rateDay }),
     };
   }
   return out;

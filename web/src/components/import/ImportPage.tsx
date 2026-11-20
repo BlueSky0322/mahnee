@@ -366,7 +366,8 @@ export default function ImportPage() {
     const id = newId();
     // Kept from counting twice: the opening balance changes as part of this import, so its
     // Undo changes it back. Last, so it's in the last batch sent: a batch refused before it
-    // drops it with the rest, never leaving the opening balance changed for rows not added.
+    // holds it with the rest of the import, never leaving the opening balance changed for
+    // rows not added.
     const opening: LedgerChange[] =
       keeping && account != null && keptOpening != null && keptOpening !== account.openingCents
         ? [{ op: 'updateAccount', id: account.id, openingCents: keptOpening, importId: id }]

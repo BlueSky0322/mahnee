@@ -9,7 +9,7 @@ import { MAX_CHANGES, PENDING_CHANGES_HEADER, readPendingIds } from '../../share
 import type { AppEnv } from '../app';
 import { fail, json, readJson } from '../http';
 import { getRatePreference } from '../accounts/profiles';
-import { getRateOn } from '../currency/exchange-rates';
+import { RateLookups, getRateOn } from '../currency/exchange-rates';
 import { applyChanges } from '../ledger/changes';
 import { exportTransactions, readExportRange, readExportSummary } from '../ledger/export';
 import { readImports } from '../ledger/imports';
@@ -76,11 +76,13 @@ ledger.post('/changes', async (c) => {
   const body = await readJson<ChangesBody>(c.req.raw);
   if (body instanceof Response) return body;
   // A change typed in a home currency since left is converted at its day's rate, from
-  // where the person prefers rates fetched
+  // where the person prefers rates fetched, each day asked for once in the request
+  const lookups = new RateLookups();
   return applyChanges(c.env.DB, c.var.email, body, {
     fetchRate: async (from, to, day) =>
       getRateOn(c.env, from, to, Date.parse(`${day}T12:00:00Z`), {
         prefer: await getRatePreference(c.env.DB, c.var.email),
+        lookups,
       }),
   });
 });

@@ -69,6 +69,7 @@ export function sendEdit(
     rate: quote.rate,
     source: quote.source,
     at: quote.fetchedAt,
+    ...(quote.day != null && { day: quote.day }),
   };
   const shown = {
     ...update,

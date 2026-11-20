@@ -254,8 +254,7 @@ describe("a bank's file", () => {
       expect(screen.getByLabelText('Date')).toHaveProperty('value', 'Date');
       expect(screen.getByLabelText('Note')).toHaveProperty('value', '');
     },
-    // Two imports and eleven picks: on main the computer's run already reached 4.8s of the
-    // default 5s under the full suite, and each phone pick waits out its sheet closing
+    // Two imports in one test: on main it already took 4.8s of the default 5s in a full run
     20_000,
   );
 

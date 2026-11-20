@@ -39,7 +39,7 @@ import { newId } from '../../utils/id';
 import { showRefusal } from '../../utils/notify';
 import { currencySymbol, formatMoney } from '../../utils/money';
 import CurrencyList from '../common/CurrencyList';
-import { SOURCE_NAMES, shortDate } from '../common/typed-amount';
+import { SOURCE_NAMES, rateDate, shortDay } from '../common/typed-amount';
 import { showUndo } from '../common/undo-toast';
 import AccountForm from '../accounts/AccountForm';
 import { balanceText } from '../accounts/account-text';
@@ -433,6 +433,7 @@ function AddForm({
         rate: quote!.rate,
         source: quote!.source,
         at: quote!.fetchedAt,
+        ...(quote!.day != null && { day: quote!.day }),
       };
       const shown = changes.map((c): LedgerChange => {
         if (c.op === 'addTransaction') {
@@ -688,10 +689,9 @@ function AddForm({
   );
 
   // Under the figure: what an amount in another currency comes to, or the day's currency
-  const quoteDay = quote == null ? '' : shortDate(quote.fetchedAt);
+  const quoteDay = quote == null ? '' : rateDate(quote.fetchedAt, quote.day);
   // An earlier day's entry is saved at that day's rate, which may differ
-  const savedAt =
-    day === today ? '' : `, saved at the rate of ${shortDate(Date.parse(`${day}T12:00:00`))}`;
+  const savedAt = day === today ? '' : `, saved at the rate of ${shortDay(day)}`;
   const lines =
     elsewhere && total > 0 ? (
       <div className={classes.rateLines}>

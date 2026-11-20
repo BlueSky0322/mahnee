@@ -551,7 +551,7 @@ describe('accounts', () => {
     expect(await row('Purse')).toBeTruthy();
   });
 
-  test('drops what was made after a refused change, and shows what the server has', async () => {
+  test('a refused change is put back and kept to review; one made after it is still saved', async () => {
     const server = fakeServer();
     seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
     server.failNext.changes = { status: 404, error: 'Account not found' };
@@ -573,9 +573,13 @@ describe('accounts', () => {
 
     held.release();
     expect(await screen.findByText('Account not found')).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole('link', { name: /^Bank,/ })).toBeNull());
+    // The rename is put back, and waits to be tried again or discarded
     expect(await row('Wallet')).toBeTruthy();
-    expect(server.accounts.map((a) => a.name)).toEqual(['Wallet']);
+    expect(screen.queryByRole('link', { name: /^Purse,/ })).toBeNull();
+    expect(await screen.findByText("1 change couldn't be saved.")).toBeTruthy();
+    // The new account doesn't depend on it, so it's saved
+    await waitFor(() => expect(server.accounts.map((a) => a.name)).toEqual(['Wallet', 'Bank']));
+    expect(await row('Bank')).toBeTruthy();
   });
 
   test('a fresh copy answered out of order never shows an older name', async () => {

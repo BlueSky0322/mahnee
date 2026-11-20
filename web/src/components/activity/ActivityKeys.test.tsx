@@ -203,3 +203,205 @@ describe('the guard', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
+
+describe('switching rows with changes not saved', () => {
+  /** The pane's Payee, typed over with `payee` */
+  async function retype(user: ReturnType<typeof userEvent.setup>, payee: string) {
+    const pane = within(within(screen.getByRole('main')).getByRole('complementary'));
+    const field = pane.getByLabelText<HTMLInputElement>('Payee');
+    await user.clear(field);
+    await user.type(field, payee);
+    return field;
+  }
+  const rowButton = (name: string) => screen.getByRole('button', { name });
+
+  test('a clean editor switches at once, by mouse and by key', async () => {
+    const user = await start();
+    await user.click(rowButton('Bakery'));
+    expect(open()).toBe('Bakery, Nov 8');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await user.keyboard('j');
+    expect(open()).toBe('Florist, Nov 7');
+  });
+
+  test('a click on another row asks first; Keep editing keeps what was typed', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    await user.click(rowButton('Bakery'));
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    expect(ask.getByText('Kiosk has changes that are not saved.')).toBeTruthy();
+    await user.click(ask.getByRole('button', { name: 'Keep editing' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(open()).toBe('Kiosk, Nov 9');
+    const pane = within(within(screen.getByRole('main')).getByRole('complementary'));
+    expect(pane.getByLabelText('Payee')).toHaveProperty('value', 'Kiosk lunch');
+  });
+
+  test('Discard drops what was typed and opens the other row', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    await user.click(rowButton('Bakery'));
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    await user.click(ask.getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(open()).toBe('Bakery, Nov 8'));
+    await user.click(rowButton('Kiosk'));
+    await waitFor(() => expect(open()).toBe('Kiosk, Nov 9'));
+    const pane = within(within(screen.getByRole('main')).getByRole('complementary'));
+    expect(pane.getByLabelText('Payee')).toHaveProperty('value', 'Kiosk');
+  });
+
+  test('Save keeps it, then opens the other row', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    await user.click(rowButton('Bakery'));
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    await user.click(ask.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(open()).toBe('Bakery, Nov 8'));
+    expect(await screen.findByRole('button', { name: 'Kiosk lunch' })).toBeTruthy();
+  });
+
+  test('J asks too, once the keyboard has left the field', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    act(() => screen.getAllByRole('checkbox')[1].focus());
+    await user.keyboard('j');
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    expect(open()).toBe('Kiosk, Nov 9');
+    await user.click(ask.getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(open()).toBe('Bakery, Nov 8'));
+  });
+
+  test('Save with something it can not save keeps the row open with why', async () => {
+    const user = await start();
+    const pane = within(within(screen.getByRole('main')).getByRole('complementary'));
+    const amount = pane.getByLabelText('Amount');
+    await user.clear(amount);
+    await user.type(amount, 'abc');
+    await user.click(rowButton('Bakery'));
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    await user.click(ask.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(open()).toBe('Kiosk, Nov 9');
+    expect(amount).toHaveProperty('value', 'abc');
+  });
+});
+
+describe('changes not saved, wherever the entry would go', () => {
+  const pane = () => within(within(screen.getByRole('main')).getByRole('complementary'));
+  async function retype(user: ReturnType<typeof userEvent.setup>, payee: string) {
+    const field = pane().getByLabelText<HTMLInputElement>('Payee');
+    await user.clear(field);
+    await user.type(field, payee);
+  }
+
+  test('an entry never touched is no change, even with an amount it would not take', async () => {
+    const server = withThree();
+    server.transactions[2].amountCents = 0;
+    renderApp(server, '/?activity', { size: 'desktop' });
+    await screen.findByRole('table', { name: 'Transactions' });
+    await waitFor(() => expect(open()).toBe('Kiosk, Nov 9'));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.click(screen.getByRole('button', { name: 'Bakery' }));
+    expect(open()).toBe('Bakery, Nov 8');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  test('a search that would take the open entry away asks first; Keep editing keeps it', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    await user.type(screen.getByRole('searchbox', { name: 'Search' }), 'Bakery');
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    expect(pane().getByLabelText('Payee')).toHaveProperty('value', 'Kiosk lunch');
+    await user.click(ask.getByRole('button', { name: 'Keep editing' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(open()).toBe('Kiosk, Nov 9');
+    expect(pane().getByLabelText('Payee')).toHaveProperty('value', 'Kiosk lunch');
+  });
+
+  test('a search that would take it away, then Discard, opens what was found', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    await user.type(screen.getByRole('searchbox', { name: 'Search' }), 'Bakery');
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    await user.click(ask.getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(open()).toBe('Bakery, Nov 8'));
+  });
+
+  test('leaving Activity asks first; Keep editing stays, Save goes', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    await user.click(screen.getByRole('link', { name: 'Plan' }));
+    let ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    expect(window.location.search).toBe('?activity');
+    await user.click(ask.getByRole('button', { name: 'Keep editing' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(pane().getByLabelText('Payee')).toHaveProperty('value', 'Kiosk lunch');
+
+    await user.click(screen.getByRole('link', { name: 'Plan' }));
+    ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    await user.click(ask.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Plan' })).toBeTruthy();
+    expect(window.location.search).toBe('?plan');
+  });
+
+  test('N opens New entry over Activity, and what was typed is still there after', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    act(() => screen.getAllByRole('checkbox')[1].focus());
+    await user.keyboard('n');
+    expect(await screen.findByRole('dialog', { name: 'New entry' })).toBeTruthy();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(pane().getByLabelText('Payee')).toHaveProperty('value', 'Kiosk lunch');
+  });
+
+  test.each(['phone', 'tablet'] as const)(
+    'closing the sheet with changes asks first: Cancel or Close, Esc and Back (%s)',
+    async (size) => {
+      renderApp(withThree(), '/?activity', { size });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      await user.click(await screen.findByRole('button', { name: /^Kiosk, / }));
+      let sheet = within(await screen.findByRole('dialog', { name: 'Kiosk' }));
+      const field = sheet.getByLabelText<HTMLInputElement>('Payee');
+      await user.clear(field);
+      await user.type(field, 'Kiosk lunch');
+
+      // Cancel (a tablet's Close) asks; Keep editing keeps the sheet as typed
+      await user.click(sheet.getByRole('button', { name: size === 'phone' ? 'Cancel' : 'Close' }));
+      let ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+      await user.click(ask.getByRole('button', { name: 'Keep editing' }));
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: 'Save your changes?' })).toBeNull(),
+      );
+      sheet = within(screen.getByRole('dialog', { name: 'Kiosk' }));
+      expect(sheet.getByLabelText('Payee')).toHaveProperty('value', 'Kiosk lunch');
+
+      // Back asks too on a phone (a tablet's Back doesn't close dialogs), and keeps the sheet
+      if (size === 'phone') {
+        act(() => window.history.back());
+        ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+        await user.click(ask.getByRole('button', { name: 'Keep editing' }));
+        await waitFor(() =>
+          expect(screen.queryByRole('dialog', { name: 'Save your changes?' })).toBeNull(),
+        );
+        expect(screen.getByRole('dialog', { name: 'Kiosk' })).toBeTruthy();
+      }
+
+      // Esc asks; Discard closes it, nothing saved
+      await user.keyboard('{Escape}');
+      ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+      await user.click(ask.getByRole('button', { name: 'Discard' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(await screen.findByRole('button', { name: /^Kiosk, / })).toBeTruthy();
+    },
+  );
+
+  test('a sheet with nothing changed closes at once', async () => {
+    renderApp(withThree(), '/?activity', { size: 'phone' });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.click(await screen.findByRole('button', { name: /^Kiosk, / }));
+    const sheet = within(await screen.findByRole('dialog', { name: 'Kiosk' }));
+    await user.click(sheet.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+});

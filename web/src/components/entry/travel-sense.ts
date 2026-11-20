@@ -176,6 +176,12 @@ export function noteEntryCurrency(email: string | null, today: string, currency:
   keepDay(email, { ...day, recent: [...day.recent, currency].slice(-2) });
 }
 
+/** The currencies of the last entries added today on this device, newest first, once each */
+export function todaysEntryCurrencies(email: string | null, today: string): string[] {
+  if (email == null) return [];
+  return [...new Set([...readDay(email, today).recent].reverse())];
+}
+
 // Signing out, or someone else signing in: it goes with the rest of what's kept
 onCacheCleared(() =>
   quietly(() => {

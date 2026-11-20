@@ -2,7 +2,7 @@ import type { Account, Category, SearchTotals, Transaction } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
 import { periodMonthOf, periodOf, shiftMonth } from '@shared/period';
 import { foldCase, isCalendarDay } from '@shared/search';
-import { clockText, fromDateInput, monthHeading } from '../../utils/date-input';
+import { clockText, fromDateInput, monthHeading, toDateInput } from '../../utils/date-input';
 import { currencySymbol, formatAmount, formatMoney } from '../../utils/money';
 import { categoryName } from '../common/category-name';
 import { scheduledNote } from '../common/scheduled-note';
@@ -140,15 +140,65 @@ export const entriesText = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}
 export function foundLine(
   found: SearchTotals,
   currency: string,
-  selecting?: { category: string | null },
+  selecting?: { category: string | null } | null,
+  partial = false,
 ) {
+  // Counted from what this device holds, which isn't every day asked for
+  const where = partial ? ' on this device' : '';
   if (selecting != null) {
-    return `${found.entries} found${selecting.category == null ? '' : ` in ${selecting.category}`}`;
+    return `${found.entries} found${where}${selecting.category == null ? '' : ` in ${selecting.category}`}`;
   }
-  const parts = [`${found.entries} found`];
+  const parts = [`${found.entries} found${where}`];
   if (found.spentCents > 0) parts.push(`${formatMoney(found.spentCents, currency)} spent`);
   if (found.receivedCents > 0) parts.push(`${formatMoney(found.receivedCents, currency)} received`);
   return parts.join(' · ');
+}
+
+/**
+ * Offline, when the history on this device doesn't hold every day asked for, checked:
+ * "Showing Oct 1 to Nov 20. Older entries aren't on this device yet.", from the first day
+ * it holds whole (`held`, null for none) to the last asked for (today when not said). While
+ * the older entries are held but being checked again (`refreshing`): "Checked from Oct 1 to
+ * Nov 20. Older entries are being refreshed and may be out of date." Held in full, it says
+ * when it was last checked ("Checked Nov 20."), or that that was too long ago ("Not checked
+ * since Nov 12. Entries may be out of date."); null when there's nothing to say.
+ */
+export function onDeviceLine(
+  {
+    complete,
+    expired,
+    checkedAt,
+    from: held,
+    refreshing,
+  }: {
+    complete: boolean;
+    expired: boolean;
+    checkedAt: number | null;
+    from: string | null;
+    refreshing: boolean;
+  },
+  looked: Period,
+  today: string,
+): string | null {
+  // Held in full: when it was last checked against the server, "Checked Nov 20."
+  const checked = checkedAt == null ? null : shortDay(toDateInput(new Date(checkedAt)), today);
+  if (complete) return checked == null ? null : `Checked ${checked}.`;
+  // Held in full, but too long ago for anything to have refreshed it offline
+  if (expired) {
+    return checked == null
+      ? 'Entries may be out of date.'
+      : `Not checked since ${checked}. Entries may be out of date.`;
+  }
+  const from = held != null && looked.from != null && looked.from > held ? looked.from : held;
+  const to = looked.to != null && looked.to < today ? looked.to : today;
+  const whole = from != null && from <= to;
+  if (refreshing) {
+    return whole
+      ? `Checked from ${shortDay(from, today)} to ${shortDay(to, today)}. Older entries are being refreshed and may be out of date.`
+      : 'These entries are being refreshed and may be out of date.';
+  }
+  if (!whole) return "Entries for these days aren't on this device yet.";
+  return `Showing ${shortDay(from, today)} to ${shortDay(to, today)}. Older entries aren't on this device yet.`;
 }
 
 /** 'No "bolt" in Transport this month. 2 in other months.' */

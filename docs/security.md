@@ -157,7 +157,12 @@ hack-proof, and the limits below are real.
   parameters (never put into the SQL; with `instr`, so no character is a wildcard), within the person's own rows. What a search
   counts beyond a page (how many, and what they spent and received) is one aggregate of the
   person's own rows under the same conditions, the email first. Search results
-  are not kept on the device. A month's totals (`/api/summary`) are one
+  aren't kept as such; the person's transaction history is (`offline/history-store.ts`,
+  its own IndexedDB database): every row and its download progress tagged with the email
+  it was downloaded as, read for the signed-in email alone, written only while that email
+  is still signed in, and deleted whenever the device's copies are (signing out, someone
+  else signing in). At most `MAX_TRANSACTIONS_PER_ACCOUNT` per account, 200 to a request;
+  each account is read again in full at most once a week, in the background, by one tab. A month's totals (`/api/summary`) are one
   grouped sum of the person's own, at most one row per category. Its budgets add one
   read of the person's budget rows and, only when they have any, one grouped sum of
   their spending by month and top-level category since the first budget: at most one

@@ -9,7 +9,7 @@ import {
   useCategories,
   useSearch,
 } from '../../ledger/useLedger';
-import { toDateInput } from '../../utils/date-input';
+import { dayText, toDateInput } from '../../utils/date-input';
 import { periodText, shortDay } from '../activity/activity-text';
 import { periodMonthOf, periodOf, shiftMonth } from '@shared/period';
 import { useMonthStart } from '../../ledger/month-start';
@@ -177,9 +177,8 @@ function Register({
   onOpen: (t: Transaction) => void;
 }) {
   const { categories } = useCategories();
-  const { transactions, failed, retry, hasMore, loadMore, loadingMore } = useAccountTransactions(
-    account.id,
-  );
+  const { transactions, failed, retry, hasMore, loadMore, loadingMore, onDevice } =
+    useAccountTransactions(account.id);
   if (transactions == null) return failed ? <Failed retry={retry} /> : <EntriesLoading />;
   if (transactions.length === 0) return <NoEntries account={account} />;
   const after = balancesAfter(account.balanceCents, account.id, transactions);
@@ -205,6 +204,15 @@ function Register({
             Show 50 more
           </Button>
         </div>
+      )}
+      {!hasMore && onDevice?.complete === false && (
+        <p className={classes.muted}>
+          {onDevice.expired
+            ? `Not checked since ${onDevice.checkedAt == null ? 'it was downloaded' : dayText(toDateInput(new Date(onDevice.checkedAt)))}. Entries may be out of date.`
+            : onDevice.refreshing
+              ? 'Entries are being refreshed and may be out of date.'
+              : "Older entries aren't on this device yet."}
+        </p>
       )}
     </>
   );

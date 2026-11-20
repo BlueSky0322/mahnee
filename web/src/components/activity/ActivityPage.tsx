@@ -12,7 +12,13 @@ import { navigate, useLeaveGuard } from '../../hooks/useRoute';
 import { takeSearchFocus, useShortcuts } from '../../hooks/useShortcuts';
 import { addAgain, change } from '../../ledger/ledger';
 import { useMonthStart } from '../../ledger/month-start';
-import { useAccounts, useCategories, useSearch } from '../../ledger/useLedger';
+import { holdsFrom } from '../../ledger/history';
+import {
+  useAccounts,
+  useCategories,
+  useHistoryUnavailable,
+  useSearch,
+} from '../../ledger/useLedger';
 import type { Found as Totals } from '../../ledger/search-totals';
 import { clockText, dayHeading, toDateInput } from '../../utils/date-input';
 import { showRefusal } from '../../utils/notify';
@@ -36,6 +42,7 @@ import {
   SIGNS,
   listAmount,
   noMatchLine,
+  onDeviceLine,
   rowText,
   selectionLine,
   shortDay,
@@ -139,6 +146,10 @@ export default function ActivityPage({ query }: { query: string }) {
   const ready = rows != null && accounts != null && categories != null;
   const totals = ready ? found.totals : null;
   const days = dayRange(filters.days, today, start);
+  // Offline, from a history this device doesn't hold every asked-for day of yet
+  const partial = found.onDevice != null && !holdsFrom(found.onDevice, days.from);
+  const unavailable = useHistoryUnavailable();
+  const deviceLine = found.onDevice == null ? null : onDeviceLine(found.onDevice, days, today);
   const currency = useCurrency();
   const nothingSet =
     filters.account == null &&
@@ -358,6 +369,7 @@ export default function ActivityPage({ query }: { query: string }) {
             <FoundLine
               totals={totals}
               currency={currency}
+              partial={partial}
             />
           </span>
         )}
@@ -368,7 +380,7 @@ export default function ActivityPage({ query }: { query: string }) {
           {selecting ? (
             <>
               <span className={classes.found}>
-                {foundLine(totals.found, currency, { category: categoryShown })}
+                {foundLine(totals.found, currency, { category: categoryShown }, partial)}
               </span>
               <Button
                 variant="subtle"
@@ -384,6 +396,7 @@ export default function ActivityPage({ query }: { query: string }) {
               <FoundLine
                 totals={totals}
                 currency={currency}
+                partial={partial}
               />
             </span>
           )}
@@ -395,8 +408,28 @@ export default function ActivityPage({ query }: { query: string }) {
           className={classes.results}
           aria-label="Results"
         >
+          {ready && deviceLine != null && (
+            <p
+              className={classes.muted}
+              role="status"
+            >
+              {deviceLine}
+            </p>
+          )}
           {!ready || rows == null || accounts == null || categories == null ? (
-            found.failed ? (
+            !online ? (
+              <div className={classes.state}>
+                <span className={classes.stateIcon}>
+                  <CloudSlash size={24} />
+                </span>
+                <h2 className={classes.stateTitle}>Connect to search</h2>
+                <p className={classes.muted}>
+                  {unavailable
+                    ? "This device couldn't keep your entries, so searching needs a connection."
+                    : "Your entries aren't on this device yet."}
+                </p>
+              </div>
+            ) : found.failed ? (
               <div className={classes.state}>
                 <p className={classes.muted}>
                   Couldn't search. Check the connection and try again.
@@ -407,14 +440,6 @@ export default function ActivityPage({ query }: { query: string }) {
                 >
                   Try again
                 </Button>
-              </div>
-            ) : !online ? (
-              <div className={classes.state}>
-                <span className={classes.stateIcon}>
-                  <CloudSlash size={24} />
-                </span>
-                <h2 className={classes.stateTitle}>Connect to search</h2>
-                <p className={classes.muted}>Search results aren't kept on this device.</p>
               </div>
             ) : (
               <Placeholders />
@@ -667,8 +692,16 @@ type Ask =
   | { kind: 'sheet' };
 
 /** "7 found · RM 92.05 spent", the amounts each in even-width figures */
-function FoundLine({ totals, currency }: { totals: Totals; currency: string }) {
-  return <span className="sf-tabular">{foundLine(totals.found, currency)}</span>;
+function FoundLine({
+  totals,
+  currency,
+  partial,
+}: {
+  totals: Totals;
+  currency: string;
+  partial: boolean;
+}) {
+  return <span className="sf-tabular">{foundLine(totals.found, currency, null, partial)}</span>;
 }
 
 function Placeholders() {

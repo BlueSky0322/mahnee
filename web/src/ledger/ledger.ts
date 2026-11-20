@@ -39,6 +39,16 @@ import {
   isTransactionChange,
   oneByOne,
 } from './apply';
+import type { PageOnDevice } from './history';
+import {
+  downloadHistory,
+  keepServerPage,
+  localAccountPage,
+  localSearchPage,
+  localSince,
+  recordSaved,
+  startAgain,
+} from './history';
 import { createSaveQueue } from './save-queue';
 import { applyToSummary, applyToTrend } from './summary';
 
@@ -312,6 +322,8 @@ const queue = createSaveQueue({
       );
     }
     savedLog = [...savedLog, { n: savedCount, changes }].slice(-SAVED_LOG_LENGTH);
+    // And to the history kept on the device for offline
+    recordSaved(changes);
     // Last, so the totals and lists above took each one as it was before
     rememberSaved(changes);
   },
@@ -353,8 +365,31 @@ onCacheCleared(() => {
   ledgerFetched = false;
   fromDevice.clear();
   trendsFromDevice.clear();
+  clearTimeout(historyTimer);
   ageChanged();
 });
+
+/** How long after the balances come fresh the history starts downloading, out of the way */
+const HISTORY_DELAY_MS = 5000;
+let historyTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Downloads what's missing of the signed-in person's history to this device (history.ts),
+ * for Activity and accounts offline. Resolves once done, or stopped for want of a
+ * connection; it carries on from there next time.
+ */
+export function syncHistory(): Promise<void> {
+  const profile = queryClient.getQueryData<Profile>(ME_KEY);
+  // Not while amounts are being converted into a new home currency: they're changing
+  if (profile == null || isConverting(profile)) return Promise.resolve();
+  return downloadHistory(confirmed?.accounts.map((a) => a.id) ?? [], profile.settings.currency);
+}
+
+/** The home currency amounts are in now, as the profile says; null while it isn't known */
+const homeCurrency = () => {
+  const profile = queryClient.getQueryData<Profile>(ME_KEY);
+  return profile == null ? null : currencyNow(profile);
+};
 
 /**
  * The changes still to send, as last shown: the same list until it changes, for screens
@@ -511,6 +546,8 @@ export async function fetchLedger({ signal }: { signal?: AbortSignal } = {}): Pr
     // Fresh from the server: kept on the device with what it holds, and when
     ledgerFetched = true;
     void writeCache(CACHE_KEY, ledger);
+    clearTimeout(historyTimer);
+    historyTimer = setTimeout(() => void syncHistory(), HISTORY_DELAY_MS);
     shownFresh('ledger');
     refreshKeptSummaries();
   } else {
@@ -555,16 +592,17 @@ async function readLedger(named: string[]): Promise<{ ledger: Ledger; keptAt?: n
 
 /**
  * A page of a list of transactions from the server, from where `before` says (the first
- * page when null). An account's first page is kept on the device, and shown from there
- * offline.
+ * page when null), kept in the history on this device. Offline, read from that history
+ * (saying how much of it the device holds), else an account's first page as kept.
  */
 export async function fetchTransactionPage(
   key: TransactionsKey,
   before: string | null,
-): Promise<TransactionPage> {
+): Promise<PageOnDevice> {
   const [, by, value] = key;
   const savedBefore = savedCount;
-  let page: TransactionPage;
+  const askedAt = Date.now();
+  let page: PageOnDevice;
   try {
     page =
       by === 'search'
@@ -574,14 +612,34 @@ export async function fetchTransactionPage(
           );
     if (by === 'account' && before == null) void writeCache(pageCacheKey(value), page);
   } catch (err) {
-    if (!isOfflineFailure(err) || by !== 'account' || before != null) throw err;
-    const kept = await readCache<TransactionPage>(pageCacheKey(value));
-    if (kept == null) throw err;
-    page = kept;
+    if (!isOfflineFailure(err) || by === 'month') throw err;
+    const local = await pageOnDevice(key, before);
+    if (local != null) page = local;
+    else {
+      if (by !== 'account' || before != null) throw err;
+      const kept = await readCache<TransactionPage>(pageCacheKey(value));
+      if (kept == null) throw err;
+      page = kept;
+    }
   }
   // Saved while this was on its way, so perhaps not in it
   const missed = savedLog.filter((s) => s.n > savedBefore).flatMap((s) => s.changes);
-  return applyToPages([page], missed, belongsTo(key), savedTransaction)[0];
+  const shown = { ...page, ...applyToPages([page], missed, belongsTo(key), savedTransaction)[0] };
+  if (page.onDevice == null && by !== 'month') {
+    keepServerPage(shown, by === 'account' ? { accountId: value, before } : null, askedAt);
+  }
+  return shown;
+}
+
+/** A page of a list from the history on this device, or null when it holds none of it */
+function pageOnDevice(key: TransactionsKey, before: string | null) {
+  const [, by, value] = key;
+  if (by === 'account') return localAccountPage(value, before, homeCurrency());
+  const query = readSearch(new URLSearchParams(value));
+  if ('error' in query) return Promise.resolve(null);
+  const categories = queryClient.getQueryData<Ledger>(LEDGER_KEY)?.categories ?? [];
+  const accounts = confirmed?.accounts.map((a) => a.id) ?? [];
+  return localSearchPage(query, categories, accounts, homeCurrency(), before, SEARCH_PAGE_SIZE);
 }
 
 /** The most a page of transactions holds (worker/ledger/read.ts MAX_PAGE_SIZE) */
@@ -591,12 +649,14 @@ const LARGEST_PAGE = 200;
  * An account's transactions back to `fromDay` (a few older ones too), as shown: what the
  * server has, with what was saved meanwhile and the changes still to send on top. For an
  * import to tell which of a file's rows look already saved. Offline, what this device
- * has: the account's pages loaded or kept, and the changes still to send.
+ * has: its history, the account's pages loaded or kept, and the changes still to send,
+ * with the day before which it may not hold them all (`missingBefore`; null when it does).
  */
 export async function transactionsSince(
   accountId: string,
   fromDay: string,
-): Promise<Transaction[]> {
+): Promise<{ transactions: Transaction[]; missingBefore: string | null }> {
+  let missingBefore: string | null = null;
   const key = accountTransactionsKey(accountId);
   const savedBefore = savedCount;
   let held: Transaction[] = [];
@@ -623,19 +683,35 @@ export async function transactionsSince(
     if (!isOfflineFailure(err)) throw err;
     const kept = await readCache<TransactionPage>(pageCacheKey(accountId));
     const loaded = queryClient.getQueryData<Pages>(key)?.pages ?? [];
+    // The history on this device, as far as it goes
+    const local = await localSince(accountId, fromDay);
     const byId = new Map(
-      [...(kept?.transactions ?? []), ...loaded.flatMap((p) => p.transactions)].map((t) => [
-        t.id,
-        t,
-      ]),
+      [
+        ...(local?.transactions ?? []),
+        ...(kept?.transactions ?? []),
+        ...loaded.flatMap((p) => p.transactions),
+      ].map((t) => [t.id, t]),
     );
     held = [...byId.values()];
+    const whole =
+      local == null
+        ? null
+        : local.onDevice.complete || local.onDevice.expired
+          ? fromDay
+          : local.onDevice.from;
+    if (whole == null || whole > fromDay) {
+      // Held whole from that day; with no history, from the oldest kept, else today
+      missingBefore =
+        whole ?? held.reduce<string | null>((o, t) => (o == null || t.date < o ? t.date : o), null);
+      missingBefore ??= new Date().toISOString().slice(0, 10);
+    }
   }
-  return shownPages(
+  const transactions = shownPages(
     key,
     { pages: [{ transactions: held, nextBefore: null }], pageParams: [null] },
     queue.pending(),
   );
+  return { transactions, missingBefore };
 }
 
 /**
@@ -810,6 +886,8 @@ queryClient.getQueryCache().subscribe(({ query }) => {
   const converting = profile != null && isConverting(profile);
   if (wasConverting && !converting) {
     void forgetMonthTotals();
+    // Every amount changed on the server: the history is downloaded again
+    startAgain();
     void queryClient.invalidateQueries({ queryKey: LEDGER_KEY });
     void queryClient.invalidateQueries({ queryKey: TRANSACTIONS_KEY });
     queue.resume();

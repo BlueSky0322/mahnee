@@ -21,6 +21,7 @@ import {
   goToPlace,
   holdNext,
   openSettings,
+  reloadApp,
   renderApp,
   settle,
   setupAppTests,
@@ -945,6 +946,63 @@ describe('the limit', () => {
     backOnline();
     await waitFor(() => expect(server.transactions).toHaveLength(2));
     expect(server.transactions.map((t) => t.amountCents).sort()).toEqual([2_000, 800]);
+  });
+});
+
+describe('offline, against the history on the device', () => {
+  /** Maybank's 230 September entries, RM 1.00 on the 1st up to RM 3.29 on the 30th */
+  function withSeptember() {
+    const server = withAccounts();
+    for (let i = 0; i < 230; i++) {
+      const day = String(1 + Math.floor((i * 30) / 230)).padStart(2, '0');
+      saved(server, { date: `2026-09-${day}`, amountCents: 100 + i, payee: `Shop ${i}` });
+    }
+    return server;
+  }
+  const FILE_SEPT = 'Date,Description,Amount\n01/09/2026,Shop 0,-1.00\n';
+  const NOT_ALL =
+    /^Some older entries aren't on this device, so duplicates from before .+ may not be caught\.$/;
+
+  /** Opens the app afresh, so the ledger the test reaches is the page's own */
+  async function openFresh(server: FakeServer) {
+    await reloadApp(server, '/', { size: 'phone' });
+    await screen.findByRole('navigation', { name: 'Main' });
+  }
+
+  test('a row saved long ago is found, past the first page', async () => {
+    const server = withSeptember();
+    await openFresh(server);
+    const { syncHistory } = await import('../../ledger/ledger');
+    await act(() => syncHistory());
+    const user = await openImport();
+    goOffline(server);
+    await pickFile(user, csv(FILE_SEPT), 'Maybank');
+    await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(screen.getAllByText('Looks already saved')).toHaveLength(1));
+    expect(screen.queryByText(NOT_ALL)).toBeNull();
+  });
+
+  test('says when the device doesn’t hold every day the file covers', async () => {
+    const server = withSeptember();
+    await openFresh(server);
+    // Maybank's first page arrives, then the connection drops
+    const first = holdNext(server, 'GET', '/api/transactions');
+    const run = import('../../ledger/ledger').then(({ syncHistory }) => syncHistory());
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.some(([u]) => typeof u === 'string' && u.includes('limit=200')),
+      ).toBe(true),
+    );
+    server.pathsDown.add('/api/transactions');
+    first.release();
+    await act(() => run);
+    const user = await openImport();
+    goOffline(server);
+    await pickFile(user, csv(FILE_SEPT), 'Maybank');
+    await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(await screen.findByText(NOT_ALL)).toBeTruthy();
   });
 });
 

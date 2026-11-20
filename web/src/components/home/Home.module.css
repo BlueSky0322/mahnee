@@ -344,6 +344,14 @@
   text-decoration: none;
 }
 
+.glanceMonthEnd {
+  margin-top: -12px;
+  padding: 0 4px;
+  color: var(--ink-2);
+  font-size: 13px;
+  text-decoration: none;
+}
+
 .glanceRow {
   display: flex;
   flex-direction: column;

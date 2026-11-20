@@ -1,4 +1,5 @@
 import { Button } from '@mantine/core';
+import type { ReactNode } from 'react';
 import { useEffect, useId, useState } from 'react';
 import type { Account, Category, MonthSummary, Transaction, WeekStart } from '@shared/api';
 import type { SearchQuery } from '@shared/search';
@@ -14,7 +15,7 @@ import { categoryName } from '../common/category-name';
 import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
 import Skeleton from '../ui/Skeleton';
 import classes from './Home.module.css';
-import { medianText } from './home-text';
+import { medianText, signedMoney } from './home-text';
 import PageLink from './PageLink';
 
 /** The most entries Recent activity lists; See all has the rest */
@@ -39,6 +40,8 @@ export default function AtAGlance({
   firstDay,
   day,
   summary,
+  failedMonth,
+  monthEndCents,
   weekStart,
   accounts,
   categories,
@@ -50,8 +53,13 @@ export default function AtAGlance({
   day: string;
   /** The month's totals; null until loaded */
   summary: MonthSummary | null;
+  /** Shown in place of the month's figures when its totals couldn't be had */
+  failedMonth: ReactNode;
+  /** Where this month is expected to end; null for an earlier month or until known */
+  monthEndCents: number | null;
   weekStart: WeekStart;
-  accounts: readonly Account[];
+  /** Null until known: the entries wait for them, so no account goes unnamed */
+  accounts: readonly Account[] | null;
   categories: readonly Category[];
 }) {
   const currency = useCurrency();
@@ -80,14 +88,26 @@ export default function AtAGlance({
 
   return (
     <>
-      <SpentSoFar
-        month={month}
-        isCurrent={isCurrent}
-        firstDay={firstDay}
-        day={day}
-        summary={summary}
-      />
-      {summary == null ? (
+      {failedMonth ?? (
+        <SpentSoFar
+          month={month}
+          isCurrent={isCurrent}
+          firstDay={firstDay}
+          day={day}
+          summary={summary}
+        />
+      )}
+      {monthEndCents != null && (
+        // The month end, a quiet line: the full Home has its breakdown
+        <PageLink
+          href="?plan=scheduled"
+          className={classes.glanceMonthEnd}
+        >
+          Expected at month end{' '}
+          <span className={classes.num}>{signedMoney(monthEndCents, currency)}</span>
+        </PageLink>
+      )}
+      {failedMonth != null ? null : summary == null ? (
         <Skeleton
           width="100%"
           height={44}
@@ -317,7 +337,7 @@ function Recent({
   from: string;
   day: string;
   currency: string;
-  accounts: readonly Account[];
+  accounts: readonly Account[] | null;
   categories: readonly Category[];
   onOpen: (t: Transaction) => void;
 }) {
@@ -325,10 +345,10 @@ function Recent({
   const listed = found.transactions?.slice(0, MAX_RECENT) ?? [];
   const groups = byDay(listed, from, day);
   const accountName = (id: string | null) =>
-    accounts.find((a) => a.id === id)?.name ?? 'another account';
+    accounts?.find((a) => a.id === id)?.name ?? 'another account';
 
   let body;
-  if (found.transactions == null) {
+  if (found.transactions == null || accounts == null) {
     body = offlineFailed ? (
       <p className={classes.soft}>{"Entries for these days aren't on this device yet."}</p>
     ) : found.failed ? (

@@ -146,7 +146,7 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
     at: periodDay(firstDay, lastDay, isCurrent ? today : lastDay),
   };
   // Last month, for Getting started's "Bring in past months"
-  const { summary: lastMonth } = useMonthSummary(addMonths(current, -1));
+  const { summary: lastMonth, failed: lastMonthFailed } = useMonthSummary(addMonths(current, -1));
   const { data: ledger } = useWholeLedger();
   const { profile } = useProfile();
   const weekStart: WeekStart = profile?.settings.weekStart ?? 'monday';
@@ -265,8 +265,11 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
         at={figures.at}
         isCurrent={isCurrent}
         short={isDesktop}
-        // Getting started's step is the one way in while it offers it
-        offerSet={!(started && steps?.budget === false)}
+        // Getting started's step is the one way in while it offers it; nothing is offered
+        // until it's known whether it does, so the link never shows and goes
+        offerSet={
+          (hidden || steps != null || lastMonthFailed) && !(started && steps?.budget === false)
+        }
       />
     );
   const combined = (
@@ -322,19 +325,24 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
   if (glance) {
     return (
       <>
-        {!(summary == null && monthFailed) && (
-          <AtAGlance
-            month={month}
-            isCurrent={isCurrent}
-            firstDay={figures.firstDay}
-            day={figures.today}
-            summary={summary}
-            weekStart={weekStart}
-            accounts={ledger?.accounts ?? []}
-            categories={categories}
-          />
-        )}
-        {failedMonth}
+        {/* Without the month's totals, its figures say so; the week and the days still show
+            from the entries */}
+        <AtAGlance
+          month={month}
+          isCurrent={isCurrent}
+          firstDay={figures.firstDay}
+          day={figures.today}
+          summary={summary}
+          failedMonth={failedMonth || null}
+          monthEndCents={
+            isCurrent && ledger != null
+              ? monthEndForecast(ledger, today, figures.lastDay).cents
+              : null
+          }
+          weekStart={weekStart}
+          accounts={ledger?.accounts ?? null}
+          categories={categories}
+        />
         {isCurrent && <DueItems />}
         {tidy}
         {started}

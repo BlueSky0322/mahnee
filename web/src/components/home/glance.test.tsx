@@ -5,7 +5,14 @@ import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { addEntry, fakeServer, reloadApp, renderApp, setupAppTests } from '../../testing/app';
+import {
+  addEntry,
+  fakeServer,
+  holdNext,
+  reloadApp,
+  renderApp,
+  setupAppTests,
+} from '../../testing/app';
 
 // A phone's Home at a glance (Home shows: Essentials; owner audit 2026-11-20, "Phone Home
 // at a glance"): what was spent so far this month, today against the median daily spend,
@@ -168,6 +175,11 @@ describe('a phone’s Home at a glance', () => {
     await waitFor(() => expect(text(spent)).toBe('Spent so far RM 668.50'));
     // Those expenses in Activity: this month's days to today
     expect(spent.getAttribute('href')).toBe('?activity&kind=expense&from=2026-11-01&to=2026-11-20');
+    // The month end stays a quiet line away: Cash RM 3,931.50 and Maybank RM 12,750.00,
+    // nothing scheduled
+    const monthEnd = await screen.findByRole('link', { name: /^Expected at month end/ });
+    expect(text(monthEnd)).toBe('Expected at month end RM 16,681.50');
+    expect(monthEnd.getAttribute('href')).toBe('?plan=scheduled');
 
     const today = await todayRow();
     expect(text(today)).toBe('Today RM 57.00 · RM 18.00 above median');
@@ -284,6 +296,8 @@ describe('a phone’s Home at a glance', () => {
     renderApp(server, '/?month=2026-10', { size: 'phone' });
     const spent = await spentSoFar();
     await waitFor(() => expect(text(spent)).toBe('Spent in October RM 42.00'));
+    // A month gone has no month end to expect
+    expect(screen.queryByRole('link', { name: /^Expected at month end/ })).toBeNull();
     expect(spent.getAttribute('href')).toBe('?activity&kind=expense&from=2026-10-01&to=2026-10-31');
     expect(text(await todayRow(/^Oct 31/))).toBe('Oct 31 RM 12.00 · RM 12.00 above median');
     const big = await biggest();
@@ -340,5 +354,53 @@ describe('a phone’s Home at a glance', () => {
       expect(within(region).getByText("Entries for these days aren't on this device yet.")),
     );
     expect(screen.queryByText('Nothing spent this week')).toBeNull();
+  });
+
+  test('offline in a month whose totals were never kept, the week and the days still show', async () => {
+    on('2026-11-20');
+    const server = aServer();
+    seed(server, '2026-09-28', 2_000, { payee: 'Kedai' });
+    seed(server, '2026-09-30', 500, { payee: 'Kopi' });
+    // Opened online, and the history downloaded to the device
+    await reloadApp(server, '/', { size: 'phone' });
+    await screen.findByRole('navigation', { name: 'Main' });
+    const { syncHistory } = await import('../../ledger/ledger');
+    await act(() => syncHistory());
+    // Then opened offline on September, whose totals were never asked for
+    server.health = 'unreachable';
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    onTestFinished(() => onLine.mockRestore());
+    await reloadApp(server, '/?month=2026-09', { size: 'phone' });
+    expect(
+      await screen.findByText("Couldn't load this month.", {}, { timeout: 6000 }),
+    ).toBeTruthy();
+    const big = await biggest();
+    await waitFor(
+      () => expect(text(big)).toBe('Biggest spend Sep 28 to Sep 30 RM 20.00 Kedai · Mon, Sep 28'),
+      { timeout: 6000 },
+    );
+    expect(recentDays(await recent())).toEqual([
+      { day: 'Wed, Sep 30', rows: ['Kopi Food −RM 5.00'] },
+      { day: 'Mon, Sep 28', rows: ['Kedai Food −RM 20.00'] },
+    ]);
+    // The month's own figures aren't made up
+    expect(screen.queryByRole('link', { name: /^Spent in/ })).toBeNull();
+  }, 30_000);
+
+  test('a transfer is never named before the accounts are known', async () => {
+    on('2026-11-20');
+    const server = aMonthUnderWay();
+    const accounts = holdNext(server, 'GET', '/api/accounts');
+    renderApp(server, '/', { size: 'phone' });
+    await new Promise((r) => setTimeout(r, 500));
+    expect(screen.queryByText(/another account/)).toBeNull();
+    accounts.release();
+    const region = await recent();
+    await waitFor(() =>
+      expect(recentDays(region).find((d) => d.day === 'Mon, Nov 16')?.rows).toEqual([
+        'top-up Transfer · Maybank to Cash RM 500.00',
+      ]),
+    );
+    expect(screen.queryByText(/another account/)).toBeNull();
   });
 });

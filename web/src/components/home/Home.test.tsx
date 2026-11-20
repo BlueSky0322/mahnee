@@ -662,6 +662,27 @@ describe('Getting started nearly done', () => {
   });
 
   test.each(SIZES)(
+    'Budgets waits to know whether Getting started offers a budget (%s)',
+    async (size) => {
+      tenthJustAfterMidnight();
+      const server = firstDay();
+      // This month's totals, then last month's, which Getting started needs, held back
+      const thisMonth = holdNext(server, 'GET', '/api/summary');
+      const lastMonth = holdNext(server, 'GET', '/api/summary');
+      renderApp(server, '/', { size });
+      thisMonth.release();
+      const budgets = await screen.findByRole('region', { name: 'Budgets' });
+      await new Promise((r) => setTimeout(r, 200));
+      expect(within(budgets).getByText('No budgets yet.')).toBeTruthy();
+      expect(within(budgets).queryByRole('link', { name: 'Set a budget' })).toBeNull();
+      lastMonth.release();
+      await screen.findByRole('region', { name: 'Getting started' });
+      expect(within(budgets).queryByRole('link', { name: 'Set a budget' })).toBeNull();
+      expect(screen.getAllByRole('link', { name: /^Set a budget/ })).toHaveLength(1);
+    },
+  );
+
+  test.each(SIZES)(
     'with Getting started hidden, Budgets offers its own way in (%s)',
     async (size) => {
       tenthJustAfterMidnight();

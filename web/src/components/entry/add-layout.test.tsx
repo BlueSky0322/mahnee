@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { ChangesBody, LedgerChange } from '@shared/api';
 import type { FakeServer, Within } from '../../testing/app';
-import { addButton, fakeServer, renderApp, setupAppTests } from '../../testing/app';
+import { addButton, fakeServer, renderApp, resizeScreen, setupAppTests } from '../../testing/app';
 
 // The anchors of New entry: the currency and the amount are one field to type into, Save
 // is in reach from the first look, and the field that names who was paid says "Payee".
@@ -150,6 +150,68 @@ describe('a short phone', () => {
     expect(form.queryByRole('button', { name: /^Details/ })).toBeNull();
     expect(form.getByLabelText('Payee')).toBeTruthy();
     expect(form.getByRole('button', { name: 'Today' })).toBeTruthy();
+  });
+});
+
+describe('what Details folds, kept steady', () => {
+  test('a tablet on its side, short as it is, folds nothing', async () => {
+    renderApp(withWallet(), '/?accounts', { size: 'tablet-landscape' });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const form = await openAdd(user);
+    expect(form.queryByRole('button', { name: /^Details/ })).toBeNull();
+    expect(form.getByLabelText('Payee')).toBeTruthy();
+  });
+
+  test('the screen growing or shrinking (bars, the keyboard) never takes the payee away while typing', async () => {
+    renderApp(withWallet(), '/?accounts', { size: 'phone' });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const form = await openAdd(user);
+    const payee = form.getByLabelText('Payee');
+    await user.type(payee, 'Te');
+    resizeScreen('short-phone');
+    expect(form.getByLabelText('Payee')).toBe(payee);
+    expect(document.activeElement).toBe(payee);
+    await user.type(payee, 'alive');
+    expect(payee).toHaveProperty('value', 'Tealive');
+  });
+
+  test('a day that can’t be saved opens Details and says so on the day', async () => {
+    renderApp(withWallet(), '/?accounts', { size: 'short-phone' });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const form = await openAdd(user);
+    const details = form.getByRole('button', { name: /^Details/ });
+    await user.click(details);
+    await user.click(form.getByRole('button', { name: 'Today' }));
+    const day = form.getByLabelText('Date');
+    await user.clear(day);
+    await user.type(day, '1999-12-31');
+    await tap(user, form, '5');
+    // Folding it away leaves it open, the day said wrong where it's typed and on the row
+    await user.click(details);
+    expect(details.getAttribute('aria-expanded')).toBe('true');
+    const field = form.getByLabelText('Date');
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent).toBe(
+      'Pick a day from 2000 up to today',
+    );
+    expect(details.textContent).toContain('1999');
+    expect(form.getByRole('button', { name: 'Pick a day from 2000 up to today' })).toBeTruthy();
+  });
+
+  test('Note puts the cursor in its field, and a note typed stays in view', async () => {
+    renderApp(withWallet(), '/?accounts', { size: 'phone' });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const form = await openAdd(user);
+    const noteButton = form.getByRole('button', { name: 'Note' });
+    await user.click(noteButton);
+    const note = form.getByRole('textbox', { name: 'Note' });
+    expect(document.activeElement).toBe(note);
+    await user.type(note, 'birthday');
+    // With something in it, Note doesn't hide it: it goes back to the field
+    await user.click(noteButton);
+    expect(form.getByRole('textbox', { name: 'Note' })).toHaveProperty('value', 'birthday');
+    expect(document.activeElement).toBe(form.getByRole('textbox', { name: 'Note' }));
+    expect(noteButton.getAttribute('aria-expanded')).toBe('true');
   });
 });
 

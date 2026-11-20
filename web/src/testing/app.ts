@@ -4,7 +4,7 @@
 // IndexedDB, for the offline cache
 import 'fake-indexeddb/auto';
 import type { BoundFunctions, queries } from '@testing-library/react';
-import { cleanup, configure, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, configure, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { notifications } from '@mantine/notifications';
 import { onlineManager } from '@tanstack/react-query';
@@ -137,13 +137,14 @@ configure({ asyncUtilTimeout: 4000 });
 
 /**
  * The screen tests run at, as [width, height]: a computer, a smaller laptop (too narrow
- * for Activity's editor beside the register), a tablet, a phone, and a short phone (an
- * iPhone SE's 375x667)
+ * for Activity's editor beside the register), a tablet upright and on its side, a phone,
+ * and a short phone (an iPhone SE's 375x667)
  */
 const SIZES = {
   'desktop': [1280, 800],
   'laptop': [1100, 720],
   'tablet': [820, 1180],
+  'tablet-landscape': [960, 600],
   'phone': [390, 844],
   'short-phone': [375, 667],
 } as const;
@@ -161,18 +162,41 @@ function matchesWidth(query: string) {
   return m[1] === 'min' ? size >= px : size <= px;
 }
 
+/** What each width or height query the app watches is told when the screen changes size */
+type Watcher = { query: string; listener: (e: { matches: boolean; media: string }) => void };
+let watchers: Watcher[] = [];
+
+/**
+ * The window changes size (a zoom, a resized window, the browser's bars), as `size` is:
+ * every query the app watches is told whether it holds now
+ */
+export function resizeScreen(size: keyof typeof SIZES) {
+  screenSize = size;
+  vi.stubGlobal('innerWidth', SIZES[size][0]);
+  vi.stubGlobal('innerHeight', SIZES[size][1]);
+  act(() => {
+    for (const w of [...watchers]) w.listener({ matches: matchesWidth(w.query), media: w.query });
+    window.dispatchEvent(new Event('resize'));
+  });
+}
+
 // What jsdom doesn't have, and the app (or Mantine) uses
 function stubBrowser() {
-  window.matchMedia = (query: string) => ({
+  watchers = [];
+  window.matchMedia = ((query: string) => ({
     matches: matchesWidth(query),
     media: query,
     onchange: null,
     addListener: () => {},
     removeListener: () => {},
-    addEventListener: () => {},
-    removeEventListener: () => {},
+    addEventListener: (_type: string, listener: Watcher['listener']) => {
+      watchers.push({ query, listener });
+    },
+    removeEventListener: (_type: string, listener: Watcher['listener']) => {
+      watchers = watchers.filter((w) => w.listener !== listener);
+    },
     dispatchEvent: () => false,
-  });
+  })) as unknown as typeof window.matchMedia;
   vi.stubGlobal(
     'ResizeObserver',
     class {

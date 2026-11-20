@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { ChangesBody, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
-import { fakeServer, renderApp, setupAppTests } from '../../testing/app';
+import { fakeServer, renderApp, resizeScreen, setupAppTests } from '../../testing/app';
 
 // Activity on a smaller laptop (1100px wide), where the register and the editor don't fit
 // side by side: the register takes the page, and opening a row (a click, or Enter on it)
@@ -146,6 +146,67 @@ describe('Activity on a smaller laptop', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(rowButton('Bakery')));
     // No key reaches the register while the dialog was open
+    expect(sentChanges()).toEqual([]);
+  });
+
+  test('an edit moves with the window: into the pane when it widens, and back', async () => {
+    const user = await start();
+    await user.click(rowButton('Bakery'));
+    const dialog = within(await screen.findByRole('dialog', { name: 'Bakery' }));
+    const payee = dialog.getByRole('textbox', { name: 'Payee' });
+    await user.clear(payee);
+    await user.type(payee, 'Bread shop');
+
+    // Wider: the edit is beside the register, and only there
+    resizeScreen('desktop');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const pane = within(within(screen.getByRole('main')).getByRole('complementary'));
+    expect(pane.getByRole('textbox', { name: 'Payee' })).toHaveProperty('value', 'Bread shop');
+    expect(screen.getAllByRole('textbox', { name: 'Payee' })).toHaveLength(1);
+    expect(selectedRow()).toContain('Bakery');
+
+    // Narrower again: back in a dialog, still the one editor, still with the edit
+    resizeScreen('laptop');
+    const again = within(await screen.findByRole('dialog', { name: 'Bakery' }));
+    expect(again.getByRole('textbox', { name: 'Payee' })).toHaveProperty('value', 'Bread shop');
+    expect(within(screen.getByRole('main')).queryByRole('complementary')).toBeNull();
+    expect(screen.getAllByRole('textbox', { name: 'Payee' })).toHaveLength(1);
+
+    // It still counts as not saved, and Save sends it
+    await user.keyboard('{Escape}');
+    await screen.findByRole('dialog', { name: 'Save your changes?' });
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Bakery' })).getByRole('button', {
+        name: /^Save/,
+      }),
+    );
+    await waitFor(() =>
+      expect(sentChanges()).toContainEqual(
+        expect.objectContaining({ op: 'updateTransaction', payee: 'Bread shop' }),
+      ),
+    );
+  });
+
+  test('an edit beside the register goes into a dialog when the window narrows', async () => {
+    renderApp(withThree(), '/?activity', { size: 'desktop' });
+    await screen.findByRole('table', { name: 'Transactions' });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const pane = within(within(screen.getByRole('main')).getByRole('complementary'));
+    await user.type(pane.getByRole('textbox', { name: 'Note' }), 'for the office');
+
+    resizeScreen('laptop');
+    const dialog = within(await screen.findByRole('dialog', { name: 'Kiosk' }));
+    expect(dialog.getByRole('textbox', { name: 'Note' })).toHaveProperty('value', 'for the office');
+    // Discarded there, nothing is left to ask about on leaving Activity
+    await user.keyboard('{Escape}');
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    await user.click(ask.getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const places = within(screen.getByRole('navigation', { name: 'Main' }));
+    await user.click(places.getByRole('link', { name: 'Home' }));
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(screen.queryByRole('dialog', { name: 'Save your changes?' })).toBeNull();
     expect(sentChanges()).toEqual([]);
   });
 });

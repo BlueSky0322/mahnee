@@ -250,10 +250,11 @@ export function navigate(search: string, { replace = false, force = false, back 
   }
   comingBack = back;
   const url = `${window.location.pathname}${search}`;
-  // A page opened from another remembers which, so going "up" can be Back
+  // A page opened from another remembers which, so going "up" can be Back; each visit has
+  // its own name, kept when a page takes its place
   const from = replace ? cameFrom() : window.location.search;
-  if (replace) window.history.replaceState({ from }, '', url);
-  else window.history.pushState({ from }, '', url);
+  if (replace) window.history.replaceState({ from, visit: visitOf() ?? newVisit() }, '', url);
+  else window.history.pushState({ from, visit: newVisit() }, '', url);
   window.dispatchEvent(new Event(ROUTE_CHANGE));
 }
 
@@ -281,6 +282,31 @@ export function closeSettings() {
   }
   navigate('', { replace: true });
 }
+
+/** A new name for a visit: a place in the browser's history */
+const newVisit = () => Math.random().toString(36).slice(2, 10);
+
+/**
+ * The name of the visit showing (one place in the browser's history), naming it first if it
+ * has none (the page the app opened on)
+ */
+export function nameVisit(): string {
+  const named = visitOf();
+  if (named != null) return named;
+  const visit = newVisit();
+  const state: unknown = window.history.state;
+  const kept = typeof state === 'object' && state != null ? state : {};
+  window.history.replaceState({ ...kept, visit }, '', window.location.href);
+  return visit;
+}
+
+/** The visit showing's name, if it has one */
+const visitOf = (): string | null => {
+  const state: unknown = window.history.state;
+  const visit =
+    typeof state === 'object' && state != null ? (state as { visit?: unknown }).visit : null;
+  return typeof visit === 'string' ? visit : null;
+};
 
 /** The address this page was opened from in the app, if it was */
 const cameFrom = (): string | null => {

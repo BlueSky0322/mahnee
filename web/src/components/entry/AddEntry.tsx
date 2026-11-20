@@ -27,7 +27,7 @@ import { ENTRY_CURRENCIES, MAX_TYPED_CENTS, convertCents } from '@shared/rates';
 import type { Schedule } from '@shared/recurring';
 import { dayFor, nextAfter } from '@shared/recurring';
 import { useBackDismiss } from '../../hooks/useBackDismiss';
-import { useIsDesktop, useIsShort } from '../../hooks/useBreakpoints';
+import { useIsDesktop, useIsMobile, useIsShort } from '../../hooks/useBreakpoints';
 import { useRate } from '../../hooks/useRate';
 import { change, changeTyped } from '../../ledger/ledger';
 import { lastUsed, recentCategoryIds, rememberUsed } from '../../ledger/last-used';
@@ -231,10 +231,21 @@ function AddForm({
   const [payee, setPayee] = useState(draft?.payee ?? '');
   const [note, setNote] = useState(draft?.note ?? '');
   const [showNote, setShowNote] = useState(note !== '');
-  // A short phone's optional details, folded until opened
-  const short = useIsShort() === true && !desktop;
+  // A short phone's optional details, folded until opened. Whether it folds is decided as
+  // Add opens, so the browser's bars or the keyboard changing the height never take away a
+  // field being typed in; tablets never fold.
+  const mobile = useIsMobile() === true;
+  const shortScreen = useIsShort() === true;
+  const shortNow = mobile && shortScreen && !desktop;
+  const [short] = useState(shortNow);
   const [showDetails, setShowDetails] = useState(false);
-  const folded = short && !showDetails;
+  const noteField = useRef<HTMLInputElement>(null);
+  const focusNote = useRef(false);
+  useEffect(() => {
+    if (!focusNote.current) return;
+    focusNote.current = false;
+    noteField.current?.focus();
+  });
   const [date, setDate] = useState<string | null>(draft?.date ?? null);
   // Ask for a time: the time Add was opened, until another is typed; what the day says is
   // what's saved
@@ -262,7 +273,7 @@ function AddForm({
   // Add account, over a transfer with nowhere to go; the one made is where it goes
   const [addingAccount, setAddingAccount] = useState(false);
   const [showRepeat, setShowRepeat] = useState(false);
-  const ids = { hint: useId(), way: useId() };
+  const ids = { hint: useId(), way: useId(), day: useId() };
   // A computer's For row, where the category is typed while its list is open
   const [forSlot, setForSlot] = useState<HTMLElement | null>(null);
   // A phone's entry under a list's sheet takes no focus or taps until the sheet closes
@@ -319,6 +330,9 @@ function AddForm({
   const today = toDateInput(new Date());
   const day = date ?? today;
   const dayOk = isPastDay(day);
+  // A day that can't be saved is never folded away: Details opens, and the day says why
+  const folded = short && !showDetails && dayOk;
+  const dateShown = showDate || !dayOk;
   const total = totalCents(keypad.expr);
   // In another currency: what it comes to in the home one, at the rate this device has
   const estimate =
@@ -816,7 +830,7 @@ function AddForm({
         <button
           type="button"
           className={classes.opt}
-          aria-expanded={showDate}
+          aria-expanded={dateShown}
           onClick={() => setShowDate((shown) => !shown)}
         >
           <CalendarIcon
@@ -842,7 +856,14 @@ function AddForm({
           type="button"
           className={classes.opt}
           aria-expanded={showNote}
-          onClick={() => setShowNote((shown) => !shown)}
+          onClick={() => {
+            // A note typed is never hidden away unseen: Note goes back to it
+            if (note.trim() !== '') noteField.current?.focus();
+            else {
+              focusNote.current = !showNote;
+              setShowNote(!showNote);
+            }
+          }}
         >
           <NoteIcon
             size={16}
@@ -855,6 +876,7 @@ function AddForm({
         <label className={classes.dateRow}>
           <span>Note</span>
           <input
+            ref={noteField}
             className={`${classes.input} ${classes.noteInput}`}
             aria-label="Note"
             placeholder="Optional"
@@ -869,13 +891,15 @@ function AddForm({
           />
         </label>
       )}
-      {showDate && (
+      {dateShown && (
         <label className={classes.dateRow}>
           <span>Date</span>
           <input
             type="date"
             className={classes.input}
             aria-label="Date"
+            aria-invalid={!dayOk || undefined}
+            aria-describedby={dayOk ? undefined : ids.day}
             value={day}
             min="2000-01-01"
             max={today}
@@ -886,7 +910,16 @@ function AddForm({
           />
         </label>
       )}
-      {showDate && askForTime && (
+      {!dayOk && (
+        <p
+          id={ids.day}
+          role="alert"
+          className={classes.fieldError}
+        >
+          {BAD_DAY}
+        </p>
+      )}
+      {dateShown && askForTime && (
         <label className={classes.dateRow}>
           <span>Time</span>
           <input
@@ -997,7 +1030,7 @@ function AddForm({
   // A short phone's: what's folded, said on the row that opens it
   const held = [
     payee.trim(),
-    date != null && dayOk ? dayHeading(day) : '',
+    date != null ? dayHeading(day) : '',
     REPEATS.find((r) => r.value === repeat && r.value !== '')?.label ?? '',
     note.trim() !== '' ? 'Note' : '',
   ].filter((part) => part !== '');
@@ -1005,7 +1038,7 @@ function AddForm({
     <button
       type="button"
       className={classes.row}
-      aria-expanded={showDetails}
+      aria-expanded={!folded}
       onClick={() => setShowDetails((shown) => !shown)}
     >
       <span className={classes.k}>Details</span>
@@ -1017,7 +1050,7 @@ function AddForm({
       <DownIcon
         size={16}
         aria-hidden
-        className={`${classes.caret} ${showDetails ? classes.caretUp : ''}`}
+        className={`${classes.caret} ${folded ? '' : classes.caretUp}`}
       />
     </button>
   );

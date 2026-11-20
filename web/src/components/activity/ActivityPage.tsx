@@ -33,7 +33,7 @@ import Key from '../ui/Key';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import ChangeCategory from './ChangeCategory';
-import EntryEditor, { type EditorControl } from './EntryEditor';
+import EntryEditor, { type EditorControl, type EditorTyped } from './EntryEditor';
 import FilterChips from './Filters';
 import {
   dayTotal,
@@ -203,6 +203,33 @@ export default function ActivityPage({ query }: { query: string }) {
   };
   // J and K moved the row: a narrower computer's row takes the focus, so Enter opens it
   const [moved, setMoved] = useState(0);
+  // The window crossing 1200px moves the editor between the pane and a dialog, one at a
+  // time, with what was typed: the editor's latest, and what the next one starts from
+  const typedNow = useRef<{ id: string; typed: EditorTyped; dirty: boolean } | null>(null);
+  const [carried, setCarried] = useState<{ id: string; typed: EditorTyped } | null>(null);
+  const wasInDialog = useRef(inDialog);
+  useEffect(() => {
+    if (wasInDialog.current === inDialog) return;
+    wasInDialog.current = inDialog;
+    if (!isDesktop) return;
+    const typed = typedNow.current;
+    if (inDialog) {
+      if (open == null || typed?.id !== open.id || !typed.dirty) return;
+      setCarried({ id: open.id, typed: typed.typed });
+      setSheet(open);
+    } else if (sheet != null) {
+      if (typed?.id === sheet.id && typed.dirty) setCarried({ id: sheet.id, typed: typed.typed });
+      setOpenId(sheet.id);
+      setSheet(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the window crosses over
+  }, [inDialog]);
+  const startFrom = (id: string) => (carried?.id === id ? carried.typed : undefined);
+  const noteTyped = (id: string) => (typed: EditorTyped, changed: boolean) => {
+    typedNow.current = { id, typed, dirty: changed };
+    // Taken up once the editor has opened; a later opening starts from the entry as saved
+    setCarried((now) => (now?.id === id ? null : now));
+  };
   // The open entry, changed, is no longer among what's found: ask once
   const keptGone = dirty && kept != null && rows != null && !rows.some((t) => t.id === kept.id);
   useEffect(() => {
@@ -580,7 +607,7 @@ export default function ActivityPage({ query }: { query: string }) {
           )}
         </section>
 
-        {isDesktop && beside && open != null && paneTitle != null && (
+        {isDesktop && beside && sheet == null && open != null && paneTitle != null && (
           <aside
             className={classes.pane}
             aria-label={`${paneTitle}, ${shortDay(open.date, today)}${
@@ -592,6 +619,8 @@ export default function ActivityPage({ query }: { query: string }) {
               transaction={open}
               title={paneTitle}
               control={editor}
+              startFrom={startFrom(open.id)}
+              onTyped={noteTyped(open.id)}
               onDirty={(changed) => {
                 setDirty(changed);
                 // Kept open as it is while it has changes
@@ -658,6 +687,8 @@ export default function ActivityPage({ query }: { query: string }) {
             control={editor}
             onDirty={setDirty}
             saveInView={inDialog}
+            startFrom={startFrom(sheet.id)}
+            onTyped={noteTyped(sheet.id)}
             onDeleted={() => setSheet(null)}
             onSaved={() => setSheet(null)}
           />

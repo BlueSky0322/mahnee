@@ -689,7 +689,7 @@ describe('recent categories', () => {
   });
 });
 
-describe('Payee (D10)', () => {
+describe('Payee (D10, revised by the 2026-11-20 audit: the note has its own field)', () => {
   test.each(SIZES)('fills the payee, trimmed, and leaves the note empty (%s)', async (size) => {
     const server = withAccounts();
     renderApp(server, '/?accounts', { size });

@@ -47,10 +47,14 @@ function scrollPage(to: number) {
   window.dispatchEvent(new Event('scroll'));
 }
 
-/** Scrolling, as the app asks for it */
+/** How far the page can scroll, while what's on it is still being drawn */
+let furthest = Infinity;
+
+/** Scrolling, as the app asks for it, no further than the page goes */
 function letAppScroll() {
+  furthest = Infinity;
   window.scrollTo = ((a: number | ScrollToOptions, b?: number) => {
-    y = typeof a === 'object' ? a.top ?? y : b ?? y;
+    y = Math.min(furthest, typeof a === 'object' ? a.top ?? y : b ?? y);
     window.dispatchEvent(new Event('scroll'));
   }) as typeof window.scrollTo;
 }
@@ -145,5 +149,39 @@ describe('where a page opens', () => {
     await waitFor(() => expect(window.location.search).toContain('q=kopi'), { timeout: 3000 });
     expect(window.scrollY).toBe(150);
     expect(within(document.body).getByRole('heading', { name: 'Activity', level: 1 })).toBeTruthy();
+  });
+
+  test('a page left while it was still drawing keeps where it was, not where it got to', async () => {
+    renderApp(withWallet(), '/', { size: 'phone' });
+    letAppScroll();
+    await pageTitle(/November|October|December|Home/);
+    scrollPage(520);
+    await goToPlace('Plan');
+    await pageTitle('Plan');
+    // Home comes back short, still drawing, and is left before it's whole
+    furthest = 100;
+    await goToPlace('Home');
+    await waitFor(() => expect(window.scrollY).toBe(100));
+    await goToPlace('Plan');
+    await pageTitle('Plan');
+    furthest = Infinity;
+    await goToPlace('Home');
+    await waitFor(() => expect(window.scrollY).toBe(520));
+  });
+
+  test('each visit is its own: Back to an earlier month comes back where that one was', async () => {
+    renderApp(withWallet(), '/', { size: 'phone' });
+    letAppScroll();
+    const user = userEvent.setup();
+    await pageTitle(/November|October|December|Home/);
+    scrollPage(300);
+    // An earlier month is the same page, so it stays put, and then is moved on its own
+    await user.click(screen.getByRole('button', { name: 'Previous month' }));
+    expect(window.scrollY).toBe(300);
+    scrollPage(50);
+    await goToPlace('Accounts');
+    await pageTitle('Accounts');
+    window.history.back();
+    await waitFor(() => expect(window.scrollY).toBe(300));
   });
 });

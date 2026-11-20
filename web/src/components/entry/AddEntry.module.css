@@ -138,15 +138,20 @@
   min-height: 44px;
 }
 
-/* The keypad follows the form, its keys as tall as the height spares, 44px to 56px */
+/* Save stays at the foot, in reach of a thumb; the keys grow into the spare height, 44px
+   to 64px, and what's left over goes above the amount */
 .phoneForm[data-short] .bottom {
   gap: 6px;
   margin-top: 0;
   padding-top: 8px;
 }
 
+.phoneForm[data-short] .amount {
+  margin-top: auto;
+}
+
 .phoneForm[data-short] .key {
-  height: clamp(44px, calc((100dvh - 410px) / 4), 56px);
+  height: clamp(44px, calc((100dvh - 410px) / 4), 64px);
 }
 
 .phoneForm[data-short] .save {

@@ -747,6 +747,15 @@ describe('Plan: budgets and where it went', () => {
           expect.objectContaining({ categoryId: FOOD, amountCents: 25_000 }),
         ]),
       );
+      // Asked for one: the next category opened is opened as any other
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(screen.queryByText('Choose an expense category to set its monthly budget')).toBeNull();
+      await user.click(within(expenses).getByRole('button', { name: 'Transport' }));
+      const next = within(await screen.findByRole('dialog', { name: 'Edit category' }));
+      await act(() => new Promise((done) => setTimeout(done, 50)));
+      expect(document.activeElement).not.toBe(next.getByLabelText('Monthly budget'));
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     },
   );
 

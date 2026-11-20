@@ -54,6 +54,7 @@ export default function EntryEditor({
   onDeleted,
   onSaved,
   control,
+  onDirty,
 }: {
   transaction: Transaction;
   /** The entry's name, drawn as the pane's heading; a sheet has its own */
@@ -62,6 +63,8 @@ export default function EntryEditor({
   onSaved?: () => void;
   /** Kept up to date with whether there are changes, and how to save them */
   control?: MutableRefObject<EditorControl | null>;
+  /** Told whenever it comes to have changes not saved, or no longer has */
+  onDirty?: (dirty: boolean) => void;
 }) {
   const homeCurrency = useCurrency();
   const { accounts } = useAccounts();
@@ -199,10 +202,13 @@ export default function EntryEditor({
 
   // Changes not saved: anything typed that differs from the entry as it's saved now
   const [firstCurrency] = useState(typedIn);
+  // The amount as the entry shows it, untouched, is no change, whatever it reads as
+  const amountSaved = inline ? centsText(typedCents) : amountText(typedCents);
   const typedNow = readAmount(amount, typedIn === home ? undefined : MAX_TYPED_CENTS);
+  const amountChanged =
+    amount !== amountSaved && ('error' in typedNow || typedNow.cents !== typedCents);
   const dirty =
-    'error' in typedNow ||
-    typedNow.cents !== typedCents ||
+    amountChanged ||
     typedIn !== firstCurrency ||
     kind !== editing.kind ||
     accountId !== editing.accountId ||
@@ -219,6 +225,13 @@ export default function EntryEditor({
       control.current = null;
     };
   });
+  const told = useRef(onDirty);
+  told.current = onDirty;
+  useEffect(() => {
+    told.current?.(dirty);
+  }, [dirty]);
+  // Gone (saved, discarded, or another opened): nothing of its own is left unsaved
+  useEffect(() => () => told.current?.(false), []);
 
   const remove = () => {
     change({ op: 'removeTransaction', id: editing.id });

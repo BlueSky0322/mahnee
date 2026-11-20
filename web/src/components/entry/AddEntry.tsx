@@ -36,6 +36,7 @@ import { categoryColour } from '../../utils/category-colour';
 import { api } from '../../api';
 import { clockText, dayHeading, isPastDay, toDateInput, toTimeInput } from '../../utils/date-input';
 import { newId } from '../../utils/id';
+import { showRefusal } from '../../utils/notify';
 import { currencySymbol, formatMoney } from '../../utils/money';
 import CurrencyList from '../common/CurrencyList';
 import { SOURCE_NAMES, shortDate } from '../common/typed-amount';
@@ -471,7 +472,11 @@ function AddForm({
     saved.current = true;
     dropDraft(email);
     onDone();
-    showUndo('Draft discarded', () => keepDraft(email, was));
+    // Undo brings it back unless a newer draft has been kept since
+    showUndo('Draft discarded', () => {
+      if (readDraft(email) == null) keepDraft(email, was);
+      else showRefusal("A newer draft is kept, so the discarded one can't come back");
+    });
   };
   // Says that what's typed is kept, and how to throw it away
   const draftLine = typedSomething && (
@@ -1080,7 +1085,7 @@ function AddForm({
   );
 }
 
-/** The figure's currency, with an arrow: a tap opens every currency to pick from */
+/** The figure's currency, with an arrow: a tap (or Alt+Down) opens every currency to pick from */
 function CurrencyPill({
   label,
   onOpen,
@@ -1099,7 +1104,14 @@ function CurrencyPill({
       aria-label={`${label}, currency`}
       aria-haspopup="listbox"
       aria-expanded={listOpen}
+      aria-keyshortcuts="Alt+ArrowDown"
       onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.altKey && e.key === 'ArrowDown') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
     >
       {label}
       <DownIcon

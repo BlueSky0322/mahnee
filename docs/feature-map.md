@@ -1028,7 +1028,8 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   a phone, the negative colour when over). "All of Plan" opens Plan. None: "No budgets yet." with
   "Set a budget" (`?settings=categories&budget`, where budgets are set: it says "Choose an
   expense category to set its monthly budget", and the category opened has Monthly budget
-  ready to type; Getting started's and Plan's "Set a budget" go there too).
+  ready to type, the first one opened only; Getting started's and Plan's "Set a budget" go
+  there too).
 - Getting started, this month while any of its five steps is left and it isn't hidden:
   where the money is (always done), the first expense (spending this month), past months
   (anything last month), rent, bills and pay (a repeating item), a budget (one this month);
@@ -1227,10 +1228,14 @@ box, and the open row (the first until another is picked) is changed beside it, 
 day and amount typed where the pane shows them (R-Desk-Activity); J and K
 move the open row, X ticks it, C changes the category of what's ticked (or of the open
 row), and a row's category opens Change category for it alone. Esc closes the top dialog;
-with a row always open, there's no pane to close. Moving to another row (a click, J or K)
-while the open one has changes not saved asks "Save your changes?" with Keep editing,
-Discard and Save (which stays on the row, saying why, when it can't be saved); a row with
-none moves at once (`EditorControl` in `EntryEditor.tsx`).
+with a row always open, there's no pane to close. Anything that would lose the open entry's changes not saved asks "Save your changes?"
+with Keep editing, Discard and Save (which stays put, saying why, when it can't be saved):
+another row (a click, J or K), a search or filter that leaves it out (it stays open beside
+the register until answered), leaving Activity (any move through `navigate()`, guarded by
+`useLeaveGuard` in `hooks/useRoute.ts`; reloading gets the browser's own question), and
+closing a phone's or tablet's entry sheet (its Cancel or Close, Esc, the backdrop, a
+phone's Back). An entry with nothing changed moves and closes at once (`EditorControl` and
+`onDirty` in `EntryEditor.tsx`). New entry (N) opens over it and leaves it as typed.
 
 Change category lists the kind's categories (each top-level one with its subcategories,
 searchable; not the one they are all in already), says what moves ("RM 30.90 from Other to Food") and what it does to that
@@ -1629,8 +1634,8 @@ bank file's file and columns are done: a phone shows only the lines (a done step
 to them), a computer the columns beside the lines' table. Pick the account and the file; for a bank's file, say which column
 is the date, the amount (one column, below zero or in brackets for money out) or money in
 and money out, the payee and the note. The mapping is remembered per account on this
-device; for an account with none kept, columns whose names say plainly what they hold are
-picked (`suggestMapping` in `shared/csv-import.ts`: Date, Description, Amount, Debit and
+device; for an account with none kept, or a kept column the file no longer has (only
+that one), columns whose names say plainly what they hold are picked (`suggestMapping` in `shared/csv-import.ts`: Date, Description, Amount, Debit and
 Credit and common variants, any case), one only when exactly one column has such a name,
 the rest left to pick; every one can be changed. Preview shows every row before anything is saved: money out as spending, money in
 as income, each in the category its payee was last filed under (`GET
@@ -1851,7 +1856,7 @@ the `currencies` cases in [offline/outbox.test.ts](../web/src/offline/outbox.tes
 request 2026-11-19): chips in the person's order and "Add" (every currency not in use yet,
 searchable); a chip opens Move earlier, Move later and Remove THB; at most 8 ("Up to 8
 other currencies"). In Add the figure's currency is a pill before it, with an arrow: a tap
-opens every currency ("Yours": the home currency and the list; "Used today": others entries
+(or Alt+Down) opens every currency ("Yours": the home currency and the list; "Used today": others entries
 were added in today on this device; "All currencies") (owner audit 2026-11-20). In another currency the figure reads
 "THB 120.00", Save "Save THB 120.00", and under it "about RM 15.30 at today's rate" ("at the
 last rate known" offline), whose tap shows "1 THB = 0.1275 MYR, from Wise". Entries show

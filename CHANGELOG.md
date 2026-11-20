@@ -20,7 +20,7 @@ For agents:
 - Added: a bank file's Date, Description and Amount (or Debit and Credit) columns are picked for you when their names are clear [#?]
 - Changed: one tap on Add's currency opens the list of currencies, yours and today's first [#?]
 - Added: Install the app on the Settings page, where the browser can install it [#?]
-- Fixed: switching rows in Activity with changes not saved asks to Save, Discard or Keep editing [#?]
+- Fixed: Activity asks to Save, Discard or Keep editing before changes not saved would be lost: another row, a search, leaving, or closing the sheet [#?]
 - Added: a transfer with nowhere to go offers Add account, and goes on to the new account as typed [#?]
 - Changed: the new logo, a hand holding a coin, in the app, the browser tab and the installed app; in the app its tile takes your accent and theme [#57]
 

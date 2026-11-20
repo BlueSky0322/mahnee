@@ -38,7 +38,8 @@ const LOADING_ROWS = 6;
 // the foot of its kind. Tap a name to rename it, move it, archive it or set its budget.
 // Reorder shows arrows to put one higher or lower among the ones beside it; Archived lists
 // the ones taken out, to bring back. Reached from Set a budget (?settings=categories&budget),
-// it asks for an expense category, and the one opened has its Monthly budget ready to type.
+// it asks for an expense category, and the first one opened has its Monthly budget ready
+// to type.
 export default function CategoriesPage() {
   // The person's month (shared/period.ts)
   const month = useThisMonth();
@@ -50,7 +51,10 @@ export default function CategoriesPage() {
   // This month's budgets, as shown: null until known
   const { summary } = useMonthSummary(month);
   const budgets = summary == null ? null : summary.budgets ?? [];
-  const [forBudget] = useState(() => new URLSearchParams(window.location.search).has('budget'));
+  // From Set a budget: asks for a category, until the first one opened closes
+  const [forBudget, setForBudget] = useState(() =>
+    new URLSearchParams(window.location.search).has('budget'),
+  );
 
   /** Moves a category past the listed one before or after it */
   const step = (category: Category, listed: Category[], by: -1 | 1) => {
@@ -203,7 +207,10 @@ export default function CategoriesPage() {
         categories={categories ?? []}
         budgets={budgets}
         focusBudget={forBudget}
-        onClose={() => setOpen(null)}
+        onClose={() => {
+          setOpen(null);
+          setForBudget(false);
+        }}
       />
     </div>
   );

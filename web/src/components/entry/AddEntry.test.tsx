@@ -822,6 +822,24 @@ describe('the draft', () => {
     },
   );
 
+  test('Undo after Discard draft never takes the place of a newer draft', async () => {
+    renderApp(withAccounts(), '/?accounts', { size: 'phone' });
+    const user = userEvent.setup();
+    let form = await openAdd(user);
+    await typeAmount(user, form, '8');
+    await user.click(form.getByRole('button', { name: 'Discard draft' }));
+    const undo = await screen.findByRole('button', { name: 'Undo' });
+    form = await openAdd(user);
+    await typeAmount(user, form, '3');
+    await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
+    await user.click(undo);
+    expect(
+      await screen.findByText("A newer draft is kept, so the discarded one can't come back"),
+    ).toBeTruthy();
+    form = await openAdd(user);
+    expect(amount(form)).toBe('Amount, RM 3.00');
+  });
+
   test('Undo after Discard draft brings the draft back', async () => {
     renderApp(withAccounts(), '/?accounts', { size: 'phone' });
     const user = userEvent.setup();

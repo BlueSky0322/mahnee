@@ -304,6 +304,15 @@ describe('Add in another currency', () => {
     expect(pill(form).getAttribute('aria-expanded')).toBe('true');
   });
 
+  test.each(SIZES)('Alt+Down on the pill opens the list too (%s)', async (size) => {
+    renderApp(withWallet(['THB']), '/', { size });
+    const { user, form } = await openAdd();
+    expect(pill(form).getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowDown');
+    pill(form).focus();
+    await user.keyboard('{Alt>}{ArrowDown}{/Alt}');
+    expect(await screen.findByRole('listbox', { name: 'All currencies' })).toBeTruthy();
+  });
+
   test('the pill is named by what it shows', async () => {
     renderApp(withWallet(['THB']), '/', { size: 'phone' });
     const { user, form } = await openAdd();

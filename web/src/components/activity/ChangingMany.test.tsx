@@ -465,17 +465,21 @@ describe('deleting several', () => {
   );
 
   test('Undo is offered for a few seconds, then goes', async () => {
+    // The clock runs, but the seconds Undo stays can be skipped
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    onTestFinished(() => void vi.useRealTimers());
     const server = withSpending();
     const user = await openActivity(server, 'desktop');
     await user.click(tick('lunch'));
     await user.click(screen.getByRole('button', { name: 'Delete 1' }));
     expect(await screen.findByText('Deleted 1 entry')).toBeTruthy();
-    await act(() => new Promise((r) => setTimeout(r, 5_000)));
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
     expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull(), {
       timeout: 3_000,
     });
-  }, 15_000);
+  });
 
   test('offline, takes them out at once, keeps the change, and sends it once back', async () => {
     const server = withSpending();
@@ -606,7 +610,7 @@ describe('selecting', () => {
     expect(await screen.findByText('Deleted 500 entries')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(server.transactions).toHaveLength(501), { timeout: 15_000 });
-  }, 90_000);
+  });
 
   test("Tidy up's address, Select all, and they move in one go, with no other page opened", async () => {
     const server = withSpending();

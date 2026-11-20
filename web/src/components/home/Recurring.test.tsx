@@ -457,7 +457,6 @@ describe('repeating bills and income on Home', () => {
         observer.disconnect();
       }
     },
-    20_000,
   );
 
   test("on a phone, Back closes the Repeat picker over a transaction's sheet, then the sheet", async () => {
@@ -753,7 +752,6 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       expect(nextDueOn(server, 'Rent')).toBe('2026-12-01');
       expect(balances()).toBe('RM 1,300.00');
     },
-    20_000,
   );
 
   /**
@@ -813,7 +811,6 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       // Nothing was recorded for the months since
       expect(server.transactions.map((t) => t.date)).toEqual(['2026-08-15']);
     },
-    20_000,
   );
 
   test.each(SIZES)(
@@ -833,7 +830,6 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       await waitFor(() => expect(nextDueOn(server, 'Rent')).toBe('2026-11-15'));
       expect(screen.queryByText(/Due: Rent/)).toBeNull();
     },
-    20_000,
   );
 
   test.each(SIZES)(
@@ -857,7 +853,6 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       await waitFor(() => expect(expected()).not.toBeNull());
       expect(screen.queryByText(/Due: Rent/)).toBeNull();
     },
-    20_000,
   );
 
   test.each(SIZES)(
@@ -882,7 +877,6 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       await waitFor(() => expect(expected()).toBe(total('RM 1,300.00')));
       expect(screen.queryByText(/Due: Rent/)).toBeNull();
     },
-    20_000,
   );
 
   test.each(SIZES)(
@@ -909,7 +903,6 @@ describe('repeating items: edges, refusals and the order of answers', () => {
       await waitFor(() => expect(screen.queryByText(/Due: Rent/)).toBeNull());
       expect(server.transactions.map((t) => t.date)).toEqual(['2026-09-15']);
     },
-    20_000,
   );
 
   /** The person is in `zone` for this test; set before its clock is built */
@@ -936,7 +929,6 @@ describe('repeating items: edges, refusals and the order of answers', () => {
         ]),
       );
     },
-    20_000,
   );
 
   test.each(SIZES)(
@@ -954,7 +946,6 @@ describe('repeating items: edges, refusals and the order of answers', () => {
         ]),
       );
     },
-    20_000,
   );
 
   test.each(SIZES)(
@@ -994,7 +985,6 @@ describe('repeating items: edges, refusals and the order of answers', () => {
         expect.objectContaining({ day: 15, startDate: '2026-08-15', nextDue: '2026-11-15' }),
       ]);
     },
-    20_000,
   );
 
   test.each(SIZES)('sets one up while adding a transaction too (%s)', async (size) => {

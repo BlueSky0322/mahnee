@@ -83,7 +83,7 @@ describe('Load more after a page named where to carry on from the old way', () =
     await settle();
     expect(firstPageReads('/api/search') - before).toBeLessThanOrEqual(1);
     expect(screen.queryByText(/Unknown place to carry on from|Something went wrong/)).toBeNull();
-  }, 30_000);
+  });
 
   test("on an account's page, starts again from the top and carries on, nothing twice", async () => {
     const server = withEntries(60);
@@ -98,5 +98,5 @@ describe('Load more after a page named where to carry on from the old way', () =
     await settle();
     expect(firstPageReads('/api/transactions') - before).toBeLessThanOrEqual(1);
     expect(screen.queryByText(/Unknown place to carry on from|Something went wrong/)).toBeNull();
-  }, 30_000);
+  });
 });

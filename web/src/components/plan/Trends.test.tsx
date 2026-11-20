@@ -441,7 +441,7 @@ describe('all spending and all income over 12 months', () => {
     // Counted once, now that the server sums them too
     await pause(50);
     await showsBoth();
-  }, 20_000);
+  });
 
   test.each(['expenses', 'income'] as const)(
     'shows the month when the 12 months cannot be read, making nothing up, and tries again (%s)',

@@ -75,7 +75,7 @@ describe.each(SIZES)('preferences without a connection (%s)', (size) => {
     localStorage.clear();
     await reloadApp(server, '/?settings=adding', { size });
     await waitFor(async () => expect(await startWith()).toEqual(ON_CATEGORY));
-  }, 20_000);
+  });
 });
 
 test('a preference saved online shows when the app is next opened offline', async () => {
@@ -141,7 +141,7 @@ test('two quick changes of different settings offline both survive a restart', a
   await waitFor(() =>
     expect(server.me.settings).toMatchObject({ theme: 'dark', homeDensity: 'essentials' }),
   );
-}, 20_000);
+});
 
 test('a waiting change the server refuses lets that setting go, and saves the others', async () => {
   const server = fakeServer();
@@ -156,7 +156,7 @@ test('a waiting change the server refuses lets that setting go, and saves the ot
   expect(server.me.settings.weekStart).not.toBe(9);
   await waitFor(async () => expect(await keptPatch()).toBeUndefined());
   expect(await screen.findByText(/Could not save your settings|Invalid weekStart/)).toBeTruthy();
-}, 15_000);
+});
 
 describe('signing out with settings changed offline', () => {
   function watchLeaving() {
@@ -244,4 +244,4 @@ test('a save still on its way when the connection drops never wins over a newer 
     ['Amount', 'true'],
     ['Category', 'false'],
   ]);
-}, 15_000);
+});

@@ -341,7 +341,6 @@ describe('the page', () => {
       }
       expect(titles(size)).toHaveLength(256);
     },
-    30_000,
   );
 
   test('an add older than what is loaded is counted once, even when its answer is lost', async () => {
@@ -377,7 +376,7 @@ describe('the page', () => {
     await act(() => new Promise((r) => setTimeout(r, 300)));
     hasLine('257 found · RM 352.05 spent · RM 3,250.00 received');
     expect(lines('258 found · RM 362.05 spent · RM 3,250.00 received')).toHaveLength(0);
-  }, 30_000);
+  });
 
   test.each(SIZES)(
     'a list over all months says the year of a day in another year (%s)',
@@ -802,7 +801,6 @@ describe('nothing to show', () => {
       back();
       await waitFor(() => expect(titles(size)).toEqual(SHOWN), { timeout: 8000 });
     },
-    15_000,
   );
 });
 

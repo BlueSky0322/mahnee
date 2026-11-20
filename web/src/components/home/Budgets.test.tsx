@@ -594,7 +594,6 @@ describe("setting a budget from the category's row", () => {
       );
       expect(planBudget(size, 'Food')).toBe(set[size]);
     },
-    15_000,
   );
 });
 
@@ -666,6 +665,5 @@ describe("what's left is never counted twice", () => {
         left.stop();
       }
     },
-    15_000,
   );
 });

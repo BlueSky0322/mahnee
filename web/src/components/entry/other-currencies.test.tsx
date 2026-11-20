@@ -444,7 +444,7 @@ describe('Add in another currency', () => {
       amountCents: 1_530,
       original: { currency: 'THB', cents: 12_000 },
     });
-  }, 30_000);
+  });
 
   test('online, a currency with no rate still needs one: never saved as pending', async () => {
     // JPY has no rate anywhere: the lookup fails while the connection is fine
@@ -526,7 +526,7 @@ describe('Add in another currency', () => {
     // The entry as the server converted it, in place of the pending one
     expect(await screen.findByRole('button', { name: /, −THB 120\.00, RM 14\.40$/ })).toBeTruthy();
     expect(screen.queryByText('conversion pending')).toBeNull();
-  }, 30_000);
+  });
 });
 
 describe('an entry waiting for a rate, offline', () => {
@@ -591,7 +591,7 @@ describe('an entry waiting for a rate, offline', () => {
     await waitFor(() =>
       expect(screen.queryByText('Leaves out 1 entry waiting for a rate')).toBeNull(),
     );
-  }, 40_000);
+  });
 
   test('deleted and put back with Undo, it is still waiting, and saved once', async () => {
     const server = withWallet(['THB']);
@@ -619,7 +619,7 @@ describe('an entry waiting for a rate, offline', () => {
       amountCents: 1_530,
       original: { currency: 'THB', cents: 12_000 },
     });
-  }, 40_000);
+  });
 });
 
 describe('entries in another currency', () => {

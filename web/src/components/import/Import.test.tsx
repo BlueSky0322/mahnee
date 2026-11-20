@@ -255,8 +255,6 @@ describe("a bank's file", () => {
       expect(screen.getByLabelText('Date')).toHaveProperty('value', 'Date');
       expect(screen.getByLabelText('Note')).toHaveProperty('value', '');
     },
-    // Two imports in one test: on main it already took 4.8s of the default 5s in a full run
-    20_000,
   );
 
   test.each(SIZES)('reads money in and money out from two columns (%s)', async (size) => {
@@ -915,6 +913,8 @@ describe('the limit', () => {
     // And Accounts still says so
     await settingsToAccounts();
     expect(await maybankShows('−4,000.00')).toBeTruthy();
+    // Over the 30 s every test gets: the app draws and saves 5,000 entries, which takes
+    // 20 to 30 s alone, and the outbox waits its 3 s before sending a lost batch again
   }, 90_000);
 
   test('imports offline, knows what it has imported, and saves it once back', async () => {
@@ -1124,7 +1124,6 @@ describe("Mahnee's own export", () => {
       );
       expect(screen.getAllByText('Looks already saved')).toHaveLength(6);
     },
-    30_000,
   );
   /** An export naming Maybank (opening `maybankCents`) and Wallet (RM 50, as it is) */
   const exportOf = (maybankCents: number) =>
@@ -1215,7 +1214,6 @@ describe("Mahnee's own export", () => {
       await screen.findByText('Looks already saved');
       expect(openingLines()).toHaveLength(0);
     },
-    30_000,
   );
 
   test.each(SIZES)(
@@ -1388,7 +1386,6 @@ describe("repeating bills in Mahnee's export", () => {
         nextDue: '2026-12-01',
       });
     },
-    30_000,
   );
 
   test.each(SIZES)(
@@ -1517,7 +1514,6 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       // Set up on the day it was imported
       expect(after.recurring.map((r) => r.startDate)).toEqual(Array(4).fill('2026-11-06'));
     },
-    30_000,
   );
 
   test.each(SIZES)(
@@ -1624,7 +1620,6 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
         [MAYBANK, 'expense', 'monthly', 1, 'Rental'],
       ]);
     },
-    30_000,
   );
 
   test.each([
@@ -1713,7 +1708,6 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       ]);
       expect(server.recurring.some((r) => r.payee === 'Loan')).toBe(false);
     },
-    30_000,
   );
 
   test.each(SIZES)(
@@ -1738,7 +1732,6 @@ describe("repeating lines in Mahnee's export: dates, what's already there, and w
       await pause(50);
       expect(server.recurring).toHaveLength(200);
     },
-    30_000,
   );
 
   test.each(SIZES)(

@@ -385,7 +385,7 @@ describe('a phone’s Home at a glance', () => {
     ]);
     // The month's own figures aren't made up
     expect(screen.queryByRole('link', { name: /^Spent in/ })).toBeNull();
-  }, 30_000);
+  });
 
   test('a transfer is never named before the accounts are known', async () => {
     on('2026-11-20');

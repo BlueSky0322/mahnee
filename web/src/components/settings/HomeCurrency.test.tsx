@@ -146,7 +146,7 @@ describe('Main currency', () => {
     // One wallet: its balance is the total, said once over the list
     const together = await screen.findByRole('group', { name: 'All together' });
     expect(await within(together).findByText('$ 23.00')).toBeTruthy();
-  }, 30_000);
+  });
 
   test.each([
     ['amount', 'Kept MYR: an entry would come to more than 10,000,000 IDR'],

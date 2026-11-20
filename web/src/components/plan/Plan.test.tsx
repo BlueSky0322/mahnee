@@ -635,7 +635,7 @@ describe('Plan: budgets and where it went', () => {
     expect(tableRows(await expensesTable())).toContain(
       'Groceries 3 entries · carries over | 180.00 | 20.00',
     );
-  }, 15_000);
+  });
 
   test("on a computer, puts a budget the server refuses back, with the server's explanation", async () => {
     tenthJustAfterMidnight();
@@ -967,7 +967,6 @@ describe('Plan: budgets and where it went', () => {
       await pause(50);
       expect(spentShown(size)).toBe(spent('1,663.50'));
     },
-    15_000,
   );
 
   test('counts spending added offline at once, through a reload, and once saved', async () => {
@@ -998,7 +997,7 @@ describe('Plan: budgets and where it went', () => {
     // Counted once, now that the server sums it too
     await pause(50);
     expect(within(went).getByText('RM 1,658.50')).toBeTruthy();
-  }, 15_000);
+  });
 
   test.each(SIZES)(
     "what's left is never counted twice when spending saved with its answer lost is fetched before it is sent again (%s)",
@@ -1066,7 +1065,6 @@ describe('Plan: budgets and where it went', () => {
         observer.disconnect();
       }
     },
-    15_000,
   );
 });
 

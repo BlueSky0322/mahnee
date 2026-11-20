@@ -334,7 +334,7 @@ describe('a category over 12 months', () => {
     // Counted once, now that the server sums them too
     await pause(50);
     await showsBoth();
-  }, 20_000);
+  });
 
   test('says so when the category is not one of the person’s', async () => {
     tenthJustAfterMidnight();

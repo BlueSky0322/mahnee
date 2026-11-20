@@ -14,7 +14,7 @@ export interface DueOnDay {
   bill: boolean;
 }
 
-/** An arrow up (more than the middle day) or down (less) */
+/** An arrow up (more than the median daily spend) or down (less) */
 const Arrow = ({ up }: { up: boolean }) => (
   <svg
     width="8"
@@ -30,9 +30,9 @@ const Arrow = ({ up }: { up: boolean }) => (
   </svg>
 );
 
-// "Day by day": each day of the month against the middle day so far (the median of each
-// day's spending from the 1st to today). A day above it has an amber up arrow, one at or
-// below it a green down arrow; today is ringed, days to come are grey, and a dot marks a
+// "Day by day": each day of the month against the median daily spend so far (the median of
+// each day's spending from the 1st to today, nothing spent as 0). A day above it has an
+// amber up arrow, one below it a green down arrow, one on it a plain tile; today is ringed, days to come are grey, and a dot marks a
 // bill (amber) or pay (green) still to come. Each day opens Activity on that day. Weeks
 // start on the day the person chose. Before anything is spent, it says it fills in.
 export default function DayByDay({
@@ -85,7 +85,8 @@ export default function DayByDay({
         </h2>
         {!empty && middleCents != null && (
           <span className={classes.middle}>
-            middle day <span className={classes.num}>{formatMoney(middleCents, homeCurrency)}</span>
+            Median daily spend{' '}
+            <span className={classes.num}>{formatMoney(middleCents, homeCurrency)}</span>
           </span>
         )}
       </div>
@@ -95,7 +96,7 @@ export default function DayByDay({
         <>
           <div
             role="grid"
-            aria-label={`${monthHeading(month)}, each day against the middle day so far`}
+            aria-label={`${monthHeading(month)}, each day against the median daily spend so far`}
             className={classes.grid}
           >
             <div
@@ -142,7 +143,9 @@ export default function DayByDay({
                         className={classes.day}
                       >
                         <span>{Number(day.date.slice(8))}</span>
-                        {day.against != null && <Arrow up={day.against === 'more'} />}
+                        {(day.against === 'more' || day.against === 'less') && (
+                          <Arrow up={day.against === 'more'} />
+                        )}
                         {dueOn != null && (
                           <span
                             className={`${classes.dot} ${dueOn.bill ? classes.dotBill : classes.dotPay}`}

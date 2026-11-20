@@ -10,7 +10,8 @@ import { essentialRows } from './home-text';
 
 // "Home shows" (R-Set-Look; owner decision D13): Essentials is "the month-end figure, Tidy
 // up, amounts to check and the next scheduled item. The two cards, calendar and budgets
-// hide." Everything is the full Home as drawn. Amounts to check are flagged by Scheduled
+// hide." On a phone it's the glance in place of the month end (glance.test.tsx; owner
+// audit, 2026-11-20). Everything is the full Home as drawn. Amounts to check are flagged by Scheduled
 // (built later); here their place is checked against fixed rows. Figures are made up.
 
 // Where the person is, set before any date is made
@@ -112,12 +113,20 @@ const comingRows = () =>
     .map((li) => li.textContent);
 
 describe.each(SIZES)('Home shows (%s)', (size) => {
-  test('Essentials: the month end, Tidy up and (on a computer) the next scheduled item, nothing else', async () => {
+  test('Essentials: the month end (a phone: the glance), Tidy up and (on a computer) the next scheduled item, nothing else', async () => {
     onTheTenth();
     renderApp(aMonth('essentials'), '/', { size });
-    const hero = await monthEnd(size);
-    // RM 975.00 today, less RM 189.00 and RM 21.00 of bills
-    await waitFor(() => expect(hero.textContent).toContain('RM 765.00'));
+    if (size === 'desktop') {
+      const hero = await monthEnd(size);
+      // RM 975.00 today, less RM 189.00 and RM 21.00 of bills
+      await waitFor(() => expect(hero.textContent).toContain('RM 765.00'));
+    } else {
+      // A phone's glance (owner audit, 2026-11-20): spent so far in place of the month end,
+      // which the full Home keeps
+      const spent = await screen.findByRole('link', { name: /^Spent so far/ });
+      await waitFor(() => expect(spent.textContent).toContain('RM 25.00'));
+      expect(screen.queryByRole('region', { name: 'Expected at month end' })).toBeNull();
+    }
     await waitFor(() => expect(tidyUp()).not.toBeNull());
     if (size === 'desktop') {
       await waitFor(() => expect(comingRows()).toHaveLength(1));
@@ -187,7 +196,7 @@ describe.each(SIZES)('Home shows (%s)', (size) => {
     renderApp(aMonth('essentials'), '/?month=2026-10', { size });
     expect(
       await (size === 'phone'
-        ? screen.findByRole('region', { name: 'Left in October' })
+        ? screen.findByRole('link', { name: /^Spent in October/ })
         : screen.findByRole('link', { name: /^Left in October/ })),
     ).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Day by day' })).toBeNull();

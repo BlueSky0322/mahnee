@@ -1,5 +1,5 @@
 import { DoneIcon } from '../ui/icons';
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { useAddEntry } from '../shell/add-entry';
 import { hideStarted } from './getting-started';
 import classes from './Home.module.css';
@@ -15,8 +15,18 @@ export interface StartedSteps {
   budget: boolean;
 }
 
+/** A step of Getting started, and where it's done */
+interface Step {
+  title: string;
+  line: string;
+  done: boolean;
+  go?: { label: string; href?: string; push?: boolean };
+}
+
 // Getting started on the first days: five steps, each ticked off once its data exists, and
-// each still to do a tap from where it's done. Hide puts it away on this device.
+// each still to do a tap from where it's done. The steps done fold away as the person goes,
+// a tap from showing again; with one step left it's that one row, with how far along and
+// Hide. Hide puts it away on this device.
 export default function GettingStarted({
   email,
   steps,
@@ -27,7 +37,8 @@ export default function GettingStarted({
   onHide: () => void;
 }) {
   const titleId = useId();
-  const add = useAddEntry();
+  const listId = useId();
+  const [showDone, setShowDone] = useState(false);
   const done =
     1 + [steps.logged, steps.pastMonths, steps.scheduled, steps.budget].filter(Boolean).length;
 
@@ -36,12 +47,7 @@ export default function GettingStarted({
     onHide();
   };
 
-  const rows: {
-    title: string;
-    line: string;
-    done: boolean;
-    go?: { label: string; href?: string; push?: boolean };
-  }[] = [
+  const rows: Step[] = [
     { title: 'Add where your money is', line: steps.accounts, done: true },
     {
       title: 'Log your first expense',
@@ -50,7 +56,7 @@ export default function GettingStarted({
       go: { label: 'Add' },
     },
     {
-      title: 'Bring in past months',
+      title: 'Import past transactions',
       line: "From a bank's CSV",
       done: steps.pastMonths,
       go: { label: 'Import', href: '?settings=data', push: true },
@@ -68,6 +74,44 @@ export default function GettingStarted({
       go: { label: 'Set one', href: '?settings=categories&budget', push: true },
     },
   ];
+  const left = rows.filter((row) => !row.done);
+  const finished = rows.filter((row) => row.done);
+  const progress = (
+    <span className={classes.middle}>
+      {`${done} of 5 done · `}
+      <button
+        type="button"
+        className={classes.hide}
+        onClick={hide}
+      >
+        Hide
+      </button>
+    </span>
+  );
+
+  // One step left: that step alone, with how far along and Hide
+  if (left.length === 1) {
+    return (
+      <section
+        className={`${classes.card} ${classes.started} ${classes.startedOne}`}
+        aria-label="Getting started"
+      >
+        <StepRow
+          row={left[0]}
+          showGo={false}
+        />
+        <div className={classes.startedFoot}>
+          <span
+            className={classes.startedBar}
+            aria-hidden
+          >
+            <i style={{ width: `${(done * 100) / 5}%` }} />
+          </span>
+          {progress}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -81,63 +125,78 @@ export default function GettingStarted({
         >
           Getting started
         </h2>
-        <span className={classes.middle}>
-          {`${done} of 5 done · `}
-          <button
-            type="button"
-            className={classes.hide}
-            onClick={hide}
-          >
-            Hide
-          </button>
-        </span>
+        {progress}
       </div>
-      <ul className={classes.steps}>
-        {rows.map((row) => {
-          const inside = (
-            <>
-              <span
-                className={row.done ? `${classes.tick} ${classes.tickOn}` : classes.tick}
-                aria-hidden
-              >
-                {row.done && <DoneIcon size={14} />}
-              </span>
-              <span className={classes.stepText}>
-                <b>{row.title}</b>
-                <span>{row.line}</span>
-              </span>
-              {!row.done && row.go != null && <span className={classes.go}>{row.go.label}</span>}
-            </>
-          );
-          // A step still to do is a tap from where it's done, the whole row (as drawn)
-          const go = row.done ? undefined : row.go;
-          return (
-            <li key={row.title}>
-              {go == null || (go.href == null && add == null) ? (
-                <div className={row.done ? `${classes.step} ${classes.stepDone}` : classes.step}>
-                  {inside}
-                </div>
-              ) : go.href == null ? (
-                <button
-                  type="button"
-                  className={classes.step}
-                  onClick={() => add?.()}
-                >
-                  {inside}
-                </button>
-              ) : (
-                <PageLink
-                  href={go.href}
-                  push={go.push}
-                  className={classes.step}
-                >
-                  {inside}
-                </PageLink>
-              )}
-            </li>
-          );
-        })}
+      <ul
+        id={listId}
+        className={classes.steps}
+      >
+        {[...(showDone ? finished : []), ...left].map((row) => (
+          <li key={row.title}>
+            <StepRow
+              row={row}
+              showGo
+            />
+          </li>
+        ))}
       </ul>
+      <button
+        type="button"
+        className={classes.showDone}
+        aria-expanded={showDone}
+        aria-controls={listId}
+        onClick={() => setShowDone((v) => !v)}
+      >
+        {`${showDone ? 'Hide' : 'Show'} ${finished.length} done`}
+      </button>
     </section>
+  );
+}
+
+/** A step: ticked when done, else the whole row a tap from where it's done (as drawn) */
+function StepRow({ row, showGo }: { row: Step; showGo: boolean }) {
+  const add = useAddEntry();
+  const inside = (
+    <>
+      <span
+        className={row.done ? `${classes.tick} ${classes.tickOn}` : classes.tick}
+        aria-hidden
+      >
+        {row.done && <DoneIcon size={14} />}
+      </span>
+      <span className={classes.stepText}>
+        <b>{row.title}</b>
+        <span>{row.line}</span>
+      </span>
+      {showGo && !row.done && row.go != null && <span className={classes.go}>{row.go.label}</span>}
+    </>
+  );
+  const go = row.done ? undefined : row.go;
+  if (go == null || (go.href == null && add == null)) {
+    return (
+      <div className={row.done ? `${classes.step} ${classes.stepDone}` : classes.step}>
+        {inside}
+      </div>
+    );
+  }
+  if (go.href == null) {
+    return (
+      <button
+        type="button"
+        className={classes.step}
+        onClick={() => add?.()}
+      >
+        {inside}
+      </button>
+    );
+  }
+  return (
+    <PageLink
+      href={go.href}
+      push={go.push}
+      className={classes.step}
+    >
+      {inside}
+    </PageLink>
   );
 }

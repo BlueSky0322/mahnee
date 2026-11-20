@@ -232,18 +232,18 @@ describe('Home, with the month from the 25th', () => {
     renderApp(fromThe25th(), '/', { size });
     const days = await screen.findByRole('region', { name: 'Day by day' });
     const grid = await within(days).findByRole('grid', {
-      name: 'December 2026, each day against the middle day so far',
+      name: 'December 2026, each day against the median daily spend so far',
     });
     await waitFor(() => expect(within(grid).getAllByRole('link')).toHaveLength(30));
     const links = within(grid).getAllByRole('link');
     await waitFor(() =>
       expect(links[0].getAttribute('aria-label')).toBe(
-        'November 25, spent RM 8.00, more than the middle day',
+        'November 25, spent RM 8.00, more than the median daily spend',
       ),
     );
     expect(links[1].getAttribute('aria-current')).toBe('date');
     expect(links[1].getAttribute('aria-label')).toBe(
-      'November 26, spent RM 2.00, less than the middle day',
+      'November 26, spent RM 2.00, less than the median daily spend',
     );
     expect(links.at(-1)!.getAttribute('aria-label')).toMatch(/^December 24/);
     // Weeks from Monday: 25 November is a Wednesday, two days in
@@ -303,7 +303,7 @@ describe('Home, with the month from the 25th', () => {
       }),
     ).toBeTruthy();
     const grid = await screen.findByRole('grid', {
-      name: /^November 2026, each day against the middle day/,
+      name: /^November 2026, each day against the median daily spend/,
     });
     await waitFor(() => expect(within(grid).getAllByRole('link')).toHaveLength(31));
     expect(within(grid).getAllByRole('link')[0].getAttribute('aria-label')).toMatch(

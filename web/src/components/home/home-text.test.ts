@@ -7,6 +7,7 @@ import {
   heroLine,
   incomeLine,
   leadingBlanks,
+  medianText,
   runningFast,
   tidyText,
   weekdays,
@@ -153,16 +154,27 @@ describe('Tidy up', () => {
   });
 });
 
+describe('a day against the median daily spend', () => {
+  it('says how far above or below, in the currency, and a tie as at it', () => {
+    expect(medianText(1_800, 'MYR')).toBe('RM 18.00 above median');
+    expect(medianText(-250, 'MYR')).toBe('RM 2.50 below median');
+    expect(medianText(0, 'MYR')).toBe('at median');
+  });
+});
+
 describe("a calendar day's name", () => {
-  it('says what was spent against the middle day', () => {
+  it('says what was spent against the median daily spend', () => {
     expect(dayLabel({ date: '2026-11-10', cents: 1_768, against: 'less' }, [], 'MYR')).toBe(
-      'November 10, spent RM 17.68, less than the middle day',
+      'November 10, spent RM 17.68, less than the median daily spend',
     );
     expect(dayLabel({ date: '2026-11-01', cents: 147_017, against: 'more' }, [], 'MYR')).toBe(
-      'November 1, spent RM 1,470.17, more than the middle day',
+      'November 1, spent RM 1,470.17, more than the median daily spend',
     );
     expect(dayLabel({ date: '2026-11-02', cents: 0, against: 'less' }, [], 'MYR')).toBe(
-      'November 2, spent RM 0.00, less than the middle day',
+      'November 2, spent RM 0.00, less than the median daily spend',
+    );
+    expect(dayLabel({ date: '2026-11-03', cents: 500, against: 'same' }, [], 'MYR')).toBe(
+      'November 3, spent RM 5.00, at the median daily spend',
     );
   });
 
@@ -181,7 +193,7 @@ describe("a calendar day's name", () => {
   it('says what was spent first, then what is due, on a day with both', () => {
     expect(
       dayLabel({ date: '2026-11-10', cents: 900, against: 'more' }, ['TNB electricity'], 'MYR'),
-    ).toBe('November 10, spent RM 9.00, more than the middle day, TNB electricity due');
+    ).toBe('November 10, spent RM 9.00, more than the median daily spend, TNB electricity due');
   });
 });
 

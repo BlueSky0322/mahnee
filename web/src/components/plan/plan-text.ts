@@ -57,15 +57,14 @@ export function phoneSubtitle(row: CategorySpending, totalCents: number, currenc
 
 /**
  * A computer's row subtitle: its subcategories' names, or the payee or entries, and whether
- * its budget carries over; a category with nothing in the month says so
+ * its budget carries over. A category with nothing in the month has its 0.00 beside it, so
+ * it says only whether its budget carries over, or nothing.
  */
 export function deskSubtitle(
   row: CategorySpending | null,
-  { carriesOver, month, isCurrent }: { carriesOver: boolean; month: string; isCurrent: boolean },
-): string {
-  if (row == null) {
-    return isCurrent ? 'Nothing this month' : `Nothing in ${monthHeading(month, { short: true })}`;
-  }
+  { carriesOver }: { carriesOver: boolean },
+): string | null {
+  if (row == null) return carriesOver ? 'Carries over' : null;
   const what =
     row.subcategories.length > 0
       ? row.subcategories.map((sub) => sub.name).join(', ')
@@ -122,8 +121,9 @@ export function yearComparison(months: readonly { month: string; cents: number }
 
 /**
  * A budget's figures on Plan: what's left (or how far over), what's spent of what's
- * available with how it goes against the month (nothing said when on track), the bar's
- * name, and the pace. On a computer (`short`) what's left has no symbol, as drawn.
+ * available with how it goes against the month (nothing said when on track, and over only
+ * once, by what's left), the bar's name, and the pace. On a computer (`short`) what's left
+ * has no symbol, as drawn.
  */
 export function budgetWords(
   line: BudgetLine,
@@ -147,8 +147,7 @@ export function budgetWords(
         : short
           ? figure(line.leftCents)
           : `${figure(line.leftCents)} left`,
-    meta:
-      pace === 'faster' ? `${of} · faster than the month` : pace === 'over' ? `${of} · over` : of,
+    meta: pace === 'faster' ? `${of} · faster than the month` : of,
     label: `${line.name}: ${percent}% spent`,
     pace,
   };

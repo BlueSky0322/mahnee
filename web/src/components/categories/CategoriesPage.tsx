@@ -8,6 +8,7 @@ import type { Category, MonthBudget } from '@shared/api';
 import type { CategoryKind } from '@shared/categories';
 import {
   CATEGORY_KINDS,
+  DEFAULT_CATEGORIES,
   MAX_CATEGORY_NAME,
   readCategoryName,
   siblingsOf,
@@ -32,12 +33,16 @@ import classes from './Categories.module.css';
 /** Placeholder rows while the categories load */
 const LOADING_ROWS = 6;
 
+/** How many top-level categories of a kind Mahnee starts with */
+const startsWith = (kind: CategoryKind) =>
+  DEFAULT_CATEGORIES.filter((c) => c.kind === kind && c.parentId == null).length;
+
 // Categories (?settings=categories; R-Categories, R-Desk-Categories): expenses and income,
 // each top-level category with its colour, its budget and its subcategories as chips.
 // A subcategory is added in place under its category (+), a top-level one from the field at
 // the foot of its kind. Tap a name to rename it, move it, archive it or set its budget.
 // Reorder shows arrows to put one higher or lower among the ones beside it; Archived lists
-// the ones taken out, to bring back. Reached from Set a budget (?settings=categories&budget),
+// the ones taken out, to bring back. Under the title, what Mahnee starts with. Reached from Set a budget (?settings=categories&budget),
 // it asks for an expense category, and the first one opened has its Monthly budget ready
 // to type.
 export default function CategoriesPage() {
@@ -117,6 +122,10 @@ export default function CategoriesPage() {
           </>
         }
       />
+
+      <p className={classes.intro}>
+        {`Comes with ${startsWith('expense')} expense and ${startsWith('income')} income categories. Edit them any time.`}
+      </p>
 
       {forBudget && (
         <p className={classes.budgetPrompt}>Choose an expense category to set its monthly budget</p>

@@ -610,6 +610,11 @@
   letter-spacing: normal;
 }
 
+.noBudget {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
 .setBudget {
   padding: 0;
   border: 0;

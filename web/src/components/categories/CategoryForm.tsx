@@ -250,7 +250,6 @@ function Fields({
           <TextInput
             label="Monthly budget"
             description="The same every month from this one, until changed. Empty for none."
-            placeholder="300"
             inputMode="decimal"
             value={budgetShown}
             onChange={(e) => setBudgetTyped(e.currentTarget.value)}

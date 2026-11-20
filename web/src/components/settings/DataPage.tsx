@@ -118,7 +118,9 @@ function ImportSection({ children }: { children?: ReactNode }) {
           >
             Import
           </h2>
-          <p className={classes.dataLine}>A bank's CSV or a Mahnee export</p>
+          <p className={classes.dataLine}>
+            A bank's CSV or a Mahnee export. Add the bank's account first.
+          </p>
         </div>
         {isDesktop && <FileButton label={label} />}
       </div>

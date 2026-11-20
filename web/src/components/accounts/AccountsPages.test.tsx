@@ -206,6 +206,51 @@ describe('Accounts (?accounts)', () => {
     },
   );
 
+  // One account, whose balance is the total; or several in one group, none owed on
+  const NO_CARD = [
+    {
+      what: 'one account',
+      accounts: [{ id: SAVER, name: 'Saver', kind: 'bank' as const, openingCents: 117_576 }],
+      total: '1,175.76',
+      listed: ['Saver, Bank, 1,175.76'],
+    },
+    {
+      what: 'one group',
+      accounts: [
+        { id: POCKET, name: 'Pocket', openingCents: 4_310 },
+        { id: SAVER, name: 'Saver', kind: 'bank' as const, openingCents: 100_000 },
+      ],
+      total: '1,043.10',
+      listed: ['Pocket, Cash, 43.10', 'Saver, Bank, 1,000.00'],
+    },
+  ];
+  test.each(
+    (['desktop', 'phone', 'tablet'] as const).flatMap((size) =>
+      NO_CARD.map((c) => ({ size, ...c })),
+    ),
+  )(
+    'with no card, says the total once and each balance on its row ($what, $size)',
+    async ({ size, accounts, total, listed }) => {
+      const server = fakeServer();
+      server.categories = DEFAULT_CATEGORIES.map((c) => ({ ...c }));
+      for (const account of accounts) seedAccount(server, account);
+      renderApp(server, '/?accounts', { size });
+      const totals = await screen.findByRole('group', { name: 'All together' });
+      expect(totals.textContent).toBe(
+        size === 'desktop' ? `RM ${total} all together` : `All togetherRM ${total}`,
+      );
+      const have = await group('Cash, banks and e-wallets');
+      expect(rows(have)).toEqual(listed);
+      // No "in accounts" line and no group total repeating the figure
+      expect(screen.queryByText(/in accounts/)).toBeNull();
+      expect(
+        within(have)
+          .queryAllByText(new RegExp(total.replace(/[.,]/g, '\\$&')))
+          .filter((e) => e.closest('ul') == null),
+      ).toEqual([]);
+    },
+  );
+
   test.each(SIZES)(
     "a card's row says owed under the amount, or beside it on a computer (%s)",
     async (size) => {

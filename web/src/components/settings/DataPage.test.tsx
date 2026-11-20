@@ -172,7 +172,7 @@ describe('Import and export', () => {
     await openData(server, 'phone');
     expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
     expect(text(screen.getByRole('region', { name: 'Import' }))).toBe(
-      "Import A bank's CSV or a Mahnee export Choose a file",
+      "Import A bank's CSV or a Mahnee export. Add the bank's account first. Choose a file",
     );
     expect(screen.getByLabelText('Choose a file')).toHaveProperty('type', 'file');
 

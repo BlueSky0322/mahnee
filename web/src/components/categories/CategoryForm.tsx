@@ -1,4 +1,4 @@
-import { Button, NativeSelect, Switch, TextInput } from '@mantine/core';
+import { Button, Switch, TextInput } from '@mantine/core';
 import { Archive, ArrowCounterClockwise } from '@phosphor-icons/react';
 import type { FormEvent } from 'react';
 import { useId, useState } from 'react';
@@ -19,6 +19,7 @@ import { useProfile, useCurrency } from '../../profile/ProfileContext';
 import { newId } from '../../utils/id';
 import { showRefusal } from '../../utils/notify';
 import { showUndo } from '../common/undo-toast';
+import Picker from '../ui/Picker';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { KIND_LABELS, budgetText, readBudget } from './category-text';
 import classes from './Categories.module.css';
@@ -235,13 +236,13 @@ function Fields({
         autoComplete="off"
       />
       {!category?.archived && (
-        <NativeSelect
+        <Picker
           label="Under"
           description={staysOnTop ?? 'Top level, or a subcategory of another'}
           value={under}
-          onChange={(e) => setUnder(e.currentTarget.value)}
+          onChange={setUnder}
           disabled={staysOnTop != null}
-          data={options}
+          options={options}
         />
       )}
       {takesBudget && (

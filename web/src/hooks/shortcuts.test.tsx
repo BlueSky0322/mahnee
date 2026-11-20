@@ -242,6 +242,7 @@ describe('what counts as typing', () => {
     ['a password', '<input type="password">'],
     ['a longer text', '<textarea></textarea>'],
     ['a list to pick from', '<select><option>One</option></select>'],
+    ["one of the app's pickers", '<button type="button" role="combobox">One</button>'],
     ['editable text', '<div contenteditable="true" tabindex="0"></div>'],
   ])('in %s, N is left to it', async (_what, html) => {
     renderApp(withWallet(), '/');

@@ -463,16 +463,10 @@
   white-space: nowrap;
 }
 
-/* Drawn as buttons, the rows that pick and the two ways keep the browser's own spacing */
-.pick,
+/* Drawn as buttons, the two ways keep the browser's own spacing */
 .each label,
 .kinds label {
   letter-spacing: normal;
-}
-
-.vText {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .input {
@@ -507,29 +501,6 @@
 
 .each {
   flex: 1;
-}
-
-.dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--dot);
-}
-
-.chevron {
-  flex: none;
-  color: var(--ink-3);
-}
-
-/* The device's own list, over the whole row so a tap anywhere opens it */
-.pickSelect {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
 }
 
 .errors {

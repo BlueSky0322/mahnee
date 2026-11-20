@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-20
 
+- Fixed: each tab opens at the top and comes back where you left it; Activity on a smaller laptop edits in a dialog with Save in view; New entry fits short phones, with a Payee field and a Note [#?]
 - Changed: every list you pick from is the app's own, a list under the field on a computer and a sheet on a phone, and Repeats picks a day from a calendar or a weekday [#62]
 - Fixed: a change is kept on the device the moment it's made, even while another is saving; one the server refuses waits for you to try again or discard it, and the rest still save [#60]
 - Fixed: a change of home currency that pauses now and then but keeps going is no longer given back, rates are fetched fewer times, and rate days show the right day east of UTC+12 [#61]

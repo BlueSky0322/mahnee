@@ -55,6 +55,7 @@ export default function EntryEditor({
   onSaved,
   control,
   onDirty,
+  saveInView = false,
 }: {
   transaction: Transaction;
   /** The entry's name, drawn as the pane's heading; a sheet has its own */
@@ -65,6 +66,8 @@ export default function EntryEditor({
   control?: MutableRefObject<EditorControl | null>;
   /** Told whenever it comes to have changes not saved, or no longer has */
   onDirty?: (dirty: boolean) => void;
+  /** In a dialog taller than the screen: Delete and Save stay in view at its foot */
+  saveInView?: boolean;
 }) {
   const homeCurrency = useCurrency();
   const { accounts } = useAccounts();
@@ -239,6 +242,7 @@ export default function EntryEditor({
   return (
     <form
       className={classes.editor}
+      data-save-in-view={saveInView || undefined}
       onSubmit={submit}
       noValidate
     >

@@ -1,7 +1,13 @@
 import { readCategoryName } from '@shared/categories';
 import { isKeypadSum } from '@shared/keypad';
 import type { TransactionKind } from '@shared/ledger';
-import { MAX_PAYEE, MAX_TRANSACTION_CENTS, isDay, isTransactionKind } from '@shared/ledger';
+import {
+  MAX_NOTE,
+  MAX_PAYEE,
+  MAX_TRANSACTION_CENTS,
+  isDay,
+  isTransactionKind,
+} from '@shared/ledger';
 import type { Schedule } from '@shared/recurring';
 import { isSchedule } from '@shared/recurring';
 import { MAX_TYPED_CENTS, isEntryCurrency } from '@shared/rates';
@@ -25,6 +31,8 @@ export interface AddDraft {
   /** A category to make when it's saved, picked in place of `categoryId` */
   newCategory: { id: string; name: string; parentId: string | null } | null;
   payee: string;
+  /** The note typed; missing when none (and from older drafts) */
+  note?: string;
   /** The day picked, or null for Today, whichever day that is when it's opened again */
   date: string | null;
   repeat: Schedule | '';
@@ -56,6 +64,7 @@ function isDraft(v: unknown): v is AddDraft {
     isNewCategory(d.newCategory) &&
     typeof d.payee === 'string' &&
     d.payee.length <= MAX_PAYEE &&
+    (d.note === undefined || (typeof d.note === 'string' && d.note.length <= MAX_NOTE)) &&
     (d.date === null || (isDay(d.date) && d.date <= toDateInput(new Date()))) &&
     (d.repeat === '' || isSchedule(d.repeat))
   );

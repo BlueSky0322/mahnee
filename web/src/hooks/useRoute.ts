@@ -227,8 +227,28 @@ export function useLeaveGuard(guard: LeaveGuard | null) {
   }, []);
 }
 
-export function navigate(search: string, { replace = false, force = false } = {}) {
-  if (!force && leaveGuard?.(search, () => navigate(search, { replace, force: true }))) return;
+/**
+ * Set when the page about to show is one the person is coming back to (its place's tab,
+ * Back, or going up to it): it opens where it was left, rather than at the top
+ */
+let comingBack = false;
+
+/** Whether the page now showing was come back to; asked once per page shown */
+export function takeComingBack() {
+  const was = comingBack;
+  comingBack = false;
+  return was;
+}
+
+/**
+ * Opens `search`. replace: in this page's place in the history; back: the page is one
+ * being come back to, so it opens where it was left (a place's tab)
+ */
+export function navigate(search: string, { replace = false, force = false, back = false } = {}) {
+  if (!force && leaveGuard?.(search, () => navigate(search, { replace, force: true, back }))) {
+    return;
+  }
+  comingBack = back;
   const url = `${window.location.pathname}${search}`;
   // A page opened from another remembers which, so going "up" can be Back
   const from = replace ? cameFrom() : window.location.search;
@@ -246,7 +266,7 @@ export function goUp(address: string) {
     window.history.back();
     return;
   }
-  navigate(address, { replace: true });
+  navigate(address, { replace: true, back: true });
 }
 
 /**
@@ -276,10 +296,15 @@ export function useRoute(): Route {
 
   useEffect(() => {
     const update = () => setRoute(readRoute());
-    window.addEventListener('popstate', update);
+    // Back and Forward come back to a page, which opens where it was left
+    const traverse = () => {
+      comingBack = true;
+      update();
+    };
+    window.addEventListener('popstate', traverse);
     window.addEventListener(ROUTE_CHANGE, update);
     return () => {
-      window.removeEventListener('popstate', update);
+      window.removeEventListener('popstate', traverse);
       window.removeEventListener(ROUTE_CHANGE, update);
     };
   }, []);

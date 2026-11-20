@@ -135,16 +135,30 @@ import { clearCache } from '../offline/cache';
 // once: wait longer than the default second for things to appear
 configure({ asyncUtilTimeout: 4000 });
 
-/** The screen tests run at: a computer, a tablet or a phone, and how wide each is */
-const WIDTHS = { desktop: 1280, tablet: 820, phone: 390 };
-let screenSize: keyof typeof WIDTHS = 'desktop';
+/**
+ * The screen tests run at, as [width, height]: a computer, a smaller laptop (too narrow
+ * for Activity's editor beside the register), a tablet, a phone, and a short phone (an
+ * iPhone SE's 375x667)
+ */
+const SIZES = {
+  'desktop': [1280, 800],
+  'laptop': [1100, 720],
+  'tablet': [820, 1180],
+  'phone': [390, 844],
+  'short-phone': [375, 667],
+} as const;
+let screenSize: keyof typeof SIZES = 'desktop';
 
-/** Whether a width query, say "(min-width: 64em)", holds at the screen's width */
+/** A computer's layout, with the sidebar: 1024px wide and up */
+const onComputer = () => SIZES[screenSize][0] >= 1024;
+
+/** Whether a width or height query, say "(min-width: 64em)", holds at the screen's size */
 function matchesWidth(query: string) {
-  const m = /\((min|max)-width:\s*([\d.]+)(em|px)\)/.exec(query);
+  const m = /\((min|max)-(width|height):\s*([\d.]+)(em|px)\)/.exec(query);
   if (m == null) return false;
-  const px = Number(m[2]) * (m[3] === 'em' ? 16 : 1);
-  return m[1] === 'min' ? WIDTHS[screenSize] >= px : WIDTHS[screenSize] <= px;
+  const px = Number(m[3]) * (m[4] === 'em' ? 16 : 1);
+  const size = SIZES[screenSize][m[2] === 'width' ? 0 : 1];
+  return m[1] === 'min' ? size >= px : size <= px;
 }
 
 // What jsdom doesn't have, and the app (or Mantine) uses
@@ -1812,7 +1826,7 @@ export const OFFLINE_NOTICE = {
  * in the sidebar on computers
  */
 export const addButton = () =>
-  screen.findByRole('button', { name: screenSize === 'desktop' ? 'New entry' : 'Add' });
+  screen.findByRole('button', { name: onComputer() ? 'New entry' : 'Add' });
 
 /** Queries scoped to one element, as `within` gives them */
 export type Within = BoundFunctions<typeof queries>;
@@ -1848,7 +1862,7 @@ export async function typeAmount(form: Within, text: string) {
 /** Add's Save button, whatever it says ("Save RM 8.00", "Move RM 8.00", "Type an amount") */
 export const addSaveButton = (form: Within) =>
   form.getByRole('button', {
-    name: /^(Save |Move |Type an amount|The total is below zero|Up to |Pick a day from 2000)/,
+    name: /^(Save( |$)|Move |Type an amount|The total is below zero|Up to |Pick a day from 2000)/,
   });
 
 /**
@@ -1867,7 +1881,7 @@ export async function addEntry(amount: string, choose?: (form: Within) => Promis
 
 /** The button that opens a new entry, if it's there now */
 export const queryAddButton = () =>
-  screen.queryByRole('button', { name: screenSize === 'desktop' ? 'New entry' : 'Add' });
+  screen.queryByRole('button', { name: onComputer() ? 'New entry' : 'Add' });
 
 /** Goes to one of the places (Home, Activity, Plan, Accounts) in the tab bar or sidebar */
 export async function goToPlace(name: 'Home' | 'Activity' | 'Plan' | 'Accounts') {
@@ -1898,7 +1912,8 @@ export function renderApp(
   { size = 'desktop' }: { size?: typeof screenSize } = {},
 ) {
   screenSize = size;
-  vi.stubGlobal('innerWidth', WIDTHS[size]);
+  vi.stubGlobal('innerWidth', SIZES[size][0]);
+  vi.stubGlobal('innerHeight', SIZES[size][1]);
   vi.stubGlobal('fetch', vi.fn(serve(server)));
   window.history.replaceState(null, '', path);
   return render(createElement(Root));

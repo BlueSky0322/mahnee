@@ -89,7 +89,7 @@
   box-shadow: 0 1px 2px rgba(15, 16, 18, 0.12);
 }
 
-/* The amount */
+/* The amount: the currency and the figure together, in one field's box */
 .amount {
   display: flex;
   flex-direction: column;
@@ -97,20 +97,64 @@
   justify-content: center;
   gap: 6px;
   min-height: 150px;
-  padding: 28px 0 32px;
+  padding: 20px 0 24px;
+}
+
+.amount .figure {
+  align-items: center;
+  max-width: 100%;
+  padding: 8px 18px 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+}
+
+/* A short phone: tighter above the amount and round the keys, so the keypad and Save show */
+.phoneForm[data-short] {
+  padding-top: 4px;
+  padding-bottom: calc(12px + var(--sf-safe-bottom));
+}
+
+.phoneForm[data-short] .top {
+  min-height: 44px;
+}
+
+.phoneForm[data-short] .amount {
+  min-height: 0;
+  gap: 2px;
+  padding: 2px 0 10px;
+}
+
+.phoneForm[data-short] .expression {
+  min-height: 16px;
+  font-size: 0.875rem;
+}
+
+.phoneForm[data-short] .number {
+  font-size: 2.75rem;
+}
+
+.phoneForm[data-short] .row {
+  min-height: 44px;
+}
+
+.phoneForm[data-short] .bottom {
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.phoneForm[data-short] .key {
+  height: 46px;
+}
+
+.phoneForm[data-short] .save {
+  height: 46px;
 }
 
 /* A computer's figure is its field: the typing goes to a field laid over it */
 .deskAmount {
   position: relative;
   cursor: text;
-}
-
-/* Reached from the keyboard, the figure is ringed; a click or tap shows nothing (as drawn) */
-.deskAmount:has(.amountField:focus-visible) {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  border-radius: 8px;
 }
 
 .deskStatus {
@@ -161,7 +205,7 @@
 }
 
 .deskStatus .number {
-  font-size: 2.5rem;
+  font-size: 2.25rem;
 }
 
 .number[data-tone='empty'] {
@@ -322,6 +366,21 @@
 
 .note::placeholder {
   color: var(--ink-3);
+}
+
+.noteInput {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Details, with nothing folded under it that's been typed */
+.vQuiet {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.caretUp {
+  transform: rotate(180deg);
 }
 
 .dot {
@@ -599,16 +658,17 @@
   line-height: normal;
 }
 
+/* A computer's amount: the currency and the figure in one field, the hint under it */
 .deskTop {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .deskFoot {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
   /* 20px under the form, as the design's body pads it */
   margin: 6px -24px 0;
@@ -617,7 +677,7 @@
 }
 
 .hint {
-  flex: 1;
+  padding-left: 2px;
   color: var(--ink-3);
   font-size: 0.75rem;
 }
@@ -885,20 +945,42 @@
   outline-offset: 2px;
 }
 
-/* On a computer the pill sits before the figure, beside the field typed into */
+/* On a computer the pill sits inside the amount's field, before the figure typed into */
 .deskFigure {
   display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 14px 8px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--surface);
+  cursor: text;
+}
+
+.deskFigure:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
 }
 
 .deskFigure .pill {
   flex: none;
-  height: 26px;
-  margin-bottom: 6px;
-  padding: 0 9px;
+  height: 30px;
+  padding: 0 10px;
   font-size: 0.875rem;
+}
+
+/* The figure from the left, what's typed as a sum to its right */
+.deskFigure .deskAmount {
+  flex: 1;
+  min-width: 0;
+}
+
+.deskFigure .deskStatus {
+  flex-direction: row-reverse;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 /* Under the figure: what it comes to in the home currency, or the day's currency */

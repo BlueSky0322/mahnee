@@ -15,6 +15,7 @@ For agents:
 ## 2026-11-20
 
 - Fixed: a change is kept on the device the moment it's made, even while another is saving; one the server refuses waits for you to try again or discard it, and the rest still save [#?]
+- Fixed: importing older bank rows no longer counts them twice: the preview shows the balance before and after, and asks whether rows from before you started tracking are already in the opening balance [#59]
 - Changed: New entry says when it keeps a draft ("Keep draft"), and Discard draft throws it away, with Undo [#58]
 - Fixed: Search everything on Home looks through every month, and Activity's dates still narrow it [#58]
 - Changed: Set a budget asks you to choose an expense category, and opens its monthly budget ready to type [#58]
@@ -161,3 +162,4 @@ For agents:
 [#56]: https://github.com/BlueSky0322/mahnee/pull/56
 [#57]: https://github.com/BlueSky0322/mahnee/pull/57
 [#58]: https://github.com/BlueSky0322/mahnee/pull/58
+[#59]: https://github.com/BlueSky0322/mahnee/pull/59

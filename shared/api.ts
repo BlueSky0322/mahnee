@@ -256,6 +256,11 @@ export interface Account {
    * archived before the day was kept. Missing from a copy kept on a device from before.
    */
   archivedAt?: number | null;
+  /**
+   * When it was added (ms): tracking began that day, so its opening balance is what it held
+   * then. Missing from a copy kept on a device from before.
+   */
+  createdAt?: number;
 }
 
 /**
@@ -546,6 +551,12 @@ export interface ImportRecord {
   /** Transactions it added, and lines of the file left out; each at most MAX_IMPORT_ROWS */
   addedCount: number;
   skippedCount: number;
+  /**
+   * Whether it changed its account's opening balance, so rows from before tracking began
+   * didn't count twice (updateAccount with importId); Undo changes it back by as much.
+   * Missing from a copy kept on a device from before.
+   */
+  openingChanged?: boolean;
   /** When it was imported (ms, by the server's clock) */
   createdAt: number;
 }
@@ -661,7 +672,18 @@ export type LedgerChange =
    * A new kind keeps openingCents as kept (below zero is owed on a card, overdrawn on the
    * others) unless the change names a new one too
    */
-  | { op: 'updateAccount'; id: string; name?: string; kind?: AccountKind; openingCents?: number }
+  /**
+   * importId: the opening balance is changed as part of that import (recorded first, with
+   * addImport, into this account), so its Undo changes it back by as much
+   */
+  | {
+      op: 'updateAccount';
+      id: string;
+      name?: string;
+      kind?: AccountKind;
+      openingCents?: number;
+      importId?: string;
+    }
   /** archived: true takes it out of the list, false brings it back */
   | { op: 'archiveAccount'; id: string; archived: boolean }
   /** parentId: the top-level category it goes under, of the same kind; null for top level */
@@ -743,10 +765,11 @@ export type LedgerChange =
   /** Moves the occurrence due on `due` (its next due date, else refused) on, recording nothing */
   | { op: 'skipRecurring'; id: string; due: string }
   /** Records a file imported, before the transactions that name it (createdAt is the server's) */
-  | { op: 'addImport'; import: Omit<ImportRecord, 'createdAt'> }
+  | { op: 'addImport'; import: Omit<ImportRecord, 'createdAt' | 'openingChanged'> }
   /**
    * Deletes, for good, every transaction that came in with the import, wherever it is now,
-   * and marks the import undone; one undone already is left as it is
+   * changes back the opening balance it changed (openingChanged) and marks the import
+   * undone; one undone already is left as it is
    */
   | { op: 'undoImport'; id: string };
 

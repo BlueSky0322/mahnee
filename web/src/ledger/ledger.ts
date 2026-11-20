@@ -818,11 +818,13 @@ queryClient.getQueryCache().subscribe(({ query }) => {
 });
 
 const isImportChange = (change: LedgerChange) =>
-  change.op === 'addImport' || change.op === 'undoImport';
+  change.op === 'addImport' ||
+  change.op === 'undoImport' ||
+  (change.op === 'updateAccount' && change.importId != null);
 
 /**
  * Recent imports with `changes` made to them: one recorded goes first (dated now until the
- * server's copy comes), one undone goes. Its entries go from balances and lists only once
+ * server's copy comes), one undone goes, one that changed an opening balance says so. Its entries go from balances and lists only once
  * the server has deleted them: this device can't know every entry an import added.
  */
 export function applyToImports(imports: ImportRecord[], changes: LedgerChange[]): ImportRecord[] {
@@ -832,6 +834,10 @@ export function applyToImports(imports: ImportRecord[], changes: LedgerChange[])
       next = [{ ...change.import, createdAt: Date.now() }, ...next];
     } else if (change.op === 'undoImport') {
       next = next.filter((i) => i.id !== change.id);
+    } else if (change.op === 'updateAccount' && change.importId != null) {
+      // Its opening balance changed with it, so its Undo says that goes back too
+      const importId = change.importId;
+      next = next.map((i) => (i.id === importId ? { ...i, openingChanged: true } : i));
     }
   }
   return next.slice(0, MAX_RECENT_IMPORTS);

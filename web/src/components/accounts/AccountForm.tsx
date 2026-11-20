@@ -191,11 +191,13 @@ function Fields({
       </Input.Wrapper>
       <TextInput
         label={kind === 'card' ? 'Amount owed' : 'Opening balance'}
-        description={
+        // The opening balance is what it held on the first day tracked: older entries
+        // imported later are offered as a change to it, so they don't count twice
+        description={`${
           kind === 'card'
-            ? "What's owed on the card now"
-            : 'What it holds now; below zero if overdrawn'
-        }
+            ? "What's owed on the first day you'll track."
+            : "Your balance on the first day you'll track."
+        } Importing older transactions later? We'll offer to adjust it.`}
         placeholder="0.00"
         inputMode="decimal"
         leftSection={<span className={classes.symbol}>{symbol}</span>}

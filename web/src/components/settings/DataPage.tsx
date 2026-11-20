@@ -265,7 +265,7 @@ function UndoImport({ record, onClose }: { record: ImportRecord | null; onClose:
     >
       <div className={classes.dialogForm}>
         <p className={classes.dialogText}>
-          {`Its ${entries.toLocaleString('en')} ${entries === 1 ? 'entry is' : 'entries are'} deleted, on every device. Accounts and categories it added stay.`}
+          {`Its ${entries.toLocaleString('en')} ${entries === 1 ? 'entry is' : 'entries are'} deleted${shown?.openingChanged === true ? ' and the opening balance it changed goes back' : ''}, on every device. Accounts and categories it added stay.`}
         </p>
         <div className={classes.dialogActions}>
           <Button

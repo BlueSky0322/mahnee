@@ -129,6 +129,9 @@ erDiagram
     TEXT account_id "FK with email to accounts; null for a Mahnee export"
     INTEGER added_count "0 to 5,000"
     INTEGER skipped_count "0 to 5,000"
+    INTEGER opening_change_cents "what it changed its account's opening balance by; 0 for none"
+    TEXT opening_change_currency "null, or the currency that change was typed in"
+    INTEGER opening_change_typed_cents "that change as typed, with opening_change_currency"
     INTEGER created_at "ms"
     INTEGER undone_at "ms, or null"
   }
@@ -197,7 +200,7 @@ erDiagram
   }
   conversion_staged {
     TEXT email PK "and FK to profiles"
-    TEXT kind PK "transaction, account, budget or recurring"
+    TEXT kind PK "transaction, account, budget, recurring or import"
     TEXT key PK "its id, or a budget's category/month"
     INTEGER cents "in the new currency"
     TEXT original_currency "and the rest as on its row"
@@ -317,8 +320,20 @@ erDiagram
   a Mahnee export, which names its accounts), how many transactions it added and how many
   of the file's transaction lines it left out (each at most `MAX_IMPORT_ROWS`), when (the
   server's clock), and when it was undone. Recorded by `addImport` before the transactions
-  that name it, in the same ordered changes. `undoImport` deletes every transaction whose
-  `import_id` is it and sets `undone_at`, in one batch; once undone, nothing more goes and no
+  that name it, in the same ordered changes. A bank's file whose rows go back to the day its
+  account was added (`accounts.created_at`, the day tracking began; no column of its own)
+  can change that account's opening balance with them (`updateAccount` naming the import,
+  only that account and only the opening balance), so they don't count twice; what it
+  changed by adds up in `opening_change_cents` (0014). `undoImport` takes that back from the
+  opening balance (by as much, so a change by hand since stays; kept within the opening
+  balance's limit), deletes every transaction whose `import_id` is it and sets `undone_at`,
+  in one batch. A change of home currency converts it with the opening balance, at the same
+  rate, keeping what it was typed as (`opening_change_currency`, `opening_change_typed_cents`);
+  Undo then works the opening balance out from what each was typed as, at the opening
+  balance's own rate, so it is exactly what it would be on its own and converts back exactly
+  (by as much in the home currency when the two weren't typed in the same currency).
+  `conversion_staged` takes `import` amounts too (rebuilt by 0014, as it holds only work
+  under way). Once undone, nothing more goes and no
   transaction may name it. Keyed by email and then id, so two people's imports never meet.
   Deleting one keeps its transactions, their `import_id` set back to null.
 - **`push_subscriptions`**: one per device that gets reminders (owner decision D6): the
@@ -340,7 +355,7 @@ erDiagram
   and the person's amounts are converted in the background (`worker/currency/convert.ts`,
   from the `mahnee-reconvert` queue): a page of transactions at a time, by day then id
   (`after_date`, `after_id`), each worked out into `conversion_staged` and checked against
-  its limit, then the opening balances, budgets and scheduled items, and all of them
+  its limit, then the opening balances (with what imports changed them by), budgets and scheduled items, and all of them
   swapped into their rows in one batch, the accounts' `currency` with them, before both go.
   Meanwhile the person's writes wait (the API answers 503) and the nightly job skips them,
   so what's worked out stays true. One amount past its limit refuses the whole change: the

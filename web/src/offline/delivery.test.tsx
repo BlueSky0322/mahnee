@@ -426,9 +426,12 @@ describe('signing out', () => {
     server.accounts.splice(0, 1);
     await rename('Wallet', 'Purse');
     expect(await screen.findByText("1 change couldn't be saved.")).toBeTruthy();
-    // Settings, from a page that no longer shows the account
+    // Settings, from a page that no longer shows the account. The page learns of the
+    // refused change from the device a moment after it opens (it says so at the bottom):
+    // Sign out asks only about changes it knows of
     await reloadApp(server, '/?settings');
     await screen.findByText('Ryan');
+    expect(await screen.findByText("1 change couldn't be saved.")).toBeTruthy();
     const sentTo = watchLeaving();
 
     const user = userEvent.setup();

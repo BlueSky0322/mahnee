@@ -31,3 +31,15 @@
 .notice svg {
   flex-shrink: 0;
 }
+
+/* What it says, and under it, offline with changes waiting, what happens once back */
+.words {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.whenBack {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+}

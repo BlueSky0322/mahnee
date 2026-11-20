@@ -1,8 +1,12 @@
 import type { Transaction } from '@shared/api';
 import { formatMoney } from '../../utils/money';
+import { CONVERSION_PENDING } from './typed-amount';
 import classes from './MainAmount.module.css';
 
-/** What it came to in the home currency, beside what was typed ("RM 15.30"); nothing otherwise */
+/**
+ * What it came to in the home currency, beside what was typed ("RM 15.30"), or "conversion
+ * pending" before it's known; nothing otherwise
+ */
 export default function MainAmount({
   t,
   currency,
@@ -11,5 +15,9 @@ export default function MainAmount({
   currency: string;
 }) {
   if (t.original == null) return null;
-  return <span className={classes.main}>{formatMoney(t.amountCents, currency)}</span>;
+  return (
+    <span className={classes.main}>
+      {t.original.pending ? CONVERSION_PENDING : formatMoney(t.amountCents, currency)}
+    </span>
+  );
 }

@@ -387,13 +387,16 @@ function dayAfter(day: string) {
 
 /**
  * How much of `accountIds`' history is held, with amounts in `currency`, or null when
- * none of it has started: the device has nothing to show from
+ * none of it has started: the device has nothing to show from. Null too while the currency
+ * amounts are in isn't known (no profile yet): a history kept in another one would be read
+ * as current.
  */
 async function onDeviceFor(
   email: string,
   accountIds: string[],
   currency: string | null,
 ): Promise<OnDevice | null> {
+  if (currency == null) return null;
   const kept = new Map((await readCoverage(email)).map((c) => [c.accountId, c]));
   if (!accountIds.some((id) => kept.has(id))) return null;
   const now = Date.now();
@@ -404,7 +407,7 @@ async function onDeviceFor(
   let checkedAt: number | null = Infinity;
   for (const id of accountIds) {
     const c = kept.get(id);
-    const sameMoney = c != null && (currency == null || c.currency === currency);
+    const sameMoney = c != null && c.currency === currency;
     const checked = c?.verifiedAt ?? null;
     checkedAt = checked == null || checkedAt == null ? null : Math.min(checkedAt, checked);
     if (c != null && sameMoney && c.complete) {
@@ -563,13 +566,13 @@ export async function localAccountPage(
 
 /**
  * One account's entries held on the device from `fromDay`, with how much of its history
- * is held; null when none is
+ * is held, in `currency`; null when none is
  */
-export async function localSince(accountId: string, fromDay: string) {
+export async function localSince(accountId: string, fromDay: string, currency: string | null) {
   const email = cacheUser();
   if (email == null || unreadable) return null;
   try {
-    const onDevice = await onDeviceFor(email, [accountId], null);
+    const onDevice = await onDeviceFor(email, [accountId], currency);
     if (onDevice == null) return null;
     const rows = await readEntries(email, { by: 'account', accountId });
     return { transactions: rows.filter((t) => t.date >= fromDay), onDevice };

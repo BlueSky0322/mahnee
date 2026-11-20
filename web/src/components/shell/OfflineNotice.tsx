@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { AlertIcon } from '../ui/icons';
 import { useIsDesktop, useIsMobile } from '../../hooks/useBreakpoints';
 import { keepChangesAgain } from '../../ledger/ledger';
+import { canSyncInBackground } from '../../offline/outbox';
 import { useUnsaved } from '../../ledger/useLedger';
 import { signIn, useProfile } from '../../profile/ProfileContext';
 import { refusedText } from './describe-change';
@@ -17,6 +18,16 @@ const deviceWord = (mobile: boolean | undefined, desktop: boolean | undefined) =
 
 /** "1 change waiting", "3 changes waiting" */
 const waitingText = (count: number) => `${count} ${count === 1 ? 'change' : 'changes'} waiting.`;
+
+/**
+ * Offline with changes waiting, what happens to them once the connection is back (how many
+ * wait is the freshness label's to say). Where the browser can't send them with the app
+ * closed, the person has to open it.
+ */
+const whenBackText = (count: number) =>
+  canSyncInBackground()
+    ? `${count === 1 ? "It's" : "They're"} sent when the connection is back, even with Mahnee closed.`
+    : 'Open Mahnee when connected to finish syncing.';
 
 /**
  * Shown while there's no connection, so it's clear why nothing new is loading and that
@@ -72,9 +83,14 @@ const OfflineNotice = () => {
         role="status"
       >
         {icon}
-        <span>
-          {text}
-          {counted && waiting > 0 && ` ${waitingText(waiting)}`}
+        <span className={classes.words}>
+          <span>
+            {text}
+            {counted && waiting > 0 && ` ${waitingText(waiting)}`}
+          </span>
+          {!online && !counted && waiting > 0 && (
+            <span className={classes.whenBack}>{whenBackText(waiting)}</span>
+          )}
         </span>
         {action != null && (
           <Button

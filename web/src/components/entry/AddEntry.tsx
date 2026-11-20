@@ -29,6 +29,7 @@ import { useBackDismiss } from '../../hooks/useBackDismiss';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { useRate } from '../../hooks/useRate';
 import { change, changeTyped } from '../../ledger/ledger';
+import { isOffline } from '../../offline/network';
 import { lastUsed, recentCategoryIds, rememberUsed } from '../../ledger/last-used';
 import { useAccounts, useCategories } from '../../ledger/useLedger';
 import { useProfile, useCurrency } from '../../profile/ProfileContext';
@@ -319,15 +320,16 @@ function AddForm({
       : quote == null
         ? null
         : Math.max(1, convertCents(total, quote.rate));
-  // No rate on this device and none to be had now (offline, a pair never asked for, or an
-  // earlier day's): saved as typed, its conversion pending until the server makes it at the
-  // entry's own day's rate. Not for a repeating one, whose amount is needed as it's set up.
+  // Offline with no rate on this device (a pair never asked for here): saved as typed, its
+  // conversion pending until the server makes it at the entry's own day's rate. Only for
+  // want of a connection: online, a rate that can't be had still stops Add. Not for a
+  // repeating one, whose amount is needed as it's set up.
   const conversionPending =
     elsewhere &&
     total > 0 &&
     quote == null &&
     repeat === '' &&
-    (rate.isError || rate.fetchStatus === 'paused');
+    (rate.fetchStatus === 'paused' || (rate.isError && isOffline()));
   const rateReason =
     !elsewhere || total <= 0
       ? null

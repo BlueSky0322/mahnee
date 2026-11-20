@@ -1,5 +1,6 @@
 import type { Account, Ledger, Recurring } from '@shared/api';
 import { monthEnd, nextAfter, onOrAfter } from '@shared/recurring';
+import { MAX_POSTED_PER_ITEM, MAX_POSTED_PER_RUN, dayIn, dueThrough } from '@shared/scheduled';
 
 // What's expected at the end of this month, and what's due now (items that ask first),
 // worked out from one copy of the ledger (balances and repeating items read together), so a log is never counted in
@@ -130,25 +131,28 @@ export function dueNow(ledger: Ledger, today: string): DueNow[] {
   ).map(({ recurring, date }) => ({ recurring, due: date }));
 }
 
-/** The most occurrences of one item the server adds in a run (worker/ledger/post-scheduled.ts) */
-const MOST_ADDED_AT_ONCE = 31;
-
 /**
- * Every occurrence the server adds on its day that this copy of the ledger doesn't hold yet
- * (next due `today` or before, not asking first), oldest first: offline, the device can't
- * know the server has added them, so they're shown as projected, never recorded here
+ * Every occurrence the server adds on its day that this copy of the ledger doesn't hold yet,
+ * oldest first, worked out as the server's run does (worker/ledger/post-scheduled.ts): by
+ * the day it is in the person's stored time zone at `at` (none without one), for running
+ * items that don't ask first, on accounts and a category still in use, at most
+ * MAX_POSTED_PER_ITEM of one item and MAX_POSTED_PER_RUN in all. Offline, the device can't
+ * know the server has added them, so they're shown as projected, never recorded here.
  */
-export function addedOnReturn(ledger: Ledger, today: string): DueNow[] {
+export function addedOnReturn(ledger: Ledger, at: number, timeZone: string | null): DueNow[] {
+  const today = timeZone == null ? null : dayIn(timeZone, at);
+  if (today == null) return [];
+  const categoryOk = (id: string | null) =>
+    id == null || ledger.categories.some((c) => c.id === id && !c.archived);
   const found: { recurring: Recurring; date: string }[] = [];
   for (const r of ledger.recurring ?? []) {
-    if (!active(ledger, r) || r.askFirst === true) continue;
-    let date = r.nextDue;
-    for (let n = 0; n < MOST_ADDED_AT_ONCE && date <= today; n++) {
+    if (!active(ledger, r) || r.askFirst === true || !categoryOk(r.categoryId)) continue;
+    for (const date of dueThrough(r, today, MAX_POSTED_PER_ITEM))
       found.push({ recurring: r, date });
-      date = nextAfter(r.schedule, r.day, date);
-    }
   }
-  return byDay(found).map(({ recurring, date }) => ({ recurring, due: date }));
+  return byDay(found)
+    .slice(0, MAX_POSTED_PER_RUN)
+    .map(({ recurring, date }) => ({ recurring, due: date }));
 }
 
 /** Whether anything repeats: listed items, whether due or not */

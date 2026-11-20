@@ -5,9 +5,18 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { Profile } from '../api';
 import { ApiError, api } from '../api';
 import { ME_KEY, queryClient } from '../query-client';
-import { isOfflineFailure } from '../offline/network';
+import { isOffline, isOfflineFailure } from '../offline/network';
 import { editOutbox, isRetryable } from '../offline/outbox';
-import { canWait, dropUnsent, keepUnsent, readUnsent, settleUnsent, withPatch } from './unsent';
+import {
+  canWait,
+  dropUnsent,
+  eachField,
+  keepUnsent,
+  readUnsent,
+  settleUnsent,
+  unsentNow,
+  withPatch,
+} from './unsent';
 import {
   assumeLastUser,
   cacheUser,
@@ -381,15 +390,19 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       const { email } = current;
       const id = ++latest.current;
       replace(withPatch(current, patch));
-      const kept = await keepUnsent(email, patch);
+      // Kept on the device before it's sent while the browser says there's no connection;
+      // online it's sent straight away, and kept only if that finds no connection
+      const offline = isOffline();
+      const kept = offline && (await keepUnsent(email, patch));
       try {
         const saved = await api.updateMe(patch);
-        await settleUnsent(email, patch);
+        if (kept) await settleUnsent(email, patch);
         keepCopy(saved);
-        if (id === latest.current) replace(withPatch(saved, await readUnsent(email)));
+        if (id === latest.current) replace(withPatch(saved, unsentNow(email)));
       } catch (err) {
-        if (kept && (isOfflineFailure(err) || isSignInAnswer(err))) return;
-        await settleUnsent(email, patch);
+        const waiting = isOfflineFailure(err) || isSignInAnswer(err);
+        if (waiting && (kept || (await keepUnsent(email, patch)))) return;
+        if (kept) await settleUnsent(email, patch);
         if (id === latest.current) replace(current);
         throw err;
       }
@@ -411,18 +424,31 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     // Shown at once over whatever copy is showing, before the server has it
     if (profileRef.current?.email === email) replace(withPatch(profileRef.current, unsent));
     const asked = latest.current;
-    try {
-      const saved = await api.updateMe(unsent);
-      await settleUnsent(email, unsent);
-      keepCopy(saved);
-      if (asked === latest.current && profileRef.current?.email === email) {
-        replace(withPatch(saved, await readUnsent(email)));
+    /** Sends a patch: whether to carry on (saved or refused), false to keep the rest waiting */
+    const send = async (patch: ProfilePatch, alone: boolean): Promise<boolean> => {
+      try {
+        const saved = await api.updateMe(patch);
+        await settleUnsent(email, patch);
+        keepCopy(saved);
+        if (asked === latest.current && profileRef.current?.email === email) {
+          replace(withPatch(saved, await readUnsent(email)));
+        }
+        return true;
+      } catch (err) {
+        if (isRetryable(err)) return false;
+        // Refused: one field at a time, so only what the server won't take is let go
+        if (!alone) {
+          for (const one of eachField(patch)) if (!(await send(one, true))) return false;
+          return true;
+        }
+        await settleUnsent(email, patch);
+        showError(err, 'Could not save your settings');
+        void queryClient.invalidateQueries({ queryKey: ME_KEY });
+        return true;
       }
-    } catch (err) {
-      if (isRetryable(err)) return;
-      await settleUnsent(email, unsent);
-      showError(err, 'Could not save your settings');
-      void queryClient.invalidateQueries({ queryKey: ME_KEY });
+    };
+    try {
+      await send(unsent, eachField(unsent).length === 1);
     } finally {
       sending.current = false;
     }

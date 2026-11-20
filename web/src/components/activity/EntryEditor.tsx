@@ -182,7 +182,7 @@ export default function EntryEditor({
       nextTime && update.amountCents != null
         ? [{ op: 'updateRecurring', id: item.id, amountCents: update.amountCents }]
         : [];
-    if (!sendEdit(update, more, { typedIn, home, quote })) {
+    if (!sendEdit(update, more, { typedIn, home, quote, day: update.date ?? editing.date })) {
       setErrors({ currency: `Needs a rate for ${typedIn}. Connect to fetch one.` });
       return false;
     }

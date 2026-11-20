@@ -206,7 +206,7 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
               ? { ...r, recurring: { ...r.recurring, amountCents: comesTo } }
               : r,
           );
-    if (!sendEdit(update, more, { typedIn, home, quote })) {
+    if (!sendEdit(update, more, { typedIn, home, quote, day: update.date ?? editing.date })) {
       setAmountError(`Needs a rate for ${typedIn}. Connect to fetch one.`);
       return;
     }

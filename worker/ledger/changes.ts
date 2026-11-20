@@ -77,7 +77,7 @@ import { changeFingerprint, receiptStatements, savedReceipts } from './receipts'
 import { DEFAULT_SETTINGS } from '../../shared/api';
 import { convertSignedCents, isEntryCurrency } from '../../shared/rates';
 import type { Rate } from '../currency/exchange-rates';
-import { RatesUnavailable } from '../currency/exchange-rates';
+import { NoRate, RatesUnavailable } from '../currency/exchange-rates';
 import { type Typed, TypedTooLarge, typedIn, typedStatements } from '../currency/typed-in';
 
 /** A change that can't be saved, with the status and reason the API answers with */
@@ -1606,6 +1606,8 @@ export async function applyChanges(
               .first<string>('date'),
         }));
       } catch (err) {
+        // No service has a rate for it: refused, to review. One that's down: tried again.
+        if (err instanceof NoRate) return fail(err.message, 400);
         if (err instanceof RatesUnavailable) return fail(err.message, 503);
         if (err instanceof TypedTooLarge) return fail(err.message, 400);
         throw err;

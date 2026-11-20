@@ -164,6 +164,31 @@ describe('the main currency and the list', () => {
 });
 
 describe('an entry typed in another currency', () => {
+  it('is refused, saying why, when neither service has a rate for it on any day', async () => {
+    const { who, wallet } = await withWallet('norate');
+    // No test gives the Icelandic krona a rate, today or on any day
+    const answer = await send(who, [spend(wallet, 5_000, freshDay())], ['ISK']);
+    expect(answer).toEqual({
+      status: 400,
+      data: expect.objectContaining({ error: 'No rate for ISK to MYR is available' }),
+    });
+    expect(await entries(who, wallet)).toEqual([]);
+  });
+
+  it('is tried again later (503) while the rate services are down', async () => {
+    const { who, wallet } = await withWallet('ratesdown');
+    api.rates.down('frankfurter', true);
+    api.rates.down('wise', true);
+    try {
+      const answer = await send(who, [spend(wallet, 5_000, freshDay())], ['RON']);
+      expect(answer.status).toBe(503);
+    } finally {
+      api.rates.down('frankfurter', false);
+      api.rates.down('wise', false);
+    }
+    expect(await entries(who, wallet)).toEqual([]);
+  });
+
   it('is converted at its own day’s rate, keeping the currency, amount and rate typed', async () => {
     const { who, wallet } = await withWallet('thb');
     const day = freshDay();

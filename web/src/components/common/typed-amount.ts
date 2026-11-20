@@ -16,6 +16,15 @@ export const typedAmount = (t: Pick<Transaction, 'original'>, sign: string) =>
 /** Beside an entry typed offline with no rate known yet, in place of what it came to */
 export const CONVERSION_PENDING = 'conversion pending';
 
+/**
+ * Said beside totals while entries in them wait for a rate (each counted as nothing):
+ * "Leaves out 1 entry waiting for a rate"; null with none
+ */
+export function leavesOutText(transactions: readonly Pick<Transaction, 'original'>[]) {
+  const n = transactions.filter((t) => t.original?.pending).length;
+  return n === 0 ? null : `Leaves out ${n === 1 ? '1 entry' : `${n} entries`} waiting for a rate`;
+}
+
 /** Where a rate came from, as it's said */
 export const SOURCE_NAMES = { wise: 'Wise', frankfurter: 'the ECB' } as const;
 

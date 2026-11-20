@@ -187,8 +187,13 @@ failure undoes them as before. The picture and the home currency still need a co
   kept as the device's copy, so a preference saved online shows when the app is next
   opened offline. A field changed again while one was on its way stays to send. A waiting
   patch is kept for its own account when someone else signs in here (`UNSENT_PREFIXES`)
-  and dropped on signing out; sending it twice changes nothing, so it carries no ids. The
-  service worker doesn't send it: the app does when next open.
+  and dropped on signing out, which asks first, naming the settings ("Your change to Start
+  with hasn't been saved yet. Signing out removes it from this device."). Each change to it
+  reads and writes it under a lock per person (`mahnee-profile-outbox:<email>`), so quick
+  changes never lose one another. A waiting patch the server refuses is sent again a field
+  at a time, so only the field it won't take is let go (and said). Sending it twice changes
+  nothing, so it carries no ids. The service worker doesn't send it: the app does when next
+  open.
 - Theme and accent are also kept in `localStorage` (`sf-appearance`), so the first
   screen paints in the right colours before the profile loads.
 - Each stored accent is drawn in its own colour ([theme/theme.ts](../web/src/theme/theme.ts),
@@ -1410,7 +1415,10 @@ changing it (its first due date the next one after the person's own today).
   occurrence of an item that doesn't ask first, due on or before today in its copy of the
   ledger, shows in Home's Due now as projected ("Scheduled, adds when back online", no
   buttons; `addedOnReturn` in `forecast.ts`), never queued, so once back the server's one
-  entry replaces it. Missed runs are caught up from the item's next due
+  entry replaces it. It's worked out as the run does: by the day in the person's stored
+  time zone (none without one), skipping items on an archived account or category and
+  while converting, at most `MAX_POSTED_PER_ITEM` of one item and `MAX_POSTED_PER_RUN` in
+  all. Missed runs are caught up from the item's next due
   date, oldest first, at most 31 occurrences of one item and 200 entries a run; the rest
   come in the runs after. Someone with no stored time zone is left until the app sends one.
 - **Asks first (D19, "Ask once, then automatic").** An item that was overdue when 0009 ran,
@@ -1849,6 +1857,8 @@ is shown, marked `fromDevice`.
   preview and on the server.
 - An amount asked about is at most `MAX_AMOUNT`; a rate outside `MIN_RATE` to `MAX_RATE`
   is never used.
+- A service answering that it has no rate for a pair (Frankfurter 404 or 422, Wise 400,
+  404 or 422) is not down: with every service answering so and no copy kept, it's `NoRate`.
 - An earlier day's rate is the ECB's for that day (the working day before, on a
   weekend), else Wise's (its history covers TWD and VND), else the closest earlier day
   either has within `MAX_EARLIER_DAYS` (7), else today's. Its time (`rate_at`) is always on
@@ -1970,14 +1980,21 @@ deleted entries back as they were typed. Travel sense is
 **Invariants.**
 
 - One conversion path: the server converts on saving; the app's figure is a preview.
-- Offline with no rate for the pair on the device (one never asked for here, or Add's
-  rate failing for want of a connection), a one-off entry still saves as typed: Add says
+- Offline with no rate for the pair on the device (one never asked for here), a one-off
+  entry still saves as typed: Add says
   "Conversion pending: converted at the rate of Nov 12 once online", and until saved the
   entry shows "−THB 120.00" with "conversion pending" (its `original.pending`, the device's
   alone) and counts as 0 in every total. The server converts it on saving at the entry's
-  own day's rate, as any typed entry. A repeating one still needs a rate. Offline Activity
+  own day's rate, as any typed entry. A repeating one still needs a rate, and so does any
+  entry online: a rate that can't be had with a connection still reads "Needs a rate for
+  JPY". Edited offline (amount, day), it stays pending on its new day (`sendEdit`); deleted,
+  Undo puts it back pending. Activity and an account's page say "Leaves out 1 entry waiting
+  for a rate" while one is listed. The server refuses (400, "No rate for ISK to MYR is
+  available", kept for Review) a pair no service has a rate for on the day, the days before
+  it or today; a service that's down is 503, tried again. Offline Activity
   reads which accounts' history to search from the kept ledger, after waiting up to 5
-  seconds for the profile, when it opens before the ledger has loaded.
+  seconds for the profile, when it opens before the ledger has loaded. History is never
+  read while the currency amounts are in isn't known.
 - What was typed is kept (currency, cents, rate, source, when), and an entry converted past
   `MAX_TRANSACTION_CENTS` is refused; Add says "Comes to more than 10,000,000 MYR" first.
   Typed in another currency, the figure may go past `MAX_TRANSACTION` (an IDR 15,000,000

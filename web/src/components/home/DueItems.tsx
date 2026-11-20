@@ -5,6 +5,9 @@ import type { Recurring } from '@shared/api';
 import { change, isDueOn } from '../../ledger/ledger';
 import { addedOnReturn, dueNow } from '../../ledger/forecast';
 import { useWholeLedger } from '../../ledger/useLedger';
+import { useProfile } from '../../profile/ProfileContext';
+import { isConverting } from '@shared/api';
+import { dayIn } from '@shared/scheduled';
 import { toDateInput } from '../../utils/date-input';
 import { newId } from '../../utils/id';
 import { showUndo } from '../common/undo-toast';
@@ -22,10 +25,18 @@ import { dueText, recurringName, shortDay } from './recurring-text';
 export default function DueItems() {
   const { data: ledger } = useWholeLedger();
   const { online } = useNetwork();
+  const { profile } = useProfile();
   if (ledger == null) return null;
   const today = toDateInput(new Date());
   const due = dueNow(ledger, today);
-  const projected = online ? [] : addedOnReturn(ledger, today);
+  // Not while amounts convert into a new currency: the server adds nothing then either
+  const zone = profile?.settings.timeZone ?? null;
+  const projected =
+    online || profile == null || isConverting(profile)
+      ? []
+      : addedOnReturn(ledger, Date.now(), zone);
+  // The person's own day, as the server counts it
+  const zoneToday = (zone == null ? null : dayIn(zone, Date.now())) ?? today;
   if (due.length === 0 && projected.length === 0) return null;
   return (
     <section
@@ -36,6 +47,7 @@ export default function DueItems() {
         <ProjectedRow
           key={`${recurring.id}:${day}`}
           due={day}
+          today={zoneToday}
           text={dueText(recurring, ledger.accounts, ledger.categories)}
         />
       ))}
@@ -53,7 +65,7 @@ export default function DueItems() {
 }
 
 /** An occurrence the server adds on its day, shown until this device hears of it */
-function ProjectedRow({ due, text }: { due: string; text: string }) {
+function ProjectedRow({ due, today, text }: { due: string; today: string; text: string }) {
   const id = useId();
   return (
     <div
@@ -64,7 +76,7 @@ function ProjectedRow({ due, text }: { due: string; text: string }) {
       <div className={classes.dueText}>
         <span id={id}>{text}</span>
         <span className={classes.dueDay}>
-          {due === toDateInput(new Date()) ? 'Due today' : `Was due ${shortDay(due)}`}
+          {due >= today ? 'Due today' : `Was due ${shortDay(due)}`}
         </span>
         <span className={classes.dueDay}>Scheduled, adds when back online</span>
       </div>

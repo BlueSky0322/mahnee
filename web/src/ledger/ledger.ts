@@ -653,13 +653,15 @@ function profileShown(): Promise<void> {
 /** A page of a list from the history on this device, or null when it holds none of it */
 async function pageOnDevice(key: TransactionsKey, before: string | null) {
   const [, by, value] = key;
+  // Opened offline straight onto a list, the profile (which says what currency amounts are
+  // in) may still be on its way: read nothing until it's known
+  if (homeCurrency() == null) await profileShown();
   if (by === 'account') return localAccountPage(value, before, homeCurrency());
   const query = readSearch(new URLSearchParams(value));
   if ('error' in query) return null;
   // Opened offline straight onto Activity, the ledger may still be on its way: its copy kept
   // on the device says which accounts' history to read meanwhile, once the profile says
   // which currency amounts are in (a history kept in another one isn't read as current)
-  if (confirmed == null) await profileShown();
   const ledger =
     confirmed ??
     (homeCurrency() == null
@@ -713,7 +715,7 @@ export async function transactionsSince(
     const kept = await readCache<TransactionPage>(pageCacheKey(accountId));
     const loaded = queryClient.getQueryData<Pages>(key)?.pages ?? [];
     // The history on this device, as far as it goes
-    const local = await localSince(accountId, fromDay);
+    const local = await localSince(accountId, fromDay, homeCurrency());
     const byId = new Map(
       [
         ...(local?.transactions ?? []),

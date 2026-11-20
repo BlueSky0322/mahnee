@@ -10,6 +10,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_CATEGORIES } from '../../shared/categories';
+import type { Original } from '../../shared/api';
 import type { LocalWorker } from './local-worker';
 import { startLocalWorker } from './local-worker';
 
@@ -179,6 +180,7 @@ describe('an entry typed in another currency', () => {
           rate: 0.1275,
           source: 'frankfurter',
           at: Date.parse(`${day}T12:00:00Z`),
+          day,
         },
       }),
     ]);
@@ -232,6 +234,33 @@ describe('an entry typed in another currency', () => {
         at: Date.parse(`${earlier}T12:00:00Z`),
       },
     });
+  });
+
+  it('asks the services about each day once in a batch, whichever entry it is for', async () => {
+    const { who, wallet } = await withWallet('twd');
+    const days = Array.from({ length: 8 }, () => freshDay());
+    // Only Wise, and only the first of these days, has a rate
+    api.rates.setOn(days[0], 'TWD', 'MYR', 0.14, 'wise');
+    const before = api.rates.asked('TWD', 'MYR');
+    const [first, second] = [spend(wallet, 1_000, days[6]), spend(wallet, 2_000, days[7])];
+    expect(await send(who, [first, second], ['TWD', 'TWD'])).toEqual({
+      status: 200,
+      data: { ok: true },
+    });
+    // The first asks both services about its day and the 6 before; the second only about
+    // its own day, finding the same rate
+    expect(api.rates.asked('TWD', 'MYR') - before).toBe(14 + 2);
+    const saved = (await entries(who, wallet)).map((t) => t.original as Original);
+    expect(saved.sort((a, b) => a.cents - b.cents)).toEqual(
+      [1_000, 2_000].map((cents) => ({
+        currency: 'TWD',
+        cents,
+        rate: 0.14,
+        source: 'wise',
+        at: Date.parse(`${days[0]}T12:00:00Z`),
+        day: days[0],
+      })),
+    );
   });
 
   it('is refused in a currency the app can’t convert, and nothing is saved', async () => {

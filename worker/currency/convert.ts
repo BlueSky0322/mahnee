@@ -35,6 +35,8 @@ export interface Rate {
   rate: number;
   source: FetchedRateSource;
   fetchedAt: number;
+  /** For an earlier day's rate, the calendar day it's from */
+  day?: string;
 }
 
 /** One conversion's next step, sent to the queue */
@@ -47,10 +49,15 @@ export interface ConvertJob {
 /** Transactions worked out in one step: few enough rates to fetch within one run */
 export const PAGE = 200;
 /**
- * How many times a conversion is started again (stalled, or found with worked-out amounts
- * gone) before it's given back
+ * How many times in a row a stalled conversion is started again before it's given back;
+ * a step that moves on starts the count afresh
  */
 export const MAX_RESTARTS = 3;
+/**
+ * How many times a conversion starts over from its first transaction (found with
+ * worked-out amounts gone) before it's given back, however far it got each time
+ */
+export const MAX_START_OVERS = 3;
 /** A conversion that hasn't moved on for this long is started again when the person reads it */
 export const STALLED_MS = 2 * 60 * 1000;
 /** Budget rows worked out in one statement, well within D1's statement size */
@@ -61,8 +68,11 @@ const CHUNK = 500;
  */
 export const SWAP_CHUNK = 10_000;
 
-/** The rate from one currency into another for a day (2026-11-05) */
-export type FetchRate = (from: string, to: string, day: string) => Promise<Rate>;
+/**
+ * The rate from one currency into another for a day (2026-11-05), or null once the step
+ * has asked for as many rates as one run may: the rest wait for the next step
+ */
+export type FetchRate = (from: string, to: string, day: string) => Promise<Rate | null>;
 
 /** An amount as it is now, and what it was typed as, if it was converted before */
 interface Amount {
@@ -83,6 +93,7 @@ type Staged = [
   rate: number | null,
   rateSource: FetchedRateSource | null,
   rateAt: number | null,
+  rateDay: string | null,
 ];
 
 /** How an amount is converted and how large it may be once it is */
@@ -95,13 +106,16 @@ const RULES: Record<ConversionLimit, { signed: boolean }> = {
   opening: { signed: true },
 };
 
-/** Converts amounts into `to`, or names the limit one of them would go past */
+/**
+ * Converts amounts into `to`, or names the limit one of them would go past. Stops early,
+ * with those converted so far, once no more rates can be had in this step.
+ */
 async function stage(
   amounts: Amount[],
   limit: ConversionLimit,
   from: string,
   to: string,
-  rateOf: (currency: string, day: string) => Promise<Rate>,
+  rateOf: (currency: string, day: string) => Promise<Rate | null>,
 ): Promise<Staged[] | ConversionLimit> {
   const { signed } = RULES[limit];
   const staged: Staged[] = [];
@@ -110,21 +124,23 @@ async function stage(
     const typedIn = a.originalCurrency ?? from;
     const typed = a.originalCents ?? a.cents;
     if (typedIn === to) {
-      staged.push([a.key, typed, null, null, null, null, null]);
+      staged.push([a.key, typed, null, null, null, null, null, null]);
       continue;
     }
-    const { rate, source, fetchedAt } = await rateOf(typedIn, a.day);
+    const found = await rateOf(typedIn, a.day);
+    if (found == null) return staged;
+    const { rate, source, fetchedAt, day = null } = found;
     // An amount above zero stays above zero: a cent at the least
     const cents = signed ? convertSignedCents(typed, rate) : Math.max(1, convertCents(typed, rate));
     if (!Number.isSafeInteger(cents) || Math.abs(cents) > MAX_TRANSACTION_CENTS) return limit;
-    staged.push([a.key, cents, typedIn, typed, rate, source, fetchedAt]);
+    staged.push([a.key, cents, typedIn, typed, rate, source, fetchedAt, day]);
   }
   return staged;
 }
 
 /** Rates fetched once per currency and day within a step */
 function rateKeeper(to: string, fetchRate: FetchRate) {
-  const kept = new Map<string, Promise<Rate>>();
+  const kept = new Map<string, Promise<Rate | null>>();
   return (currency: string, day: string) => {
     const key = `${currency} ${day}`;
     let rate = kept.get(key);
@@ -146,11 +162,13 @@ export interface ConversionRow {
   afterId: string;
   touchedAt: number;
   restarts: number;
+  startOvers: number;
   refused: ConversionRefusal | null;
 }
 
 export const SELECT_CONVERSION = `SELECT from_currency AS "from", to_currency AS "to", since, phase,
-    after_date AS afterDate, after_id AS afterId, touched_at AS touchedAt, restarts, refused
+    after_date AS afterDate, after_id AS afterId, touched_at AS touchedAt, restarts,
+    start_overs AS startOvers, refused
   FROM conversions WHERE email = ?`;
 
 export const readConversionRow = (db: D1Database, email: string) =>
@@ -208,10 +226,11 @@ function stageStatements(
       db
         .prepare(
           `INSERT OR REPLACE INTO conversion_staged
-             (email, kind, key, cents, original_currency, original_cents, rate, rate_source, rate_at)
+             (email, kind, key, cents, original_currency, original_cents, rate, rate_source, rate_at,
+              rate_day)
            SELECT ?1, ?3, json_extract(value, '$[0]'), json_extract(value, '$[1]'),
              json_extract(value, '$[2]'), json_extract(value, '$[3]'), json_extract(value, '$[4]'),
-             json_extract(value, '$[5]'), json_extract(value, '$[6]')
+             json_extract(value, '$[5]'), json_extract(value, '$[6]'), json_extract(value, '$[7]')
            FROM json_each(?4) WHERE ${STILL}`,
         )
         .bind(email, since, kind, JSON.stringify(staged.slice(i, i + CHUNK))),
@@ -259,7 +278,7 @@ const swap = (
     .prepare(
       `UPDATE ${table} SET ${amount} = s.cents, original_currency = s.original_currency,
          original_cents = s.original_cents, rate = s.rate, rate_source = s.rate_source,
-         rate_at = s.rate_at
+         rate_at = s.rate_at${table === 'transactions' ? ', rate_day = s.rate_day' : ''}
        FROM conversion_staged s
        WHERE s.email = ?1 AND s.kind = ?3 AND ${table}.email = ?1 AND ${match} AND ${STILL}
          ${rows == null ? '' : 'AND s.rowid BETWEEN ?4 AND ?5'}`,
@@ -331,12 +350,15 @@ export async function convertStep(
       await release(db, { email, since }, staged);
       return false;
     }
-    const last = page[page.length - 1];
+    // As far as this step's rates went; the next step carries on from there
+    if (staged.length === 0) throw new Error('No rate could be had for a transaction');
+    const last = page[staged.length - 1];
     const results = await db.batch([
       ...stageStatements(db, email, since, 'transaction', staged),
+      // Moving on: a stall before this one no longer counts
       db
         .prepare(
-          `UPDATE conversions SET after_date = ?5, after_id = ?6, touched_at = ?7
+          `UPDATE conversions SET after_date = ?5, after_id = ?6, touched_at = ?7, restarts = 0
            WHERE email = ?1 AND since = ?2 AND phase = 'converting'
              AND after_date = ?3 AND after_id = ?4`,
         )
@@ -348,7 +370,7 @@ export async function convertStep(
 
   // Every transaction is worked out: the rest at the rate on the day of the switch
   const day = rateDay(since);
-  const [accounts, budgets, recurring, imports] = await db.batch([
+  const [accounts, budgets, recurring, imports, already] = await db.batch([
     db
       .prepare(
         `SELECT id AS key, opening_cents AS cents, original_currency AS originalCurrency,
@@ -381,20 +403,47 @@ export async function convertStep(
          WHERE email = ?1 AND (opening_change_cents <> 0 OR opening_change_currency IS NOT NULL)`,
       )
       .bind(email, day),
+    // Worked out by an earlier step that ran out of rates: not asked for again
+    db
+      .prepare(
+        `SELECT kind || ' ' || key AS key FROM conversion_staged
+         WHERE email = ?1 AND kind <> 'transaction'`,
+      )
+      .bind(email),
   ]);
+  const workedOut = new Set((already.results as { key: string }[]).map((r) => r.key));
   const staged: [string, string, Staged[]][] = [];
+  let short = false;
   for (const [kind, limit, rows] of [
     ['account', 'opening', accounts],
     ['budget', 'budget', budgets],
     ['recurring', 'scheduled', recurring],
     ['import', 'opening', imports],
   ] as const) {
-    const done = await stage(rows.results as Amount[], limit, from, to, rateOf);
+    const amounts = (rows.results as Amount[]).filter((a) => !workedOut.has(`${kind} ${a.key}`));
+    const done = short ? [] : await stage(amounts, limit, from, to, rateOf);
     if (typeof done === 'string') {
       await release(db, { email, since }, done);
       return false;
     }
+    if (done.length < amounts.length) short = true;
     staged.push([kind, limit, done]);
+  }
+  if (short) {
+    // Out of rates: what was worked out is kept, and the next step goes on from there
+    if (staged.every(([, , rows]) => rows.length === 0)) {
+      throw new Error('No rate could be had for an amount');
+    }
+    const results = await db.batch([
+      ...staged.flatMap(([kind, , rows]) => stageStatements(db, email, since, kind, rows)),
+      db
+        .prepare(
+          `UPDATE conversions SET touched_at = ?3, restarts = 0
+           WHERE email = ?1 AND since = ?2 AND phase = 'converting'`,
+        )
+        .bind(email, since, Date.now()),
+    ]);
+    return (results.at(-1)?.meta.changes ?? 0) > 0;
   }
 
   // Every transaction has to be worked out, or some would stay in the old currency: if any
@@ -410,16 +459,16 @@ export async function convertStep(
     )
     .bind(email)
     .first<{ held: number; worked: number; low: number | null; high: number | null }>();
-  // That counts as starting again, and too many give the currency back
+  // Counted however far it gets each time, and too many give the currency back
   if (counts == null || counts.held !== counts.worked) {
-    if (conversion.restarts >= MAX_RESTARTS) {
+    if (conversion.startOvers >= MAX_START_OVERS) {
       await release(db, { email, since }, 'rates');
       return false;
     }
     await db
       .prepare(
         `UPDATE conversions SET after_date = '', after_id = '', touched_at = ?3,
-           restarts = restarts + 1
+           start_overs = start_overs + 1
          WHERE email = ?1 AND since = ?2 AND phase = 'converting'`,
       )
       .bind(email, since, Date.now())
@@ -473,4 +522,33 @@ export async function convertStep(
       .bind(email, since),
   ]);
   return false;
+}
+
+/**
+ * A conversion that hasn't moved on for STALLED_MS past when it was last due (a step never
+ * queued, or one lost) is started again (`queue` sends its next step): marked as moved on
+ * first, so readers at once don't each queue it. After MAX_RESTARTS in a row without
+ * moving on, it's given back.
+ */
+export async function restartIfStalled(
+  db: D1Database,
+  email: string,
+  queue: (job: ConvertJob) => Promise<void>,
+  now = Date.now(),
+) {
+  const row = await readConversionRow(db, email);
+  if (row?.phase !== 'converting' || now - row.touchedAt < STALLED_MS) return;
+  const job = { email, since: row.since };
+  if (row.restarts >= MAX_RESTARTS) {
+    await release(db, job, 'rates');
+    return;
+  }
+  const { meta } = await db
+    .prepare(
+      `UPDATE conversions SET touched_at = ?3, restarts = restarts + 1
+       WHERE email = ?1 AND since = ?2 AND phase = 'converting' AND touched_at = ?4`,
+    )
+    .bind(email, row.since, now, row.touchedAt)
+    .run();
+  if (meta.changes > 0) await queue(job);
 }

@@ -5,20 +5,14 @@
 // the person their currency back (release, refused for `rates`): nothing was converted, and
 // they can try again later. One that stops some other way (a step never queued) is started
 // again when the person reads their profile, once its next try is well overdue, at most
-// MAX_RESTARTS times before it's given back the same way (restartStalled). Only an error's
-// name and message are logged, never a job: it names the person.
+// MAX_RESTARTS times in a row before it's given back the same way (restartStalled). Only an
+// error's name and message are logged, never a job: it names the person.
 
 import type { Env } from '../app';
 import { getRatePreference } from '../accounts/profiles';
-import {
-  type ConvertJob,
-  MAX_RESTARTS,
-  STALLED_MS,
-  convertStep,
-  readConversionRow,
-  release,
-} from './convert';
-import { getRateOn } from './exchange-rates';
+import type { RatePreference } from '../../shared/api';
+import { type ConvertJob, type FetchRate, convertStep, release, restartIfStalled } from './convert';
+import { LookupsSpent, RateLookups, getRateOn } from './exchange-rates';
 
 /** The first retry waits this long, giving the rate services a moment to come back */
 const FIRST_RETRY_S = 30;
@@ -44,12 +38,26 @@ export async function queueConversion(env: Env, job: ConvertJob) {
   }
 }
 
+/**
+ * The rates one step converts at, as the person prefers them: each day asked for once in
+ * the step, and none once the step has asked as often as one run may (null: the rest wait
+ * for the next step). A service that's down still throws, so the step is tried again.
+ */
+export function stepRates(env: Env, prefer: RatePreference): FetchRate {
+  const lookups = new RateLookups();
+  return (from, to, day) =>
+    getRateOn(env, from, to, Date.parse(`${day}T12:00:00Z`), { prefer, lookups }).catch(
+      (err: unknown) => {
+        if (err instanceof LookupsSpent) return null;
+        throw err;
+      },
+    );
+}
+
 /** Takes a conversion one step on, at the rates the person prefers, queueing the next */
 async function step(env: Env, job: ConvertJob) {
   const prefer = await getRatePreference(env.DB, job.email);
-  const more = await convertStep(env.DB, job, (from, to, day) =>
-    getRateOn(env, from, to, Date.parse(`${day}T12:00:00Z`), { prefer }),
-  );
+  const more = await convertStep(env.DB, job, stepRates(env, prefer));
   // Thrown, so the step is tried again: it carries on from where this one got to
   if (more) await env.CONVERT_QUEUE.send(job);
 }
@@ -106,23 +114,8 @@ export const handleConvertQueue = (batch: MessageBatch<ConvertJob>, env: Env) =>
     : handleConvertBatch(batch, env);
 
 /**
- * A conversion that hasn't moved on for STALLED_MS past when it was last due (a step never
- * queued, or one lost) is started again: marked as moved on first, so readers at once
- * don't each queue it. After MAX_RESTARTS without moving on, it's given back.
+ * Starts a stalled conversion again when the person reads their profile (restartIfStalled in
+ * convert.ts), queueing its next step
  */
-export async function restartStalled(env: Env, email: string, now = Date.now()) {
-  const row = await readConversionRow(env.DB, email);
-  if (row?.phase !== 'converting' || now - row.touchedAt < STALLED_MS) return;
-  const job = { email, since: row.since };
-  if (row.restarts >= MAX_RESTARTS) {
-    await release(env.DB, job, 'rates');
-    return;
-  }
-  const { meta } = await env.DB.prepare(
-    `UPDATE conversions SET touched_at = ?3, restarts = restarts + 1
-     WHERE email = ?1 AND since = ?2 AND phase = 'converting' AND touched_at = ?4`,
-  )
-    .bind(email, row.since, now, row.touchedAt)
-    .run();
-  if (meta.changes > 0) await queueConversion(env, job);
-}
+export const restartStalled = (env: Env, email: string, now = Date.now()) =>
+  restartIfStalled(env.DB, email, (job) => queueConversion(env, job), now);

@@ -18,6 +18,9 @@
 }
 
 .name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.02em;

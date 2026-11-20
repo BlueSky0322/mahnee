@@ -265,13 +265,15 @@ describe('updating the kept page', () => {
 describe('keeping what installing the app reads', () => {
   const read = (file: string) =>
     readFileSync(fileURLToPath(new NodeURL(`../../${file}`, import.meta.url)), 'utf8');
-  /** The manifest, each icon it names, and the iPhone icon the page links to */
+  /** The manifest, each icon it names, and the iPhone and browser tab icons the page links */
   const installFiles = () => {
     const manifest = JSON.parse(read('public/manifest.webmanifest')) as {
       icons: { src: string }[];
     };
-    const touch = /rel="apple-touch-icon"\s+href="([^"]+)"/.exec(read('index.html'))![1];
-    return ['/manifest.webmanifest', ...manifest.icons.map((i) => i.src), touch].sort();
+    const page = read('index.html');
+    const touch = /rel="apple-touch-icon"\s+href="([^"]+)"/.exec(page)![1];
+    const tab = [...page.matchAll(/rel="icon"[^>]*?href="([^"]+)"/g)].map((m) => m[1]);
+    return ['/manifest.webmanifest', ...manifest.icons.map((i) => i.src), touch, ...tab].sort();
   };
   const serving = (files: string[]) =>
     Object.fromEntries(

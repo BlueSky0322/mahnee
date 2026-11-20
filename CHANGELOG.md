@@ -15,6 +15,7 @@ For agents:
 ## 2026-11-20
 
 - Fixed: a change is kept on the device the moment it's made, even while another is saving; one the server refuses waits for you to try again or discard it, and the rest still save [#?]
+- Changed: the new logo, a hand holding a coin, in the app, the browser tab and the installed app; in the app its tile takes your accent and theme [#57]
 
 ## 2026-11-19
 
@@ -150,3 +151,4 @@ For agents:
 [#54]: https://github.com/BlueSky0322/mahnee/pull/54
 [#55]: https://github.com/BlueSky0322/mahnee/pull/55
 [#56]: https://github.com/BlueSky0322/mahnee/pull/56
+[#57]: https://github.com/BlueSky0322/mahnee/pull/57

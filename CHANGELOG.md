@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-20
 
-- Fixed: a preference changed offline and not sent yet stays shown when the app opens online, even before the server takes it [#?]
+- Fixed: a preference changed offline and not sent yet stays shown when the app opens online, even before the server takes it [#70]
 - Fixed: Sign out pressed just after opening the app waits to see what's still unsaved on this device, and asks first, instead of signing out and losing it [#69]
 - Changed: a phone's Essentials Home shows spent so far, today against the median, the week's biggest spend and the last 7 days; Getting started folds what's done [#67]
 - Changed: Plan says No budget with one Set a budget for the category picked; Accounts and the first run stop repeating figures and hints [#66]
@@ -181,3 +181,4 @@ For agents:
 [#66]: https://github.com/BlueSky0322/mahnee/pull/66
 [#67]: https://github.com/BlueSky0322/mahnee/pull/67
 [#69]: https://github.com/BlueSky0322/mahnee/pull/69
+[#70]: https://github.com/BlueSky0322/mahnee/pull/70

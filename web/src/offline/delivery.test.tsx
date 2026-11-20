@@ -454,6 +454,60 @@ describe('signing out', () => {
     expect(item.getByText('Account not found')).toBeTruthy();
   });
 
+  test('asks, once it knows, when Sign out is pressed before the device has been read', async () => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
+    renderApp(server, '/?accounts');
+    await row('Wallet');
+    // The server can't take changes for now: the rename waits on the device
+    server.pathsDown.add('/api/changes');
+    await rename('Wallet', 'Purse');
+    await waitFor(async () => expect(await keptForRyan()).toHaveLength(1));
+    // Opened again on a slow connection: until the server says who's signed in, the page
+    // can't read what this device keeps for them
+    const me = holdNext(server, 'GET', '/api/me');
+    await reloadApp(server, '/?settings');
+    const sentTo = watchLeaving();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
+    expect(sentTo).toEqual([]);
+    me.release();
+    const asking = within(await dialog());
+    expect(asking.getByText(/1 change hasn't been saved yet/)).toBeTruthy();
+    await user.click(asking.getByRole('button', { name: 'Stay signed in' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(sentTo).toEqual([]);
+    expect(await keptForRyan()).toHaveLength(1);
+  });
+
+  test('asks anyway when what the device keeps still can not be read', async () => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
+    renderApp(server, '/?accounts');
+    await row('Wallet');
+    server.pathsDown.add('/api/changes');
+    await rename('Wallet', 'Purse');
+    await waitFor(async () => expect(await keptForRyan()).toHaveLength(1));
+    // The server never says who's signed in
+    holdNext(server, 'GET', '/api/me');
+    await reloadApp(server, '/?settings');
+    const sentTo = watchLeaving();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+    const asking = within(await dialog());
+    expect(
+      asking.getByText(
+        "Changes on this device are still being checked. Signing out now may remove ones that haven't been saved.",
+      ),
+    ).toBeTruthy();
+    expect(sentTo).toEqual([]);
+    await user.click(asking.getByRole('button', { name: 'Sign out anyway' }));
+    await waitFor(() => expect(sentTo).toEqual(['/cdn-cgi/access/logout']));
+  });
+
   test('with nothing waiting, signs out straight away', async () => {
     const server = fakeServer();
     renderApp(server, '/?settings');

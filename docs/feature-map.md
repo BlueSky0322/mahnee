@@ -2211,6 +2211,9 @@ account's saved copy ([ProfileContext](../web/src/profile/ProfileContext.tsx)).
   reloads. Signing out drops everything kept for the account, its unsaved changes too,
   after asking when any are waiting
   ([components/common/useConfirmSignOut.tsx](../web/src/components/common/useConfirmSignOut.tsx)).
+  It decides only once the device's outbox and unsent preferences have been read
+  (`deviceChangesRead`, `readUnsent`); if that takes over 2 s, it asks anyway, saying the
+  changes are still being checked. It never signs out unasked while changes may wait.
 - The history on the device is read for the signed-in email alone, written only while
   that email is still signed in (a page on its way when the cache is emptied is dropped),
   and deleted with the device's copies. At most `MAX_TRANSACTIONS_PER_ACCOUNT` per

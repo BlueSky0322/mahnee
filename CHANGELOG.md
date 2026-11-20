@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-20
+
+- Changed: the new logo, a hand holding a coin, in the app, the browser tab and the installed app; in the app its tile takes your accent and theme [#?]
+
 ## 2026-11-19
 
 - Changed: the reminder settings say plainly what they do: "Heads-up before scheduled entries", and when reminders come [#56]

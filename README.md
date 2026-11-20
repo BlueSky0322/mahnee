@@ -18,7 +18,7 @@ offline on the device until they're saved.
 | `shared/`     | Code both use: money and exchange-rate arithmetic, and the API's data shapes |
 | `migrations/` | D1 (SQLite) schema changes, applied in order on deploy                       |
 | `docs/`       | Where each feature lives, the data model, and security and recovery          |
-| `tools/`      | Repository checks: the import boundaries, document links and git conventions |
+| `tools/`      | Repository checks (imports, doc links, git conventions) and the icon maker   |
 
 `web/` and `worker/` never import each other; anything both need lives in `shared/`,
 which the app imports as `@shared/...`. `yarn lint` checks this

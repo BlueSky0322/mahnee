@@ -3,6 +3,7 @@ import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { AccountKind } from '@shared/ledger';
 import AccountForm from '../accounts/AccountForm';
 import KindIcon from '../accounts/KindIcon';
+import AppLogo from '../common/AppLogo';
 import YouLink from '../common/YouLink';
 import classes from './Home.module.css';
 
@@ -16,15 +17,19 @@ const KINDS: { kind: AccountKind; name: string; line: string }[] = [
 const count = (kind: 'expense' | 'income') =>
   DEFAULT_CATEGORIES.filter((c) => c.kind === kind && c.parentId == null).length;
 
-// The first run, in place of everything until there's an account: where the money is
-// kept, one kind at a time, each opening Add account with that kind chosen. The round
-// initial still leads to Settings (and Sign out, and the theme in Look and start).
+// The first run, in place of everything until there's an account, under the logo: where
+// the money is kept, one kind at a time, each opening Add account with that kind chosen.
+// The round initial still leads to Settings (and Sign out, and the theme in Look and start).
 export default function FirstRun() {
   const [open, setOpen] = useState<{ account: null; kind: AccountKind } | null>(null);
   return (
     <div className={classes.firstRun}>
       <div className={classes.firstTop}>
-        <p className={classes.brand}>Mahnee</p>
+        <p className={classes.brand}>
+          <AppLogo size={22} />
+          {/* The logo is read out as Mahnee already */}
+          <span aria-hidden="true">Mahnee</span>
+        </p>
         <div className={classes.headerEnd}>
           <YouLink />
         </div>

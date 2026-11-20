@@ -29,13 +29,17 @@ const sheets = [mantineCss(), tokensCss()];
 
 beforeEach(() => {
   const removeStyles = addStyles(sheets);
-  const bar = document.createElement('meta');
-  bar.name = 'theme-color';
-  bar.content = '#000000';
-  document.head.appendChild(bar);
+  // index.html's two, for a light device and a dark one
+  const bars = ['light', 'dark'].map((scheme) => {
+    const bar = document.createElement('meta');
+    bar.name = 'theme-color';
+    bar.media = `(prefers-color-scheme: ${scheme})`;
+    bar.content = '#000000';
+    return document.head.appendChild(bar);
+  });
   return () => {
     removeStyles();
-    bar.remove();
+    bars.forEach((bar) => bar.remove());
   };
 });
 
@@ -99,12 +103,14 @@ describe.each(['light', 'dark'] as const)('the %s theme', (theme) => {
     expect(fontFamilies(field)).not.toContain('Inter');
   });
 
-  test("the phone's status bar takes the ground", async () => {
+  test("the phone's status bar takes the ground, whether the device is light or dark", async () => {
     await openIn(theme);
     await waitFor(() =>
-      expect(document.querySelector('meta[name="theme-color"]')?.getAttribute('content')).toBe(
-        TOKENS[theme]['--ground'],
-      ),
+      expect(
+        Array.from(document.querySelectorAll('meta[name="theme-color"]'), (m) =>
+          m.getAttribute('content'),
+        ),
+      ).toEqual([TOKENS[theme]['--ground'], TOKENS[theme]['--ground']]),
     );
   });
 

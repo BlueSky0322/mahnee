@@ -365,10 +365,20 @@ export const classifySaveFailure = (err: unknown): 'refused' | 'retry' =>
   err instanceof ApiError && !isRetryable(err) ? 'refused' : 'retry';
 
 /**
- * Answers that say nothing about the change: signed out (401), took too long (408), too
- * large or too early for something in between (413, 425), busy (429)
+ * Answers that say nothing about the change: signed out (401), took too long (408, tried
+ * again a few times only: see TIMEOUT_TRIES), too early for something in between (425),
+ * busy (429). A 413 with the server's reason is one change over the size it takes: refused.
  */
-const RETRY_STATUSES = new Set([401, 408, 413, 425, 429]);
+const RETRY_STATUSES = new Set([401, 408, 425, 429]);
+
+/** The server took too long to read a request (408) */
+export const isTimedOut = (err: unknown) => err instanceof ApiError && err.status === 408;
+
+/**
+ * How many times in a row a request may take too long before its changes are held for the
+ * person, with why, rather than tried for ever (waiting 3, 6, 12 and 24 seconds between)
+ */
+export const TIMEOUT_TRIES = 5;
 
 /**
  * Whether a failed send is worth trying again: no connection, busy, something wrong on the

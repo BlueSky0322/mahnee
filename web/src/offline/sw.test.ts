@@ -449,7 +449,9 @@ const answers: [string, Answer, 'sent' | 'retry' | 'refused'][] = [
   ['404, a page from in between', { status: 404, body: '<html>Not found</html>' }, 'retry'],
   ['400 with no reason', { status: 400, body: '{}' }, 'retry'],
   ['408', { status: 408, body: '{"error":"Took too long to send"}' }, 'retry'],
-  ['413', { status: 413, body: '{"error":"Too large"}' }, 'retry'],
+  ['413, a page from in between', { status: 413, body: '<html>Too large</html>' }, 'retry'],
+  // The server's own: one change over the size it takes, held with why
+  ['413', { status: 413, body: '{"error":"Too large"}' }, 'refused'],
   ['425', { status: 425, body: '{"error":"Too early"}' }, 'retry'],
   ['400', { status: 400, body: '{"error":"Invalid change"}' }, 'refused'],
   ['403', { status: 403, body: '{"error":"Not allowed"}' }, 'refused'],

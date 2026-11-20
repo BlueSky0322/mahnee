@@ -589,7 +589,10 @@ async function post(path, body, account) {
   }
   // The same rule as isRetryable in web/src/offline/outbox.ts: busy, a problem on the
   // server's side, or signed out. Nothing wrong with what was sent.
-  if ([401, 408, 413, 425, 429].includes(res.status) || res.status >= 500) {
+  // A 408 is left to the browser, which tries background sync again a few times, waiting
+  // longer each time; the app holds one that keeps timing out (TIMEOUT_TRIES). A 413 with
+  // the server's reason is one change over the size it takes: refused, below.
+  if ([401, 408, 425, 429].includes(res.status) || res.status >= 500) {
     throw new TryLater(`HTTP ${res.status}`);
   }
   // Signed out (Cloudflare Access sends a sign-in page): the app sends it once signed in

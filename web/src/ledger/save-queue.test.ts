@@ -699,3 +699,48 @@ describe('the save queue, with entries it does not know in the outbox', () => {
     expect(await get(outboxKey(RYAN))).toEqual({ email: RYAN, value: [unknown] });
   });
 });
+
+describe('the save queue, when the server says a change is too large or too slow', () => {
+  test('one change over the size the server takes is held with why; the rest still go', async () => {
+    const big = editIn(ACCOUNT_A);
+    const online = server();
+    const send = vi.fn((body: ChangesBody) =>
+      body.changes.some((c) => c.op === 'updateAccount')
+        ? Promise.reject(new ApiError(413, 'Too large', 'Too large'))
+        : online.send(body),
+    );
+    const { queue, events } = await openQueue(send);
+    queue.add([big]);
+    queue.add([expense('1', ACCOUNT_B)]);
+    await vi.waitFor(() => expect(events.idle).toHaveBeenCalled());
+    expect(online.has()).toEqual([expense('1', ACCOUNT_B)]);
+    expect(queue.needsAttention()).toEqual([
+      expect.objectContaining({ reason: 'Too large', changes: [big] }),
+    ]);
+  });
+
+  test('a request that keeps taking too long is tried again, waiting longer, then held with why', async () => {
+    controlTimers();
+    const slow = new ApiError(408, 'Took too long to send', 'Took too long to send');
+    const { send, sent } = answering(() => Promise.reject(slow));
+    const { queue, events } = await openQueue(send);
+    queue.add([editIn(ACCOUNT_A)]);
+    await moveOn(0);
+    expect(sent).toHaveLength(1);
+    for (const wait of [3, 6, 12, 24].map((s) => s * 1000)) {
+      await moveOn(wait - 1);
+      const before = sent.length;
+      await moveOn(1);
+      expect(sent.length).toBe(before + 1);
+    }
+    // The fifth time, it's held for the person rather than tried for ever
+    await vi.waitFor(() =>
+      expect(queue.needsAttention()).toEqual([
+        expect.objectContaining({ reason: 'Took too long to send', changes: [editIn(ACCOUNT_A)] }),
+      ]),
+    );
+    expect(events.failed).toHaveBeenCalledWith(slow);
+    await moveOn(10 * 60_000);
+    expect(sent).toHaveLength(5);
+  });
+});

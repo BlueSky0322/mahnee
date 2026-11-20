@@ -7,8 +7,10 @@ import {
   discardRefused,
   groupsIn,
   heldWith,
+  TIMEOUT_TRIES,
   isOtherAccount,
   isSignedOut,
+  isTimedOut,
   markRefused,
   nextBatch,
   readOwnOutbox,
@@ -34,6 +36,8 @@ import { newId } from '../utils/id';
 //   doubling to a minute while online; offline, once the connection is back).
 // - Signed out, or signed in as someone else now: kept, and tried again on coming back
 //   to the app or the connection coming back, since a timer would only fail until then.
+// - Too large for the server (a 413 with its reason): refused, as below. Taking too long
+//   (408): tried again as above, and held as a refused one is after TIMEOUT_TRIES in a row.
 // - Refused: the server says no to a whole request, so requests are halved until the
 //   change it refuses is found. That change, the rest of what was made with it and what
 //   was made on top of it are kept, with the server's reason, for the person to try again
@@ -157,6 +161,8 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
   let round = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let failures = 0;
+  // Requests in a row the server took too long to read
+  let timeouts = 0;
   let signedOut = false;
   // The last try to keep changes on the device failed
   let keepFailed = false;
@@ -185,20 +191,32 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
   let attention: Refused[] = [];
   let attentionKey = '';
   const listeners = new Set<() => void>();
-  function changed() {
+  // Which changes wait, in short: listeners hear only when it, the state or the refused
+  // ones change, since each hearing works the waiting changes out again on screen
+  let waitingKey = '';
+  function changed(force = false) {
+    const waiting = waitingItems();
     const next: QueueState = {
-      waiting: waitingItems().length,
+      waiting: waiting.length,
       signedOut,
       unkept: keepFailed ? items.filter((i) => !i.kept).length : 0,
-      refused: items.length - waitingItems().length,
+      refused: items.length - waiting.length,
     };
+    let heard = force;
     if ((Object.keys(next) as (keyof QueueState)[]).some((k) => next[k] !== current[k])) {
       current = next;
+      heard = true;
+    }
+    const nowWaiting = `${waiting.length}:${waiting[0]?.cid}:${waiting[waiting.length - 1]?.cid}`;
+    if (nowWaiting !== waitingKey) {
+      waitingKey = nowWaiting;
+      heard = true;
     }
     const refused = items.filter((i) => i.refused != null);
     const key = refused.map((i) => `${i.cid}:${i.refused!.set}`).join(',');
     if (key !== attentionKey) {
       attentionKey = key;
+      heard = true;
       const sets = new Map<string, Refused>();
       for (const i of refused) {
         const { set, reason } = i.refused!;
@@ -209,7 +227,7 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
       }
       attention = [...sets.values()];
     }
-    listeners.forEach((listener) => listener());
+    if (heard) listeners.forEach((listener) => listener());
   }
 
   /** Keeps on the device what this page hasn't yet, in order, after what's there */
@@ -288,7 +306,7 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
     if (unnoted.length > 0) void noteRefused(email, unnoted);
     if (found.length > 0) events.found(found.map(shownOf));
     if (withdrawn) events.withdrawn();
-    changed();
+    changed(found.length > 0 || withdrawn);
     return true;
   }
 
@@ -331,7 +349,14 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
           try {
             await events.send(changesBody(batch));
           } catch (err) {
-            if (mine !== round || classifySaveFailure(err) !== 'refused') throw err;
+            if (mine !== round) throw err;
+            // One that keeps taking too long is held, as a refusal is, after a few tries
+            if (isTimedOut(err)) timeouts++;
+            const refused =
+              classifySaveFailure(err) === 'refused' ||
+              (isTimedOut(err) && timeouts >= TIMEOUT_TRIES);
+            if (!refused) throw err;
+            timeouts = 0;
             refusal = err;
             // The server refuses a request whole: halved until the change it refuses is found
             if (groupsIn(batch) > 1) {
@@ -373,6 +398,7 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
       if (outcome === 'none') break;
       if (outcome === 'saved') {
         failures = 0;
+        timeouts = 0;
         signedOut = false;
         events.saved(
           batch.map(shownOf),
@@ -482,6 +508,7 @@ export function createSaveQueue(events: SaveQueueEvents): SaveQueue {
       signedOut = false;
       keepFailed = false;
       failures = 0;
+      timeouts = 0;
       maxGroups = Infinity;
       clearTimeout(timer);
       if (pickedUp == null) ready = new Promise<void>((resolve) => (pickedUp = resolve));

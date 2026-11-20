@@ -1268,8 +1268,9 @@ day and amount typed where the pane shows them, each in a field's box (R-Desk-Ac
 Under 1200px (`useIsWide`), where the register and the pane don't both fit, there's no
 pane: a row's click or Enter opens it in a dialog whose Delete and Save stay at its foot,
 J and K move the picked row and its focus, and closing gives focus back to the row. The
-window crossing 1200px moves an open edit between the pane and the dialog, typed changes
-and all, so there is only ever one editor. J and K
+window growing or shrinking past where the pane fits (1200px, or 1024px down to a
+tablet's or phone's sheet) moves an open edit between the pane and the dialog or sheet,
+typed changes and all, so there is only ever one editor. J and K
 move the open row, X ticks it, C changes the category of what's ticked (or of the open
 row), and a row's category opens Change category for it alone. Esc closes the top dialog;
 with a row always open, there's no pane to close. Anything that would lose the open entry's changes not saved asks "Save your changes?"

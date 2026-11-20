@@ -203,17 +203,20 @@ export default function ActivityPage({ query }: { query: string }) {
   };
   // J and K moved the row: a narrower computer's row takes the focus, so Enter opens it
   const [moved, setMoved] = useState(0);
-  // The window crossing 1200px moves the editor between the pane and a dialog, one at a
-  // time, with what was typed: the editor's latest, and what the next one starts from
+  // The window growing or shrinking past where the pane fits moves the editor between the
+  // pane and a dialog or sheet, one at a time, with what was typed: the editor's latest, and
+  // what the next one starts from
   const typedNow = useRef<{ id: string; typed: EditorTyped; dirty: boolean } | null>(null);
   const [carried, setCarried] = useState<{ id: string; typed: EditorTyped } | null>(null);
-  const wasInDialog = useRef(inDialog);
+  // Beside the register only on a computer wide enough; anywhere else the row opens over the
+  // page (a dialog, or a phone's or tablet's sheet)
+  const inPane = isDesktop === true && beside === true;
+  const wasInPane = useRef(inPane);
   useEffect(() => {
-    if (wasInDialog.current === inDialog) return;
-    wasInDialog.current = inDialog;
-    if (!isDesktop) return;
+    if (wasInPane.current === inPane) return;
+    wasInPane.current = inPane;
     const typed = typedNow.current;
-    if (inDialog) {
+    if (!inPane) {
       if (open == null || typed?.id !== open.id || !typed.dirty) return;
       setCarried({ id: open.id, typed: typed.typed });
       setSheet(open);
@@ -223,7 +226,7 @@ export default function ActivityPage({ query }: { query: string }) {
       setSheet(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the window crosses over
-  }, [inDialog]);
+  }, [inPane]);
   const startFrom = (id: string) => (carried?.id === id ? carried.typed : undefined);
   const noteTyped = (id: string) => (typed: EditorTyped, changed: boolean) => {
     typedNow.current = { id, typed, dirty: changed };
@@ -607,7 +610,7 @@ export default function ActivityPage({ query }: { query: string }) {
           )}
         </section>
 
-        {isDesktop && beside && sheet == null && open != null && paneTitle != null && (
+        {inPane && sheet == null && open != null && paneTitle != null && (
           <aside
             className={classes.pane}
             aria-label={`${paneTitle}, ${shortDay(open.date, today)}${

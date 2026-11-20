@@ -209,4 +209,29 @@ describe('Activity on a smaller laptop', () => {
     expect(screen.queryByRole('dialog', { name: 'Save your changes?' })).toBeNull();
     expect(sentChanges()).toEqual([]);
   });
+
+  test.each(['tablet', 'phone'] as const)(
+    'an edit beside the register goes into the sheet when the window shrinks to a %s',
+    async (size) => {
+      renderApp(withThree(), '/?activity', { size: 'desktop' });
+      await screen.findByRole('table', { name: 'Transactions' });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const pane = within(within(screen.getByRole('main')).getByRole('complementary'));
+      await user.type(pane.getByRole('textbox', { name: 'Note' }), 'for the office');
+
+      resizeScreen(size);
+      const sheet = within(await screen.findByRole('dialog', { name: 'Kiosk' }));
+      expect(sheet.getByRole('textbox', { name: 'Note' })).toHaveProperty(
+        'value',
+        'for the office',
+      );
+      expect(screen.getAllByRole('textbox', { name: 'Note' })).toHaveLength(1);
+      await user.click(sheet.getByRole('button', { name: /^Save/ }));
+      await waitFor(() =>
+        expect(sentChanges()).toContainEqual(
+          expect.objectContaining({ op: 'updateTransaction', note: 'for the office' }),
+        ),
+      );
+    },
+  );
 });

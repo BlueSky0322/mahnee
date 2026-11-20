@@ -10,13 +10,14 @@ export async function readImports(db: D1Database, email: string): Promise<Recent
   const { results } = await db
     .prepare(
       `SELECT id, file_name AS fileName, account_id AS accountId, added_count AS addedCount,
-              skipped_count AS skippedCount, created_at AS createdAt
+              skipped_count AS skippedCount, opening_change_cents != 0 AS openingChanged,
+              created_at AS createdAt
        FROM imports
        WHERE email = ? AND undone_at IS NULL
        ORDER BY created_at DESC, id DESC
        LIMIT ?`,
     )
     .bind(email, MAX_RECENT_IMPORTS)
-    .all<ImportRecord>();
-  return { imports: results };
+    .all<Omit<ImportRecord, 'openingChanged'> & { openingChanged: 0 | 1 }>();
+  return { imports: results.map((r) => ({ ...r, openingChanged: r.openingChanged === 1 })) };
 }

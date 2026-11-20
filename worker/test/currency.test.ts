@@ -263,6 +263,88 @@ describe('changing the home currency', () => {
     });
   });
 
+  // An import that kept the balance changed the opening balance by what its older rows come
+  // to (RM 10.01 here); its Undo after a change of currency puts the opening balance exactly
+  // where it would be on its own: converted from what was typed, never from the converted sum
+  // less the converted change (USD 250.00 off by a cent here: 252.51 less 2.50, not 250.00)
+  async function keptByImport(name: string) {
+    const who = person(name);
+    const [bank, alone, mine] = [rowId(), rowId(), rowId()];
+    const day = freshDay();
+    await saved(who, [
+      {
+        op: 'addAccount',
+        account: { id: bank, name: 'Bank', kind: 'bank', openingCents: 100_001 },
+      },
+      // The same opening balance, never imported into: what the other should come to
+      {
+        op: 'addAccount',
+        account: { id: alone, name: 'Alone', kind: 'bank', openingCents: 100_001 },
+      },
+      {
+        op: 'addImport',
+        import: { id: mine, fileName: 'bank.csv', accountId: bank, addedCount: 2, skippedCount: 0 },
+      },
+      { op: 'updateAccount', id: bank, openingCents: 101_002, importId: mine },
+      { ...spend(bank, 500, day), importId: mine },
+      { ...spend(bank, 501, day), importId: mine },
+    ]);
+    return { who, bank, alone, mine, day };
+  }
+  const opening = async (who: string, accountId: string) =>
+    (await amountOf(who, 'accounts', 'id = ?', accountId))[0];
+
+  it('converts what an import changed an opening balance by, so Undo puts it back exactly', async () => {
+    const { who, bank, alone, mine, day } = await keptByImport('kept');
+    api.rates.setOn(day, 'MYR', 'USD', 0.25);
+    await change(who, 'USD');
+    expect((await finished(who)).conversion).toBeNull();
+    expect(await opening(who, bank)).toMatchObject({ cents: 25_251, originalCents: 101_002 });
+    expect(
+      await api.sql(
+        `SELECT opening_change_cents AS cents, opening_change_currency AS currency,
+           opening_change_typed_cents AS typed FROM imports WHERE email = ? AND id = ?`,
+        who,
+        mine,
+      ),
+    ).toEqual([{ cents: 250, currency: 'MYR', typed: 1_001 }]);
+
+    await saved(who, [{ op: 'undoImport', id: mine }]);
+    const alone_ = await opening(who, alone);
+    expect(alone_).toEqual({
+      cents: 25_000,
+      currency: 'MYR',
+      originalCents: 100_001,
+      rate: TODAY.USD,
+      rateAt: expect.any(Number),
+    });
+    expect(await opening(who, bank)).toEqual(alone_);
+
+    // And back to MYR, exactly as typed
+    await change(who, 'MYR');
+    expect((await finished(who)).conversion).toBeNull();
+    expect(await opening(who, bank)).toMatchObject({ cents: 100_001, currency: null });
+  });
+
+  it('MYR to USD and back, then Undo of the import puts the opening balance back exactly', async () => {
+    const { who, bank, mine, day } = await keptByImport('round');
+    api.rates.setOn(day, 'MYR', 'USD', 0.25);
+    await change(who, 'USD');
+    expect((await finished(who)).conversion).toBeNull();
+    await change(who, 'MYR');
+    expect((await finished(who)).conversion).toBeNull();
+    expect(await opening(who, bank)).toMatchObject({ cents: 101_002, currency: null });
+
+    await saved(who, [{ op: 'undoImport', id: mine }]);
+    expect(await opening(who, bank)).toEqual({
+      cents: 100_001,
+      currency: null,
+      originalCents: null,
+      rate: null,
+      rateAt: null,
+    });
+  });
+
   it('an amount changed since is typed in the new currency, so it converts back at its rate', async () => {
     const { who, entries } = await someone();
     api.rates.setOn(entries[0].day, 'MYR', 'USD', 0.21);

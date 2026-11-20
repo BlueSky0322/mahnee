@@ -102,8 +102,8 @@ async function settingsToAccounts() {
 }
 
 /** Maybank's row on Accounts, read out with its balance, which a list shows without RM */
-const maybankShows = (balance: string) =>
-  screen.findByRole('link', { name: `Maybank, Bank, ${balance}` });
+const maybankShows = (balance: string, timeout?: number) =>
+  screen.findByRole('link', { name: `Maybank, Bank, ${balance}` }, { timeout });
 
 /** Settings › Import and export, where a file is chosen to import */
 async function openImport() {
@@ -293,6 +293,287 @@ describe("a bank's file", () => {
       date: '2026-10-06',
     });
   });
+});
+
+// The owner's audit (P1): an account started from today's balance, then a bank's file of
+// older debits that the opening balance already counted. The preview says what the ticked
+// rows come to and the balance before and after, and for rows on or before the day the
+// account started being tracked it asks: keep the balance by changing the opening balance,
+// or add them as new activity. Undo import puts back both.
+describe('what an import does to the balance', () => {
+  /** Maybank started on Nov 1 with RM 1,234.56, and RM 19.45 spent since */
+  function startedToday() {
+    const server = fakeServer();
+    server.accounts.push({
+      id: MAYBANK,
+      name: 'Maybank',
+      kind: 'bank',
+      currency: 'MYR',
+      openingCents: 123_456,
+      position: 0,
+      archived: false,
+      createdAt: new Date(2026, 10, 1, 12).getTime(),
+    });
+    server.categories = DEFAULT_CATEGORIES.map((c) => ({ ...c }));
+    saved(server, { amountCents: 1_945, date: '2026-11-02', payee: 'Lunch' });
+    return server;
+  }
+  const OCTOBER = 'Date,Description,Amount\n03/10/2026,Kopi Corner,-7.25\n04/10/2026,Grab,-32.10\n';
+
+  async function previewOctober(
+    server: FakeServer,
+    size: (typeof SIZES)[number],
+    file = OCTOBER,
+    comesTo = 'These 2 come to −RM 39.35',
+  ) {
+    renderApp(server, '/', { size });
+    const user = await openImport();
+    await pickFile(user, csv(file, 'maybank-oct.csv'), 'Maybank');
+    await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(await screen.findByText(comesTo)).toBeTruthy();
+    return user;
+  }
+
+  const recorded = (server: FakeServer) => ({
+    opening: server.accounts[0].openingCents,
+    payees: server.transactions.map((t) => t.payee).sort(),
+  });
+
+  async function undoTheImport(user: User, size: (typeof SIZES)[number], says: string) {
+    await openImportAndExport();
+    const recent = within(await screen.findByRole('region', { name: 'Recent imports' }));
+    await user.click(
+      await recent.findByRole('button', { name: size === 'phone' ? 'Undo' : 'Undo import' }),
+    );
+    const ask = within(await screen.findByRole('dialog', { name: 'Undo maybank-oct.csv?' }));
+    expect(ask.getByText(says)).toBeTruthy();
+    await user.click(ask.getByRole('button', { name: 'Undo import' }));
+  }
+
+  test.each(SIZES)(
+    'says what the ticked rows come to and the balance before and after, as they are ticked (%s)',
+    async (size) => {
+      const server = startedToday();
+      const user = await previewOctober(server, size);
+      expect(screen.getByText('RM 1,215.11 now, RM 1,175.76 after')).toBeTruthy();
+      await user.click(row('Kopi Corner').getByRole('checkbox'));
+      expect(await screen.findByText('This one comes to −RM 32.10')).toBeTruthy();
+      expect(screen.getByText('RM 1,215.11 now, RM 1,183.01 after')).toBeTruthy();
+      await user.click(row('Grab').getByRole('checkbox'));
+      expect(screen.queryByText(/comes? to/)).toBeNull();
+      expect(screen.queryByText(/ now, RM /)).toBeNull();
+    },
+  );
+
+  test.each(SIZES)(
+    'asks about rows from before the account was tracked, and adds nothing until answered (%s)',
+    async (size) => {
+      const server = startedToday();
+      const user = await previewOctober(server, size);
+      const asked = within(screen.getByRole('radiogroup', { name: 'Already in the balance?' }));
+      expect(
+        screen.getByText(
+          'These 2 are dated on or before Nov 1, when you started tracking Maybank. Its opening balance of RM 1,234.56 may already include them.',
+        ),
+      ).toBeTruthy();
+      expect(asked.getByRole('radio', { name: /^Keep the balance as it is/ })).toBeTruthy();
+      expect(
+        asked.getByText('Opening balance RM 1,234.56 becomes RM 1,273.91. Nothing counts twice.'),
+      ).toBeTruthy();
+      expect(asked.getByText('The balance goes down by RM 39.35.')).toBeTruthy();
+      // Nothing is chosen for the person
+      for (const radio of asked.getAllByRole('radio'))
+        expect(radio).toHaveProperty('checked', false);
+      const add = screen.getByRole('button', { name: 'Add 2 transactions' });
+      expect(add).toHaveProperty('disabled', true);
+      expect(screen.getByText('Choose one to add them.')).toBeTruthy();
+
+      // One unticked: only the other is asked about
+      await user.click(row('Kopi Corner').getByRole('checkbox'));
+      expect(
+        await screen.findByText(
+          'This one is dated on or before Nov 1, when you started tracking Maybank. Its opening balance of RM 1,234.56 may already include it.',
+        ),
+      ).toBeTruthy();
+      expect(
+        screen.getByText('Opening balance RM 1,234.56 becomes RM 1,266.66. Nothing counts twice.'),
+      ).toBeTruthy();
+      await user.click(row('Kopi Corner').getByRole('checkbox'));
+      await settle();
+      expect(server.transactions).toHaveLength(1);
+    },
+  );
+
+  test.each(SIZES)(
+    'keeps the balance by changing the opening balance, and Undo import puts both back (%s)',
+    async (size) => {
+      const server = startedToday();
+      const user = await previewOctober(server, size);
+      await user.click(screen.getByRole('radio', { name: /^Keep the balance as it is/ }));
+      expect(screen.getByText('RM 1,215.11 now, RM 1,215.11 after')).toBeTruthy();
+      await user.click(
+        screen.getByRole('button', {
+          name: 'Add 2 transactions and change the opening balance',
+        }),
+      );
+
+      expect(await screen.findByRole('heading', { name: 'Maybank' })).toBeTruthy();
+      await waitFor(() =>
+        expect(recorded(server)).toEqual({
+          opening: 127_391,
+          payees: ['Grab', 'Kopi Corner', 'Lunch'],
+        }),
+      );
+      await goToPlace('Accounts');
+      expect(await maybankShows('1,215.11')).toBeTruthy();
+
+      await undoTheImport(
+        user,
+        size,
+        'Its 2 entries are deleted and the opening balance it changed goes back, on every device. Accounts and categories it added stay.',
+      );
+      await waitFor(() =>
+        expect(recorded(server)).toEqual({ opening: 123_456, payees: ['Lunch'] }),
+      );
+      await settingsToAccounts();
+      expect(await maybankShows('1,215.11', 4000)).toBeTruthy();
+    },
+  );
+
+  test.each(SIZES)(
+    'adds them as new activity, the opening balance as it was, and Undo import takes them out (%s)',
+    async (size) => {
+      const server = startedToday();
+      const user = await previewOctober(server, size);
+      await user.click(screen.getByRole('radio', { name: /^Add them as new activity/ }));
+      expect(screen.getByText('RM 1,215.11 now, RM 1,175.76 after')).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: 'Add 2 transactions' }));
+
+      expect(await screen.findByRole('heading', { name: 'Maybank' })).toBeTruthy();
+      await waitFor(() =>
+        expect(recorded(server)).toEqual({
+          opening: 123_456,
+          payees: ['Grab', 'Kopi Corner', 'Lunch'],
+        }),
+      );
+      await goToPlace('Accounts');
+      expect(await maybankShows('1,175.76')).toBeTruthy();
+
+      await undoTheImport(
+        user,
+        size,
+        'Its 2 entries are deleted, on every device. Accounts and categories it added stay.',
+      );
+      await waitFor(() =>
+        expect(recorded(server)).toEqual({ opening: 123_456, payees: ['Lunch'] }),
+      );
+      await settingsToAccounts();
+      expect(await maybankShows('1,215.11', 4000)).toBeTruthy();
+    },
+  );
+
+  test.each(SIZES)(
+    'changes the opening balance by only the rows from before, the later ones new activity (%s)',
+    async (size) => {
+      const server = startedToday();
+      // Three ticked: the two from October and one from after Nov 1
+      const user = await previewOctober(
+        server,
+        size,
+        `${OCTOBER}05/11/2026,Tesco,-10.00\n`,
+        'These 3 come to −RM 49.35',
+      );
+      expect(screen.getByText('RM 1,215.11 now, RM 1,165.76 after')).toBeTruthy();
+      expect(
+        screen.getByText(
+          '2 of these are dated on or before Nov 1, when you started tracking Maybank. Its opening balance of RM 1,234.56 may already include them.',
+        ),
+      ).toBeTruthy();
+      await user.click(screen.getByRole('radio', { name: /^Keep the balance as it is/ }));
+      expect(screen.getByText('RM 1,215.11 now, RM 1,205.11 after')).toBeTruthy();
+      await user.click(
+        screen.getByRole('button', {
+          name: 'Add 3 transactions and change the opening balance',
+        }),
+      );
+      await waitFor(() =>
+        expect(recorded(server)).toEqual({
+          opening: 127_391,
+          payees: ['Grab', 'Kopi Corner', 'Lunch', 'Tesco'],
+        }),
+      );
+    },
+  );
+
+  test('changes the opening balance last, so a later batch refused leaves it as it was', async () => {
+    const server = startedToday();
+    // 250 rows from October, RM 1.00 each: more than one batch of changes
+    const file = [
+      'Date,Description,Amount',
+      ...Array.from(
+        { length: 250 },
+        (_, i) => `${String(1 + (i % 28)).padStart(2, '0')}/10/2026,Shop ${i},-1.00`,
+      ),
+    ].join('\n');
+    const user = await previewOctober(server, 'phone', file, 'These 250 come to −RM 250.00');
+    await user.click(screen.getByRole('radio', { name: /^Keep the balance as it is/ }));
+    const first = holdNext(server, 'POST', '/api/changes');
+    await user.click(
+      screen.getByRole('button', { name: 'Add 250 transactions and change the opening balance' }),
+    );
+    // The first batch is saved; the next is refused, and what's queued after it goes
+    await waitFor(() => expect(server.imports).toHaveLength(1));
+    server.failNext.changes = { status: 409, error: 'Changed somewhere else at the same time.' };
+    first.release();
+    await waitFor(() => expect(server.failNext.changes).toBeUndefined());
+    await settle();
+    expect(server.transactions.length).toBeGreaterThan(1);
+    expect(server.transactions.length).toBeLessThan(251);
+    expect(server.accounts[0].openingCents).toBe(123_456);
+  });
+
+  test("reads the day tracking began in the person's own time zone", async () => {
+    const server = startedToday();
+    // Added at 11:30 UTC on Nov 1: already Nov 2 where the person is (UTC+14)
+    server.accounts[0].createdAt = Date.UTC(2026, 10, 1, 11, 30);
+    server.me.settings.timeZone = 'Pacific/Kiritimati';
+    // This device's own zone isn't saved over it (the app sends it once, refused here)
+    server.failNext.profile = 500;
+    await previewOctober(
+      server,
+      'phone',
+      'Date,Description,Amount\n02/11/2026,Kopi Corner,-7.25\n03/11/2026,Grab,-32.10\n',
+    );
+    expect(
+      screen.getByText(
+        '1 of these is dated on or before Nov 2, when you started tracking Maybank. Its opening balance of RM 1,234.56 may already include it.',
+      ),
+    ).toBeTruthy();
+  });
+
+  test.each(SIZES)(
+    'asks nothing when every row is after the account started (%s)',
+    async (size) => {
+      const server = startedToday();
+      renderApp(server, '/', { size });
+      const user = await openImport();
+      await pickFile(
+        user,
+        csv('Date,Description,Amount\n05/11/2026,Kopi Corner,-7.25\n06/11/2026,Grab,-32.10\n'),
+        'Maybank',
+      );
+      await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
+      await user.click(screen.getByRole('button', { name: 'Preview' }));
+      expect(await screen.findByText('These 2 come to −RM 39.35')).toBeTruthy();
+      expect(screen.getByText('RM 1,215.11 now, RM 1,175.76 after')).toBeTruthy();
+      expect(screen.queryByRole('radiogroup', { name: 'Already in the balance?' })).toBeNull();
+      expect(screen.queryByText(/when you started tracking/)).toBeNull();
+      await user.click(screen.getByRole('button', { name: 'Add 2 transactions' }));
+      await waitFor(() => expect(server.transactions).toHaveLength(3));
+      expect(server.accounts[0].openingCents).toBe(123_456);
+    },
+  );
 });
 
 describe('columns suggested by their names', () => {
@@ -608,6 +889,8 @@ describe('the limit', () => {
     await pickFile(user, rows(5_000), 'Maybank');
     await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
     await user.click(screen.getByRole('button', { name: 'Preview' }));
+    // Maybank was added on Jan 1, which some rows are dated: added as new activity
+    await user.click(await screen.findByRole('radio', { name: /^Add them as new activity/ }));
     const importAll = await screen.findByRole('button', { name: 'Add 5,000 transactions' });
     // One batch is saved but its answer never arrives: sent again, it counts once
     server.loseNext.changes = true;
@@ -1619,6 +1902,7 @@ describe('recording an import, and how it reads', () => {
           addedCount: 2,
           skippedCount: 2,
           createdAt: expect.any(Number),
+          openingChangeCents: 0,
           undoneAt: null,
         },
       ]);

@@ -12,18 +12,21 @@ const BAR_STATE = { onTrack: 'on-track', faster: 'faster', over: 'over' } as con
 
 // Home's budgets: each one with what's left, a bar with a marker for how much of the month
 // has gone (none once it's over), and how its spending goes against the month. Plan holds
-// the rest. With none set, it says so and offers to set one.
+// the rest. With none set, it says so and offers to set one, unless Getting started does.
 export default function HomeBudgets({
   lines,
   at,
   isCurrent,
   short,
+  offerSet = true,
 }: {
   lines: readonly BudgetLine[];
   at: PeriodDay;
   isCurrent: boolean;
   /** On a computer: figures without the symbol, as drawn */
   short: boolean;
+  /** Offers Set a budget with none set; not while Getting started offers it */
+  offerSet?: boolean;
 }) {
   const homeCurrency = useCurrency();
   const titleId = useId();
@@ -51,13 +54,15 @@ export default function HomeBudgets({
       {lines.length === 0 ? (
         <div className={classes.inlineEmpty}>
           <p>No budgets yet.</p>
-          <PageLink
-            href="?settings=categories&budget"
-            push
-            className={classes.lineButton}
-          >
-            Set a budget
-          </PageLink>
+          {offerSet && (
+            <PageLink
+              href="?settings=categories&budget"
+              push
+              className={classes.lineButton}
+            >
+              Set a budget
+            </PageLink>
+          )}
         </div>
       ) : (
         <ul className={short ? classes.budgetGrid : classes.budgetList}>

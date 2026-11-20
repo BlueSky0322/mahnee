@@ -171,3 +171,17 @@ export function periodMonthOf(day: string, startDay: number): string {
   const startMonth = day >= startIn(month, startDay) ? month : shiftMonth(month, -1);
   return startDay <= NAMED_FROM_ITS_START ? startMonth : shiftMonth(startMonth, 1);
 }
+
+/** The day `by` days after `day` (before it, below zero), as 2026-11-05 */
+export const addDays = (day: string, by: number): string => dayOf(dayNumber(day) + by);
+
+/**
+ * The first day of the week `day` is in, weeks starting on Monday or Sunday: worked out
+ * from the day's digits, as every day here is
+ */
+export function weekStartOf(day: string, weekStart: 'monday' | 'sunday'): string {
+  const n = dayNumber(day);
+  // dayNumber counts from a Wednesday (March 1 of year 0): 0 is Monday here
+  const fromMonday = (((n + 2) % 7) + 7) % 7;
+  return dayOf(n - (weekStart === 'monday' ? fromMonday : (fromMonday + 1) % 7));
+}

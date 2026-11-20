@@ -67,6 +67,13 @@ export function heroLine({
   };
 }
 
+/** A day against the median daily spend: "RM 18.00 above median", "below", or "at median" */
+export function medianText(differenceCents: number, currency: string) {
+  if (differenceCents === 0) return 'at median';
+  const side = differenceCents > 0 ? 'above' : 'below';
+  return `${formatMoney(Math.abs(differenceCents), currency)} ${side} median`;
+}
+
 /** "None yet", "Day 10 of 30", or "Day 10 of 30 · Shopping running fast" */
 export function expensesLine(spentCents: number, at: PeriodDay, fast: string | null) {
   if (spentCents === 0) return 'None yet';
@@ -102,14 +109,20 @@ export function tidyText(entries: number, from: string, otherName: string) {
   };
 }
 
+const AGAINST_WORDS = {
+  more: 'more than the median daily spend',
+  less: 'less than the median daily spend',
+  same: 'at the median daily spend',
+} as const;
+
 /**
- * A calendar day's name: what was spent against the middle day so far, then what's due on
- * it ("November 10, spent RM 9.00, more than the middle day, TNB electricity due")
+ * A calendar day's name: what was spent against the median daily spend so far, then what's
+ * due on it ("November 10, spent RM 9.00, more than the median daily spend, TNB due")
  */
 export function dayLabel(day: DaySpent, due: readonly string[], currency: string) {
   let label = longDate(day.date);
   if (day.against != null) {
-    label += `, spent ${formatMoney(day.cents, currency)}, ${day.against} than the middle day`;
+    label += `, spent ${formatMoney(day.cents, currency)}, ${AGAINST_WORDS[day.against]}`;
   }
   if (due.length > 0) label += `, ${namesText(due)} due`;
   return label;

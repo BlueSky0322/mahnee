@@ -2,10 +2,10 @@ import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { dayByDay } from './day-by-day';
 
 // Home's "Day by day" calendar (R-Home, R-Desk-Home; design digest 4.1): each day of the
-// period with what was spent on it, against the middle day so far. The middle day is the
+// period with what was spent on it, against the median daily spend so far. That is the
 // median of each day's spending from the period's first day to today, a day with nothing
 // spent counting as 0; with an even count it's the mean of the two middle days, in whole
-// cents rounded half up. A day so far above it is "more", at or below it "less"; a day
+// cents rounded half up. A day so far above it is "more", below it "less", on it "same"; a day
 // still to come is neither.
 
 /** Spending on the given days of November 2026 */
@@ -55,8 +55,8 @@ describe.each([
     );
     expect(shown.middleCents).toBe(500);
     expect(shown.days.slice(0, 5)).toEqual([
-      // The middle day itself is "less": at or below it
-      { date: '2026-11-01', cents: 500, against: 'less' },
+      // The day on the median is neither: "same"
+      { date: '2026-11-01', cents: 500, against: 'same' },
       { date: '2026-11-02', cents: 0, against: 'less' },
       { date: '2026-11-03', cents: 1_200, against: 'more' },
       { date: '2026-11-04', cents: 300, against: 'less' },
@@ -78,7 +78,8 @@ describe.each([
       '2026-11-02',
     );
     expect(halfway.middleCents).toBe(101);
-    expect(halfway.days.slice(0, 2).map((d) => d.against)).toEqual(['less', 'less']);
+    // Against the figure as shown: 101 is on it
+    expect(halfway.days.slice(0, 2).map((d) => d.against)).toEqual(['less', 'same']);
   });
 
   test('lists every day of the period; the days still to come are neither more nor less', () => {
@@ -129,7 +130,7 @@ describe.each([
     expect(shown.days[30].date).toBe('2026-11-24');
     // 200, 0, 800: the middle is 200
     expect(shown.middleCents).toBe(200);
-    expect(shown.days.slice(0, 3).map((d) => d.against)).toEqual(['less', 'less', 'more']);
+    expect(shown.days.slice(0, 3).map((d) => d.against)).toEqual(['same', 'less', 'more']);
   });
 
   test('refuses a period longer than 31 days', () => {

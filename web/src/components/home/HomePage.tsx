@@ -5,7 +5,7 @@ import type { Account, Category, Ledger, MonthSummary, WeekStart } from '@shared
 import { OTHER_EXPENSE_ID, categoriesOrDefaults } from '@shared/categories';
 import { FIRST_DAY } from '@shared/ledger';
 import { periodDay } from '@shared/period';
-import { useIsDesktop } from '../../hooks/useBreakpoints';
+import { useIsDesktop, useIsMobile } from '../../hooks/useBreakpoints';
 import { ALL_EXPENSES, ALL_INCOME, navigate } from '../../hooks/useRoute';
 import { budgetLines } from '../../ledger/budgets';
 import { comingUp, monthEndForecast, nextPay } from '../../ledger/forecast';
@@ -18,6 +18,7 @@ import Freshness from '../common/Freshness';
 import YouLink from '../common/YouLink';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import type { ComingUpCheck, ComingUpRow } from './ComingUp';
+import AtAGlance from './AtAGlance';
 import ComingUp from './ComingUp';
 import DayByDay, { type DueOnDay } from './DayByDay';
 import DueItems from './DueItems';
@@ -152,6 +153,10 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
   // Essentials (Look and start): the month end and what needs you; the two cards, the
   // calendar and the budgets are left out
   const essentials = profile?.settings.homeDensity === 'essentials';
+  // On a phone, Essentials is the glance: spent so far, today against the median, the
+  // week's biggest and the last 7 days (owner audit, 2026-11-20)
+  const isPhone = useIsMobile() === true;
+  const glance = essentials && isPhone;
   // Hide is kept per account: decided only once who's signed in is known
   const email = profile?.email ?? null;
   const [hiddenNow, setHiddenNow] = useState<string | null>(null);
@@ -260,6 +265,8 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
         at={figures.at}
         isCurrent={isCurrent}
         short={isDesktop}
+        // Getting started's step is the one way in while it offers it
+        offerSet={!(started && steps?.budget === false)}
       />
     );
   const combined = (
@@ -285,7 +292,8 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
         />
         {failedMonth}
         {isCurrent && <DueItems />}
-        {tidy}
+        {/* Beside Getting started, Tidy up joins its column rather than crossing the page */}
+        {!started && tidy}
         {/* A first day: Getting started beside the empty budgets and days, three parts to two */}
         <div
           className={
@@ -296,6 +304,7 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
         >
           {(started || comingUp) && (
             <div className={classes.needsColumn}>
+              {started && tidy}
               {started}
               {comingUp}
             </div>
@@ -307,6 +316,28 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
               : days && <div className={`${classes.card} ${classes.daysCard}`}>{days}</div>}
         </div>
         {!bothEmpty && budgets}
+      </>
+    );
+  }
+  if (glance) {
+    return (
+      <>
+        {!(summary == null && monthFailed) && (
+          <AtAGlance
+            month={month}
+            isCurrent={isCurrent}
+            firstDay={figures.firstDay}
+            day={figures.today}
+            summary={summary}
+            weekStart={weekStart}
+            accounts={ledger?.accounts ?? []}
+            categories={categories}
+          />
+        )}
+        {failedMonth}
+        {isCurrent && <DueItems />}
+        {tidy}
+        {started}
       </>
     );
   }

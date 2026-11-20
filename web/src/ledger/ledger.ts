@@ -483,6 +483,11 @@ const trendsFromDevice = new Set<string>();
 
 /** How many changes are waiting to be saved, and whether sending waits on signing in */
 export const unsavedState = () => queue.state();
+/**
+ * Resolves once what this device keeps for the signed-in account (waiting and refused
+ * changes) has been read, so unsavedState counts them too
+ */
+export const deviceChangesRead = () => queue.ready();
 export const subscribeUnsaved = (listener: () => void) => queue.subscribe(listener);
 /** Changes the server refused, with those held with them, kept for the person to review */
 export const needsAttention = () => queue.needsAttention();

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { clear, get, set } from 'idb-keyval';
 import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { FakeServer } from '../testing/app';
-import { fakeServer, reloadApp, renderApp, settle, setupAppTests } from '../testing/app';
+import { fakeServer, holdNext, reloadApp, renderApp, settle, setupAppTests } from '../testing/app';
 import { LAST_EMAIL_KEY } from '../offline/cache';
 import { PROFILE_OUTBOX_PREFIX } from './unsent';
 
@@ -207,6 +207,36 @@ describe('signing out with settings changed offline', () => {
     );
     await waitFor(() => expect(sentTo).toEqual(['/cdn-cgi/access/logout']));
     expect(await keptPatch()).toBeUndefined();
+  });
+
+  test('asks, once it knows, when Sign out is pressed before the device has been read', async () => {
+    const server = fakeServer();
+    // Kept on this device from before, and the server can't take it yet
+    await set(`${PROFILE_OUTBOX_PREFIX}${RYAN}`, {
+      email: RYAN,
+      value: { settings: { startWith: 'category' } },
+    });
+    server.failNext.profile = 500;
+    // Opened on a slow connection: until the server says who's signed in, the page can't
+    // read what this device keeps for them
+    const me = holdNext(server, 'GET', '/api/me');
+    renderApp(server, '/?settings', { size: 'phone' });
+    const sentTo = watchLeaving();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
+    expect(sentTo).toEqual([]);
+    me.release();
+    const asking = within(await screen.findByRole('dialog'));
+    expect(
+      asking.getByText(
+        "Your change to Start with hasn't been saved yet. Signing out removes it from this device.",
+      ),
+    ).toBeTruthy();
+    await user.click(asking.getByRole('button', { name: 'Stay signed in' }));
+    expect(sentTo).toEqual([]);
+    expect(await keptPatch()).toEqual({ settings: { startWith: 'category' } });
   });
 });
 

@@ -739,7 +739,11 @@ function deskRows({ rows, categories }: Month): DeskRow[] {
   return [...spent, ...rest];
 }
 
-/** The computer's table of every spending category, with its budget and what's left */
+/**
+ * The computer's table of every spending category, with its budget and what's left. A
+ * category without a budget says No budget; the one open beside the table offers Set a
+ * budget, which puts the cursor in its Monthly budget, so picking row after row sets several.
+ */
 function ExpensesTable({
   data,
   rows,
@@ -812,6 +816,7 @@ function ExpensesTable({
               line == null ? null : budgetWords(line, shown.at, { short: true, currency });
             const tone =
               words?.pace === 'over' ? classes.neg : words?.pace === 'faster' ? classes.due : '';
+            const subtitle = deskSubtitle(row.spending, { carriesOver });
             return (
               <tr
                 key={row.id}
@@ -831,13 +836,7 @@ function ExpensesTable({
                     />
                     {row.name}
                   </button>
-                  <span className={classes.rowSubDesk}>
-                    {deskSubtitle(row.spending, {
-                      carriesOver,
-                      month: shown.month,
-                      isCurrent: shown.isCurrent,
-                    })}
-                  </span>
+                  {subtitle != null && <span className={classes.rowSubDesk}>{subtitle}</span>}
                 </td>
                 <td className={`${classes.end} ${classes.num}`}>
                   {amount(row.spending?.cents ?? 0)}
@@ -848,17 +847,16 @@ function ExpensesTable({
                       line={line}
                       shown={shown}
                     />
+                  ) : !row.budgetable ? null : shown.isCurrent && row.id === open ? (
+                    <button
+                      type="button"
+                      className={classes.setBudget}
+                      onClick={() => onOpen(row.id, true)}
+                    >
+                      Set a budget
+                    </button>
                   ) : (
-                    shown.isCurrent &&
-                    row.budgetable && (
-                      <button
-                        type="button"
-                        className={classes.setBudget}
-                        onClick={() => onOpen(row.id, true)}
-                      >
-                        Set a budget
-                      </button>
-                    )
+                    <span className={classes.noBudget}>No budget</span>
                   )}
                 </td>
                 <td className={`${classes.end} ${classes.num}`}>

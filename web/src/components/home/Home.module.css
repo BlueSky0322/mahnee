@@ -920,13 +920,6 @@ button.step {
   line-height: 1.35;
 }
 
-.firstNote {
-  margin: 0;
-  color: var(--ink-3);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
 .firstFoot {
   display: flex;
   flex-direction: column;

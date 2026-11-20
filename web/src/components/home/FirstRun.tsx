@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { AccountKind } from '@shared/ledger';
 import AccountForm from '../accounts/AccountForm';
 import KindIcon from '../accounts/KindIcon';
@@ -14,11 +13,10 @@ const KINDS: { kind: AccountKind; name: string; line: string }[] = [
   { kind: 'cash', name: 'Cash', line: 'In your wallet' },
 ];
 
-const count = (kind: 'expense' | 'income') =>
-  DEFAULT_CATEGORIES.filter((c) => c.kind === kind && c.parentId == null).length;
-
 // The first run, in place of everything until there's an account, under the logo: where
 // the money is kept, one kind at a time, each opening Add account with that kind chosen.
+// The kinds explain the choice; the categories it comes with are told of on Categories,
+// and adding a bank's account before its CSV beside Import.
 // The round initial still leads to Settings (and Sign out, and the theme in Look and start).
 export default function FirstRun() {
   const [open, setOpen] = useState<{ account: null; kind: AccountKind } | null>(null);
@@ -55,11 +53,7 @@ export default function FirstRun() {
           </button>
         ))}
       </div>
-      <p className={classes.firstNote}>
-        {`Comes with ${count('expense')} expense and ${count('income')} income categories. Edit them any time.`}
-      </p>
       <div className={classes.firstFoot}>
-        <p>Importing a bank&apos;s CSV? Add that account first.</p>
         <p className={classes.small}>Works offline</p>
       </div>
       <AccountForm

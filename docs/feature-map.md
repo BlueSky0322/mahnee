@@ -329,9 +329,9 @@ browser refusing, blocked, the server refusing, no notifications, an iPhone, sig
 **What it is.** The places a person's money is: cash, bank accounts, cards and
 e-wallets, each with its balance, listed on Accounts (`?accounts`, R-Accounts). Until the first one is
 added, the first run asks where the money is kept (see Home at a glance). Accounts opens with "All together" (every running account's
-balance, less what's owed on cards), what's in accounts and what's owed (a part left out
-when there's no account of its kind), then "Cash, banks and e-wallets" and "Cards", each
-with its total, and the archived ones behind "Archived · N", each with the day it was
+balance, less what's owed on cards), what's in accounts and what's owed, then "Cash, banks
+and e-wallets" and "Cards", each with its total. With no card the breakdown would only
+repeat the total, so it is left out: the total, then each balance on its row. Then the archived ones behind "Archived · N", each with the day it was
 archived ("E-wallet · archived Aug 14"; just "archived" for one archived before the day was
 kept). Archived accounts count in no total. List amounts have no RM; a card's says owed (or
 in credit). On a phone or tablet a row opens the account's own page (`?account=<id>`,
@@ -788,7 +788,8 @@ Scheduled).
 - Budgets (phone and tablet): "Budgets Day 10 of 30" with "Budget" (Categories, where a
   budget is set on a phone); each budget "RM 584.78 left" (or "RM 40.00 over"), a bar named
   "Food: 27% spent" with a marker for how much of the month has gone (this month only),
-  "RM 215.22 of RM 800.00" with " · faster than the month" or " · over" (amber or red), and
+  "RM 215.22 of RM 800.00" with " · faster than the month" (amber; over says so once, by
+  what's left, in red), and
   "Carry over on", or "incl. RM 50.00 carried over" when something carried. None this
   month: "No budgets yet", "A monthly amount per category, with a bar for what's left." and
   "Set a budget".
@@ -806,11 +807,13 @@ Scheduled).
   on a computer, where the one open is marked).
 - On a computer: "Expenses by category" ("RM 2,753.10 spent", "Edit categories"), a table of
   every category spent in (largest first) and every other listed top-level spending category
-  ("Nothing this month"): Category (its subcategories' names, payee or entries, " · carries
-  over"), Spent, "Budget, with today marked" (the bar, or "Set a budget" this month), Left
+  (its 0.00 says nothing was spent): Category (its subcategories' names, payee or entries,
+  " · carries over"), Spent, "Budget, with today marked" (the bar, or "No budget"; the row
+  open on the right offers "Set a budget" this month, which puts the cursor in its Monthly
+  budget, so picking row after row sets several), Left
   ("584.78", "40.00 over"). The category chosen (the first row unless the address names one,
   `?plan&category=<id>`, which picking a row replaces) is open on the right, with its
-  budget changed in place this month: "Monthly budget" (saved on Enter or on leaving the
+  budget changed in place this month: "Monthly budget" (empty when none, no sample amount; saved on Enter or on leaving the
   field when changed; emptied, it's taken away; what can't be a budget says why and sends
   nothing) and a "Carry over" switch (sent at once, the amount kept; off without a budget).
   With no budgets and nothing spent, the same cards as a phone.
@@ -1099,7 +1102,9 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   their words; no Tidy up, Coming up or Getting started.
 - With no account: the first run, in place of everything (no tab bar or sidebar): "Where
   do you keep your money?", Bank, E-wallet, Card and Cash, each opening Add account with
-  that kind chosen, and how many categories it comes with, worked out from the defaults.
+  that kind chosen. How many categories it comes with is said on Categories, worked out
+  from the defaults, and adding a bank's account before its CSV beside Import (Settings ›
+  Data).
 
 Home shows (Look and start, owner decision D13): "Everything" is all of the above;
 "Essentials" is the month-end figure (or what an earlier month left), what's due now (Log

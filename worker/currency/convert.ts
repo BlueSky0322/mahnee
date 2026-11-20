@@ -35,6 +35,8 @@ export interface Rate {
   rate: number;
   source: FetchedRateSource;
   fetchedAt: number;
+  /** For an earlier day's rate, the calendar day it's from */
+  day?: string;
 }
 
 /** One conversion's next step, sent to the queue */
@@ -91,6 +93,7 @@ type Staged = [
   rate: number | null,
   rateSource: FetchedRateSource | null,
   rateAt: number | null,
+  rateDay: string | null,
 ];
 
 /** How an amount is converted and how large it may be once it is */
@@ -121,16 +124,16 @@ async function stage(
     const typedIn = a.originalCurrency ?? from;
     const typed = a.originalCents ?? a.cents;
     if (typedIn === to) {
-      staged.push([a.key, typed, null, null, null, null, null]);
+      staged.push([a.key, typed, null, null, null, null, null, null]);
       continue;
     }
     const found = await rateOf(typedIn, a.day);
     if (found == null) return staged;
-    const { rate, source, fetchedAt } = found;
+    const { rate, source, fetchedAt, day = null } = found;
     // An amount above zero stays above zero: a cent at the least
     const cents = signed ? convertSignedCents(typed, rate) : Math.max(1, convertCents(typed, rate));
     if (!Number.isSafeInteger(cents) || Math.abs(cents) > MAX_TRANSACTION_CENTS) return limit;
-    staged.push([a.key, cents, typedIn, typed, rate, source, fetchedAt]);
+    staged.push([a.key, cents, typedIn, typed, rate, source, fetchedAt, day]);
   }
   return staged;
 }
@@ -223,10 +226,11 @@ function stageStatements(
       db
         .prepare(
           `INSERT OR REPLACE INTO conversion_staged
-             (email, kind, key, cents, original_currency, original_cents, rate, rate_source, rate_at)
+             (email, kind, key, cents, original_currency, original_cents, rate, rate_source, rate_at,
+              rate_day)
            SELECT ?1, ?3, json_extract(value, '$[0]'), json_extract(value, '$[1]'),
              json_extract(value, '$[2]'), json_extract(value, '$[3]'), json_extract(value, '$[4]'),
-             json_extract(value, '$[5]'), json_extract(value, '$[6]')
+             json_extract(value, '$[5]'), json_extract(value, '$[6]'), json_extract(value, '$[7]')
            FROM json_each(?4) WHERE ${STILL}`,
         )
         .bind(email, since, kind, JSON.stringify(staged.slice(i, i + CHUNK))),
@@ -274,7 +278,7 @@ const swap = (
     .prepare(
       `UPDATE ${table} SET ${amount} = s.cents, original_currency = s.original_currency,
          original_cents = s.original_cents, rate = s.rate, rate_source = s.rate_source,
-         rate_at = s.rate_at
+         rate_at = s.rate_at${table === 'transactions' ? ', rate_day = s.rate_day' : ''}
        FROM conversion_staged s
        WHERE s.email = ?1 AND s.kind = ?3 AND ${table}.email = ?1 AND ${match} AND ${STILL}
          ${rows == null ? '' : 'AND s.rowid BETWEEN ?4 AND ?5'}`,
@@ -366,7 +370,7 @@ export async function convertStep(
 
   // Every transaction is worked out: the rest at the rate on the day of the switch
   const day = rateDay(since);
-  const [accounts, budgets, recurring, imports] = await db.batch([
+  const [accounts, budgets, recurring, imports, already] = await db.batch([
     db
       .prepare(
         `SELECT id AS key, opening_cents AS cents, original_currency AS originalCurrency,
@@ -399,23 +403,47 @@ export async function convertStep(
          WHERE email = ?1 AND (opening_change_cents <> 0 OR opening_change_currency IS NOT NULL)`,
       )
       .bind(email, day),
+    // Worked out by an earlier step that ran out of rates: not asked for again
+    db
+      .prepare(
+        `SELECT kind || ' ' || key AS key FROM conversion_staged
+         WHERE email = ?1 AND kind <> 'transaction'`,
+      )
+      .bind(email),
   ]);
+  const workedOut = new Set((already.results as { key: string }[]).map((r) => r.key));
   const staged: [string, string, Staged[]][] = [];
+  let short = false;
   for (const [kind, limit, rows] of [
     ['account', 'opening', accounts],
     ['budget', 'budget', budgets],
     ['recurring', 'scheduled', recurring],
     ['import', 'opening', imports],
   ] as const) {
-    const amounts = rows.results as Amount[];
-    const done = await stage(amounts, limit, from, to, rateOf);
+    const amounts = (rows.results as Amount[]).filter((a) => !workedOut.has(`${kind} ${a.key}`));
+    const done = short ? [] : await stage(amounts, limit, from, to, rateOf);
     if (typeof done === 'string') {
       await release(db, { email, since }, done);
       return false;
     }
-    // Tried again by the queue, with the rates found so far kept in Cloudflare's cache
-    if (done.length < amounts.length) throw new Error('More rates than one step may ask for');
+    if (done.length < amounts.length) short = true;
     staged.push([kind, limit, done]);
+  }
+  if (short) {
+    // Out of rates: what was worked out is kept, and the next step goes on from there
+    if (staged.every(([, , rows]) => rows.length === 0)) {
+      throw new Error('No rate could be had for an amount');
+    }
+    const results = await db.batch([
+      ...staged.flatMap(([kind, , rows]) => stageStatements(db, email, since, kind, rows)),
+      db
+        .prepare(
+          `UPDATE conversions SET touched_at = ?3, restarts = 0
+           WHERE email = ?1 AND since = ?2 AND phase = 'converting'`,
+        )
+        .bind(email, since, Date.now()),
+    ]);
+    return (results.at(-1)?.meta.changes ?? 0) > 0;
   }
 
   // Every transaction has to be worked out, or some would stay in the old currency: if any

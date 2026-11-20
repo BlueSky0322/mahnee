@@ -230,6 +230,8 @@ export interface RateQuote {
   source: FetchedRateSource;
   /** When it was fetched; for an earlier day's rate (?at=), noon UTC on that day */
   fetchedAt: number;
+  /** For an earlier day's rate, the calendar day it's from (2026-11-12), the same everywhere */
+  day?: string;
   /** The amount asked about (?amount=), converted */
   convertedCents?: number;
 }
@@ -333,6 +335,8 @@ export interface Original {
   source: FetchedRateSource;
   /** When the rate is from (ms); for an earlier day's rate, noon UTC that day */
   at: number;
+  /** For an earlier day's rate, the calendar day it's from (2026-11-12), the same everywhere */
+  day?: string;
 }
 
 /** Where an entry from Scheduled came from, and whether its amount is still to check */

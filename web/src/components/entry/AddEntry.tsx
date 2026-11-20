@@ -433,6 +433,7 @@ function AddForm({
         rate: quote!.rate,
         source: quote!.source,
         at: quote!.fetchedAt,
+        ...(quote!.day != null && { day: quote!.day }),
       };
       const shown = changes.map((c): LedgerChange => {
         if (c.op === 'addTransaction') {
@@ -688,7 +689,7 @@ function AddForm({
   );
 
   // Under the figure: what an amount in another currency comes to, or the day's currency
-  const quoteDay = quote == null ? '' : rateDate(quote.fetchedAt);
+  const quoteDay = quote == null ? '' : rateDate(quote.fetchedAt, quote.day);
   // An earlier day's entry is saved at that day's rate, which may differ
   const savedAt = day === today ? '' : `, saved at the rate of ${shortDay(day)}`;
   const lines =

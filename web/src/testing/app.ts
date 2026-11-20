@@ -300,11 +300,18 @@ function rateOn(server: FakeServer, from: string, to: string, at?: number) {
     const asked = rateDay(Date.parse(`${day}T12:00:00Z`) - earlier * 24 * 60 * 60 * 1000);
     const onDay = server.rates.get(`${from}${to}@${asked}`);
     if (onDay != null) {
-      return { rate: onDay, source: 'frankfurter' as const, at: Date.parse(`${asked}T12:00:00Z`) };
+      return {
+        rate: onDay,
+        source: 'frankfurter' as const,
+        at: Date.parse(`${asked}T12:00:00Z`),
+        day: asked,
+      };
     }
   }
   const rate = server.rates.get(`${from}${to}`);
-  return rate == null ? null : { rate, source: 'wise' as const, at: Date.now() };
+  return rate == null
+    ? null
+    : { rate, source: 'wise' as const, at: Date.now(), day: undefined as string | undefined };
 }
 
 /** Requests the app has made that the stand-in server hasn't answered yet */
@@ -575,7 +582,14 @@ function answerNow(server: FakeServer) {
       const found = rateOn(server, from, to, at == null ? undefined : Number(at));
       return found == null
         ? json({ error: 'No rate' }, 503)
-        : json({ from, to, rate: found.rate, source: found.source, fetchedAt: found.at });
+        : json({
+            from,
+            to,
+            rate: found.rate,
+            source: found.source,
+            fetchedAt: found.at,
+            ...(found.day != null && { day: found.day }),
+          });
     }
     return json({ error: `No stand-in for ${method} ${path}` }, 404);
   };
@@ -1665,12 +1679,17 @@ function typedInHome(
       continue;
     }
     const at = (day?: string) => (day == null ? undefined : Date.parse(`${day}T12:00:00Z`));
-    let used: { rate: number; source: 'wise' | 'frankfurter'; at: number } | null = null;
+    let used: Omit<Original, 'currency' | 'cents'> | null = null;
     const convert = (cents: number, day?: string) => {
       if (Math.abs(cents) > MAX_TYPED_CENTS) throw new TypedTooLarge(from);
       const found = rateOn(server, from, home, at(day));
       if (found == null) return null;
-      used = found;
+      used = {
+        rate: found.rate,
+        source: found.source,
+        at: found.at,
+        ...(found.day != null && { day: found.day }),
+      };
       const out = cents < 0 ? -convertCents(-cents, found.rate) : convertCents(cents, found.rate);
       return cents > 0 ? Math.max(1, out) : out;
     };

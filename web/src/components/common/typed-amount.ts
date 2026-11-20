@@ -1,5 +1,4 @@
 import type { Transaction } from '@shared/api';
-import { rateDay } from '@shared/rates';
 import { fromDateInput } from '../../utils/date-input';
 import { formatAmount, formatMoney } from '../../utils/money';
 
@@ -21,16 +20,14 @@ export const SOURCE_NAMES = { wise: 'Wise', frankfurter: 'the ECB' } as const;
 export const shortDay = (day: string) =>
   fromDateInput(day)?.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) ?? day;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /**
- * The day a rate is from, as "Nov 12". An earlier day's rate is timed at noon UTC on its
- * day, so that day is said as it is (noon UTC is already the next day from UTC+12); a live
- * rate is timed when it was fetched, said as the person's own day then.
+ * The day a rate is from, as "Nov 12": an earlier day's rate names its calendar `day`,
+ * said as it is (its time, noon UTC, is already the next day from UTC+12); a live rate is
+ * timed when it was fetched, said as the person's own day then
  */
-export const rateDate = (at: number) =>
-  at % DAY_MS === DAY_MS / 2
-    ? shortDay(rateDay(at))
+export const rateDate = (at: number, day?: string) =>
+  day != null
+    ? shortDay(day)
     : new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
 /**
@@ -40,7 +37,7 @@ export const rateDate = (at: number) =>
 export function rateLine(t: Pick<Transaction, 'original'>, home: string) {
   const o = t.original;
   if (o == null) return null;
-  return `1 ${o.currency} = ${Number(o.rate.toPrecision(6))} ${home}, rate of ${rateDate(o.at)}, from ${SOURCE_NAMES[o.source]}`;
+  return `1 ${o.currency} = ${Number(o.rate.toPrecision(6))} ${home}, rate of ${rateDate(o.at, o.day)}, from ${SOURCE_NAMES[o.source]}`;
 }
 
 /**

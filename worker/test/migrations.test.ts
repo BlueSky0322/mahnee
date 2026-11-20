@@ -859,7 +859,7 @@ describe('0012, other currencies', () => {
   });
 });
 
-describe('0015, start-overs counted apart from stalls', () => {
+describe('0015, start-overs counted apart from stalls, and rate days', () => {
   const OWNER = 'teal@example.com';
 
   it('keeps a conversion under way as it was, with no start-overs yet', () => {
@@ -876,5 +876,42 @@ describe('0015, start-overs counted apart from stalls', () => {
     expect(all(db, 'SELECT phase, restarts, start_overs FROM conversions')).toEqual([
       { phase: 'converting', restarts: 2, start_overs: 0 },
     ]);
+  });
+
+  it("names the day of each entry's earlier-day rate, and lets go of it with the rest", () => {
+    const db = database(before0007);
+    seedToday(db);
+    for (const file of files.filter((f) => f >= '0007' && f < '0015')) {
+      db.exec(readFileSync(join(DIR, file), 'utf8'));
+    }
+    const ids = all(db, 'SELECT id FROM transactions ORDER BY id').map((r) => r.id as string);
+    const typed = (id: string, at: number) =>
+      db
+        .prepare(
+          `UPDATE transactions SET original_currency = 'THB', original_cents = 100, rate = 0.1,
+             rate_source = 'wise', rate_at = ? WHERE id = ?`,
+        )
+        .run(at, id);
+    // An earlier day's rate, at noon UTC on it, and a live one
+    typed(ids[0], Date.parse('2026-11-12T12:00:00Z'));
+    typed(ids[1], Date.parse('2026-11-12T12:00:00.001Z'));
+    db.exec(readFileSync(join(DIR, '0015_conversion_start_overs.sql'), 'utf8'));
+    expect(all(db, 'SELECT rate_day FROM transactions ORDER BY id')).toEqual([
+      { rate_day: '2026-11-12' },
+      { rate_day: null },
+      { rate_day: null },
+    ]);
+    // Only on an entry typed in another currency, and only as a day
+    expect(takes(db, "UPDATE transactions SET rate_day = '2026-11-12' WHERE id = ?", ids[2])).toBe(
+      false,
+    );
+    expect(takes(db, "UPDATE transactions SET rate_day = 'Nov 12' WHERE id = ?", ids[0])).toBe(
+      false,
+    );
+    // A new amount typed in the home currency lets go of what it was typed as, its day too
+    db.prepare('UPDATE transactions SET amount_cents = amount_cents + 1 WHERE id = ?').run(ids[0]);
+    expect(
+      all(db, 'SELECT original_currency, rate_day FROM transactions WHERE id = ?', ids[0]),
+    ).toEqual([{ original_currency: null, rate_day: null }]);
   });
 });

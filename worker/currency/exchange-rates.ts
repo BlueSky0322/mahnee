@@ -29,9 +29,11 @@ export interface Rate {
   source: FetchedRateSource;
   /**
    * When the rate was fetched from the service, in ms; for an earlier day's rate, noon
-   * UTC on that day, so it reads as that day wherever people are
+   * UTC on that day
    */
   fetchedAt: number;
+  /** For an earlier day's rate, the calendar day it's from (2026-11-12) */
+  day?: string;
 }
 
 export class RatesUnavailable extends Error {}
@@ -348,7 +350,8 @@ async function rateOn(
     );
   if (from === to || day >= rateDay(deps.now())) return live();
 
-  const key = `https://rates.internal/v1/day/${day}/${from}/${to}`;
+  // v2: each copy says its day
+  const key = `https://rates.internal/v2/day/${day}/${from}/${to}`;
   const saved = await readKept(deps.cache, key);
   if (saved) return saved;
 
@@ -374,6 +377,7 @@ async function rateOn(
         rate: found.rate,
         source,
         fetchedAt: Date.parse(`${found.day}T12:00:00Z`),
+        day: found.day,
       };
       await keep(deps.cache, key, rate, KEEP_DAY_SECONDS);
       return rate;

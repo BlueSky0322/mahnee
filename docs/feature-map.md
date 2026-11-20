@@ -1832,7 +1832,8 @@ totals kept, fetches everything again and sends the changes kept meanwhile. `use
   of 200 transactions, by day then id, each at the rate on its own day (`getRateOn`: the
   ECB's, else Wise's), into `conversion_staged`, checking each against its limit. A step
   asks the services about each day once (`RateLookups`, found or not) and at most 40 times;
-  a page whose rates need more stops there, and the next step carries on. The last
+  a page whose rates need more stops there, and the next step carries on; so do the
+  opening balances, budgets and scheduled items, keeping those worked out. The last
   step works out the opening balances, budgets and scheduled items at the rate on the day of
   the switch and swaps everything in at once, the accounts' `currency` too. One past its
   limit refuses the whole change: the currency goes back, nothing was converted, and the

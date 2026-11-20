@@ -192,7 +192,7 @@ describe('converting, step by step', () => {
 
   it('a conversion under way as 0014 rebuilds its worked-out amounts starts over once, and finishes', async () => {
     const db = person(450, '0013');
-    // The start-over count (0015) this code reads, which lands with 0014 in one deploy
+    // The columns (0015) this code reads, which land with 0014 in one deploy
     migrate(db, MIGRATIONS.find((f) => f.startsWith('0015'))!);
     const before = amounts(db);
     const job = await switchTo(db, 'USD', 1_000);
@@ -201,6 +201,8 @@ describe('converting, step by step', () => {
     expect(await convertStep(d1(db), job, flat(0.5))).toBe(true);
     expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({ n: 400 });
     migrate(db, MIGRATIONS.find((f) => f.startsWith('0014'))!);
+    // 0015 follows it in the same deploy, adding back the column it gives worked-out amounts
+    db.exec('ALTER TABLE conversion_staged ADD COLUMN rate_day TEXT');
     expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({ n: 0 });
 
     let startOvers = 0;
@@ -306,6 +308,55 @@ describe('converting, step by step', () => {
       { cents: 52, typed: 103 },
       { cents: 52, typed: 104 },
     ]);
+  });
+
+  it('works out openings in many currencies over several steps, asking for each rate once', async () => {
+    const db = person(0);
+    const typedIn = ['AUD', 'CAD', 'CHF', 'CNY', 'DKK', 'EUR', 'GBP', 'HKD', 'JPY', 'SGD'];
+    typedIn.forEach((currency, i) => {
+      db.prepare(
+        `INSERT INTO accounts (email, id, name, kind, currency, opening_cents, position, created_at,
+           updated_at, original_currency, original_cents, rate, rate_source, rate_at)
+         VALUES (?, ?, ?, 'cash', 'MYR', 100, ?, 1, 1, ?, 1000, 0.1, 'wise', 5)`,
+      ).run(ME, `b${String(i).padStart(15, '0')}`, `In ${currency}`, i + 1, currency);
+    });
+    const job = await switchTo(db, 'USD', 1_000);
+    // Three rates a step, as if the services could be asked only so often; each counted
+    const asked = new Map<string, number>();
+    let thisStep = 0;
+    const fewAStep: FetchRate = (from) => {
+      if (thisStep++ >= 3) return Promise.resolve(null);
+      asked.set(from, (asked.get(from) ?? 0) + 1);
+      return Promise.resolve({ rate: 2, source: 'frankfurter' as const, fetchedAt: 5 });
+    };
+    let steps = 0;
+    let more = true;
+    while (more && steps < 20) {
+      thisStep = 0;
+      steps++;
+      more = await convertStep(d1(db), job, fewAStep);
+    }
+    // Each step went on from the last, never a retry: the wallet's and 10 more, 3 a step
+    expect(steps).toBe(4);
+    expect(db.prepare('SELECT * FROM conversions').all()).toEqual([]);
+    expect([...asked.entries()].sort()).toEqual(['MYR', ...typedIn].sort().map((c) => [c, 1]));
+    expect(
+      db.prepare("SELECT DISTINCT opening_cents AS cents FROM accounts WHERE id LIKE 'b%'").all(),
+    ).toEqual([{ cents: 2_000 }]);
+    expect(db.prepare('SELECT currency FROM user_settings').get()).toEqual({ currency: 'USD' });
+  });
+
+  it.each([
+    ['a transaction', 1],
+    ['an opening balance', 0],
+  ])('throws, for the queue to try again, when no rate at all can be had for %s', async (_, n) => {
+    const db = person(n);
+    const job = await switchTo(db, 'USD', 1_000);
+    await expect(convertStep(d1(db), job, () => Promise.resolve(null))).rejects.toThrow(
+      'No rate could be had',
+    );
+    expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({ n: 0 });
+    expect(db.prepare('SELECT phase FROM conversions').get()).toEqual({ phase: 'converting' });
   });
 
   it('swaps in the most transactions an account can hold, and back exactly', async () => {

@@ -328,6 +328,7 @@ describe('getRateOn', () => {
       rate: 4.08,
       source: 'frankfurter',
       fetchedAt: Date.parse('2026-10-09T12:00:00Z'),
+      day: '2026-10-09',
     });
     expect(s.requests[0].url).toContain('/v1/2026-10-11?base=USD&symbols=MYR');
     expect(s.calls.wise).toBe(0);
@@ -405,6 +406,7 @@ describe('getRateOn', () => {
         rate: 0.00018,
         source: 'wise',
         fetchedAt: Date.parse('2026-10-12T12:00:00Z'),
+        day: '2026-10-12',
       });
     });
 
@@ -414,6 +416,7 @@ describe('getRateOn', () => {
         rate: 0.000175,
         source: 'wise',
         fetchedAt: Date.parse('2026-10-09T12:00:00Z'),
+        day: '2026-10-09',
       });
       // The day itself first, then each day before it
       expect(requests.filter((u) => u.includes('time=')).map((u) => u.slice(-19, -9))).toEqual([

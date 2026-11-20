@@ -544,7 +544,7 @@ describe('entries in another currency', () => {
   });
 });
 
-// Rate days are calendar days: an earlier day's rate is timed at noon UTC on it, which is
+// Rate days are calendar days: an earlier day's rate names its day, as its time (noon UTC) is
 // already the next day from UTC+12 to +14
 describe.each(['Pacific/Kiritimati', 'Pacific/Auckland'])('rate days in %s', (zone) => {
   beforeEach(() => {
@@ -564,6 +564,7 @@ describe.each(['Pacific/Kiritimati', 'Pacific/Auckland'])('rate days in %s', (zo
         rate: 0.1275,
         source: 'wise',
         at: Date.parse('2026-11-12T12:00:00Z'),
+        day: '2026-11-12',
       },
     });
     renderApp(server, '/?activity', { size });

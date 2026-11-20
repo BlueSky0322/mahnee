@@ -10,7 +10,8 @@
 
 import type { Env } from '../app';
 import { getRatePreference } from '../accounts/profiles';
-import { type ConvertJob, convertStep, release, restartIfStalled } from './convert';
+import type { RatePreference } from '../../shared/api';
+import { type ConvertJob, type FetchRate, convertStep, release, restartIfStalled } from './convert';
 import { LookupsSpent, RateLookups, getRateOn } from './exchange-rates';
 
 /** The first retry waits this long, giving the rate services a moment to come back */
@@ -37,19 +38,26 @@ export async function queueConversion(env: Env, job: ConvertJob) {
   }
 }
 
-/** Takes a conversion one step on, at the rates the person prefers, queueing the next */
-async function step(env: Env, job: ConvertJob) {
-  const prefer = await getRatePreference(env.DB, job.email);
-  // Each day asked for once in the step, and no more requests than one run may make
+/**
+ * The rates one step converts at, as the person prefers them: each day asked for once in
+ * the step, and none once the step has asked as often as one run may (null: the rest wait
+ * for the next step). A service that's down still throws, so the step is tried again.
+ */
+export function stepRates(env: Env, prefer: RatePreference): FetchRate {
   const lookups = new RateLookups();
-  const more = await convertStep(env.DB, job, (from, to, day) =>
+  return (from, to, day) =>
     getRateOn(env, from, to, Date.parse(`${day}T12:00:00Z`), { prefer, lookups }).catch(
       (err: unknown) => {
         if (err instanceof LookupsSpent) return null;
         throw err;
       },
-    ),
-  );
+    );
+}
+
+/** Takes a conversion one step on, at the rates the person prefers, queueing the next */
+async function step(env: Env, job: ConvertJob) {
+  const prefer = await getRatePreference(env.DB, job.email);
+  const more = await convertStep(env.DB, job, stepRates(env, prefer));
   // Thrown, so the step is tried again: it carries on from where this one got to
   if (more) await env.CONVERT_QUEUE.send(job);
 }

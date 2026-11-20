@@ -119,6 +119,7 @@ erDiagram
     REAL rate "into the home currency, with original_currency"
     TEXT rate_source "wise or frankfurter, with original_currency"
     INTEGER rate_at "ms: the rate's day or time, with original_currency"
+    TEXT rate_day "an earlier day's rate: its calendar day, or null"
     INTEGER created_at "ms"
     INTEGER updated_at "ms"
   }
@@ -367,7 +368,10 @@ erDiagram
 - **What an amount was typed as.** `transactions.amount_cents`, `accounts.opening_cents`,
   `budgets.amount_cents` and `recurring.amount_cents` each have `original_currency`,
   `original_cents`, `rate`, `rate_source` and `rate_at` (0011), all null for an amount typed
-  in the home currency. A converted one is converted again from what it was typed as, and
+  in the home currency. An entry also keeps `rate_day` (0015): for an earlier day's rate,
+  the calendar day it's from, which the app says as that day wherever the person is (its
+  `rate_at`, noon UTC, is already the next day from UTC+12). A converted one is converted
+  again from what it was typed as, and
   one typed in the new currency is plain again, so changing back restores it exactly.
   Changing the amount outside a conversion (no `converting` row) makes it typed in the home
   currency: triggers let go of what it was.

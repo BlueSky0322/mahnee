@@ -26,6 +26,7 @@ import YouPicture from '../common/YouPicture';
 import { useYou } from '../common/you';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import CategoriesPage from '../categories/CategoriesPage';
+import { useInstallAction } from '../common/use-install-action';
 import AddingPage from './AddingPage';
 import BudgetsPage from './BudgetsPage';
 import DataPage from './DataPage';
@@ -96,7 +97,10 @@ function SectionContent({ section }: { section: SettingsSection }) {
   return <SectionPage section={section} />;
 }
 
-/** A phone's index: search, who's signed in, the sections with their summaries, Sign out */
+/**
+ * A phone's index: search, who's signed in, Install the app where it can be, the sections
+ * with their summaries, Sign out
+ */
 function SettingsIndex() {
   // The person's month (shared/period.ts)
   const month = useThisMonth();
@@ -105,6 +109,8 @@ function SettingsIndex() {
   const { categories } = useCategories();
   const { imports } = useImports();
   const { askToSignOut, dialog } = useConfirmSignOut();
+  // Installing, where the browser can and it isn't open as the app already
+  const { install, run, stepsDialog } = useInstallAction();
   const [words, setWords] = useState('');
   const settings = profile?.settings;
   const summaries: Record<(typeof APP_SECTIONS)[number], string> | null =
@@ -180,6 +186,26 @@ function SettingsIndex() {
             </a>
           )}
 
+          {install.available && (
+            <div className={classes.card}>
+              <button
+                type="button"
+                className={classes.row}
+                onClick={() => void run()}
+              >
+                <div className={classes.rowText}>
+                  <div className={classes.label}>Install the app</div>
+                  <div className={classes.detail}>Opens offline</div>
+                </div>
+                <ForwardIcon
+                  size={16}
+                  className={classes.caret}
+                  aria-hidden
+                />
+              </button>
+            </div>
+          )}
+
           <p
             className={classes.eyebrow}
             aria-hidden
@@ -230,6 +256,7 @@ function SettingsIndex() {
         </>
       )}
       {dialog}
+      {stepsDialog}
     </div>
   );
 }

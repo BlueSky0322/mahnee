@@ -19,9 +19,9 @@ import {
 
 // Other currencies (owner request 2026-11-19; R-Set-Money's "Other currencies", R-Add,
 // R-Desk-Add): the person keeps a short list of other currencies in Settings › Money, in
-// their order. In Add, the amount's currency is a pill before the figure: a tap goes to the
-// next of the main currency and the list, a long press (a right-click or Alt+Down on a
-// computer) opens every currency for a one-off. Typing in another one says what it comes
+// their order. In Add, the amount's currency is a pill before the figure, marked as opening
+// a list: a tap opens every currency, the main currency and the list first, then the ones
+// used today, so a one-off is found with ordinary taps (owner audit 2026-11-20). Typing in another one says what it comes
 // to in the main currency at today's rate (the rate and its source on a tap), from the
 // last rate known when offline; the entry is sent in that currency and the server converts
 // it at its own day's rate, keeping what was typed. Entries show both amounts. Travel
@@ -142,6 +142,14 @@ async function openAdd() {
 
 const pill = (form: Within) => form.getByRole('button', { name: /, currency$/ });
 
+/** Taps the pill and picks `code` from the list; Add's form as drawn after */
+async function inCurrency(user: ReturnType<typeof userEvent.setup>, form: Within, code: string) {
+  await user.click(pill(form));
+  await user.click(await screen.findByRole('option', { name: new RegExp(`^${code}`) }));
+  await waitFor(() => expect(screen.queryByRole('listbox', { name: 'All currencies' })).toBeNull());
+  return addForm();
+}
+
 describe('Settings › Money › Other currencies', () => {
   test.each(SIZES)('adds from a searchable list, reorders and removes (%s)', async (size) => {
     const server = withWallet();
@@ -226,101 +234,90 @@ describe('Settings › Money › Other currencies', () => {
 });
 
 describe('Add in another currency', () => {
-  test.each(SIZES)('the pill cycles through the main currency and the list (%s)', async (size) => {
-    renderApp(withWallet(['THB', 'USD']), '/', { size });
-    const { user, form } = await openAdd();
-    expect(pill(form).textContent).toBe('RM');
-    await user.click(pill(form));
-    expect(pill(form).getAttribute('aria-label')).toBe('THB, currency');
-    expect(pill(form).textContent).toBe('THB');
-    await user.click(pill(form));
-    expect(pill(form).getAttribute('aria-label')).toBe('USD, currency');
-    // And from the keyboard
-    pill(form).focus();
-    await user.keyboard('{Enter}');
-    expect(pill(form).getAttribute('aria-label')).toBe('RM, currency');
-    expect(form.getByRole('status', { name: /^Amount, / }).getAttribute('aria-label')).toBe(
-      'Amount, RM 0.00',
-    );
-  });
-
   test.each(SIZES)(
-    'a long press, right-click or Alt+Down opens every currency (%s)',
+    'one tap on the pill opens every currency, the main one and yours first (%s)',
     async (size) => {
-      renderApp(withWallet(['THB']), '/', { size });
+      // Only the main currency offered: a first foreign entry
+      renderApp(withWallet(), '/', { size });
       const { user, form } = await openAdd();
-      fireEvent.contextMenu(pill(form));
+      const button = pill(form);
+      expect(button.textContent).toBe('RM');
+      // Marked as opening a list, with an arrow drawn beside the currency
+      expect(button.getAttribute('aria-haspopup')).toBe('listbox');
+      expect(button.getAttribute('aria-expanded')).toBe('false');
+      expect(button.querySelector('svg')).not.toBeNull();
+      await user.click(button);
       const all = await screen.findByRole('listbox', { name: 'All currencies' });
       expect(optionNames(screen.getByRole('listbox', { name: 'Yours' }))).toEqual([
         'MYRMalaysian ringgitRM',
-        'THBThai baht฿',
       ]);
       expect(optionNames(all)).toEqual(expect.arrayContaining(['JPYJapanese yen¥']));
-      await user.type(screen.getByRole('searchbox', { name: 'Search currencies' }), 'yen');
-      await user.click(screen.getByRole('option', { name: /^JPY/ }));
+      await user.type(screen.getByRole('searchbox', { name: 'Search currencies' }), 'baht');
+      await user.click(screen.getByRole('option', { name: /^THB/ }));
       await waitFor(() =>
         expect(screen.queryByRole('listbox', { name: 'All currencies' })).toBeNull(),
       );
       const open = await addForm();
-      expect(pill(open).getAttribute('aria-label')).toBe('JPY, currency');
-      // A one-off: the next tap goes back to the main currency
+      expect(pill(open).getAttribute('aria-label')).toBe('THB, currency');
+      expect(pill(open).textContent).toBe('THB');
+      // Another tap opens the list again, never stepping to another currency
       await user.click(pill(open));
-      expect(pill(open).getAttribute('aria-label')).toBe('RM, currency');
-
-      pill(open).focus();
-      await user.keyboard('{Alt>}{ArrowDown}{/Alt}');
       expect(await screen.findByRole('listbox', { name: 'All currencies' })).toBeTruthy();
-      void form;
+      expect(screen.getByRole('option', { name: /^THB/ }).getAttribute('aria-selected')).toBe(
+        'true',
+      );
     },
   );
 
-  test('a long press on a phone opens every currency', async () => {
-    renderApp(withWallet(['THB']), '/', { size: 'phone' });
-    const { form } = await openAdd();
-    const button = pill(form);
-    fireEvent.pointerDown(button);
-    await new Promise((r) => setTimeout(r, 600));
-    fireEvent.pointerUp(button);
-    fireEvent.click(button);
-    expect(await screen.findByRole('listbox', { name: 'All currencies' })).toBeTruthy();
-    // The press that opened it isn't also a tap
-    expect(screen.getByRole('option', { name: /^MYR/ }).getAttribute('aria-selected')).toBe('true');
-  });
+  test.each(SIZES)(
+    'the list starts with your currencies, then the ones used today (%s)',
+    async (size) => {
+      const server = withWallet(['USD']);
+      renderApp(server, '/', { size });
+      let { user, form } = await openAdd();
+      form = await inCurrency(user, form, 'THB');
+      await typeAmount(form, '50');
+      await user.click(addSaveButton(form));
+      await waitFor(() => expect(server.transactions).toHaveLength(1));
 
-  test('after a long press opens the list and it closes, the next tap cycles', async () => {
-    renderApp(withWallet(['THB']), '/', { size: 'phone' });
+      ({ user, form } = await openAdd());
+      await user.click(pill(form));
+      expect(optionNames(await screen.findByRole('listbox', { name: 'Yours' }))).toEqual([
+        'MYRMalaysian ringgitRM',
+        'USDUS dollar$',
+      ]);
+      expect(optionNames(screen.getByRole('listbox', { name: 'Used today' }))).toEqual([
+        'THBThai baht฿',
+      ]);
+      expect(optionNames(screen.getByRole('listbox', { name: 'All currencies' }))).not.toContain(
+        'THBThai baht฿',
+      );
+    },
+  );
+
+  test('from the keyboard, Enter on the pill opens the list', async () => {
+    renderApp(withWallet(['THB']), '/', { size: 'desktop' });
     const { user, form } = await openAdd();
-    const button = pill(form);
-    fireEvent.pointerDown(button);
-    await new Promise((r) => setTimeout(r, 600));
-    // Released on the list, never on the pill
-    await user.click(await screen.findByRole('option', { name: /^THB/ }));
-    const open = await addForm();
-    expect(pill(open).getAttribute('aria-label')).toBe('THB, currency');
-    pill(open).focus();
+    pill(form).focus();
     await user.keyboard('{Enter}');
-    expect(pill(open).getAttribute('aria-label')).toBe('RM, currency');
+    expect(await screen.findByRole('listbox', { name: 'All currencies' })).toBeTruthy();
+    expect(pill(form).getAttribute('aria-expanded')).toBe('true');
   });
 
-  test('the pill is named by what it shows, and says how to use it', async () => {
+  test('the pill is named by what it shows', async () => {
     renderApp(withWallet(['THB']), '/', { size: 'phone' });
     const { user, form } = await openAdd();
     await user.click(form.getByRole('radio', { name: 'Income' }));
     const button = pill(form);
     expect(button.textContent).toBe('+ RM');
     expect(button.getAttribute('aria-label')).toBe('+ RM, currency');
-    expect(button.hasAttribute('aria-haspopup')).toBe(false);
-    expect(button.getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowDown');
-    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toBe(
-      'MYR. Tap for THB. Hold, or press Alt+Down, for every currency.',
-    );
   });
 
   test('a backdated entry says it is saved at its own day’s rate', async () => {
     const server = withWallet(['THB']);
     renderApp(server, '/', { size: 'desktop' });
-    const { user, form } = await openAdd();
-    await user.click(pill(form));
+    const { user, form: opened } = await openAdd();
+    const form = await inCurrency(user, opened, 'THB');
     await typeAmount(form, '120');
     await user.click(form.getByRole('button', { name: /^Today/ }));
     fireEvent.change(form.getByLabelText('Date'), { target: { value: '2026-11-12' } });
@@ -336,8 +333,8 @@ describe('Add in another currency', () => {
     async (size) => {
       const server = withWallet(['THB']);
       renderApp(server, '/', { size });
-      const { user, form } = await openAdd();
-      await user.click(pill(form));
+      const { user, form: opened } = await openAdd();
+      const form = await inCurrency(user, opened, 'THB');
       await typeAmount(form, '120');
       expect(form.getByRole('status', { name: /^Amount, / }).getAttribute('aria-label')).toBe(
         'Amount, THB 120.00',
@@ -370,8 +367,8 @@ describe('Add in another currency', () => {
       const server = withWallet(['IDR']);
       server.rates.set('IDRMYR', 0.00028);
       renderApp(server, '/', { size });
-      const { user, form } = await openAdd();
-      await user.click(pill(form));
+      const { user, form: opened } = await openAdd();
+      const form = await inCurrency(user, opened, 'IDR');
       await typeAmount(form, '15000000');
       expect(
         await form.findByRole('button', { name: "about RM 4,200.00 at today's rate" }),
@@ -391,14 +388,14 @@ describe('Add in another currency', () => {
     const server = withWallet(['EUR']);
     server.rates.set('EURMYR', 4.9);
     renderApp(server, '/', { size: 'phone' });
-    const { user, form } = await openAdd();
-    await user.click(pill(form));
+    const { user, form: opened } = await openAdd();
+    let form = await inCurrency(user, opened, 'EUR');
     await typeAmount(form, '12000000');
     const save = await form.findByRole('button', { name: /^Comes to more than/ });
     expect(save.textContent).toBe('Comes to more than 10,000,000 MYR');
     expect(save.getAttribute('aria-disabled')).toBe('true');
     // Back in ringgit, the figure is past its own limit
-    await user.click(pill(form));
+    form = await inCurrency(user, form, 'MYR');
     expect(form.getByRole('button', { name: 'Up to 10,000,000' })).toBeTruthy();
     await user.click(form.getByRole('button', { name: 'Up to 10,000,000' }));
     await settle();
@@ -409,10 +406,10 @@ describe('Add in another currency', () => {
     const server = withWallet(['THB']);
     renderApp(server, '/', { size: 'phone' });
     let { user, form } = await openAdd();
-    await user.click(pill(form));
+    form = await inCurrency(user, form, 'THB');
     await typeAmount(form, '1');
     await form.findByRole('button', { name: "about RM 0.13 at today's rate" });
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
     await settle();
 
     const back = goOffline(server);
@@ -568,21 +565,21 @@ describe('travel sense', () => {
   test('follows the last two entries today, and Tap to change sets the day', async () => {
     const server = withWallet(['USD', 'THB']);
     renderApp(server, '/', { size: 'phone' });
-    const addIn = async (presses: number) => {
-      const { user, form } = await openAdd();
-      for (let i = 0; i < presses; i++) await user.click(pill(form));
+    const addIn = async (code: string) => {
+      const { user, form: opened } = await openAdd();
+      const form = await inCurrency(user, opened, code);
       await typeAmount(form, '5');
       await user.click(addSaveButton(form));
       await waitFor(() =>
         expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull(),
       );
     };
-    await addIn(1);
+    await addIn('USD');
     let { user, form } = await openAdd();
     // One alone isn't enough
     expect(pill(form).getAttribute('aria-label')).toBe('RM, currency');
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
-    await addIn(1);
+    await user.click(form.getByRole('button', { name: 'Close' }));
+    await addIn('USD');
 
     ({ user, form } = await openAdd());
     expect(pill(form).getAttribute('aria-label')).toBe('USD, currency');
@@ -590,7 +587,7 @@ describe('travel sense', () => {
     await user.click(await screen.findByRole('option', { name: /^MYR/ }));
     const open = await addForm();
     expect(pill(open).getAttribute('aria-label')).toBe('RM, currency');
-    await user.click(open.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(open.getByRole('button', { name: 'Close' }));
 
     // For the rest of the day
     ({ form } = await openAdd());

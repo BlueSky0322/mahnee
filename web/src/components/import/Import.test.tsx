@@ -249,8 +249,10 @@ describe("a bank's file", () => {
       expect(screen.getByLabelText('Amount')).toHaveProperty('value', 'Amount');
       expect(screen.getByLabelText('Payee')).toHaveProperty('value', 'Description');
       expect(screen.getByLabelText('Note')).toHaveProperty('value', 'Reference');
+      // Another account has none kept: its columns are suggested from their names alone
       await user.selectOptions(screen.getByLabelText('Account'), 'Wallet');
-      expect(screen.getByLabelText('Date')).toHaveProperty('value', '');
+      expect(screen.getByLabelText('Date')).toHaveProperty('value', 'Date');
+      expect(screen.getByLabelText('Note')).toHaveProperty('value', '');
     },
   );
 
@@ -289,6 +291,71 @@ describe("a bank's file", () => {
       amountCents: 1_200,
       date: '2026-10-06',
     });
+  });
+});
+
+describe('columns suggested by their names', () => {
+  test.each(SIZES)(
+    'a file never seen with Date, Description and Amount is ready to preview (%s)',
+    async (size) => {
+      const server = withAccounts();
+      renderApp(server, '/', { size });
+      const user = await openImport();
+      await pickFile(
+        user,
+        csv('Date,Description,Amount\n05/10/2026,Kopi Corner,-8.00\n06/10/2026,Grab,-12.00\n'),
+        'Maybank',
+      );
+      expect(await screen.findByLabelText('Date')).toHaveProperty('value', 'Date');
+      expect(screen.getByLabelText('Payee')).toHaveProperty('value', 'Description');
+      expect(screen.getByLabelText('Amount')).toHaveProperty('value', 'Amount');
+      expect(screen.getByLabelText('Note')).toHaveProperty('value', '');
+      expect(screen.getByRole('button', { name: 'Preview' })).toHaveProperty('disabled', false);
+      // Every suggestion can be changed: no payee this time
+      await user.selectOptions(screen.getByLabelText('Payee'), '');
+      await user.click(screen.getByRole('button', { name: 'Preview' }));
+      await user.click(await screen.findByRole('button', { name: 'Add 2 transactions' }));
+      await waitFor(() => expect(server.transactions).toHaveLength(2));
+      expect(server.transactions.map((t) => [t.payee, t.amountCents, t.date])).toEqual(
+        expect.arrayContaining([
+          [null, 800, '2026-10-05'],
+          [null, 1_200, '2026-10-06'],
+        ]),
+      );
+    },
+  );
+
+  test.each(SIZES)("reads a bank's Debit and Credit as money in and out (%s)", async (size) => {
+    renderApp(withAccounts(), '/', { size });
+    const user = await openImport();
+    await pickFile(
+      user,
+      csv('TRANSACTION DATE,Details,Debit Amount,Credit Amount\n4 Oct 2026,Tesco,12.00,\n'),
+      'Wallet',
+    );
+    expect(await screen.findByRole('radio', { name: 'Money in and out' })).toHaveProperty(
+      'checked',
+      true,
+    );
+    expect(screen.getByLabelText('Date')).toHaveProperty('value', 'TRANSACTION DATE');
+    expect(screen.getByLabelText('Payee')).toHaveProperty('value', 'Details');
+    expect(screen.getByLabelText('Money in')).toHaveProperty('value', 'Credit Amount');
+    expect(screen.getByLabelText('Money out')).toHaveProperty('value', 'Debit Amount');
+  });
+
+  test.each(SIZES)('leaves a column it could mistake unpicked (%s)', async (size) => {
+    renderApp(withAccounts(), '/', { size });
+    const user = await openImport();
+    await pickFile(
+      user,
+      csv('Transaction Date,Posting Date,Info,Amount\n4 Oct 2026,5 Oct 2026,Tesco,-12.00\n'),
+      'Wallet',
+    );
+    // Two dates: which one is for the person to say
+    expect(await screen.findByLabelText('Date')).toHaveProperty('value', '');
+    expect(screen.getByLabelText('Payee')).toHaveProperty('value', '');
+    expect(screen.getByLabelText('Amount')).toHaveProperty('value', 'Amount');
+    expect(screen.getByRole('button', { name: 'Preview' })).toHaveProperty('disabled', true);
   });
 });
 

@@ -186,9 +186,7 @@ describe('the form', () => {
     const user = userEvent.setup();
     const form = await openAdd(user);
 
-    expect(
-      form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }),
-    ).toBeTruthy();
+    expect(form.getByRole('button', { name: 'Close' })).toBeTruthy();
     const way = form.getByRole('radiogroup', { name: 'Which way' });
     expect(
       within(way)
@@ -253,9 +251,7 @@ describe('the form', () => {
     expect(hint?.textContent).toBe('Sums work: 8+4.5');
     expect(form.getByRole('status', { name: 'Amount, RM 0.00' })).toBeTruthy();
     expect(form.getByRole('button', { name: 'Cancel' })).toBeTruthy();
-    expect(
-      form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }),
-    ).toBeTruthy();
+    expect(form.getByRole('button', { name: 'Close' })).toBeTruthy();
     expect(saveButton(form).textContent).toMatch(/^Type an amount/);
     // The keys beside them
     expect(form.getByText('Esc')).toBeTruthy();
@@ -529,6 +525,60 @@ describe('From and For', () => {
     await refusesToSave(user, form);
   });
 
+  test.each(SIZES)(
+    'with one account, Add account makes the other, and the transfer goes on as typed (%s)',
+    async (size) => {
+      const server = fakeServer();
+      seedAccount(server, { id: WALLET, name: 'Wallet', openingCents: 10_000 });
+      renderApp(server, '/?accounts', { size });
+      const user = userEvent.setup();
+      let form = await openAdd(user);
+      await user.click(form.getByRole('radio', { name: 'Transfer' }));
+      await typeAmount(user, form, '25');
+      expect(form.getByText('Add another account to move money to')).toBeTruthy();
+      await user.click(form.getByRole('button', { name: 'Add account' }));
+      const dialog = within(await screen.findByRole('dialog', { name: 'Add account' }));
+      await user.type(dialog.getByLabelText('Name'), 'Savings');
+      await user.click(dialog.getByRole('button', { name: 'Add account' }));
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add account' })).toBeNull());
+
+      // Back on the transfer, as it was, to the account just made
+      form = within(await screen.findByRole('form', { name: 'Add a transaction' }));
+      expect(amount(form)).toBe('Amount, RM 25.00');
+      expect(checked(form.getByRole('radiogroup', { name: 'Which way' }))).toEqual(['Transfer']);
+      expect(form.getByRole('button', { name: /^To Savings/ })).toBeTruthy();
+      expect(form.queryByText('Add another account to move money to')).toBeNull();
+      const move = saveButton(form);
+      expect(move.textContent).toMatch(/^Move RM 25\.00/);
+      await user.click(move);
+      await waitFor(() => expect(server.transactions).toHaveLength(1));
+      const savings = server.accounts.find((a) => a.name === 'Savings')!;
+      expect(server.transactions[0]).toMatchObject({
+        kind: 'transfer',
+        accountId: WALLET,
+        toAccountId: savings.id,
+        amountCents: 2_500,
+      });
+    },
+  );
+
+  test('Add account closed without adding one leaves the transfer as it was', async () => {
+    const server = fakeServer();
+    seedAccount(server, { id: WALLET, name: 'Wallet' });
+    renderApp(server, '/?accounts', { size: 'desktop' });
+    const user = userEvent.setup();
+    const form = await openAdd(user);
+    await user.click(form.getByRole('radio', { name: 'Transfer' }));
+    await typeAmount(user, form, '7');
+    await user.click(form.getByRole('button', { name: 'Add account' }));
+    await screen.findByRole('dialog', { name: 'Add account' });
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add account' })).toBeNull());
+    const still = within(await screen.findByRole('form', { name: 'Add a transaction' }));
+    expect(amount(still)).toBe('Amount, RM 7.00');
+    expect(server.accounts).toHaveLength(1);
+  });
+
   test('From says "last used" for the account used last, and Add opens on it', async () => {
     const server = withAccounts();
     renderApp(server, '/?accounts', { size: 'phone' });
@@ -723,6 +773,67 @@ describe('Today and Repeat', () => {
 });
 
 describe('the draft', () => {
+  test.each(SIZES)(
+    'says when it keeps a draft, and Discard draft throws it away (%s)',
+    async (size) => {
+      const server = withAccounts();
+      renderApp(server, '/?accounts', { size });
+      const user = userEvent.setup();
+      let form = await openAdd(user);
+      // Nothing typed: nothing to keep or throw away
+      expect(form.getByRole('button', { name: 'Close' })).toBeTruthy();
+      expect(form.queryByRole('button', { name: 'Discard draft' })).toBeNull();
+      expect(form.queryByText('Draft kept from last time')).toBeNull();
+      if (size === 'desktop') expect(form.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+
+      await user.click(form.getByRole('radio', { name: 'Transfer' }));
+      await typeAmount(user, form, '25');
+      expect(form.queryByRole('button', { name: 'Close' })).toBeNull();
+      expect(form.getByRole('button', { name: 'Discard draft' })).toBeTruthy();
+      if (size === 'desktop') {
+        expect(form.queryByRole('button', { name: 'Cancel' })).toBeNull();
+        await user.click(form.getByRole('button', { name: 'Keep draft' }));
+      } else {
+        await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
+      }
+      await waitFor(() =>
+        expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull(),
+      );
+
+      // Opened again: it says so, as it was left
+      form = await openAdd(user);
+      expect(form.getByText('Draft kept from last time')).toBeTruthy();
+      expect(amount(form)).toBe('Amount, RM 25.00');
+      expect(checked(form.getByRole('radiogroup', { name: 'Which way' }))).toEqual(['Transfer']);
+
+      await user.click(form.getByRole('button', { name: 'Discard draft' }));
+      await waitFor(() =>
+        expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull(),
+      );
+      expect(await screen.findByText('Draft discarded')).toBeTruthy();
+      expect(server.transactions).toEqual([]);
+
+      // Opened again: a fresh entry
+      form = await openAdd(user);
+      expect(amount(form)).toBe('Amount, RM 0.00');
+      expect(checked(form.getByRole('radiogroup', { name: 'Which way' }))).toEqual(['Expense']);
+      expect(form.queryByText('Draft kept from last time')).toBeNull();
+      expect(form.queryByRole('button', { name: 'Discard draft' })).toBeNull();
+    },
+  );
+
+  test('Undo after Discard draft brings the draft back', async () => {
+    renderApp(withAccounts(), '/?accounts', { size: 'phone' });
+    const user = userEvent.setup();
+    let form = await openAdd(user);
+    await typeAmount(user, form, '8');
+    await user.click(form.getByRole('button', { name: 'Discard draft' }));
+    await user.click(await screen.findByRole('button', { name: 'Undo' }));
+    form = await openAdd(user);
+    expect(amount(form)).toBe('Amount, RM 8.00');
+    expect(form.getByText('Draft kept from last time')).toBeTruthy();
+  });
+
   test.each(SIZES)('Close keeps what was typed, and it opens again as left (%s)', async (size) => {
     const server = withAccounts();
     renderApp(server, '/?accounts', { size });
@@ -731,7 +842,7 @@ describe('the draft', () => {
     await user.click(form.getByRole('radio', { name: 'Income' }));
     await typeAmount(user, form, '3+4');
     await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Refund');
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
     await waitFor(() =>
       expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull(),
     );
@@ -761,7 +872,7 @@ describe('the draft', () => {
     expect(amount(form)).toBe('Amount, RM 15.00');
   });
 
-  test('Esc and Cancel on a computer keep the draft too', async () => {
+  test('Esc and Keep draft on a computer keep the draft too', async () => {
     renderApp(withAccounts(), '/?accounts');
     const user = userEvent.setup();
     let form = await openAdd(user);
@@ -773,7 +884,7 @@ describe('the draft', () => {
     form = await openAdd(user);
     expect(amount(form)).toBe('Amount, RM 21.00');
     await user.keyboard('5');
-    await user.click(form.getByRole('button', { name: 'Cancel' }));
+    await user.click(form.getByRole('button', { name: 'Keep draft' }));
     await waitFor(() =>
       expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull(),
     );
@@ -788,7 +899,7 @@ describe('the draft', () => {
     let form = await openAdd(user);
     await typeAmount(user, form, '6.5');
     await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Kopi');
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
 
     await reloadApp(server, '/?accounts', { size: 'phone' });
     form = await openAdd(user);
@@ -1130,7 +1241,7 @@ describe('the draft, everything in it', () => {
     await user.click(await screen.findByRole('radio', { name: 'Monthly' }));
     await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Cinema');
     await typeAmount(user, form, '28');
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
 
     await reloadApp(server, '/?accounts', { size: 'phone' });
     form = await openAdd(user);
@@ -1151,7 +1262,7 @@ describe('the draft, everything in it', () => {
     const user = userEvent.setup();
     let form = await openAdd(user);
     await typeAmount(user, form, '5');
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
 
     vi.setSystemTime(new Date(2026, 7, 20, 9, 0));
     await reloadApp(server, '/?accounts', { size: 'phone' });
@@ -1168,7 +1279,7 @@ describe('the draft, everything in it', () => {
     renderApp(server, '/?accounts', { size: 'phone' });
     const user = userEvent.setup();
     let form = await openAdd(user);
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Close' }));
     form = await openAdd(user);
     await user.click(form.getByRole('button', { name: /^From Wallet/ }));
     await user.click(await screen.findByRole('radio', { name: /^Bank/ }));
@@ -1185,7 +1296,7 @@ describe('the draft, everything in it', () => {
     let form = await openAdd(user);
     await typeAmount(user, form, '9');
     await user.click(form.getByRole('button', { name: 'Delete, hold to clear' }));
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Close' }));
     expect(Object.keys(localStorage).filter((k) => k.startsWith('mahnee:addDraft:'))).toEqual([]);
     form = await openAdd(user);
     expect(amount(form)).toBe('Amount, RM 0.00');
@@ -1202,7 +1313,7 @@ describe('the draft, everything in it', () => {
     await user.click(await screen.findByRole('button', { name: 'Fun' }));
     await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Arcade');
     await typeAmount(user, form, '11');
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
 
     server.accounts[1].archived = true;
     server.categories = DEFAULT_CATEGORIES.map((c) => ({ ...c, archived: c.name === 'Fun' }));
@@ -1223,7 +1334,7 @@ describe('the draft, everything in it', () => {
     const user = userEvent.setup();
     let form = await openAdd(user);
     await typeAmount(user, form, '13');
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
 
     server.me = { ...server.me, email: 'other@example.com' };
     await reloadApp(server, '/?accounts', { size: 'phone' });
@@ -1265,9 +1376,7 @@ describe('which account Add opens on', () => {
       await reloadApp(server, '/?accounts', { size: 'phone' });
       form = await openAdd(user);
       expect(form.getByRole('button', { name: /^From Bank/ }).textContent).toMatch(/last used/);
-      await user.click(
-        form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }),
-      );
+      await user.click(form.getByRole('button', { name: 'Close' }));
     }
   });
 
@@ -1314,7 +1423,7 @@ describe('which account Add opens on', () => {
     expect(screen.queryByRole('radio', { name: /^Wallet/ })).toBeNull();
     act(() => window.history.back());
     await waitFor(() => expect(screen.queryByRole('radio', { name: /^Bank/ })).toBeNull());
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Close' }));
     await waitFor(() =>
       expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull(),
     );
@@ -1676,7 +1785,7 @@ describe('focus once Add closes', () => {
     renderApp(withAccounts(), '/?accounts', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
-    const close = form.getByRole('button', { name: 'Close, keeps what you typed as a draft' });
+    const close = form.getByRole('button', { name: 'Close' });
     const elsewhere = screen.getAllByRole('link', { name: 'Activity', hidden: true })[0];
     // Focus moves on the moment Add closes, before it would have handed focus back
     act(() => close.click());
@@ -1694,7 +1803,7 @@ describe('focus once Add closes', () => {
     renderApp(withAccounts(), '/?accounts', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
-    await user.click(form.getByRole('button', { name: 'Close, keeps what you typed as a draft' }));
+    await user.click(form.getByRole('button', { name: 'Close' }));
     await waitFor(() =>
       expect(document.activeElement).toBe(
         screen.getByRole('button', {

@@ -12,6 +12,17 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-20
+
+- Changed: New entry says when it keeps a draft ("Keep draft"), and Discard draft throws it away, with Undo [#?]
+- Fixed: Search everything on Home looks through every month, and Activity's dates still narrow it [#?]
+- Changed: Set a budget asks you to choose an expense category, and opens its monthly budget ready to type [#?]
+- Added: a bank file's Date, Description and Amount (or Debit and Credit) columns are picked for you when their names are clear [#?]
+- Changed: one tap on Add's currency opens the list of currencies, yours and today's first [#?]
+- Added: Install the app on the Settings page, where the browser can install it [#?]
+- Fixed: switching rows in Activity with changes not saved asks to Save, Discard or Keep editing [#?]
+- Added: a transfer with nowhere to go offers Add account, and goes on to the new account as typed [#?]
+
 ## 2026-11-19
 
 - Changed: the reminder settings say plainly what they do: "Heads-up before scheduled entries", and when reminders come [#56]

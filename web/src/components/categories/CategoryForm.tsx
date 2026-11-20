@@ -35,6 +35,8 @@ interface CategoryFormProps {
   categories: Category[];
   /** This month's budgets, as shown; null while not known */
   budgets: MonthBudget[] | null;
+  /** Opened from Set a budget: the Monthly budget field takes the keyboard */
+  focusBudget?: boolean;
   onClose: () => void;
 }
 
@@ -42,7 +44,13 @@ interface CategoryFormProps {
 const TOP_LEVEL = '';
 
 /** Adding a category, or renaming one, moving it under another and archiving it */
-export default function CategoryForm({ open, categories, budgets, onClose }: CategoryFormProps) {
+export default function CategoryForm({
+  open,
+  categories,
+  budgets,
+  focusBudget = false,
+  onClose,
+}: CategoryFormProps) {
   return (
     <ResponsiveDialog
       opened={open != null}
@@ -67,6 +75,7 @@ export default function CategoryForm({ open, categories, budgets, onClose }: Cat
               : budgets?.find((b) => b.categoryId === open.category?.id) ??
                 (budgets == null ? undefined : null)
           }
+          focusBudget={focusBudget}
           onDone={onClose}
         />
       )}
@@ -79,6 +88,7 @@ function Fields({
   category,
   categories,
   budget,
+  focusBudget,
   onDone,
 }: {
   kind: CategoryKind;
@@ -86,6 +96,7 @@ function Fields({
   categories: Category[];
   /** Its budget this month: null when it has none, undefined while that isn't known */
   budget: MonthBudget | null | undefined;
+  focusBudget: boolean;
   onDone: () => void;
 }) {
   const homeCurrency = useCurrency();
@@ -244,6 +255,7 @@ function Fields({
             onChange={(e) => setBudgetTyped(e.currentTarget.value)}
             error={budgetError}
             autoComplete="off"
+            data-autofocus={focusBudget || undefined}
           />
           <Switch
             label="Carry over"

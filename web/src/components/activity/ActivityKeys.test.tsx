@@ -203,3 +203,85 @@ describe('the guard', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
+
+describe('switching rows with changes not saved', () => {
+  /** The pane's Payee, typed over with `payee` */
+  async function retype(user: ReturnType<typeof userEvent.setup>, payee: string) {
+    const pane = within(within(screen.getByRole('main')).getByRole('complementary'));
+    const field = pane.getByLabelText<HTMLInputElement>('Payee');
+    await user.clear(field);
+    await user.type(field, payee);
+    return field;
+  }
+  const rowButton = (name: string) => screen.getByRole('button', { name });
+
+  test('a clean editor switches at once, by mouse and by key', async () => {
+    const user = await start();
+    await user.click(rowButton('Bakery'));
+    expect(open()).toBe('Bakery, Nov 8');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await user.keyboard('j');
+    expect(open()).toBe('Florist, Nov 7');
+  });
+
+  test('a click on another row asks first; Keep editing keeps what was typed', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    await user.click(rowButton('Bakery'));
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    expect(ask.getByText('Kiosk has changes that are not saved.')).toBeTruthy();
+    await user.click(ask.getByRole('button', { name: 'Keep editing' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(open()).toBe('Kiosk, Nov 9');
+    const pane = within(within(screen.getByRole('main')).getByRole('complementary'));
+    expect(pane.getByLabelText('Payee')).toHaveProperty('value', 'Kiosk lunch');
+  });
+
+  test('Discard drops what was typed and opens the other row', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    await user.click(rowButton('Bakery'));
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    await user.click(ask.getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(open()).toBe('Bakery, Nov 8'));
+    await user.click(rowButton('Kiosk'));
+    await waitFor(() => expect(open()).toBe('Kiosk, Nov 9'));
+    const pane = within(within(screen.getByRole('main')).getByRole('complementary'));
+    expect(pane.getByLabelText('Payee')).toHaveProperty('value', 'Kiosk');
+  });
+
+  test('Save keeps it, then opens the other row', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    await user.click(rowButton('Bakery'));
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    await user.click(ask.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(open()).toBe('Bakery, Nov 8'));
+    expect(await screen.findByRole('button', { name: 'Kiosk lunch' })).toBeTruthy();
+  });
+
+  test('J asks too, once the keyboard has left the field', async () => {
+    const user = await start();
+    await retype(user, 'Kiosk lunch');
+    act(() => screen.getAllByRole('checkbox')[1].focus());
+    await user.keyboard('j');
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    expect(open()).toBe('Kiosk, Nov 9');
+    await user.click(ask.getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(open()).toBe('Bakery, Nov 8'));
+  });
+
+  test('Save with something it can not save keeps the row open with why', async () => {
+    const user = await start();
+    const pane = within(within(screen.getByRole('main')).getByRole('complementary'));
+    const amount = pane.getByLabelText('Amount');
+    await user.clear(amount);
+    await user.type(amount, 'abc');
+    await user.click(rowButton('Bakery'));
+    const ask = within(await screen.findByRole('dialog', { name: 'Save your changes?' }));
+    await user.click(ask.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(open()).toBe('Kiosk, Nov 9');
+    expect(amount).toHaveProperty('value', 'abc');
+  });
+});

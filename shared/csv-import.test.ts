@@ -10,6 +10,7 @@ import {
   readCents,
   readDay,
   readExportRows,
+  suggestMapping,
 } from './csv-import';
 import { CSV_BOM, EXPORT_COLUMNS, csvLine, exportCells, openingCells } from './export';
 
@@ -556,5 +557,46 @@ describe('rows that look already saved', () => {
 describe('the limit', () => {
   it('is 5,000 rows a file', () => {
     expect(MAX_IMPORT_ROWS).toBe(5_000);
+  });
+});
+
+describe('suggestMapping', () => {
+  const none = { date: null, amount: null, moneyIn: null, moneyOut: null, payee: null, note: null };
+
+  it('picks Date, Description and Amount, whatever their case', () => {
+    expect(suggestMapping(['DATE', 'description', 'Amount (MYR)', 'Memo'])).toEqual({
+      twoColumns: false,
+      columns: {
+        ...none,
+        date: 'DATE',
+        payee: 'description',
+        amount: 'Amount (MYR)',
+        note: 'Memo',
+      },
+    });
+  });
+
+  it('reads Debit and Credit as money out and in when there is no amount column', () => {
+    expect(suggestMapping(['Txn Date', 'Payee', 'Debit', 'Credit', 'Balance'])).toEqual({
+      twoColumns: true,
+      columns: { ...none, date: 'Txn Date', payee: 'Payee', moneyOut: 'Debit', moneyIn: 'Credit' },
+    });
+  });
+
+  it('keeps one amount column over money in and out', () => {
+    const { twoColumns, columns } = suggestMapping(['Date', 'Amount', 'Credit']);
+    expect(twoColumns).toBe(false);
+    expect(columns.amount).toBe('Amount');
+    expect(columns.moneyIn).toBeNull();
+  });
+
+  it('leaves ambiguous and unknown columns blank', () => {
+    expect(
+      suggestMapping(['Transaction Date', 'Posting Date', 'Info', 'Amount', 'Amount']),
+    ).toEqual({ twoColumns: false, columns: none });
+    expect(suggestMapping(['When', 'What', 'How much'])).toEqual({
+      twoColumns: false,
+      columns: none,
+    });
   });
 });

@@ -27,7 +27,7 @@ import Key from '../ui/Key';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import ChangeCategory from './ChangeCategory';
-import EntryEditor from './EntryEditor';
+import EntryEditor, { type EditorControl } from './EntryEditor';
 import FilterChips from './Filters';
 import {
   dayTotal,
@@ -162,6 +162,14 @@ export default function ActivityPage({ query }: { query: string }) {
   // Not ticked any more once they're gone (deleted, or filtered out)
   const chosen = useMemo(() => (rows ?? []).filter((t) => ticked.has(t.id)), [rows, ticked]);
   const open = (rows ?? []).find((t) => t.id === openId) ?? rows?.[0] ?? null;
+  // The open entry's editor beside the register, and the row asked for while it has changes
+  const editor = useRef<EditorControl | null>(null);
+  const [leavingFor, setLeavingFor] = useState<string | null>(null);
+  /** Opens a row beside the register; with changes not saved, asks first */
+  const openRow = (id: string) => {
+    if (open != null && id !== open.id && editor.current?.dirty === true) setLeavingFor(id);
+    else setOpenId(id);
+  };
 
   const toggle = (id: string) =>
     setTicked((now) => {
@@ -211,7 +219,7 @@ export default function ActivityPage({ query }: { query: string }) {
       0,
       rows.findIndex((t) => t.id === open?.id),
     );
-    setOpenId(rows[Math.min(rows.length - 1, Math.max(0, at + by))].id);
+    openRow(rows[Math.min(rows.length - 1, Math.max(0, at + by))].id);
   };
   useShortcuts(
     {
@@ -445,7 +453,7 @@ export default function ActivityPage({ query }: { query: string }) {
               ticked={ticked}
               count={count}
               openId={open?.id ?? null}
-              onOpen={setOpenId}
+              onOpen={openRow}
               onToggle={toggle}
               onSelectAll={() =>
                 ticked.size > 0 && ticked.size >= count ? setTicked(new Set()) : void selectAll()
@@ -492,6 +500,7 @@ export default function ActivityPage({ query }: { query: string }) {
               key={open.id}
               transaction={open}
               title={paneTitle}
+              control={editor}
               onDeleted={() => {
                 // The next one opens, or the one before at the end
                 const at = (rows ?? []).findIndex((t) => t.id === open.id);
@@ -532,6 +541,43 @@ export default function ActivityPage({ query }: { query: string }) {
           setTicked(new Set());
         }}
       />
+      <ResponsiveDialog
+        opened={leavingFor != null}
+        onClose={() => setLeavingFor(null)}
+        title="Save your changes?"
+        width={400}
+      >
+        <p
+          className={classes.leaveText}
+        >{`${paneTitle ?? 'This entry'} has changes that are not saved.`}</p>
+        <div className={classes.leaveActions}>
+          <Button
+            variant="default"
+            onClick={() => setLeavingFor(null)}
+          >
+            Keep editing
+          </Button>
+          <Button
+            variant="default"
+            className="sf-danger-outline"
+            onClick={() => {
+              setOpenId(leavingFor);
+              setLeavingFor(null);
+            }}
+          >
+            Discard
+          </Button>
+          <Button
+            onClick={() => {
+              // What can't be saved stays open, saying why
+              if (editor.current?.save() === true) setOpenId(leavingFor);
+              setLeavingFor(null);
+            }}
+          >
+            Save
+          </Button>
+        </div>
+      </ResponsiveDialog>
       <ResponsiveDialog
         opened={sheet != null}
         onClose={() => setSheet(null)}

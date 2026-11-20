@@ -149,7 +149,6 @@ describe('changes made offline', () => {
       expect(screen.queryByText('That account already exists')).toBeNull();
       await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
     },
-    15_000,
   );
 
   test('a change refused once back is kept to review; the others are saved', async () => {
@@ -197,7 +196,7 @@ describe('changes made offline', () => {
     await waitFor(async () => expect(await keptForRyan()).toEqual([]));
     expect(screen.queryByText(/couldn't be saved/)).toBeNull();
     expect(await row('Purse')).toBeTruthy();
-  }, 15_000);
+  });
 
   test('a refused change can be discarded', async () => {
     const server = fakeServer();
@@ -338,7 +337,7 @@ describe('closing the app while a save is on its way', () => {
     expect(await row('Purse')).toBeTruthy();
     // The closed page's request is let go of, as the browser does with the page
     lost.release();
-  }, 15_000);
+  });
 });
 
 describe('saving while the app is in the background', () => {
@@ -501,24 +500,20 @@ describe('someone else signing in on this device', () => {
 });
 
 describe('what happens once the connection is back', () => {
-  test.each(SIZES)(
-    'without background sync, says to open Mahnee to finish (%s)',
-    async (size) => {
-      const server = fakeServer();
-      seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
-      renderApp(server, '/?accounts', { size });
-      await row('Wallet');
-      goOffline(server);
-      // Nothing waiting yet: only that changes are kept
-      expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
-      expect(screen.queryByText(/finish syncing/)).toBeNull();
-      await rename('Wallet', 'Purse');
-      await addAccount('Savings');
-      expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
-      expect(await screen.findByText('Open Mahnee when connected to finish syncing.')).toBeTruthy();
-    },
-    15_000,
-  );
+  test.each(SIZES)('without background sync, says to open Mahnee to finish (%s)', async (size) => {
+    const server = fakeServer();
+    seed(server, { id: 'a'.repeat(16), name: 'Wallet' });
+    renderApp(server, '/?accounts', { size });
+    await row('Wallet');
+    goOffline(server);
+    // Nothing waiting yet: only that changes are kept
+    expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
+    expect(screen.queryByText(/finish syncing/)).toBeNull();
+    await rename('Wallet', 'Purse');
+    await addAccount('Savings');
+    expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
+    expect(await screen.findByText('Open Mahnee when connected to finish syncing.')).toBeTruthy();
+  });
 
   test('with background sync, says they are sent even with the app closed', async () => {
     vi.stubGlobal('SyncManager', class {});

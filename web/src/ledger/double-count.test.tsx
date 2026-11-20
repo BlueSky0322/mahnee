@@ -190,49 +190,44 @@ describe('a change saved whose answer was lost is counted once', () => {
         figures.stop();
       }
     },
-    15_000,
   );
 
-  test.each(SIZES)(
-    'with the page reloaded before it is sent again (%s)',
-    async (size) => {
-      const server = withWallet();
-      renderApp(server, '/', { size });
-      await waitFor(() => expect(walletBalance()).toBe(BEFORE.balance));
-      await waitFor(() => expect(monthFigure('Spent')).toBe(BEFORE.spent));
-      await savedWithAnswerLost(server);
+  test.each(SIZES)('with the page reloaded before it is sent again (%s)', async (size) => {
+    const server = withWallet();
+    renderApp(server, '/', { size });
+    await waitFor(() => expect(walletBalance()).toBe(BEFORE.balance));
+    await waitFor(() => expect(monthFigure('Spent')).toBe(BEFORE.spent));
+    await savedWithAnswerLost(server);
 
-      // Reopened: the RM 8 is picked up from the device and sent again, which is held up,
-      // while the balances and totals are fetched afresh, holding it already
-      const resend = holdNext(server, 'POST', '/api/changes');
-      await reloadApp(server, '/', { size });
-      const figures = watchFigures();
-      try {
-        await waitFor(() => expect(walletBalance()).not.toBeNull());
-        await waitFor(() => expect(monthFigure('Spent')).not.toBeNull());
-        await act(() => new Promise((r) => setTimeout(r, 50)));
-        expect(walletBalance()).toBe(AFTER.balance);
-        expect(monthFigure('Spent')).toBe(AFTER.spent);
+    // Reopened: the RM 8 is picked up from the device and sent again, which is held up,
+    // while the balances and totals are fetched afresh, holding it already
+    const resend = holdNext(server, 'POST', '/api/changes');
+    await reloadApp(server, '/', { size });
+    const figures = watchFigures();
+    try {
+      await waitFor(() => expect(walletBalance()).not.toBeNull());
+      await waitFor(() => expect(monthFigure('Spent')).not.toBeNull());
+      await act(() => new Promise((r) => setTimeout(r, 50)));
+      expect(walletBalance()).toBe(AFTER.balance);
+      expect(monthFigure('Spent')).toBe(AFTER.spent);
 
-        resend.release();
-        await waitFor(async () => expect(await keptForRyan()).toEqual([]), { timeout: 8000 });
-        await act(() => new Promise((r) => setTimeout(r, 50)));
-        expect(server.transactions).toHaveLength(3);
-        expect(walletBalance()).toBe(AFTER.balance);
-        expect(monthFigure('Spent')).toBe(AFTER.spent);
+      resend.release();
+      await waitFor(async () => expect(await keptForRyan()).toEqual([]), { timeout: 8000 });
+      await act(() => new Promise((r) => setTimeout(r, 50)));
+      expect(server.transactions).toHaveLength(3);
+      expect(walletBalance()).toBe(AFTER.balance);
+      expect(monthFigure('Spent')).toBe(AFTER.spent);
 
-        // Since the reload, only ever the RM 8 counted once
-        expect(figures.seen()).toEqual({
-          balance: [AFTER.balance],
-          spent: [AFTER.spent],
-          income: [AFTER.income],
-        });
-      } finally {
-        // Let go even when a check above failed, so the next test starts from nothing
-        resend.release();
-        figures.stop();
-      }
-    },
-    15_000,
-  );
+      // Since the reload, only ever the RM 8 counted once
+      expect(figures.seen()).toEqual({
+        balance: [AFTER.balance],
+        spent: [AFTER.spent],
+        income: [AFTER.income],
+      });
+    } finally {
+      // Let go even when a check above failed, so the next test starts from nothing
+      resend.release();
+      figures.stop();
+    }
+  });
 });

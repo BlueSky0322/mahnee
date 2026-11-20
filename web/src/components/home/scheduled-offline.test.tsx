@@ -125,7 +125,7 @@ describe.each(SIZES)('a scheduled item due while offline (%s)', (size) => {
     // The server's entry alone: the device sent nothing for it
     expect(server.transactions.filter((t) => t.payee === 'Rent')).toHaveLength(1);
     expect(sentChanges()).toEqual([]);
-  }, 20_000);
+  });
 });
 
 describe('projected by the person’s own day, as the server adds them', () => {
@@ -161,7 +161,7 @@ describe('projected by the person’s own day, as the server adds them', () => {
     const row = within(due).getByRole('group', { name: 'Due: Rent RM 1,350.00 from Maybank' });
     expect(within(row).getByText('Due today')).toBeTruthy();
     expect(within(row).getByText('Scheduled, adds when back online')).toBeTruthy();
-  }, 20_000);
+  });
 
   test('two missed weeks show twice; an item whose category is archived not at all', async () => {
     vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true });
@@ -209,5 +209,5 @@ describe('projected by the person’s own day, as the server adds them', () => {
       'Due: Rent RM 1,350.00 from MaybankDue todayScheduled, adds when back online',
       'Due: Badminton RM 20.00 from MaybankDue todayScheduled, adds when back online',
     ]);
-  }, 20_000);
+  });
 });

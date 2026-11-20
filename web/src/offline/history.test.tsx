@@ -163,7 +163,7 @@ describe('offline, from the history on the device', () => {
     back();
     await reloadApp(server, SEPTEMBER_PATH);
     expect((await foundLine()).textContent).toBe(SEPTEMBER_LINE);
-  }, 30_000);
+  });
 
   test('a transfer shows on the account it went to, and an edit made offline shows at once', async () => {
     const server = withHistory();
@@ -204,7 +204,7 @@ describe('offline, from the history on the device', () => {
       expect(server.transactions.some((t) => t.payee === 'Warung offline')).toBe(true),
     );
     expect((await foundLine()).textContent).toBe('2 found · RM 12.50 spent');
-  }, 30_000);
+  });
 
   test('an account’s entries go back past the first page offline', async () => {
     const server = withHistory();
@@ -229,7 +229,7 @@ describe('offline, from the history on the device', () => {
     ).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Show 50 more' })).toBeNull();
     expect(screen.queryByText(/aren't on this device/)).toBeNull();
-  }, 30_000);
+  });
 });
 
 describe('a download not finished', () => {
@@ -298,7 +298,7 @@ describe('a download not finished', () => {
     await coldStartOffline(server, inCash);
     expect((await foundLine()).textContent).toMatch(/^\d+ found · /);
     expect(screen.queryByText(/aren't on this device/)).toBeNull();
-  }, 40_000);
+  });
 });
 
 describe('whose history', () => {
@@ -320,7 +320,7 @@ describe('whose history', () => {
     expect((await foundLine()).textContent).toBe('1 found · RM 42.00 spent');
     expect(registerTitles()).toEqual(['Mei’s lunch']);
     expect(screen.queryByText('Shop 0')).toBeNull();
-  }, 30_000);
+  });
 
   test('signing out leaves nothing of it on the device', async () => {
     const server = withHistory();
@@ -346,7 +346,7 @@ describe('when the device can’t keep it', () => {
     expect(await localAccountPage(CASH, null, null)).toBeNull();
     expect(await localAccountPage(CASH, null, 'SGD')).not.toBeNull();
     expect(await localSince(CASH, '2026-09-01', null)).toBeNull();
-  }, 30_000);
+  });
 
   test('offline, Activity says searching needs a connection', async () => {
     const server = withHistory();
@@ -371,7 +371,7 @@ describe('when the device can’t keep it', () => {
         "This device couldn't keep your entries, so searching needs a connection.",
       ),
     ).toBeTruthy();
-  }, 30_000);
+  });
 });
 
 describe('kept up to date', () => {
@@ -401,7 +401,7 @@ describe('kept up to date', () => {
     await waitFor(() => expect(registerTitles()).toEqual(['Late receipt']));
     await reloadApp(server, `${SEPTEMBER_PATH}&q=shop%20229`);
     expect(await screen.findByText('No transactions match', {}, { timeout: 6000 })).toBeTruthy();
-  }, 40_000);
+  });
 
   test('a check stopped part way keeps every entry shown, saying they are being refreshed', async () => {
     const server = withHistory();
@@ -433,7 +433,7 @@ describe('kept up to date', () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/aren't on this device/)).toBeNull();
-  }, 40_000);
+  });
 
   test('a new home currency set on another device downloads the history again', async () => {
     const server = withHistory();
@@ -466,7 +466,7 @@ describe('kept up to date', () => {
     await coldStartOffline(server, SEPTEMBER_PATH);
     expect((await foundLine()).textContent).toBe(online);
     expect(screen.queryByText(/being refreshed/)).toBeNull();
-  }, 40_000);
+  });
 
   test('offline, it says when it was last checked, and when that was too long ago', async () => {
     const server = withHistory();
@@ -484,7 +484,7 @@ describe('kept up to date', () => {
     expect((await foundLine()).textContent).toBe('230 found on this device · RM 493.35 spent');
     expect(screen.getByText('Not checked since Nov 20. Entries may be out of date.')).toBeTruthy();
     expect(screen.queryByText(/being refreshed/)).toBeNull();
-  }, 30_000);
+  });
 
   test('kinds narrow it as the server does', async () => {
     const server = withHistory();
@@ -497,7 +497,7 @@ describe('kept up to date', () => {
     expect(registerTitles()).toEqual(['Acme']);
     await reloadApp(server, '/?activity&kind=transfer&dates=all');
     await waitFor(() => expect(registerTitles()).toEqual(['top-up']));
-  }, 30_000);
+  });
 });
 
 describe('two tabs', () => {
@@ -515,7 +515,7 @@ describe('two tabs', () => {
     vi.setSystemTime(new Date(2026, 10, 20, 10, 5, 0));
     await download();
     expect(asked().filter((url) => url.pathname === '/api/transactions').length).toBeGreaterThan(0);
-  }, 30_000);
+  });
 });
 
 describe('out of space', () => {
@@ -547,5 +547,5 @@ describe('out of space', () => {
 
     await coldStartOffline(server, SEPTEMBER_PATH);
     expect((await foundLine()).textContent).toBe(SEPTEMBER_LINE);
-  }, 30_000);
+  });
 });

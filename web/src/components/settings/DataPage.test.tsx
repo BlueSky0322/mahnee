@@ -21,6 +21,7 @@ import { queryClient } from '../../query-client';
 import { handFile } from '../import/handed-file';
 import { rememberMapping, rememberedMapping } from '../import/remembered-mapping';
 import { pick } from '../../testing/pick';
+import { RETRY_DELAY_MS } from '../../ledger/save-queue';
 
 // Import and export (R-Set-Data, R-Desk-Data, R-Empty-Data, R-Desk-Empty-Data): choosing a
 // file to import, the imports recorded on the server with Undo for each (D16), the bank
@@ -390,12 +391,15 @@ describe('undoing an import', () => {
   );
 
   test('offline, is kept and done once back, counted once though its answer was lost', async () => {
+    // The clock runs, but the wait before trying again can be skipped
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    onTestFinished(() => void vi.useRealTimers());
     const server = withImport(withHistory());
     // Accounts and Home seen online first, so they're kept on the phone for offline
     renderApp(server, '/?accounts', { size: 'phone' });
     expect(await screen.findByRole('link', { name: /^Wallet, Cash, 76\.00$/ })).toBeTruthy();
     await openSettings();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     await user.click(screen.getByRole('link', { name: /^Import and export / }));
     await screen.findByRole('button', { name: 'Undo' });
     const backOnline = goOffline(server);
@@ -417,7 +421,10 @@ describe('undoing an import', () => {
     // Its answer lost on the way back, it's sent again and counts once
     server.loseNext.changes = true;
     backOnline();
-    await waitFor(() => expect(server.imports[0].undoneAt).not.toBeNull());
+    await waitFor(() => expect(server.loseNext.changes).toBe(false));
+    // Saved, but its answer was lost: kept, and tried again after the queue's wait
+    expect(server.imports[0].undoneAt).not.toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(RETRY_DELAY_MS));
     expect(server.transactions.map((t) => t.id).sort()).toEqual(
       ['2'.padStart(16, 'd'), '3'.padStart(16, 'd')].sort(),
     );

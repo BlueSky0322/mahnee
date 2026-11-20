@@ -146,7 +146,7 @@ describe('Main currency', () => {
     expect(
       await screen.findAllByText((text) => text.includes('$ 23.00 in accounts')),
     ).not.toHaveLength(0);
-  }, 30_000);
+  });
 
   test.each([
     ['amount', 'Kept MYR: an entry would come to more than 10,000,000 IDR'],

@@ -3,6 +3,8 @@
 
 // IndexedDB, for the offline cache
 import 'fake-indexeddb/auto';
+// Labels found in one pass rather than one walk of the page per element
+import './labels';
 import type { BoundFunctions, queries } from '@testing-library/react';
 import { act, cleanup, configure, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

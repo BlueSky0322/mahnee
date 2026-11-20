@@ -170,7 +170,6 @@ describe('how fresh the figures are', () => {
       expect(labels()).toEqual(['Up to date']);
       expect(await wallet()).toBeTruthy();
     },
-    15_000,
   );
 
   test.each(SIZES)(
@@ -193,7 +192,6 @@ describe('how fresh the figures are', () => {
       expect(await labelArea(size).findByText('Up to date')).toBeTruthy();
       expect(labels()).toEqual(['Up to date']);
     },
-    15_000,
   );
 
   test('a page left open says the copy is older as time passes', async () => {
@@ -209,7 +207,7 @@ describe('how fresh the figures are', () => {
     // A minute on, with no reload
     act(() => void vi.advanceTimersByTime(MINUTE_MS));
     expect(await labelArea('phone').findByText('From this device, 6 min old')).toBeTruthy();
-  }, 15_000);
+  });
 
   test('the age is the older of the balances and the month shown', async () => {
     const server = withWallet();
@@ -226,7 +224,7 @@ describe('how fresh the figures are', () => {
     await reloadApp(server, '/', { size: 'phone' });
     await wallet();
     expect(await labelArea('phone').findByText('From this device, 3 h old')).toBeTruthy();
-  }, 15_000);
+  });
 
   test("an earlier month on Home is judged by that month's copy, other pages by the balances", async () => {
     const server = withWallet();
@@ -252,7 +250,7 @@ describe('how fresh the figures are', () => {
     // Activity shows no month's totals: the balances' age
     await goToPlace('Activity');
     expect(await labelArea('desktop').findByText('From this device, 1 h old')).toBeTruthy();
-  }, 20_000);
+  });
 
   test.each(SIZES)(
     'offline with changes waiting, it says how many are waiting to save (%s)',
@@ -273,7 +271,6 @@ describe('how fresh the figures are', () => {
       expect(await labelArea(size).findByText('Up to date', {}, { timeout: 5000 })).toBeTruthy();
       expect(server.accounts.map((a) => a.name)).toEqual(['Wallet', 'Savings', 'Purse']);
     },
-    15_000,
   );
 
   test('offline with a copy from the device and a change waiting, the count wins', async () => {
@@ -288,7 +285,7 @@ describe('how fresh the figures are', () => {
     await addAccount('Savings');
     expect(await labelArea('phone').findByText('Offline · 1 change waiting to save')).toBeTruthy();
     expect(labels()).toEqual(['Offline · 1 change waiting to save']);
-  }, 15_000);
+  });
 
   test.each(SIZES)(
     'offline with nothing waiting and the figures fetched before, it says "Offline" (%s)',
@@ -341,7 +338,7 @@ describe('how fresh the figures are', () => {
     await wait(300);
     // Nothing is being saved while the server fails
     expect(labels()).toEqual(['From this device, 2 h old']);
-  }, 15_000);
+  });
 
   test('signed out with changes waiting, it says they wait', async () => {
     const server = withWallet();
@@ -418,7 +415,6 @@ describe("a phone's other pages", () => {
       await goToPlace('Plan');
       expect(await screen.findByText('Offline · 1 change waiting to save')).toBeTruthy();
     },
-    15_000,
   );
 });
 
@@ -452,7 +448,9 @@ describe('the undo toast', () => {
   async function archiveWallet(size: (typeof SIZES)[number]) {
     const server = withWallet();
     renderApp(server, '/?accounts', { size });
-    const user = userEvent.setup();
+    const user = userEvent.setup(
+      vi.isFakeTimers() ? { advanceTimers: vi.advanceTimersByTime } : undefined,
+    );
     await user.click(await wallet());
     await user.click(await screen.findByRole('button', { name: 'Edit' }));
     await user.click(
@@ -517,14 +515,18 @@ describe('the undo toast', () => {
   );
 
   test('goes away by itself after 6 seconds, not before', async () => {
+    // The clock runs, but the seconds the message stays can be skipped
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    onTestFinished(() => void vi.useRealTimers());
     await archiveWallet('phone');
     expect(await screen.findByText('Archived Wallet')).toBeTruthy();
-    await wait(5000);
+    await act(() => vi.advanceTimersByTimeAsync(5000));
     expect(screen.getByText('Archived Wallet')).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(1000));
     await waitFor(() => expect(screen.queryByText('Archived Wallet')).toBeNull(), {
       timeout: 2500,
     });
-  }, 15_000);
+  });
 
   test('a refusal keeps its close button', async () => {
     const server = withWallet();

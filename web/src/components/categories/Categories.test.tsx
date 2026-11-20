@@ -478,6 +478,5 @@ describe('categories offline', () => {
       expect(await chip('Coffee', 'Food')).toBeTruthy();
       await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
     },
-    15_000,
   );
 });

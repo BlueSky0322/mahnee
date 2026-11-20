@@ -1789,7 +1789,9 @@ totals kept, fetches everything again and sends the changes kept meanwhile. `use
   ([worker/currency/convert-queue.ts](../worker/currency/convert-queue.ts)).
 - Each step ([worker/currency/convert.ts](../worker/currency/convert.ts)) works out a page
   of 200 transactions, by day then id, each at the rate on its own day (`getRateOn`: the
-  ECB's, else Wise's), into `conversion_staged`, checking each against its limit; the last
+  ECB's, else Wise's), into `conversion_staged`, checking each against its limit. A step
+  asks the services about each day once (`RateLookups`, found or not) and at most 40 times;
+  a page whose rates need more stops there, and the next step carries on. The last
   step works out the opening balances, budgets and scheduled items at the rate on the day of
   the switch and swaps everything in at once, the accounts' `currency` too. One past its
   limit refuses the whole change: the currency goes back, nothing was converted, and the
@@ -1798,10 +1800,10 @@ totals kept, fetches everything again and sends the changes kept meanwhile. `use
   when its next try is due; after the last, `mahnee-reconvert-dlq` gives the person their
   currency back, nothing converted (refused `rates`: "Kept MYR: rates for USD weren't
   available, so nothing was converted. Try again later"). One 2 minutes past its due time is
-  queued again when the person's profile is read, at most 3 times, then given back the same
-  way.
-- The swap checks every transaction was worked out (else it starts over, counted as a
-  restart, so the same cap gives the currency back) and puts them in
+  queued again when the person's profile is read, at most 3 times in a row (a step that
+  moves on starts the count afresh), then given back the same way.
+- The swap checks every transaction was worked out (else it starts over, at most 3 times
+  in all, `start_overs`, then given back the same way) and puts them in
   10,000 to a statement, all in one batch.
 - While converting, `POST /api/changes` answers 503 with code `converting` (the outbox
   keeps the changes and sends them again), and the nightly job skips the person.

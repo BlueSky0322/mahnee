@@ -38,7 +38,7 @@ import { clockText, dayHeading, isPastDay, toDateInput, toTimeInput } from '../.
 import { newId } from '../../utils/id';
 import { currencySymbol, formatMoney } from '../../utils/money';
 import CurrencyList from '../common/CurrencyList';
-import { SOURCE_NAMES, shortDate } from '../common/typed-amount';
+import { SOURCE_NAMES, rateDate, shortDay } from '../common/typed-amount';
 import { balanceText } from '../accounts/account-text';
 import BackButton from '../ui/BackButton';
 import Key from '../ui/Key';
@@ -646,10 +646,9 @@ function AddForm({
   );
 
   // Under the figure: what an amount in another currency comes to, or the day's currency
-  const quoteDay = quote == null ? '' : shortDate(quote.fetchedAt);
+  const quoteDay = quote == null ? '' : rateDate(quote.fetchedAt);
   // An earlier day's entry is saved at that day's rate, which may differ
-  const savedAt =
-    day === today ? '' : `, saved at the rate of ${shortDate(Date.parse(`${day}T12:00:00`))}`;
+  const savedAt = day === today ? '' : `, saved at the rate of ${shortDay(day)}`;
   const lines =
     elsewhere && total > 0 ? (
       <div className={classes.rateLines}>

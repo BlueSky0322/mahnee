@@ -13,7 +13,11 @@ import {
   type ConvertJob,
   type FetchRate,
   MAX_RESTARTS,
+  MAX_START_OVERS,
+  PAGE,
+  STALLED_MS,
   convertStep,
+  restartIfStalled,
   startStatements,
 } from '../currency/convert';
 
@@ -194,14 +198,79 @@ describe('converting, step by step', () => {
       if (n === 3) db.prepare("DELETE FROM conversion_staged WHERE key = '0000000000000001'").run();
     }
     expect(steps).toBeLessThan(20);
-    expect(db.prepare('SELECT phase, refused, restarts FROM conversions').get()).toEqual({
+    expect(db.prepare('SELECT phase, refused, start_overs FROM conversions').get()).toEqual({
       phase: 'refused',
       refused: 'rates',
-      restarts: MAX_RESTARTS,
+      start_overs: MAX_START_OVERS,
     });
     expect(db.prepare('SELECT currency FROM user_settings').get()).toEqual({ currency: 'MYR' });
     expect(amounts(db).map((x) => x.typed)).toEqual([null, null, null]);
     expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({ n: 0 });
+  });
+
+  /** Each later than the last by more than a stall */
+  let clock = Date.now();
+  /** The profile read restartStalled answers to, long after the last step: started again */
+  const stalled = async (db: DatabaseSync) => {
+    const queued: ConvertJob[] = [];
+    clock += 10 * STALLED_MS;
+    await restartIfStalled(d1(db), ME, (job) => Promise.resolve(void queued.push(job)), clock);
+    return queued;
+  };
+
+  it('keeps converting through separate stalls, each followed by a step that moves on', async () => {
+    const db = person(PAGE * (MAX_RESTARTS + 1) + 1);
+    const job = await switchTo(db, 'USD', 1_000);
+    for (let stall = 0; stall <= MAX_RESTARTS; stall++) {
+      // Started again, and its step moves on through a page
+      expect(await stalled(db)).toEqual([job]);
+      expect(await convertStep(d1(db), job, flat(0.5))).toBe(true);
+    }
+    await runAll(db, job, flat(0.5));
+    expect(db.prepare('SELECT * FROM conversions').all()).toEqual([]);
+    expect(db.prepare('SELECT currency FROM user_settings').get()).toEqual({ currency: 'USD' });
+    expect(amounts(db)[0]).toEqual({ cents: 50, typed: 100 });
+  });
+
+  it('gives the currency back once it has stalled too often in a row', async () => {
+    const db = person(3);
+    const job = await switchTo(db, 'USD', 1_000);
+    for (let stall = 0; stall < MAX_RESTARTS; stall++) expect(await stalled(db)).toEqual([job]);
+    expect(await stalled(db)).toEqual([]);
+    expect(db.prepare('SELECT phase, refused FROM conversions').get()).toEqual({
+      phase: 'refused',
+      refused: 'rates',
+    });
+    expect(db.prepare('SELECT currency FROM user_settings').get()).toEqual({ currency: 'MYR' });
+  });
+
+  it('carries on in the next step when a step has asked for all the rates it may', async () => {
+    const db = person(5);
+    const job = await switchTo(db, 'USD', 1_000);
+    // Two rates a step, then none until the next
+    let asked = 0;
+    const fewAStep: FetchRate = () =>
+      Promise.resolve(
+        asked++ < 2 ? { rate: 0.5, source: 'frankfurter' as const, fetchedAt: 5 } : null,
+      );
+    expect(await convertStep(d1(db), job, fewAStep)).toBe(true);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({ n: 2 });
+    expect(db.prepare('SELECT after_id FROM conversions').get()).toEqual({
+      after_id: '0000000000000001',
+    });
+    let steps = 1;
+    do {
+      asked = 0;
+      steps++;
+    } while (steps < 20 && (await convertStep(d1(db), job, fewAStep)));
+    expect(db.prepare('SELECT * FROM conversions').all()).toEqual([]);
+    expect(amounts(db)).toEqual([
+      { cents: 50, typed: 100 },
+      { cents: 51, typed: 101 },
+      { cents: 51, typed: 102 },
+      { cents: 52, typed: 103 },
+      { cents: 52, typed: 104 },
+    ]);
   });
 
   it('swaps in the most transactions an account can hold, and back exactly', async () => {

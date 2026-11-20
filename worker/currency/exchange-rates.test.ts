@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { RatesUnavailable, getRate, getRateOn } from './exchange-rates';
+import {
+  LookupsSpent,
+  MAX_RATE_REQUESTS,
+  RateLookups,
+  RatesUnavailable,
+  getRate,
+  getRateOn,
+} from './exchange-rates';
 
 // A cache that behaves like Cloudflare's for these tests, keeping each copy's headers
 const memoryCache = () => {
@@ -415,6 +422,39 @@ describe('getRateOn', () => {
         '2026-10-10',
         '2026-10-09',
       ]);
+    });
+
+    it('asks about each day once within a step, and stops at the most one step may ask', async () => {
+      const { deps: d, requests } = wiseDays({});
+      const lookups = new RateLookups();
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const answers: unknown[] = [];
+      // An entry on each of 20 days in a row, none with a rate from either service
+      for (let i = 0; i < 20; i++) {
+        const at = Date.parse('2026-09-01T05:00:00Z') + i * DAY_MS;
+        answers.push(
+          await getRateOn({ WISE_TOKEN: 't' }, 'VND', 'MYR', at, { deps: d, lookups }).catch(
+            (err: unknown) => err,
+          ),
+        );
+      }
+      expect(new Set(requests).size).toBe(requests.length);
+      expect(requests).toHaveLength(MAX_RATE_REQUESTS);
+      // The first day asks both services about it and the 7 before, then today's rate; each
+      // day after asks only about itself
+      const settled = answers.findIndex((a) => a instanceof Error);
+      expect(settled).toBe(12);
+      expect(answers.slice(0, settled)).toEqual(
+        Array.from({ length: settled }, () => ({ rate: 0.00019, source: 'wise', fetchedAt: now })),
+      );
+      expect(answers[settled]).toBeInstanceOf(LookupsSpent);
+      expect(answers[settled]).toBeInstanceOf(RatesUnavailable);
+      // A day already answered is answered again without asking
+      await getRateOn({ WISE_TOKEN: 't' }, 'VND', 'MYR', Date.parse('2026-09-01T05:00:00Z'), {
+        deps: d,
+        lookups,
+      });
+      expect(requests).toHaveLength(MAX_RATE_REQUESTS);
     });
 
     it("falls back to today's rate, said to be today's, when no day in the week before has one", async () => {

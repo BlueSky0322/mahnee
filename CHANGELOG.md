@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-20
+
+- Fixed: a change of home currency that pauses now and then but keeps going is no longer given back, rates are fetched fewer times, and rate days show the right day east of UTC+12 [#?]
+
 ## 2026-11-19
 
 - Changed: the reminder settings say plainly what they do: "Heads-up before scheduled entries", and when reminders come [#56]

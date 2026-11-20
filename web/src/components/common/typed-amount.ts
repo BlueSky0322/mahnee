@@ -1,4 +1,6 @@
 import type { Transaction } from '@shared/api';
+import { rateDay } from '@shared/rates';
+import { fromDateInput } from '../../utils/date-input';
 import { formatAmount, formatMoney } from '../../utils/money';
 
 // An entry typed in another currency than the home one shows what was typed first, "THB
@@ -15,9 +17,21 @@ export const typedAmount = (t: Pick<Transaction, 'original'>, sign: string) =>
 /** Where a rate came from, as it's said */
 export const SOURCE_NAMES = { wise: 'Wise', frankfurter: 'the ECB' } as const;
 
-/** A day as "Nov 12" */
-export const shortDate = (at: number) =>
-  new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+/** A calendar day (2026-11-12) as "Nov 12", the same day wherever the person is */
+export const shortDay = (day: string) =>
+  fromDateInput(day)?.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) ?? day;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The day a rate is from, as "Nov 12". An earlier day's rate is timed at noon UTC on its
+ * day, so that day is said as it is (noon UTC is already the next day from UTC+12); a live
+ * rate is timed when it was fetched, said as the person's own day then.
+ */
+export const rateDate = (at: number) =>
+  at % DAY_MS === DAY_MS / 2
+    ? shortDay(rateDay(at))
+    : new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
 /**
  * The rate an entry was converted at, and the day it's really from: "1 VND = 0.00018 MYR,
@@ -26,7 +40,7 @@ export const shortDate = (at: number) =>
 export function rateLine(t: Pick<Transaction, 'original'>, home: string) {
   const o = t.original;
   if (o == null) return null;
-  return `1 ${o.currency} = ${Number(o.rate.toPrecision(6))} ${home}, rate of ${shortDate(o.at)}, from ${SOURCE_NAMES[o.source]}`;
+  return `1 ${o.currency} = ${Number(o.rate.toPrecision(6))} ${home}, rate of ${rateDate(o.at)}, from ${SOURCE_NAMES[o.source]}`;
 }
 
 /**

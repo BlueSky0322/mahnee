@@ -192,7 +192,8 @@ erDiagram
     TEXT after_date "how far through the transactions"
     TEXT after_id "with after_date"
     INTEGER touched_at "ms: when it last moved on, or its next try is due"
-    INTEGER restarts "times started again: stalled, or found incomplete"
+    INTEGER restarts "times started again in a row while stalled"
+    INTEGER start_overs "times started over, found incomplete"
     TEXT refused "amount, opening, budget, scheduled or rates; when refused"
   }
   conversion_staged {
@@ -345,8 +346,9 @@ erDiagram
   Meanwhile the person's writes wait (the API answers 503) and the nightly job skips them,
   so what's worked out stays true. One amount past its limit refuses the whole change: the
   currency goes back, nothing is swapped, and the row stays as `refused`, naming the limit,
-  until the next change; so does one the queue gave up on, or that stalled more than 3
-  times (`rates`).
+  until the next change; so does one the queue gave up on, that stalled more than 3 times
+  in a row (`restarts`, set back to 0 each time it moves on), or that started over from its
+  first transaction more than 3 times (`start_overs`, migration 0014) (`rates`).
 - **What an amount was typed as.** `transactions.amount_cents`, `accounts.opening_cents`,
   `budgets.amount_cents` and `recurring.amount_cents` each have `original_currency`,
   `original_cents`, `rate`, `rate_source` and `rate_at` (0011), all null for an amount typed

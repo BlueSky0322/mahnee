@@ -538,6 +538,55 @@ describe('entries in another currency', () => {
   });
 });
 
+// Rate days are calendar days: an earlier day's rate is timed at noon UTC on it, which is
+// already the next day from UTC+12 to +14
+describe.each(['Pacific/Kiritimati', 'Pacific/Auckland'])('rate days in %s', (zone) => {
+  beforeEach(() => {
+    process.env.TZ = zone;
+    vi.setSystemTime(new Date(2026, 10, 19, 10, 0, 0));
+  });
+  afterEach(() => {
+    process.env.TZ = 'Asia/Kuala_Lumpur';
+  });
+
+  test.each(SIZES)('the entry says the day its rate is from (%s)', async (size) => {
+    const server = withWallet(['THB']);
+    withThbEntry(server, {
+      original: {
+        currency: 'THB',
+        cents: 12_000,
+        rate: 0.1275,
+        source: 'wise',
+        at: Date.parse('2026-11-12T12:00:00Z'),
+      },
+    });
+    renderApp(server, '/?activity', { size });
+    if (size === 'phone') {
+      await userEvent.setup().click(await screen.findByRole('button', { name: /^Night market, / }));
+    }
+    const editor = within(
+      size === 'desktop'
+        ? await screen.findByRole('complementary', { name: /^Night market/ })
+        : await screen.findByRole('dialog', { name: 'Night market' }),
+    );
+    expect(editor.getByText('1 THB = 0.1275 MYR, rate of Nov 12, from Wise')).toBeTruthy();
+  });
+
+  test('a backdated entry names its own day', async () => {
+    renderApp(withWallet(['THB']), '/', { size: 'desktop' });
+    const { user, form } = await openAdd();
+    await user.click(pill(form));
+    await typeAmount(form, '120');
+    await user.click(form.getByRole('button', { name: /^Today/ }));
+    fireEvent.change(form.getByLabelText('Date'), { target: { value: '2026-11-12' } });
+    expect(
+      await form.findByRole('button', {
+        name: "about RM 15.30 at today's rate, saved at the rate of Nov 12",
+      }),
+    ).toBeTruthy();
+  });
+});
+
 describe('travel sense', () => {
   test.each(SIZES)('opens Add in the currency of where the device is (%s)', async (size) => {
     deviceIn('Asia/Bangkok');

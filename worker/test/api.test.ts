@@ -822,6 +822,8 @@ describe('accounts', () => {
         position: 0,
         archived: false,
         archivedAt: null,
+        // The day tracking began, which an import's older rows are compared with
+        createdAt: expect.any(Number),
       },
       expect.objectContaining({ id: bank, position: 1, balanceCents: 123_456 }),
       expect.objectContaining({ id: card, kind: 'card', position: 2, balanceCents: -12_000 }),
@@ -3272,6 +3274,7 @@ describe('transactions', () => {
         accountId: wallet,
         addedCount: 2,
         skippedCount: 1,
+        openingChanged: false,
         createdAt: expect.any(Number),
       });
       // Named as it was trimmed, dated by the server's clock
@@ -3467,6 +3470,138 @@ describe('transactions', () => {
         status: 409,
         data: { error: 'That import was undone' },
       });
+    });
+
+    // Rows from before the account was tracked, kept from counting twice: the import changes
+    // the opening balance, and Undo puts it back by the same amount
+    const openingOf = async (who: string, id: string) =>
+      (
+        (await api.sql(
+          'SELECT opening_cents AS cents FROM accounts WHERE email = ? AND id = ?',
+          who,
+          id,
+        )) as { cents: number }[]
+      )[0]?.cents;
+
+    it('changes the opening balance as part of an import, and Undo puts it back', async () => {
+      const { me, wallet } = await withWallet();
+      const [mine, a, b] = [rowId(), rowId(), rowId()];
+      expect(
+        await send(me, [
+          recordImport(mine, wallet),
+          { op: 'updateAccount', id: wallet, openingCents: 13_935, importId: mine },
+          imported(a, mine, wallet, 725),
+          imported(b, mine, wallet, 3_210),
+        ]),
+      ).toEqual({ status: 200, data: { ok: true } });
+      expect(await balances(me)).toEqual({ [wallet]: 10_000 });
+      const { imports } = (await recent(me)).data as { imports: Record<string, unknown>[] };
+      expect(imports[0]).toMatchObject({ id: mine, openingChanged: true });
+      const [kept] = (await api.sql(
+        'SELECT opening_change_cents AS cents FROM imports WHERE email = ? AND id = ?',
+        me,
+        mine,
+      )) as { cents: number }[];
+      expect(kept.cents).toBe(3_935);
+
+      // Edited by hand since: Undo takes back only what the import changed
+      await send(me, [{ op: 'updateAccount', id: wallet, openingCents: 14_000 }]);
+      expect(await send(me, [{ op: 'undoImport', id: mine }])).toEqual({
+        status: 200,
+        data: { ok: true },
+      });
+      expect(await openingOf(me, wallet)).toBe(10_065);
+      expect(await listed(me, wallet)).toEqual([]);
+      // Once only: undone again from another device, nothing more changes
+      await send(me, [{ op: 'undoImport', id: mine }]);
+      expect(await openingOf(me, wallet)).toBe(10_065);
+    });
+
+    it('leaves the opening balance alone on Undo when the import never changed it', async () => {
+      const { me, wallet } = await withWallet();
+      const [mine, a] = [rowId(), rowId()];
+      await send(me, [recordImport(mine, wallet), imported(a, mine, wallet, 725)]);
+      await send(me, [{ op: 'updateAccount', id: wallet, openingCents: 12_000 }]);
+      await send(me, [{ op: 'undoImport', id: mine }]);
+      expect(await openingOf(me, wallet)).toBe(12_000);
+    });
+
+    it.each<
+      [string, (ids: { mine: string; wallet: string; bank: string }) => object, number, string]
+    >([
+      [
+        'another account than the one the file went into',
+        ({ mine, bank }) => ({ op: 'updateAccount', id: bank, openingCents: 500, importId: mine }),
+        409,
+        "An import changes only its own account's opening balance",
+      ],
+      [
+        'no opening balance to change',
+        ({ mine, wallet }) => ({ op: 'updateAccount', id: wallet, name: 'Purse', importId: mine }),
+        400,
+        'An import changes only an opening balance',
+      ],
+      [
+        'an import that does not exist',
+        ({ wallet }) => ({
+          op: 'updateAccount',
+          id: wallet,
+          openingCents: 500,
+          importId: 'f'.repeat(16),
+        }),
+        404,
+        'Import not found',
+      ],
+    ])(
+      'refuses an opening balance changed by an import for %s',
+      async (_what, change, status, error) => {
+        const { me, wallet } = await withWallet();
+        const [mine, bank] = [rowId(), rowId()];
+        await send(me, [addAccount(bank, 'bank', 0, 'Bank'), recordImport(mine, wallet)]);
+        expect(await send(me, [change({ mine, wallet, bank })])).toEqual({
+          status,
+          data: { error },
+        });
+        expect(await openingOf(me, wallet)).toBe(10_000);
+        expect(await openingOf(me, bank)).toBe(0);
+      },
+    );
+
+    it('refuses a second opening balance change for the same import', async () => {
+      const { me, wallet } = await withWallet();
+      const mine = rowId();
+      await send(me, [
+        recordImport(mine, wallet),
+        { op: 'updateAccount', id: wallet, openingCents: 11_000, importId: mine },
+      ]);
+      const again = { op: 'updateAccount', id: wallet, openingCents: 12_000, importId: mine };
+      const refused = {
+        status: 409,
+        data: { error: 'That import changed the opening balance already' },
+      };
+      expect(await send(me, [again])).toEqual(refused);
+      // Nor twice in one batch
+      const other = rowId();
+      expect(
+        await send(me, [
+          recordImport(other, wallet),
+          { op: 'updateAccount', id: wallet, openingCents: 11_500, importId: other },
+          { op: 'updateAccount', id: wallet, openingCents: 12_000, importId: other },
+        ]),
+      ).toEqual(refused);
+      expect(await openingOf(me, wallet)).toBe(11_000);
+      await send(me, [{ op: 'undoImport', id: mine }]);
+      expect(await openingOf(me, wallet)).toBe(10_000);
+    });
+
+    it('refuses an opening balance changed by an import already undone', async () => {
+      const { me, wallet } = await withWallet();
+      const mine = rowId();
+      await send(me, [recordImport(mine, wallet), { op: 'undoImport', id: mine }]);
+      expect(
+        await send(me, [{ op: 'updateAccount', id: wallet, openingCents: 500, importId: mine }]),
+      ).toEqual({ status: 409, data: { error: 'That import was undone' } });
+      expect(await openingOf(me, wallet)).toBe(10_000);
     });
 
     it('refuses to undo an import that is not the person’s own, and changes nothing', async () => {

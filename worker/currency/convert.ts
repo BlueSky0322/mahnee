@@ -6,6 +6,9 @@
 // "typed in the old currency", and one typed in the new currency is plain again, exactly as
 // typed, so changing back restores the exact amounts.
 //
+// An import's change to an opening balance converts with it, at the same rate, keeping
+// what it was typed as the same way.
+//
 // Every converted amount is worked out first (conversion_staged), a page of transactions per
 // step, checking each against its limit; the last step works out the accounts, budgets and
 // scheduled items and swaps everything in at once. So one amount past its limit refuses the
@@ -345,7 +348,7 @@ export async function convertStep(
 
   // Every transaction is worked out: the rest at the rate on the day of the switch
   const day = rateDay(since);
-  const [accounts, budgets, recurring] = await db.batch([
+  const [accounts, budgets, recurring, imports] = await db.batch([
     db
       .prepare(
         `SELECT id AS key, opening_cents AS cents, original_currency AS originalCurrency,
@@ -367,12 +370,24 @@ export async function convertStep(
          FROM recurring WHERE email = ?1`,
       )
       .bind(email, day),
+    // What an import changed an opening balance by, at the opening balance's own rate, so
+    // its Undo puts the opening balance back where it would be on its own
+    db
+      .prepare(
+        `SELECT id AS key, opening_change_cents AS cents,
+           opening_change_currency AS originalCurrency,
+           opening_change_typed_cents AS originalCents, ?2 AS day
+         FROM imports
+         WHERE email = ?1 AND (opening_change_cents <> 0 OR opening_change_currency IS NOT NULL)`,
+      )
+      .bind(email, day),
   ]);
   const staged: [string, string, Staged[]][] = [];
   for (const [kind, limit, rows] of [
     ['account', 'opening', accounts],
     ['budget', 'budget', budgets],
     ['recurring', 'scheduled', recurring],
+    ['import', 'opening', imports],
   ] as const) {
     const done = await stage(rows.results as Amount[], limit, from, to, rateOf);
     if (typeof done === 'string') {
@@ -427,6 +442,16 @@ export async function convertStep(
     swap(db, email, since, 'account', 'accounts'),
     swap(db, email, since, 'budget', 'budgets'),
     swap(db, email, since, 'recurring', 'recurring'),
+    db
+      .prepare(
+        `UPDATE imports SET opening_change_cents = s.cents,
+           opening_change_currency = s.original_currency,
+           opening_change_typed_cents = s.original_cents
+         FROM conversion_staged s
+         WHERE s.email = ?1 AND s.kind = 'import' AND imports.email = ?1 AND imports.id = s.key
+           AND ${STILL}`,
+      )
+      .bind(email, since),
     db
       .prepare(`UPDATE accounts SET currency = ?3 WHERE email = ?1 AND ${STILL}`)
       .bind(email, since, to),

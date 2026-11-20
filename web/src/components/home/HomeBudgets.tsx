@@ -52,7 +52,7 @@ export default function HomeBudgets({
         <div className={classes.inlineEmpty}>
           <p>No budgets yet.</p>
           <PageLink
-            href="?settings=categories"
+            href="?settings=categories&budget"
             push
             className={classes.lineButton}
           >

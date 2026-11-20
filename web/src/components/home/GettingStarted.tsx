@@ -65,7 +65,7 @@ export default function GettingStarted({
       title: 'Set a budget',
       line: 'A monthly amount per category',
       done: steps.budget,
-      go: { label: 'Set one', href: '?settings=categories', push: true },
+      go: { label: 'Set one', href: '?settings=categories&budget', push: true },
     },
   ];
 

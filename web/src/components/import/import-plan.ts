@@ -523,3 +523,41 @@ export function importChanges(
     ...repeating.map((recurring): LedgerChange => ({ op: 'addRecurring', recurring })),
   ];
 }
+
+/** What the ticked rows of a bank's file do to its account's balance */
+export interface BalanceImpact {
+  /** How many are ticked, and what they come to together (below zero when more goes out) */
+  count: number;
+  netCents: number;
+  /**
+   * Those dated on or before the day the account started being tracked, which its opening
+   * balance may already include, and what they come to
+   */
+  olderCount: number;
+  olderNetCents: number;
+}
+
+/**
+ * What the ticked rows come to, all together and those from on or before `startDay` (the
+ * day tracking began; null when it isn't known, so none are). Whole cents throughout: at
+ * most MAX_IMPORT_ROWS rows of at most MAX_TRANSACTION each stays an exact sum.
+ */
+export function balanceImpact(
+  plan: Plan,
+  ticked: ReadonlySet<number>,
+  accountId: string,
+  startDay: string | null,
+): BalanceImpact {
+  const impact = { count: 0, netCents: 0, olderCount: 0, olderNetCents: 0 };
+  for (const r of plan.rows) {
+    if (r.transaction == null || !ticked.has(r.row)) continue;
+    const effect = balanceEffect(r.transaction, accountId);
+    impact.count++;
+    impact.netCents += effect;
+    if (startDay != null && r.transaction.date <= startDay) {
+      impact.olderCount++;
+      impact.olderNetCents += effect;
+    }
+  }
+  return impact;
+}

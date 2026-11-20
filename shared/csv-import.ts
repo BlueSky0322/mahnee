@@ -38,6 +38,88 @@ export interface ColumnMapping {
   note: string | null;
 }
 
+/** A mapping suggested from a file's column names: a column for each it's sure of, else null */
+export interface SuggestedMapping {
+  /** The file has money in and money out in columns of their own */
+  twoColumns: boolean;
+  columns: Record<keyof ColumnMapping, string | null>;
+}
+
+/** Names banks give each kind of column, lowercased, without brackets or punctuation */
+const COLUMN_NAMES: Record<keyof ColumnMapping, readonly string[]> = {
+  date: [
+    'date',
+    'transaction date',
+    'txn date',
+    'trans date',
+    'posting date',
+    'posted date',
+    'post date',
+    'value date',
+    'booking date',
+    'date posted',
+  ],
+  amount: ['amount', 'transaction amount', 'txn amount', 'amt'],
+  moneyIn: ['credit', 'credits', 'credit amount', 'money in', 'paid in', 'deposit', 'deposits'],
+  moneyOut: [
+    'debit',
+    'debits',
+    'debit amount',
+    'money out',
+    'paid out',
+    'withdrawal',
+    'withdrawals',
+  ],
+  payee: [
+    'description',
+    'transaction description',
+    'payee',
+    'details',
+    'transaction details',
+    'merchant',
+    'merchant name',
+    'narrative',
+    'particulars',
+  ],
+  note: ['memo', 'note', 'notes', 'remarks', 'comment', 'comments'],
+};
+
+/** "Amount (MYR)" and " AMOUNT" read as "amount" */
+const plainName = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+/**
+ * Which column is which, from the header of a file never mapped before: a column is
+ * suggested only when exactly one has a name banks use for it, so two date columns, or a
+ * name it doesn't know, are left for the person to pick. One amount column is used when
+ * there is one; otherwise money in and out when either is there.
+ */
+export function suggestMapping(header: readonly string[]): SuggestedMapping {
+  const only = (key: keyof ColumnMapping) => {
+    const found = header.filter((name) => COLUMN_NAMES[key].includes(plainName(name)));
+    return found.length === 1 ? found[0] : null;
+  };
+  const amountNamed = header.some((name) => COLUMN_NAMES.amount.includes(plainName(name)));
+  const moneyIn = only('moneyIn');
+  const moneyOut = only('moneyOut');
+  const twoColumns = !amountNamed && (moneyIn != null || moneyOut != null);
+  return {
+    twoColumns,
+    columns: {
+      date: only('date'),
+      amount: twoColumns ? null : only('amount'),
+      moneyIn: twoColumns ? moneyIn : null,
+      moneyOut: twoColumns ? moneyOut : null,
+      payee: only('payee'),
+      note: only('note'),
+    },
+  };
+}
+
 /** What was cut to fit what a transaction holds */
 export type Shortened = 'payee' | 'note';
 

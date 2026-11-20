@@ -43,6 +43,8 @@ describe('apply to accounts', () => {
       currency: 'MYR',
       openingCents: -12_000,
       balanceCents: -12_000,
+      // Tracking begins as it's added
+      createdAt: expect.any(Number),
       position: 4,
       archived: false,
     });

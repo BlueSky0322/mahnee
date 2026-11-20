@@ -1,5 +1,5 @@
 import { Button, SegmentedControl, TextInput } from '@mantine/core';
-import type { FormEvent } from 'react';
+import type { FormEvent, MutableRefObject } from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { LedgerChange, Transaction } from '@shared/api';
 import type { TransactionKind } from '@shared/ledger';
@@ -25,6 +25,14 @@ import classes from './Activity.module.css';
 const centsText = (cents: number) =>
   `${Math.trunc(cents / 100)}.${String(Math.abs(cents) % 100).padStart(2, '0')}`;
 
+/** What the page asks of an open editor before another row opens */
+export interface EditorControl {
+  /** Something typed differs from the entry as saved */
+  dirty: boolean;
+  /** Saves what's typed, answering whether it could */
+  save: () => boolean;
+}
+
 const WAYS = [
   { value: 'expense', label: 'Expense' },
   { value: 'income', label: 'Income' },
@@ -45,12 +53,18 @@ export default function EntryEditor({
   title,
   onDeleted,
   onSaved,
+  control,
+  onDirty,
 }: {
   transaction: Transaction;
   /** The entry's name, drawn as the pane's heading; a sheet has its own */
   title?: string;
   onDeleted: () => void;
   onSaved?: () => void;
+  /** Kept up to date with whether there are changes, and how to save them */
+  control?: MutableRefObject<EditorControl | null>;
+  /** Told whenever it comes to have changes not saved, or no longer has */
+  onDirty?: (dirty: boolean) => void;
 }) {
   const homeCurrency = useCurrency();
   const { accounts } = useAccounts();
@@ -114,8 +128,7 @@ export default function EntryEditor({
   const inline = title != null;
   const errorIds = { date: useId(), amount: useId() };
 
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
+  const save = (): boolean => {
     const typed = readAmount(amount, typedIn === home ? undefined : MAX_TYPED_CENTS);
     const wrong: typeof errors = {};
     if ('error' in typed) wrong.amount = typed.error;
@@ -125,7 +138,7 @@ export default function EntryEditor({
     const to = transfer ? destinations.find((a) => a.id === toAccountId) ?? destinations[0] : null;
     if (transfer && to == null) wrong.to = 'Add another account to move money to';
     setErrors(wrong);
-    if ('error' in typed || Object.keys(wrong).length > 0 || account == null) return;
+    if ('error' in typed || Object.keys(wrong).length > 0 || account == null) return false;
     const fields = {
       kind,
       accountId: account.id,
@@ -171,10 +184,48 @@ export default function EntryEditor({
         : [];
     if (!sendEdit(update, more, { typedIn, home, quote })) {
       setErrors({ currency: `Needs a rate for ${typedIn}. Connect to fetch one.` });
-      return;
+      return false;
     }
     onSaved?.();
+    return true;
   };
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    save();
+  };
+
+  // Changes not saved: anything typed that differs from the entry as it's saved now
+  const [firstCurrency] = useState(typedIn);
+  // The amount as the entry shows it, untouched, is no change, whatever it reads as
+  const amountSaved = inline ? centsText(typedCents) : amountText(typedCents);
+  const typedNow = readAmount(amount, typedIn === home ? undefined : MAX_TYPED_CENTS);
+  const amountChanged =
+    amount !== amountSaved && ('error' in typedNow || typedNow.cents !== typedCents);
+  const dirty =
+    amountChanged ||
+    typedIn !== firstCurrency ||
+    kind !== editing.kind ||
+    accountId !== editing.accountId ||
+    (transfer && toAccountId !== (editing.toAccountId ?? '')) ||
+    (!transfer && (categoryId ?? '') !== (editing.categoryId ?? '')) ||
+    date !== editing.date ||
+    time !== (editing.time ?? '') ||
+    payee !== (editing.payee ?? '') ||
+    note !== (editing.note ?? '');
+  useEffect(() => {
+    if (control == null) return;
+    control.current = { dirty, save };
+    return () => {
+      control.current = null;
+    };
+  });
+  const told = useRef(onDirty);
+  told.current = onDirty;
+  useEffect(() => {
+    told.current?.(dirty);
+  }, [dirty]);
+  // Gone (saved, discarded, or another opened): nothing of its own is left unsaved
+  useEffect(() => () => told.current?.(false), []);
 
   const remove = () => {
     change({ op: 'removeTransaction', id: editing.id });

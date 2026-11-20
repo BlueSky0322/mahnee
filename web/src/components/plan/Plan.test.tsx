@@ -724,6 +724,55 @@ describe('Plan: budgets and where it went', () => {
     expect(within(screen.getByRole('main')).queryByRole('complementary')).toBeNull();
   });
 
+  test.each(SIZES)(
+    'Set a budget asks for an expense category, then opens its Monthly budget (%s)',
+    async (size) => {
+      tenthJustAfterMidnight();
+      const server = twoAccounts();
+      renderApp(server, '/?plan', { size });
+      const user = userEvent.setup();
+      const budgets = await screen.findByRole('region', { name: 'Budgets' });
+      await user.click(within(budgets).getByRole('link', { name: 'Set a budget' }));
+      expect(
+        await screen.findByText('Choose an expense category to set its monthly budget'),
+      ).toBeTruthy();
+      const expenses = await screen.findByRole('region', { name: 'Expenses' });
+      await user.click(within(expenses).getByRole('button', { name: 'Food' }));
+      const dialog = within(await screen.findByRole('dialog', { name: 'Edit category' }));
+      const field = dialog.getByLabelText<HTMLInputElement>('Monthly budget');
+      await waitFor(() => expect(document.activeElement).toBe(field));
+      await user.type(field, '250{Enter}');
+      await waitFor(() =>
+        expect(server.budgets).toEqual([
+          expect.objectContaining({ categoryId: FOOD, amountCents: 25_000 }),
+        ]),
+      );
+      // Asked for one: the next category opened is opened as any other
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(screen.queryByText('Choose an expense category to set its monthly budget')).toBeNull();
+      await user.click(within(expenses).getByRole('button', { name: 'Transport' }));
+      const next = within(await screen.findByRole('dialog', { name: 'Edit category' }));
+      await act(() => new Promise((done) => setTimeout(done, 50)));
+      expect(document.activeElement).not.toBe(next.getByLabelText('Monthly budget'));
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    },
+  );
+
+  test.each(SIZES)('Categories opened plainly asks nothing of a budget (%s)', async (size) => {
+    tenthJustAfterMidnight();
+    renderApp(twoAccounts(), '/?settings=categories', { size });
+    const user = userEvent.setup();
+    const expenses = await screen.findByRole('region', { name: 'Expenses' });
+    expect(screen.queryByText('Choose an expense category to set its monthly budget')).toBeNull();
+    await user.click(within(expenses).getByRole('button', { name: 'Food' }));
+    const dialog = within(await screen.findByRole('dialog', { name: 'Edit category' }));
+    await act(() => new Promise((done) => setTimeout(done, 50)));
+    expect(document.activeElement).not.toBe(dialog.getByLabelText('Monthly budget'));
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
   test.each(SIZES)('says when there are no budgets and nothing spent yet (%s)', async (size) => {
     tenthJustAfterMidnight();
     renderApp(twoAccounts(), '/?plan', { size });
@@ -733,7 +782,7 @@ describe('Plan: budgets and where it went', () => {
       within(budgets).getByText("A monthly amount per category, with a bar for what's left."),
     ).toBeTruthy();
     expect(within(budgets).getByRole('link', { name: 'Set a budget' }).getAttribute('href')).toBe(
-      '?settings=categories',
+      '?settings=categories&budget',
     );
     const went = await whereItWent();
     expect(text(went)).toBe('Where it went RM 0.00 Nothing spent in November yet.');

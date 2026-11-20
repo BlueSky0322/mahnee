@@ -383,7 +383,31 @@ describe('Home at a glance', () => {
     expect(document.activeElement).toBe(search);
     await user.type(search, 'kopi{Enter}');
     await screen.findByRole('heading', { level: 1, name: 'Activity' });
-    expect(window.location.search).toBe('?activity&q=kopi');
+    expect(window.location.search).toBe('?activity&q=kopi&dates=all');
+  });
+
+  test('on a computer, searching from Home finds an entry from an earlier month at once', async () => {
+    tenthJustAfterMidnight();
+    const server = aMonthUnderWay();
+    entry(server, '2026-10-14', 2_450, FOOD, { payee: 'Retro Bakery' });
+    renderApp(server, '/', { size: 'desktop' });
+    const user = userEvent.setup();
+    const search = await screen.findByRole('searchbox', { name: 'Search everything' });
+    await user.type(search, 'Retro Bakery{Enter}');
+    await screen.findByRole('heading', { level: 1, name: 'Activity' });
+    // Every month, not this one with the match a click away
+    const filters = within(await screen.findByRole('group', { name: 'Filters' }));
+    const dates = await filters.findByRole('button', { name: 'All months' });
+    expect(dates.getAttribute('aria-pressed')).toBe('true');
+    expect((await screen.findAllByText('Retro Bakery')).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Search all months' })).toBeNull();
+    // Activity's own dates stay: This month narrows it again
+    await user.click(dates);
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('radio', { name: 'This month' }),
+    );
+    expect(await screen.findByRole('button', { name: 'Search all months' })).toBeTruthy();
+    expect(window.location.search).toBe('?activity&q=Retro%20Bakery');
   });
 
   test.each(SIZES)('starts the weeks on Sunday when the setting says so (%s)', async (size) => {
@@ -489,7 +513,7 @@ describe('the first day', () => {
       const budgets = screen.getByRole('region', { name: 'Budgets' });
       expect(within(budgets).getByText('No budgets yet.')).toBeTruthy();
       expect(within(budgets).getByRole('link', { name: 'Set a budget' }).getAttribute('href')).toBe(
-        '?settings=categories',
+        '?settings=categories&budget',
       );
       const days = screen.getByRole('region', { name: 'Day by day' });
       expect(within(days).getByText('Fills in as you log.')).toBeTruthy();
@@ -514,7 +538,7 @@ describe('the first day', () => {
       within(started).getByRole('link', { name: new RegExp(`^${title}`) });
     expect(go('Bring in past months').getAttribute('href')).toBe('?settings=data');
     expect(go('Add rent, bills and pay').getAttribute('href')).toBe('?plan=scheduled');
-    expect(go('Set a budget').getAttribute('href')).toBe('?settings=categories');
+    expect(go('Set a budget').getAttribute('href')).toBe('?settings=categories&budget');
     // Add opens a new entry; logging one ticks off its step
     const user = userEvent.setup();
     await user.click(within(started).getByRole('button', { name: /^Log your first expense/ }));
@@ -709,6 +733,19 @@ describe('the first run', () => {
     await user.click(await screen.findByRole('button', { name: /^Card/ }));
     const dialog = within(await screen.findByRole('dialog', { name: 'Add account' }));
     expect(dialog.getByRole<HTMLInputElement>('radio', { name: 'Card' }).checked).toBe(true);
+    // What the opening balance is, and that older entries imported later can adjust it
+    expect(
+      dialog.getByText(
+        "What's owed on the first day you'll track. Importing older transactions later? We'll offer to adjust it.",
+      ),
+    ).toBeTruthy();
+    await user.click(dialog.getByRole('radio', { name: 'Bank' }));
+    expect(
+      dialog.getByText(
+        "Your balance on the first day you'll track. Importing older transactions later? We'll offer to adjust it.",
+      ),
+    ).toBeTruthy();
+    await user.click(dialog.getByRole('radio', { name: 'Card' }));
     await user.type(dialog.getByRole('textbox', { name: 'Name' }), 'Visa');
     await user.type(dialog.getByRole('textbox', { name: 'Amount owed' }), '120');
     await user.click(dialog.getByRole('button', { name: 'Add account' }));

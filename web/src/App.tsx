@@ -1,6 +1,7 @@
 import { Button } from '@mantine/core';
-import { CloudSlash, SignIn } from '@phosphor-icons/react';
+import { CloudSlash } from '@phosphor-icons/react';
 import { useEffect } from 'react';
+import AppLogo from './components/common/AppLogo';
 import AccountsPage from './components/accounts/AccountsPage';
 import ActivityPage from './components/activity/ActivityPage';
 import ImportPage from './components/import/ImportPage';
@@ -24,7 +25,7 @@ function App() {
   if (signedOut) {
     return (
       <StateCard
-        icon={<SignIn size={36} />}
+        icon={<AppLogo size={48} />}
         title="You're signed out"
         body="Sign in again to carry on."
         action={<Button onClick={signIn}>Sign in</Button>}

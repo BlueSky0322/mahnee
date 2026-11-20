@@ -22,6 +22,7 @@ For agents:
 - Added: Install the app on the Settings page, where the browser can install it [#?]
 - Fixed: switching rows in Activity with changes not saved asks to Save, Discard or Keep editing [#?]
 - Added: a transfer with nowhere to go offers Add account, and goes on to the new account as typed [#?]
+- Changed: the new logo, a hand holding a coin, in the app, the browser tab and the installed app; in the app its tile takes your accent and theme [#57]
 
 ## 2026-11-19
 
@@ -157,3 +158,4 @@ For agents:
 [#54]: https://github.com/BlueSky0322/mahnee/pull/54
 [#55]: https://github.com/BlueSky0322/mahnee/pull/55
 [#56]: https://github.com/BlueSky0322/mahnee/pull/56
+[#57]: https://github.com/BlueSky0322/mahnee/pull/57

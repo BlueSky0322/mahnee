@@ -18,8 +18,8 @@ import {
 // Add, redesigned (R-Add, R-Desk-Add, R-Add-Pick, R-Desk-Add-Pick; digest 3.5, 4.7, 4.8;
 // owner decisions D9 and D10): a full-screen form on phones and tablets with the keypad,
 // a dialog on computers typed into from the keyboard; the amount worked out in whole
-// cents; From and For; recent categories; one "Payee or note" field that fills the
-// payee; Today and Repeat; a draft kept on close; a new category made from Add with the
+// cents; From and For; recent categories; the Payee field (and a Note under its own
+// button, tested in add-layout.test.tsx); Today and Repeat; a draft kept on close; a new category made from Add with the
 // payee's hint; and a Save label that says what it will do. Saving goes through the
 // ledger's change() and the outbox as before. The figures and names are made up.
 
@@ -137,7 +137,8 @@ const amount = (form: Within) =>
   form.getByRole('status', { name: /^Amount, / }).getAttribute('aria-label');
 
 /** The one button that saves, whatever it says */
-const SAVE = /^(Save |Move |Type an amount|The total is below zero|Up to |Pick a day from 2000)/;
+const SAVE =
+  /^(Save( |$)|Move |Type an amount|The total is below zero|Up to |Pick a day from 2000)/;
 const saveButton = (form: Within) => form.getByRole('button', { name: SAVE });
 
 /** Whether a button can't be used, by either way of saying so */
@@ -197,8 +198,8 @@ describe('the form', () => {
     expect(amount(form)).toBe('Amount, RM 0.00');
     expect(form.getByRole('button', { name: /^From Wallet/ })).toBeTruthy();
     expect(form.getByRole('button', { name: /^For Food/ })).toBeTruthy();
-    const note = form.getByLabelText<HTMLInputElement>('Payee or note');
-    expect(note.getAttribute('placeholder')).toBe('Payee or note, optional');
+    const note = form.getByLabelText<HTMLInputElement>('Payee');
+    expect(note.getAttribute('placeholder')).toBe('Optional');
     expect(form.getByRole('radiogroup', { name: 'Recent categories' })).toBeTruthy();
     expect(form.getByRole('button', { name: 'Today' })).toBeTruthy();
     expect(form.getByRole('button', { name: 'Repeat' })).toBeTruthy();
@@ -248,11 +249,12 @@ describe('the form', () => {
     const field = amountField(form);
     await waitFor(() => expect(document.activeElement).toBe(field));
     const hint = document.getElementById(field.getAttribute('aria-describedby') ?? '');
-    expect(hint?.textContent).toBe('Sums work: 8+4.5');
+    // Nothing typed: the hint by the amount asks for one, and Save is just Save
+    expect(hint?.textContent).toBe('Type an amount. Sums work: 8+4.5');
     expect(form.getByRole('status', { name: 'Amount, RM 0.00' })).toBeTruthy();
     expect(form.getByRole('button', { name: 'Cancel' })).toBeTruthy();
     expect(form.getByRole('button', { name: 'Close' })).toBeTruthy();
-    expect(saveButton(form).textContent).toMatch(/^Type an amount/);
+    expect(saveButton(form).textContent).toBe('SaveEnter');
     // The keys beside them
     expect(form.getByText('Esc')).toBeTruthy();
     expect(form.getByText('Enter')).toBeTruthy();
@@ -335,12 +337,9 @@ describe('the amount', () => {
     const user = userEvent.setup();
     const form = await openAdd(user);
     await user.keyboard('3');
-    await user.click(form.getByLabelText<HTMLInputElement>('Payee or note'));
+    await user.click(form.getByLabelText<HTMLInputElement>('Payee'));
     await user.keyboard('7-Eleven');
-    expect(form.getByLabelText<HTMLInputElement>('Payee or note')).toHaveProperty(
-      'value',
-      '7-Eleven',
-    );
+    expect(form.getByLabelText<HTMLInputElement>('Payee')).toHaveProperty('value', '7-Eleven');
     expect(amount(form)).toBe('Amount, RM 3.00');
   });
 
@@ -361,7 +360,15 @@ describe('the amount', () => {
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '4-4');
-    expect(saveButton(form).textContent).toMatch(/^Type an amount/);
+    // A phone's Save asks for an amount; a computer's hint by the amount does
+    if (size === 'phone') expect(saveButton(form).textContent).toBe('Type an amount');
+    else {
+      expect(saveButton(form).textContent).toBe('SaveEnter');
+      const field = amountField(form);
+      expect(
+        document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent,
+      ).toBe('Type an amount. Sums work: 8+4.5');
+    }
     await refusesToSave(user, form);
   });
 
@@ -682,14 +689,14 @@ describe('recent categories', () => {
   });
 });
 
-describe('Payee or note (D10)', () => {
+describe('Payee (D10, revised by the 2026-11-20 audit: the note has its own field)', () => {
   test.each(SIZES)('fills the payee, trimmed, and leaves the note empty (%s)', async (size) => {
     const server = withAccounts();
     renderApp(server, '/?accounts', { size });
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '12');
-    await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), '  Kedai Mesra ');
+    await user.type(form.getByLabelText<HTMLInputElement>('Payee'), '  Kedai Mesra ');
     await user.click(saveButton(form));
     await waitFor(() =>
       expect(server.transactions).toEqual([
@@ -702,9 +709,7 @@ describe('Payee or note (D10)', () => {
     renderApp(withAccounts(), '/?accounts', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
-    expect(form.getByLabelText<HTMLInputElement>('Payee or note').getAttribute('maxlength')).toBe(
-      '80',
-    );
+    expect(form.getByLabelText<HTMLInputElement>('Payee').getAttribute('maxlength')).toBe('80');
   });
 
   test('editing an entry keeps the payee and the note apart', async () => {
@@ -747,7 +752,7 @@ describe('Today and Repeat', () => {
     const user = userEvent.setup();
     const form = await openAdd(user);
     await typeAmount(user, form, '89');
-    await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Gym');
+    await user.type(form.getByLabelText<HTMLInputElement>('Payee'), 'Gym');
     await user.click(form.getByRole('button', { name: 'Repeat' }));
     await user.click(await screen.findByRole('radio', { name: 'Monthly' }));
     expect(form.getByRole('button', { name: 'Monthly' })).toBeTruthy();
@@ -859,7 +864,7 @@ describe('the draft', () => {
     let form = await openAdd(user);
     await user.click(form.getByRole('radio', { name: 'Income' }));
     await typeAmount(user, form, '3+4');
-    await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Refund');
+    await user.type(form.getByLabelText<HTMLInputElement>('Payee'), 'Refund');
     await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
     await waitFor(() =>
       expect(screen.queryByRole('form', { name: 'Add a transaction' })).toBeNull(),
@@ -870,10 +875,7 @@ describe('the draft', () => {
     expect(checked(form.getByRole('radiogroup', { name: 'Which way' }))).toEqual(['Income']);
     expect(amount(form)).toBe('Amount, RM 7.00');
     expect(form.getByText('3 + 4 =')).toBeTruthy();
-    expect(form.getByLabelText<HTMLInputElement>('Payee or note')).toHaveProperty(
-      'value',
-      'Refund',
-    );
+    expect(form.getByLabelText<HTMLInputElement>('Payee')).toHaveProperty('value', 'Refund');
   });
 
   test('Back on a phone closes Add, keeping the draft, before leaving the page', async () => {
@@ -916,13 +918,13 @@ describe('the draft', () => {
     const user = userEvent.setup();
     let form = await openAdd(user);
     await typeAmount(user, form, '6.5');
-    await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Kopi');
+    await user.type(form.getByLabelText<HTMLInputElement>('Payee'), 'Kopi');
     await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
 
     await reloadApp(server, '/?accounts', { size: 'phone' });
     form = await openAdd(user);
     expect(amount(form)).toBe('Amount, RM 6.50');
-    expect(form.getByLabelText<HTMLInputElement>('Payee or note')).toHaveProperty('value', 'Kopi');
+    expect(form.getByLabelText<HTMLInputElement>('Payee')).toHaveProperty('value', 'Kopi');
   });
 
   test.each(SIZES)('goes once saved: the next one starts fresh (%s)', async (size) => {
@@ -931,13 +933,13 @@ describe('the draft', () => {
     const user = userEvent.setup();
     let form = await openAdd(user);
     await typeAmount(user, form, '6');
-    await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Kopi');
+    await user.type(form.getByLabelText<HTMLInputElement>('Payee'), 'Kopi');
     await user.click(saveButton(form));
     await waitFor(() => expect(server.transactions).toHaveLength(1));
 
     form = await openAdd(user);
     expect(amount(form)).toBe('Amount, RM 0.00');
-    expect(form.getByLabelText<HTMLInputElement>('Payee or note')).toHaveProperty('value', '');
+    expect(form.getByLabelText<HTMLInputElement>('Payee')).toHaveProperty('value', '');
   });
 });
 
@@ -951,7 +953,7 @@ describe('a new category from Add', () => {
       const user = userEvent.setup();
       const form = await openAdd(user);
       await typeAmount(user, form, '14');
-      await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'kedai mesra');
+      await user.type(form.getByLabelText<HTMLInputElement>('Payee'), 'kedai mesra');
       await user.click(form.getByRole('button', { name: /^For Food/ }));
       await user.type(await screen.findByLabelText('Find or create a category'), 'Tea leaves');
 
@@ -985,7 +987,7 @@ describe('a new category from Add', () => {
     renderApp(server, '/?accounts', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
-    await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Tealeaf Co');
+    await user.type(form.getByLabelText<HTMLInputElement>('Payee'), 'Tealeaf Co');
     await user.click(form.getByRole('button', { name: /^For / }));
     await user.type(await screen.findByLabelText('Find or create a category'), 'Bubble cups');
     const under = await screen.findByRole('option', { name: /^Under Food/ });
@@ -1257,7 +1259,7 @@ describe('the draft, everything in it', () => {
     await user.type(day, YESTERDAY);
     await user.click(form.getByRole('button', { name: 'Repeat' }));
     await user.click(await screen.findByRole('radio', { name: 'Monthly' }));
-    await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Cinema');
+    await user.type(form.getByLabelText<HTMLInputElement>('Payee'), 'Cinema');
     await typeAmount(user, form, '28');
     await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
 
@@ -1267,10 +1269,7 @@ describe('the draft, everything in it', () => {
     expect(form.getByRole('button', { name: /^For Fun/ })).toBeTruthy();
     expect(form.getByRole('button', { name: 'Yesterday' })).toBeTruthy();
     expect(form.getByRole('button', { name: 'Monthly' })).toBeTruthy();
-    expect(form.getByLabelText<HTMLInputElement>('Payee or note')).toHaveProperty(
-      'value',
-      'Cinema',
-    );
+    expect(form.getByLabelText<HTMLInputElement>('Payee')).toHaveProperty('value', 'Cinema');
     expect(amount(form)).toBe('Amount, RM 28.00');
   });
 
@@ -1329,7 +1328,7 @@ describe('the draft, everything in it', () => {
     await user.click(await screen.findByRole('radio', { name: /^Bank/ }));
     await user.click(form.getByRole('button', { name: /^For Food/ }));
     await user.click(await screen.findByRole('button', { name: 'Fun' }));
-    await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Arcade');
+    await user.type(form.getByLabelText<HTMLInputElement>('Payee'), 'Arcade');
     await typeAmount(user, form, '11');
     await user.click(form.getByRole('button', { name: 'Keep draft and close' }));
 
@@ -1340,10 +1339,7 @@ describe('the draft, everything in it', () => {
     expect(form.getByRole('button', { name: /^From Wallet/ })).toBeTruthy();
     expect(form.getByRole('button', { name: /^For Food/ })).toBeTruthy();
     expect(amount(form)).toBe('Amount, RM 11.00');
-    expect(form.getByLabelText<HTMLInputElement>('Payee or note')).toHaveProperty(
-      'value',
-      'Arcade',
-    );
+    expect(form.getByLabelText<HTMLInputElement>('Payee')).toHaveProperty('value', 'Arcade');
   });
 
   test('another person signing in on this device never sees it', async () => {
@@ -1569,7 +1565,7 @@ describe('a new category, within the limits', () => {
     renderApp(server, '/?accounts', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
-    await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Kedai Mesra');
+    await user.type(form.getByLabelText<HTMLInputElement>('Payee'), 'Kedai Mesra');
     await user.click(form.getByRole('button', { name: /^For Food/ }));
     await user.type(await screen.findByLabelText('Find or create a category'), 'Tea leaves');
     await screen.findByRole('option', { name: 'As its own expense category' });
@@ -1635,7 +1631,7 @@ describe('a new category, within the limits', () => {
         act(() => void window.dispatchEvent(new Event('offline')));
       }
       const form = await openAdd(user);
-      await user.type(form.getByLabelText<HTMLInputElement>('Payee or note'), 'Kedai Mesra');
+      await user.type(form.getByLabelText<HTMLInputElement>('Payee'), 'Kedai Mesra');
       await user.click(form.getByRole('button', { name: /^For Food/ }));
       await user.type(await screen.findByLabelText('Find or create a category'), 'Tea leaves');
       await user.click(await screen.findByRole('option', { name: 'As its own expense category' }));

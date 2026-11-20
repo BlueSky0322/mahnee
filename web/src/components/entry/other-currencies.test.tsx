@@ -542,7 +542,10 @@ describe('an entry waiting for a rate, offline', () => {
     const { user, form: opened } = await openAdd();
     const form = await inCurrency(user, opened, 'THB');
     await typeAmount(form, '120');
-    await user.type(form.getByLabelText('Payee or note'), 'Night market');
+    // On a short phone the payee folds under Details
+    const details = form.queryByRole('button', { name: /^Details/ });
+    if (details?.getAttribute('aria-expanded') === 'false') await user.click(details);
+    await user.type(form.getByLabelText('Payee'), 'Night market');
     await form.findByText(/^Conversion pending/);
     await user.click(addSaveButton(form));
     await waitFor(() =>

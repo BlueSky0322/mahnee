@@ -283,7 +283,11 @@ function Entries({
         </Button>
       )}
       {!hasMore && onDevice?.complete === false && (
-        <p className={classes.muted}>Older entries aren't on this device yet.</p>
+        <p className={classes.muted}>
+          {onDevice.refreshing
+            ? 'Entries are being refreshed and may be out of date.'
+            : "Older entries aren't on this device yet."}
+        </p>
       )}
     </section>
   );

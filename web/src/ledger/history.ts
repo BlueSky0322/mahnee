@@ -1,3 +1,4 @@
+import { notifications } from '@mantine/notifications';
 import type {
   Category,
   LedgerChange,
@@ -8,23 +9,28 @@ import type {
 } from '@shared/api';
 import { MAX_TRANSACTIONS_PER_ACCOUNT, isOnAccount } from '@shared/ledger';
 import type { SearchQuery } from '@shared/search';
-import { categoriesIn, matchesSearch } from '@shared/search';
-import { ApiError, NetworkError, api } from '../api';
+import { categoriesIn, matchesSearch, searchParams } from '@shared/search';
+import { ApiError, CLIENT_ID, NetworkError, api } from '../api';
 import { cacheUser, onCacheCleared } from '../offline/cache';
 import type { Coverage, Narrowed } from '../offline/history-store';
 import {
   HistoryForgotten,
+  HistoryWriteFailed,
+  accountEntries,
   changeEntries,
   forgetHistory,
   heldByIds,
   holdsAny,
   keepAccountPage,
   keepEntries,
+  letDownloadGo,
   orderOf,
   orderOfCursor,
   readCoverage,
   readEntries,
   restartCoverage,
+  restarted,
+  takeDownload,
 } from '../offline/history-store';
 import {
   applyToPages,
@@ -39,16 +45,21 @@ import {
 // account's entries offline (ledger.ts reads it when the server can't be reached). Each
 // account is downloaded in the background, newest first, a page at a time, and how far
 // it has got is kept with every page, so a download stopped (offline, the app closed)
-// carries on from there. Once down, it's kept up to date by what this device learns
-// anyway: each change saved from here, each page of entries the server sends, and a short
-// look at each account's newest entries whenever it downloads again. Nothing is
-// downloaded twice unless the server changed entries this device can't follow (an
-// import undone, every amount converted to a new home currency): those start again from
-// the top, showing what's held meanwhile.
+// carries on from there. Between downloads it's kept up to date by what this device
+// learns anyway: each change saved from here, each page of entries the server sends, and
+// a short look at each account's newest entries whenever it downloads.
 //
-// What's read from it says how much of the days asked for it holds (OnDevice), so a part
-// is never shown as if it were all. Kept per account (offline/history-store.ts) and
-// deleted with the rest of the device's copies.
+// What other devices change below the newest entries (an edit, a deletion, an entry
+// dated last month) shows in no look at the top, and the server keeps no record of what
+// it deleted, so each account is checked again in full, from the top, once a week
+// (RECHECK_MS), and whenever its amounts are in another home currency than the profile's
+// (converted on another device): a pass from the top replaces what's held page by page.
+// Meanwhile what's held is shown, said to be being refreshed (OnDevice), and never counted
+// as all of it.
+//
+// One tab downloads at a time (a Web Lock, or a note in the history's database where the
+// browser has none). Kept per account (offline/history-store.ts) and deleted with the
+// rest of the device's copies.
 
 /** A download asks for the most a page holds (worker/ledger/read.ts MAX_PAGE_SIZE) */
 const PAGE = 200;
@@ -58,13 +69,20 @@ const TOP_UP_PAGE = 50;
 const MAX_PAGES = Math.ceil(MAX_TRANSACTIONS_PER_ACCOUNT / PAGE) + 1;
 /** An account's page holds this many unless asked (worker/ledger/read.ts PAGE_SIZE) */
 const ACCOUNT_PAGE = 50;
+/** How long an account's history counts as checked before it's checked again in full */
+export const RECHECK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** How much of the days asked for the device holds */
 export interface OnDevice {
-  /** Every account concerned is held down to its first entry */
+  /** Every account concerned was checked in full, lately, in the home currency */
   complete: boolean;
-  /** Otherwise, the first day held whole on every account concerned; null for none */
+  /** Otherwise, the first day checked whole on every account concerned; null for none */
   from: string | null;
+  /**
+   * Every account concerned holds its entries before `from` too, from an earlier check,
+   * being refreshed now; otherwise some aren't on the device yet
+   */
+  refreshing: boolean;
 }
 
 /** A page read from the device, saying how much it holds */
@@ -78,26 +96,40 @@ let generation = 0;
 const stillMineFor = (email: string, at: number) => () =>
   at === generation && cacheUser() === email;
 
-/** The device couldn't keep or read the history since this page opened (or was emptied) */
-let unavailable = false;
+/** The device couldn't read the history since this page opened (or was emptied) */
+let unreadable = false;
+/** The device couldn't write to it (full, say): downloads stop for this page */
+let unwritable = false;
 const listeners = new Set<() => void>();
-export const historyUnavailable = () => unavailable;
+export const historyUnavailable = () => unreadable;
 export const subscribeHistory = (listener: () => void) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
 };
 
+export const OUT_OF_SPACE =
+  'This device is out of space for your history, so offline it shows what it has kept.';
+
 function storageFailed(err: unknown) {
-  if (err instanceof HistoryForgotten || unavailable) return;
-  unavailable = true;
+  if (err instanceof HistoryForgotten) return;
+  if (err instanceof HistoryWriteFailed) {
+    if (unwritable) return;
+    unwritable = true;
+    // Once a page: what's held still reads
+    notifications.show({ color: 'yellow', message: OUT_OF_SPACE });
+    return;
+  }
+  if (unreadable) return;
+  unreadable = true;
   listeners.forEach((listener) => listener());
 }
 
 // Writes go one at a time, in the order they were asked for, so a page fetched before a
 // change was saved never lands on top of it
 let writing: Promise<unknown> = Promise.resolve();
+let writes = 0;
 function inOrder<T>(work: () => Promise<T>): Promise<T> {
-  const next = writing.then(work);
+  const next = writing.then(work).finally(() => writes++);
   writing = next.catch(() => undefined);
   return next;
 }
@@ -112,9 +144,11 @@ let running: Promise<void> | null = null;
 
 onCacheCleared(() => {
   generation++;
-  unavailable = false;
+  unreadable = false;
+  unwritable = false;
   running = null;
   savedLog = [];
+  lastSearch = null;
   void forgetHistory().catch(() => undefined);
 });
 
@@ -123,25 +157,52 @@ const patched = (accountId: string, page: TransactionPage, asked: number): Trans
   applyToPages([page], savedSince(asked), (t) => isOnAccount(t, accountId))[0];
 
 /**
- * Downloads what's missing of each account's history (`accountIds`, the server's), one
- * at a time; resolves once done, or stopped for want of a connection (carried on next
- * time). One download at a time.
+ * Downloads what's missing or out of date of each account's history (`accountIds`, the
+ * server's, with amounts in `currency`), one account at a time; resolves once done, or
+ * stopped for want of a connection (carried on next time), or when another tab is at it.
  */
-export function downloadHistory(accountIds: string[]): Promise<void> {
-  running ??= download(accountIds).finally(() => {
+export function downloadHistory(accountIds: string[], currency: string): Promise<void> {
+  const email = cacheUser();
+  if (email == null || unwritable) return Promise.resolve();
+  running ??= oneTab(email, (stillHeld) =>
+    download(email, accountIds, currency, stillHeld),
+  ).finally(() => {
     running = null;
   });
   return running;
 }
 
-async function download(accountIds: string[]) {
-  const email = cacheUser();
-  if (email == null) return;
+/** Runs `work` while no other tab downloads for `email` */
+async function oneTab(email: string, work: (stillHeld: () => Promise<boolean>) => Promise<void>) {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (locks != null) {
+    await locks.request(`mahnee-history:${email}`, { ifAvailable: true }, (lock) =>
+      lock == null ? undefined : work(() => Promise.resolve(true)),
+    );
+    return;
+  }
+  // No Web Locks: a note in the database, said again with each page
+  const hold = () => takeDownload(email, CLIENT_ID, Date.now()).catch(() => false);
+  if (!(await hold())) return;
+  try {
+    await work(hold);
+  } finally {
+    await letDownloadGo(email, CLIENT_ID).catch(() => undefined);
+  }
+}
+
+async function download(
+  email: string,
+  accountIds: string[],
+  currency: string,
+  stillHeld: () => Promise<boolean> = () => Promise.resolve(true),
+) {
   const stillMine = stillMineFor(email, generation);
   try {
     const kept = new Map((await readCoverage(email)).map((c) => [c.accountId, c]));
     for (const accountId of accountIds) {
       if (!stillMine()) return;
+      const now = Date.now();
       let coverage: Coverage = kept.get(accountId) ?? {
         email,
         accountId,
@@ -149,12 +210,21 @@ async function download(accountIds: string[]) {
         oldest: null,
         newest: null,
         complete: false,
+        held: false,
         rows: 0,
+        pass: now,
+        verifiedAt: null,
+        currency,
       };
+      // Out of date: checked again in full, from the top
+      if (coverage.currency !== currency || (coverage.complete && !lately(coverage, now))) {
+        coverage = restarted(coverage, now, currency);
+      }
       if (coverage.complete || coverage.oldest != null) {
         coverage = await lookForNew(coverage, stillMine);
       }
       for (let pages = 0; !coverage.complete && pages < MAX_PAGES; pages++) {
+        if (!(await stillHeld())) return;
         coverage = await downloadPage(coverage, stillMine);
       }
     }
@@ -165,24 +235,41 @@ async function download(accountIds: string[]) {
   }
 }
 
+/** Whether an account's history was checked in full lately */
+const lately = (c: Coverage, now: number) =>
+  c.verifiedAt != null && now - c.verifiedAt < RECHECK_MS && now >= c.verifiedAt;
+
 /** The next page down of an account's history, kept with how far it has got */
 async function downloadPage(coverage: Coverage, stillMine: () => boolean): Promise<Coverage> {
   const { email, accountId, next: before } = coverage;
   const asked = savedCount;
+  const askedAt = Date.now();
   const page = await api.getTransactions({ account: accountId, before, limit: PAGE });
   const first = page.transactions[0];
   const last = page.transactions.at(-1);
   const rows = coverage.rows + page.transactions.length;
+  const complete = page.nextBefore == null || rows >= MAX_TRANSACTIONS_PER_ACCOUNT;
   const after: Coverage = {
     ...coverage,
     next: page.nextBefore,
     oldest: last?.date ?? coverage.oldest,
-    newest: coverage.newest ?? (first == null ? null : orderOf(first)),
-    complete: page.nextBefore == null || rows >= MAX_TRANSACTIONS_PER_ACCOUNT,
+    // The top of a pass from the top is the newest entry held
+    newest: before == null ? (first == null ? null : orderOf(first)) : coverage.newest,
+    complete,
+    held: complete ? false : coverage.held,
     rows,
+    verifiedAt: complete ? Date.now() : coverage.verifiedAt,
   };
   await inOrder(() =>
-    keepAccountPage(email, accountId, before, patched(accountId, page, asked), after, stillMine),
+    keepAccountPage(
+      email,
+      accountId,
+      before,
+      patched(accountId, page, asked),
+      after,
+      stillMine,
+      askedAt,
+    ),
   );
   return after;
 }
@@ -197,6 +284,7 @@ async function lookForNew(coverage: Coverage, stillMine: () => boolean): Promise
   let newest: string | null = null;
   for (let pages = 0; pages < MAX_PAGES; pages++) {
     const asked = savedCount;
+    const askedAt = Date.now();
     const page = await api.getTransactions({ account: accountId, before, limit: TOP_UP_PAGE });
     const first = page.transactions[0];
     if (newest == null && first != null) newest = orderOf(first);
@@ -206,7 +294,15 @@ async function lookForNew(coverage: Coverage, stillMine: () => boolean): Promise
     const after = reached ? { ...coverage, newest: newest ?? coverage.newest } : null;
     const from = before;
     await inOrder(() =>
-      keepAccountPage(email, accountId, from, patched(accountId, page, asked), after, stillMine),
+      keepAccountPage(
+        email,
+        accountId,
+        from,
+        patched(accountId, page, asked),
+        after,
+        stillMine,
+        askedAt,
+      ),
     );
     if (after != null) return after;
     before = page.nextBefore;
@@ -215,9 +311,10 @@ async function lookForNew(coverage: Coverage, stillMine: () => boolean): Promise
 }
 
 /**
- * Changes saved from this device, made to the history as the server made them. One the
- * device can't follow (an import undone deletes entries it doesn't name) starts every
- * account's download again from the top.
+ * Changes saved from this device, made to the history as the server made them (an entry
+ * added is placed as when it was saved, and takes the server's own place once a page
+ * lists it). One the device can't follow (an import undone deletes entries it doesn't
+ * name) starts every account's download again from the top.
  */
 export function recordSaved(changes: LedgerChange[]) {
   savedCount++;
@@ -252,24 +349,25 @@ export function startAgain() {
   const email = cacheUser();
   if (email == null) return;
   const stillMine = stillMineFor(email, generation);
-  inOrder(() => restartCoverage(email, stillMine)).catch(storageFailed);
+  inOrder(() => restartCoverage(email, stillMine, Date.now())).catch(storageFailed);
 }
 
 /**
- * Keeps a page the server sent: an account's replaces what was held between where it
- * starts and ends; a search's entries replace those held
+ * Keeps a page the server sent (asked for at `askedAt`): an account's replaces what was
+ * held between where it starts and ends; a search's entries replace those held
  */
 export function keepServerPage(
   page: TransactionPage,
   as: { accountId: string; before: string | null } | null,
+  askedAt: number,
 ) {
   const email = cacheUser();
-  if (email == null) return;
+  if (email == null || unwritable) return;
   const stillMine = stillMineFor(email, generation);
   inOrder(() =>
     as == null
-      ? keepEntries(email, page.transactions, stillMine)
-      : keepAccountPage(email, as.accountId, as.before, page, null, stillMine),
+      ? keepEntries(email, page.transactions, stillMine, askedAt)
+      : keepAccountPage(email, as.accountId, as.before, page, null, stillMine, askedAt),
   ).catch(storageFailed);
 }
 
@@ -281,34 +379,42 @@ function dayAfter(day: string) {
 }
 
 /**
- * How much of `accountIds`' history is held, or null when none of it has started: the
- * device has nothing to show from
+ * How much of `accountIds`' history is held, with amounts in `currency`, or null when
+ * none of it has started: the device has nothing to show from
  */
-async function onDeviceFor(email: string, accountIds: string[]): Promise<OnDevice | null> {
+async function onDeviceFor(
+  email: string,
+  accountIds: string[],
+  currency: string | null,
+): Promise<OnDevice | null> {
   const kept = new Map((await readCoverage(email)).map((c) => [c.accountId, c]));
   if (!accountIds.some((id) => kept.has(id))) return null;
+  const now = Date.now();
   let complete = true;
+  let refreshing = true;
   let from: string | null = '';
   for (const id of accountIds) {
     const c = kept.get(id);
-    if (c?.complete === true) continue;
+    const sameMoney = c != null && (currency == null || c.currency === currency);
+    if (c != null && sameMoney && c.complete && lately(c, now)) continue;
     complete = false;
-    const whole = c?.oldest == null ? null : dayAfter(c.oldest);
+    if (c == null || !(c.held || c.complete)) refreshing = false;
+    // Checked this pass, in this currency: the days after its oldest
+    const whole = sameMoney && !c.complete && c.oldest != null ? dayAfter(c.oldest) : null;
     if (whole == null) from = null;
     else if (from != null && whole > from) from = whole;
   }
-  return { complete, from: complete ? null : from };
+  return complete ? { complete, from: null, refreshing: false } : { complete, from, refreshing };
 }
 
-/** Whether `onDevice` holds every day from `from` on */
+/** Whether `onDevice` holds every day from `from` on, checked */
 export const holdsFrom = (onDevice: OnDevice, from: string | null) =>
   onDevice.complete || (onDevice.from != null && from != null && from >= onDevice.from);
 
 const cursorOf = (t: Transaction) => `${t.date}_${t.time ?? ''}_${t.createdAt}_${t.id}`;
 
 /** Those after `before` (a server's cursor), newest first; all of them for none */
-function after(rows: Transaction[], before: string | null) {
-  const sorted = [...rows].sort(newestFirst);
+function after(sorted: Transaction[], before: string | null) {
   const at = before == null ? null : orderOfCursor(before);
   return at == null ? sorted : sorted.filter((t) => orderOf(t) < at);
 }
@@ -339,6 +445,12 @@ function narrowing(query: SearchQuery, categories: readonly Category[]): Narrowe
 }
 
 /**
+ * What the last search found, newest first, for its next pages ("Load more") without
+ * reading it all again: kept while nothing was written since its first page
+ */
+let lastSearch: { key: string; writes: number; found: Transaction[] } | null = null;
+
+/**
  * A page of what a search finds, from the device, as the server would answer it (newest
  * first, `limit` at a time from `before`, with what matches beyond); null when the
  * device holds nothing of the accounts concerned, or can't be read
@@ -347,28 +459,42 @@ export async function localSearchPage(
   query: SearchQuery,
   categories: readonly Category[],
   accountIds: string[],
+  currency: string | null,
   before: string | null,
   limit: number,
 ): Promise<PageOnDevice<SearchPage> | null> {
   const email = cacheUser();
-  if (email == null || unavailable) return null;
+  if (email == null || unreadable) return null;
   try {
-    const onDevice = await onDeviceFor(email, query.account != null ? [query.account] : accountIds);
+    const concerned = query.account != null ? [query.account] : accountIds;
+    const onDevice = await onDeviceFor(email, concerned, currency);
     if (onDevice == null) return null;
-    const read = (q: SearchQuery) =>
-      readEntries(email, narrowing(q, categories)).then((rows) =>
-        rows.filter((t) => matchesSearch(t, q, categories)),
-      );
-    const found = after(await read(query), before);
+    const read = async (q: SearchQuery) =>
+      (await readEntries(email, narrowing(q, categories)))
+        .filter((t) => matchesSearch(t, q, categories))
+        .sort(newestFirst);
+    const key = `${email}?${new URLSearchParams(searchParams(query)).toString()}`;
+    let all: Transaction[];
+    if (before != null && lastSearch?.key === key && lastSearch.writes === writes) {
+      all = lastSearch.found;
+    } else {
+      all = await read(query);
+      lastSearch = { key, writes, found: all };
+    }
+    const found = after(all, before);
     const page = found.slice(0, limit);
     const beyond = found.slice(limit);
     const last = beyond.length > 0 ? page.at(-1)! : null;
     const first = before == null;
-    const days = query.from != null || query.to != null;
+    // How many match on other days: said only where nothing is found here, so read only then
     let elsewhere: number | undefined;
-    if (first && days) {
-      const without = await read({ ...query, from: null, to: null });
-      elsewhere = without.filter((t) => !matchesSearch(t, query, categories)).length;
+    if (first && (query.from != null || query.to != null)) {
+      elsewhere =
+        all.length > 0
+          ? 0
+          : (await read({ ...query, from: null, to: null })).filter(
+              (t) => !matchesSearch(t, query, categories),
+            ).length;
     }
     return {
       transactions: page,
@@ -390,19 +516,21 @@ export async function localSearchPage(
 }
 
 /**
- * A page of one account's entries from the device, as the server would answer it; null
- * when its download hasn't started, or the device can't be read
+ * A page of one account's entries from the device, as the server would answer it, read
+ * straight from where `before` says; null when its download hasn't started, or the
+ * device can't be read
  */
 export async function localAccountPage(
   accountId: string,
   before: string | null,
+  currency: string | null,
 ): Promise<PageOnDevice | null> {
   const email = cacheUser();
-  if (email == null || unavailable) return null;
+  if (email == null || unreadable) return null;
   try {
-    const onDevice = await onDeviceFor(email, [accountId]);
+    const onDevice = await onDeviceFor(email, [accountId], currency);
     if (onDevice == null) return null;
-    const found = after(await readEntries(email, { by: 'account', accountId }), before);
+    const found = await accountEntries(email, accountId, before, ACCOUNT_PAGE + 1);
     const page = found.slice(0, ACCOUNT_PAGE);
     return {
       transactions: page,
@@ -418,9 +546,9 @@ export async function localAccountPage(
 /** One account's entries held on the device from `fromDay`, or null when none are */
 export async function localSince(accountId: string, fromDay: string) {
   const email = cacheUser();
-  if (email == null || unavailable) return null;
+  if (email == null || unreadable) return null;
   try {
-    if ((await onDeviceFor(email, [accountId])) == null) return null;
+    if ((await onDeviceFor(email, [accountId], null)) == null) return null;
     const rows = await readEntries(email, { by: 'account', accountId });
     return rows.filter((t) => t.date >= fromDay);
   } catch (err) {

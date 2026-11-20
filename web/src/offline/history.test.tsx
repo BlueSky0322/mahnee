@@ -360,3 +360,161 @@ describe('when the device can’t keep it', () => {
     ).toBeTruthy();
   }, 30_000);
 });
+
+describe('kept up to date', () => {
+  /** Nine days on, past when the device checks its whole history again */
+  const nineDaysOn = () => vi.setSystemTime(new Date(2026, 10, 29, 10, 0, 0));
+
+  test('edits, deletions and back-dated entries made on another device reach it', async () => {
+    const server = withHistory();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    await download();
+
+    // Elsewhere: Shop 5 renamed, Shop 229 deleted, a receipt from September entered late
+    server.transactions.find((t) => t.payee === 'Shop 5')!.payee = 'Shop five';
+    server.transactions = server.transactions.filter((t) => t.payee !== 'Shop 229');
+    seed(server, { date: '2026-09-15', amountCents: 999, payee: 'Late receipt', createdAt: 9e9 });
+    nineDaysOn();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    await download();
+
+    await coldStartOffline(server, `${SEPTEMBER_PATH}&q=shop%20f`);
+    expect((await foundLine()).textContent).toBe('1 found · RM 1.05 spent');
+    await reloadApp(server, SEPTEMBER_PATH);
+    expect((await foundLine()).textContent).toBe('230 found · RM 500.05 spent');
+    await reloadApp(server, `${SEPTEMBER_PATH}&q=late`);
+    await waitFor(() => expect(registerTitles()).toEqual(['Late receipt']));
+    await reloadApp(server, `${SEPTEMBER_PATH}&q=shop%20229`);
+    expect(await screen.findByText('No transactions match', {}, { timeout: 6000 })).toBeTruthy();
+  }, 40_000);
+
+  test('a check stopped part way keeps every entry shown, saying they are being refreshed', async () => {
+    const server = withHistory();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    await download();
+
+    nineDaysOn();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    const first = holdNext(server, 'GET', '/api/transactions');
+    const run = import('../ledger/ledger').then(({ syncHistory }) => syncHistory());
+    await waitFor(() =>
+      expect(asked().some((url) => url.pathname === '/api/transactions')).toBe(true),
+    );
+    server.pathsDown.add('/api/transactions');
+    first.release();
+    await act(() => run);
+
+    const cash = server.transactions
+      .filter((t) => t.accountId === CASH || t.toAccountId === CASH)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+    const firstChecked = `Sep ${Number(cash[199].date.slice(8)) + 1}`;
+    await coldStartOffline(server, `/?activity&account=${CASH}&from=2026-09-01&to=2026-09-30`);
+    expect((await foundLine()).textContent).toBe('230 found on this device · RM 493.35 spent');
+    expect(
+      screen.getByText(
+        `Checked from ${firstChecked} to Sep 30. Older entries are being refreshed and may be out of date.`,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/aren't on this device/)).toBeNull();
+  }, 40_000);
+
+  test('a new home currency set on another device downloads the history again', async () => {
+    const server = withHistory();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    await download();
+
+    // Converted elsewhere: every amount is now in Singapore dollars
+    server.me = { ...server.me, settings: { ...server.me.settings, currency: 'SGD' } };
+    for (const t of server.transactions) t.amountCents = Math.round(t.amountCents * 0.3);
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    const back = await coldStartOffline(server, SEPTEMBER_PATH);
+    expect(
+      await screen.findByText(
+        'These entries are being refreshed and may be out of date.',
+        {},
+        {
+          timeout: 6000,
+        },
+      ),
+    ).toBeTruthy();
+
+    back();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    await download();
+    await reloadApp(server, SEPTEMBER_PATH);
+    const online = (await foundLine()).textContent;
+    await coldStartOffline(server, SEPTEMBER_PATH);
+    expect((await foundLine()).textContent).toBe(online);
+    expect(screen.queryByText(/being refreshed/)).toBeNull();
+  }, 40_000);
+
+  test('kinds narrow it as the server does', async () => {
+    const server = withHistory();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    await download();
+
+    await coldStartOffline(server, '/?activity&kind=income&dates=all');
+    expect((await foundLine()).textContent).toBe('1 found · RM 3,250.00 received');
+    expect(registerTitles()).toEqual(['Acme']);
+    await reloadApp(server, '/?activity&kind=transfer&dates=all');
+    await waitFor(() => expect(registerTitles()).toEqual(['top-up']));
+  }, 30_000);
+});
+
+describe('two tabs', () => {
+  test('only one downloads at a time; the other waits its turn', async () => {
+    const server = withHistory();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    const { takeDownload } = await import('./history-store');
+    expect(await takeDownload(server.me.email, 'another-tab', Date.now())).toBe(true);
+    vi.mocked(fetch).mockClear();
+    await download();
+    expect(asked().filter((url) => url.pathname === '/api/transactions')).toEqual([]);
+
+    // The other tab closed without letting go: after a while it's taken over
+    vi.setSystemTime(new Date(2026, 10, 20, 10, 5, 0));
+    await download();
+    expect(asked().filter((url) => url.pathname === '/api/transactions').length).toBeGreaterThan(0);
+  }, 30_000);
+});
+
+describe('out of space', () => {
+  test('says so once, stops downloading, and still shows what it holds offline', async () => {
+    const server = withHistory();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    await download();
+
+    // Full: nothing more can be written to the history
+    const { put } = Object.getOwnPropertyDescriptors(IDBObjectStore.prototype);
+    const full = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+      this: IDBObjectStore,
+      ...args: Parameters<IDBObjectStore['put']>
+    ) {
+      if (this.name === 'entries') throw new DOMException('Full', 'QuotaExceededError');
+      return (put.value as IDBObjectStore['put']).apply(this, args);
+    });
+    onTestFinished(() => full.mockRestore());
+    seed(server, { date: '2026-11-18', amountCents: 300, payee: 'New one' });
+    await download();
+    const message =
+      'This device is out of space for your history, so offline it shows what it has kept.';
+    expect(await screen.findByText(message)).toBeTruthy();
+    vi.mocked(fetch).mockClear();
+    await download();
+    expect(asked().filter((url) => url.pathname === '/api/transactions')).toEqual([]);
+    expect(screen.getAllByText(message)).toHaveLength(1);
+
+    await coldStartOffline(server, SEPTEMBER_PATH);
+    expect((await foundLine()).textContent).toBe(SEPTEMBER_LINE);
+  }, 30_000);
+});

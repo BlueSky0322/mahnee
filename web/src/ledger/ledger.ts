@@ -378,7 +378,18 @@ let historyTimer: ReturnType<typeof setTimeout> | undefined;
  * for Activity and accounts offline. Resolves once done, or stopped for want of a
  * connection; it carries on from there next time.
  */
-export const syncHistory = () => downloadHistory(confirmed?.accounts.map((a) => a.id) ?? []);
+export function syncHistory(): Promise<void> {
+  const profile = queryClient.getQueryData<Profile>(ME_KEY);
+  // Not while amounts are being converted into a new home currency: they're changing
+  if (profile == null || isConverting(profile)) return Promise.resolve();
+  return downloadHistory(confirmed?.accounts.map((a) => a.id) ?? [], profile.settings.currency);
+}
+
+/** The home currency amounts are in now, as the profile says; null while it isn't known */
+const homeCurrency = () => {
+  const profile = queryClient.getQueryData<Profile>(ME_KEY);
+  return profile == null ? null : currencyNow(profile);
+};
 
 /**
  * The changes still to send, as last shown: the same list until it changes, for screens
@@ -590,6 +601,7 @@ export async function fetchTransactionPage(
 ): Promise<PageOnDevice> {
   const [, by, value] = key;
   const savedBefore = savedCount;
+  const askedAt = Date.now();
   let page: PageOnDevice;
   try {
     page =
@@ -614,7 +626,7 @@ export async function fetchTransactionPage(
   const missed = savedLog.filter((s) => s.n > savedBefore).flatMap((s) => s.changes);
   const shown = { ...page, ...applyToPages([page], missed, belongsTo(key), savedTransaction)[0] };
   if (page.onDevice == null && by !== 'month') {
-    keepServerPage(shown, by === 'account' ? { accountId: value, before } : null);
+    keepServerPage(shown, by === 'account' ? { accountId: value, before } : null, askedAt);
   }
   return shown;
 }
@@ -622,12 +634,12 @@ export async function fetchTransactionPage(
 /** A page of a list from the history on this device, or null when it holds none of it */
 function pageOnDevice(key: TransactionsKey, before: string | null) {
   const [, by, value] = key;
-  if (by === 'account') return localAccountPage(value, before);
+  if (by === 'account') return localAccountPage(value, before, homeCurrency());
   const query = readSearch(new URLSearchParams(value));
   if ('error' in query) return Promise.resolve(null);
   const categories = queryClient.getQueryData<Ledger>(LEDGER_KEY)?.categories ?? [];
   const accounts = confirmed?.accounts.map((a) => a.id) ?? [];
-  return localSearchPage(query, categories, accounts, before, SEARCH_PAGE_SIZE);
+  return localSearchPage(query, categories, accounts, homeCurrency(), before, SEARCH_PAGE_SIZE);
 }
 
 /** The most a page of transactions holds (worker/ledger/read.ts MAX_PAGE_SIZE) */

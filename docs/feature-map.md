@@ -1284,8 +1284,10 @@ other months.' with Clear filters (the chips, not the words or the days) and Sea
 months. Offline, it searches the history downloaded to the device, with the changes
 still to send on top, found, ordered and counted as the server would; where the device
 doesn't hold every day asked for yet it says "Showing Sep 6 to Sep 30. Older entries
-aren't on this device yet." (or "Entries for these days aren't on this device yet."), and
-counts "12 found on this device". Offline with none of it held: "Connect to search" ("Your
+aren't on this device yet." (or "Entries for these days aren't on this device yet."), or,
+while it checks again what it holds, "Checked from Sep 6 to Sep 30. Older entries are
+being refreshed and may be out of date." (or "These entries are being refreshed and may
+be out of date."), and counts "12 found on this device". Offline with none of it held: "Connect to search" ("Your
 entries aren't on this device yet.", or "This device couldn't keep your entries, so
 searching needs a connection." when storage failed). Catching up is this page alone (Tidy up links to Other since a day, selecting);
 there is no review queue.
@@ -2018,16 +2020,25 @@ keep changes, those two with how many are waiting.
   history on the device, for Activity, its filters, an account's entries and an import's
   duplicate check offline (read by `fetchTransactionPage` and `transactionsSince` in
   ledger.ts when the server can't be reached). `syncHistory` downloads what's missing, 5
-  seconds after the balances come fresh: each account newest first, 200 a page, how far
-  it got kept with each page (`coverage`), so a stopped download carries on from its
-  cursor; a complete or started one first looks for new entries at the top (50 a page,
-  down to the newest it held). Kept up to date by each change saved here (`recordSaved`)
+  seconds after the balances come fresh (not while amounts are converting): each account
+  newest first, 200 a page, how far it got kept with each page (`coverage`), so a stopped
+  download carries on from its cursor; a started one first looks for new entries at the
+  top (50 a page, down to the newest it held). Kept up to date by each change saved here
+  (`recordSaved`, marked with when, so no page asked for earlier, by any tab, undoes it)
   and each page the server sends (an account's page replaces what was held over its
-  range); an import undone or a new home currency starts the downloads again from the
-  top. Reads say how much of the days asked for they hold (`onDevice`). Stored in
-  [offline/history-store.ts](../web/src/offline/history-store.ts): its own IndexedDB
-  database, rows by [email, id] indexed by day, account, the account a transfer went to
-  and category; coverage by [email, account].
+  range). The server keeps no record of deletions, so what other devices change below the
+  top is caught by checking each account again in full from the top once a week
+  (`RECHECK_MS`), and whenever its amounts are in another home currency than the
+  profile's; an import undone does the same. A pass from the top keeps what's held shown,
+  said to be "being refreshed", never complete. One tab downloads at a time (a Web Lock,
+  else a note in the database renewed each page, taken over after a minute). Reads say how
+  much of the days asked for they hold (`onDevice`: complete, the first day checked, and
+  whether older ones are held but being refreshed); an account's next page is read
+  straight from its index. A write failing (full) says so once and stops downloads for the
+  page, what's held still read; a read failing makes Activity offline ask for a
+  connection. Stored in [offline/history-store.ts](../web/src/offline/history-store.ts):
+  its own IndexedDB database, rows by [email, id] indexed by day, account, the account a
+  transfer went to and category; coverage by [email, account], which only moves forward.
 - [offline/storage.ts](../web/src/offline/storage.ts): once the app is installed, asks
   the browser (once per device) not to clear what's kept when space runs low.
 - [pwa/install.ts](../web/src/pwa/install.ts): the browser's install prompt, kept for
@@ -2089,8 +2100,8 @@ account's saved copy ([ProfileContext](../web/src/profile/ProfileContext.tsx)).
   that email is still signed in (a page on its way when the cache is emptied is dropped),
   and deleted with the device's copies. At most `MAX_TRANSACTIONS_PER_ACCOUNT` per
   account. Online, Activity and accounts read the server as before; offline, a part is
-  never counted as if it were all. Entries changed on another device below the newest
-  held are only refreshed when a page holding them is fetched again.
+  never counted as if it were all, and a history not checked in full within a week, or in
+  another home currency, is said to be being refreshed.
 - The app and the service worker read a failed send the same way: no answer, a non-JSON
   answer, 401, 429, 5xx and `account_mismatch` are kept; any other 4xx drops the rest.
 - Every write names the account it was made as (`X-Expected-Account`, from `writeAs` in
@@ -2124,7 +2135,11 @@ button), [freshness-text.test.ts](../web/src/components/common/freshness-text.te
 [history.test.tsx](../web/src/offline/history.test.tsx) (offline cold start: a month
 never opened, page by page, with the server's figures; a transfer; an edit made offline;
 an account's entries past the first page; a download stopped, said so, and carried on
-from where it stopped; another account's never shown; signing out; storage refused),
+from where it stopped; another account's never shown; signing out; storage refused;
+another device's edit, deletion and back-dated entry; a check stopped part way; a home
+currency changed elsewhere; kinds; two tabs; out of space),
+[history-store.test.ts](../web/src/offline/history-store.test.ts) (coverage never moves
+back; a change made here outlasts an older page),
 [first-read.test.tsx](../web/src/offline/first-read.test.tsx) (the first read of the
 balances goes while the server is slow to say who's signed in, and never waits for good
 when signed out),

@@ -155,14 +155,26 @@ export function foundLine(
 }
 
 /**
- * Offline, when the history on this device doesn't hold every day asked for: "Showing Oct 1
- * to Nov 20. Older entries aren't on this device yet.", from the first day it holds whole
- * (`held`, null for none) to the last asked for (today when not said)
+ * Offline, when the history on this device doesn't hold every day asked for, checked:
+ * "Showing Oct 1 to Nov 20. Older entries aren't on this device yet.", from the first day
+ * it holds whole (`held`, null for none) to the last asked for (today when not said). While
+ * the older entries are held but being checked again (`refreshing`): "Checked from Oct 1 to
+ * Nov 20. Older entries are being refreshed and may be out of date."
  */
-export function onDeviceLine(held: string | null, looked: Period, today: string) {
+export function onDeviceLine(
+  { from: held, refreshing }: { from: string | null; refreshing: boolean },
+  looked: Period,
+  today: string,
+) {
   const from = held != null && looked.from != null && looked.from > held ? looked.from : held;
   const to = looked.to != null && looked.to < today ? looked.to : today;
-  if (from == null || from > to) return "Entries for these days aren't on this device yet.";
+  const whole = from != null && from <= to;
+  if (refreshing) {
+    return whole
+      ? `Checked from ${shortDay(from, today)} to ${shortDay(to, today)}. Older entries are being refreshed and may be out of date.`
+      : 'These entries are being refreshed and may be out of date.';
+  }
+  if (!whole) return "Entries for these days aren't on this device yet.";
   return `Showing ${shortDay(from, today)} to ${shortDay(to, today)}. Older entries aren't on this device yet.`;
 }
 

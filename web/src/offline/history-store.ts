@@ -11,12 +11,19 @@ import type { Transaction } from '@shared/api';
 // days), by the account it's on and the one a transfer went to (an account's entries,
 // Activity's account filter) and by category (Activity's category filter); words are
 // found by reading the rows those narrow down to, as no index finds text in the middle of
-// a payee. `coverage` says, per account, how far back its download has got.
+// a payee. An entry changed or deleted on this device is marked with when (`localAt`; a
+// deleted one is kept as `removed` until the server's pages no longer list it), so a page
+// fetched before then, by this tab or another, never puts it back as it was. `coverage`
+// says, per account, how far its download has got; it only ever moves forward.
 
 const DB_NAME = 'mahnee-history';
 const DB_VERSION = 1;
 const ENTRIES = 'entries';
 const COVERAGE = 'coverage';
+/** The note, among the coverage, of which tab is downloading (where Web Locks aren't) */
+const DOWNLOADING = '~downloading';
+/** How long a tab holds the download without saying it's still at it */
+export const DOWNLOAD_HOLD_MS = 60_000;
 
 /** An entry as kept: the transaction, with what its indexes read */
 interface Row {
@@ -29,22 +36,34 @@ interface Row {
   /** Sorts oldest first as the server lists newest first (orderOf) */
   order: string;
   t: Transaction;
+  /** When it was changed on this device (ms), until the server's own copy replaces it */
+  localAt?: number;
+  /** Deleted on this device */
+  removed?: true;
 }
 
 /** How much of one account's history is on the device */
 export interface Coverage {
   email: string;
   accountId: string;
-  /** Where the download carries on from (the server's nextBefore); null to start at the top */
+  /** Where this pass carries on from (the server's nextBefore); null to start at the top */
   next: string | null;
-  /** The oldest day held so far; null before the first page */
+  /** The oldest day this pass has reached; null before its first page */
   oldest: string | null;
   /** The newest entry held when the device last looked for new ones (orderOf) */
   newest: string | null;
-  /** Every entry down to the account's first is held */
+  /** This pass has reached the account's first entry: every entry is as the server had it */
   complete: boolean;
-  /** Entries downloaded for it, at most MAX_TRANSACTIONS_PER_ACCOUNT */
+  /** An earlier pass reached the first entry: entries below this pass are held, maybe stale */
+  held: boolean;
+  /** Entries this pass has downloaded, at most MAX_TRANSACTIONS_PER_ACCOUNT */
   rows: number;
+  /** When this pass started (ms): a later pass replaces an earlier one's progress */
+  pass: number;
+  /** When a pass last reached the first entry (ms); null before one has */
+  verifiedAt: number | null;
+  /** The home currency its amounts are in */
+  currency: string;
 }
 
 /**
@@ -94,9 +113,9 @@ function open(): Promise<IDBDatabase> {
   return opening;
 }
 
-const done = (req: IDBRequest) =>
-  new Promise<unknown>((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
+const done = <T>(req: IDBRequest) =>
+  new Promise<T>((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result as T);
     req.onerror = () => reject(req.error ?? new Error('History storage failed'));
   });
 
@@ -107,10 +126,20 @@ const finished = (tx: IDBTransaction) =>
     tx.onabort = () => reject(tx.error ?? new Error('History storage stopped'));
   });
 
+/** The history was emptied (signed out, or someone else) while this was on its way */
+export class HistoryForgotten extends Error {}
+
+/** Writing to the history failed (full, say): what's held can still be read */
+export class HistoryWriteFailed extends Error {
+  constructor(public cause: unknown) {
+    super('History could not be written');
+  }
+}
+
 /**
  * Runs `work` in one transaction over both stores, made at once (in the same turn as the
- * caller's checks, so nothing is written for an account after its history was emptied).
- * Rejects when storage fails.
+ * caller's checks, so nothing is written for an account after its history was emptied),
+ * all of it or none. Rejects when storage fails; a write failing as HistoryWriteFailed.
  */
 async function inTransaction<T>(
   mode: IDBTransactionMode,
@@ -121,15 +150,22 @@ async function inTransaction<T>(
   if (!stillMine()) throw new HistoryForgotten();
   const tx = db.transaction([ENTRIES, COVERAGE], mode);
   const end = finished(tx);
-  const result = await work(tx.objectStore(ENTRIES), tx.objectStore(COVERAGE));
-  await end;
-  return result;
+  try {
+    const result = await work(tx.objectStore(ENTRIES), tx.objectStore(COVERAGE));
+    await end;
+    return result;
+  } catch (err) {
+    try {
+      tx.abort();
+    } catch {
+      // Over already
+    }
+    end.catch(() => undefined);
+    throw mode === 'readwrite' ? new HistoryWriteFailed(err) : err;
+  }
 }
 
-/** The history was emptied (signed out, or someone else) while this was on its way */
-export class HistoryForgotten extends Error {}
-
-const rowOf = (email: string, t: Transaction): Row => ({
+const rowOf = (email: string, t: Transaction, localAt?: number): Row => ({
   email,
   id: t.id,
   accountId: t.accountId,
@@ -138,30 +174,42 @@ const rowOf = (email: string, t: Transaction): Row => ({
   date: t.date,
   order: orderOf(t),
   t,
+  ...(localAt != null && { localAt }),
 });
 
+/** Whether a held row was changed here after `askedAt`, so a page asked for then is older */
+const newerHere = (row: Row | undefined, askedAt: number) =>
+  row?.localAt != null && row.localAt > askedAt;
+
 /** Rows on `accountId` (from it, or a transfer into it) between two places, `low` included */
-async function idsOnAccount(
+async function rowsOnAccount(
   entries: IDBObjectStore,
   email: string,
   accountId: string,
   low: string,
   high: string,
-): Promise<string[]> {
+): Promise<Row[]> {
   const range = IDBKeyRange.bound([email, accountId, low], [email, accountId, high], false, true);
   const [from, to] = await Promise.all([
-    done(entries.index('account').getAllKeys(range)),
-    done(entries.index('toAccount').getAllKeys(range)),
+    done<Row[]>(entries.index('account').getAll(range)),
+    done<Row[]>(entries.index('toAccount').getAll(range)),
   ]);
-  return [...(from as IDBValidKey[][]), ...(to as IDBValidKey[][])].map((k) => k[1] as string);
+  return [...from, ...to];
 }
 
+/** Whether `next` is ahead of `kept`: a later pass, or further on in the same one */
+const ahead = (next: Coverage, kept: Coverage | undefined) =>
+  kept == null ||
+  next.pass > kept.pass ||
+  (next.pass === kept.pass && next.rows >= kept.rows && (!kept.complete || next.complete));
+
 /**
- * Keeps a page of an account's entries as the server listed them, newest first: they
- * replace whatever this device held on the account between where the page starts
- * (`before`'s place, or the top) and where it ends (its last entry, or the bottom when
- * none follow), so one deleted elsewhere goes too. With `coverage`, notes how far the
- * download has got, in the same transaction.
+ * Keeps a page of an account's entries as the server listed them (asked for at
+ * `askedAt`), newest first: they replace whatever this device held on the account between
+ * where the page starts (`before`'s place, or the top) and where it ends (its last entry,
+ * or the bottom when none follow), so one deleted elsewhere goes too; but for entries
+ * changed here since it was asked for. With `coverage`, notes how far the download has
+ * got, in the same transaction, unless another tab has got further.
  */
 export function keepAccountPage(
   email: string,
@@ -170,6 +218,7 @@ export function keepAccountPage(
   page: { transactions: Transaction[]; nextBefore: string | null },
   coverage: Coverage | null,
   stillMine: () => boolean,
+  askedAt: number,
 ): Promise<void> {
   const high = before == null ? TOP : orderOfCursor(before) ?? TOP;
   const last = page.transactions.at(-1);
@@ -177,41 +226,66 @@ export function keepAccountPage(
   return inTransaction(
     'readwrite',
     async (entries, covered) => {
-      const kept = new Set(page.transactions.map((t) => t.id));
-      const held = await idsOnAccount(entries, email, accountId, low, high);
-      for (const id of held) if (!kept.has(id)) entries.delete([email, id]);
-      for (const t of page.transactions) entries.put(rowOf(email, t));
-      if (coverage != null) covered.put(coverage);
+      const listed = new Map(page.transactions.map((t) => [t.id, t]));
+      const inRange = await rowsOnAccount(entries, email, accountId, low, high);
+      for (const row of inRange) {
+        if (!listed.has(row.id) && !newerHere(row, askedAt)) entries.delete([email, row.id]);
+      }
+      await putUnlessNewer(entries, email, page.transactions, askedAt);
+      if (coverage != null) {
+        const kept = await done<Coverage | undefined>(covered.get([email, accountId]));
+        if (ahead(coverage, kept)) covered.put(coverage);
+      }
     },
     stillMine,
   );
 }
 
-/** Keeps entries as the server has them, each replacing what was held for it */
+/** Puts each entry as the server has it, but for those changed here since `askedAt` */
+async function putUnlessNewer(
+  entries: IDBObjectStore,
+  email: string,
+  transactions: Transaction[],
+  askedAt: number,
+) {
+  const held = await Promise.all(
+    transactions.map((t) => done<Row | undefined>(entries.get([email, t.id]))),
+  );
+  transactions.forEach((t, i) => {
+    if (!newerHere(held[i], askedAt)) entries.put(rowOf(email, t));
+  });
+}
+
+/** Keeps entries as the server had them at `askedAt`, each replacing what was held for it */
 export const keepEntries = (
   email: string,
   transactions: Transaction[],
   stillMine: () => boolean,
+  askedAt: number,
 ) =>
   transactions.length === 0
     ? Promise.resolve()
     : inTransaction(
         'readwrite',
-        (entries) => {
-          for (const t of transactions) entries.put(rowOf(email, t));
-        },
+        (entries) => putUnlessNewer(entries, email, transactions, askedAt),
         stillMine,
       );
 
-/** Entries held by id: undefined for one not held */
+/** Entries held by id: undefined for one not held (or deleted here) */
 export const heldByIds = (email: string, ids: string[]) =>
   inTransaction('readonly', (entries) =>
     Promise.all(
-      ids.map(async (id) => ((await done(entries.get([email, id]))) as Row | undefined)?.t),
+      ids.map(async (id) => {
+        const row = await done<Row | undefined>(entries.get([email, id]));
+        return row?.removed ? undefined : row?.t;
+      }),
     ),
   );
 
-/** Changes held entries: each id to its entry as it is now, or null to delete it */
+/**
+ * Changes held entries as saved from this device: each id to its entry as it is now, or
+ * null once deleted (kept marked, so an older page doesn't bring it back)
+ */
 export const changeEntries = (
   email: string,
   changed: Map<string, Transaction | null>,
@@ -219,35 +293,79 @@ export const changeEntries = (
 ) =>
   inTransaction(
     'readwrite',
-    (entries) => {
+    async (entries) => {
+      const at = Date.now();
       for (const [id, t] of changed) {
-        if (t == null) entries.delete([email, id]);
-        else entries.put(rowOf(email, t));
+        if (t != null) {
+          entries.put(rowOf(email, t, at));
+          continue;
+        }
+        const row = await done<Row | undefined>(entries.get([email, id]));
+        if (row != null) entries.put({ ...row, localAt: at, removed: true });
       }
     },
     stillMine,
   );
 
+const coverageRange = (email: string) => IDBKeyRange.bound([email, ''], [email, TOP]);
+
 /** How far each of `email`'s accounts has been downloaded */
 export const readCoverage = (email: string) =>
-  inTransaction(
-    'readonly',
-    async (_, coverage) =>
-      (await done(coverage.getAll(IDBKeyRange.bound([email, ''], [email, TOP])))) as Coverage[],
+  inTransaction('readonly', async (_, coverage) =>
+    (await done<Coverage[]>(coverage.getAll(coverageRange(email)))).filter(
+      (c) => c.accountId !== DOWNLOADING,
+    ),
   );
 
 /**
- * Starts `email`'s downloads again from the top (after changes this device can't follow,
- * such as an import undone): what's held stays shown, and is replaced page by page
+ * Starts each of `email`'s downloads again from the top (`pass` the time it starts), after
+ * changes this device can't follow (an import undone): what's held stays, shown as held
+ * but being refreshed, and is replaced page by page
  */
-export const restartCoverage = (email: string, stillMine: () => boolean) =>
+export const restartCoverage = (email: string, stillMine: () => boolean, pass: number) =>
   inTransaction(
     'readwrite',
-    (_, coverage) => {
-      coverage.delete(IDBKeyRange.bound([email, ''], [email, TOP]));
+    async (_, coverage) => {
+      for (const c of await done<Coverage[]>(coverage.getAll(coverageRange(email)))) {
+        if (c.accountId === DOWNLOADING) continue;
+        coverage.put(restarted(c, pass));
+      }
     },
     stillMine,
   );
+
+/** A coverage started again from the top, what it held still held */
+export const restarted = (c: Coverage, pass: number, currency = c.currency): Coverage => ({
+  ...c,
+  next: null,
+  oldest: null,
+  complete: false,
+  held: c.held || c.complete,
+  rows: 0,
+  pass,
+  currency,
+});
+
+/**
+ * Takes the download for `tab`, or keeps it taken, unless another tab has it and said so
+ * within DOWNLOAD_HOLD_MS. Resolves with whether `tab` has it.
+ */
+export const takeDownload = (email: string, tab: string, now: number) =>
+  inTransaction('readwrite', async (_, coverage) => {
+    const held = await done<{ tab: string; until: number } | undefined>(
+      coverage.get([email, DOWNLOADING]),
+    );
+    if (held != null && held.tab !== tab && held.until > now) return false;
+    coverage.put({ email, accountId: DOWNLOADING, tab, until: now + DOWNLOAD_HOLD_MS });
+    return true;
+  });
+
+/** Lets the download go, if `tab` has it */
+export const letDownloadGo = (email: string, tab: string) =>
+  inTransaction('readwrite', async (_, coverage) => {
+    const held = await done<{ tab: string } | undefined>(coverage.get([email, DOWNLOADING]));
+    if (held?.tab === tab) coverage.delete([email, DOWNLOADING]);
+  });
 
 /** Which entries a read narrows to before the words and the other filters are checked */
 export type Narrowed =
@@ -260,36 +378,69 @@ export const readEntries = (email: string, narrowed: Narrowed): Promise<Transact
   inTransaction('readonly', async (entries) => {
     let found: Row[];
     if (narrowed.by === 'account') {
-      const range = IDBKeyRange.bound(
-        [email, narrowed.accountId, ''],
-        [email, narrowed.accountId, TOP],
-      );
-      const [from, to] = await Promise.all([
-        done(entries.index('account').getAll(range)),
-        done(entries.index('toAccount').getAll(range)),
-      ]);
-      found = [...(from as Row[]), ...(to as Row[])];
+      found = await rowsOnAccount(entries, email, narrowed.accountId, '', TOP);
     } else if (narrowed.by === 'categories') {
       const { from, to } = narrowed;
       const each = await Promise.all(
         narrowed.ids.map((id) =>
-          done(
+          done<Row[]>(
             entries
               .index('category')
               .getAll(IDBKeyRange.bound([email, id, from ?? ''], [email, id, to ?? TOP])),
           ),
         ),
       );
-      found = (each as Row[][]).flat();
+      found = each.flat();
     } else {
-      found = (await done(
+      found = await done<Row[]>(
         entries
           .index('date')
           .getAll(IDBKeyRange.bound([email, narrowed.from ?? ''], [email, narrowed.to ?? TOP])),
-      )) as Row[];
+      );
     }
     const seen = new Set<string>();
-    return found.filter((r) => !seen.has(r.id) && Boolean(seen.add(r.id))).map((r) => r.t);
+    return found
+      .filter((r) => !r.removed && !seen.has(r.id) && Boolean(seen.add(r.id)))
+      .map((r) => r.t);
+  });
+
+/** Up to `count` rows from one index, newest first, below `high`, skipping deleted ones */
+function newestRows(index: IDBIndex, range: IDBKeyRange, count: number): Promise<Row[]> {
+  return new Promise((resolve, reject) => {
+    const rows: Row[] = [];
+    const req = index.openCursor(range, 'prev');
+    req.onerror = () => reject(req.error ?? new Error('History storage failed'));
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (cursor == null || rows.length >= count) return resolve(rows);
+      const row = cursor.value as Row;
+      if (!row.removed) rows.push(row);
+      cursor.continue();
+    };
+  });
+}
+
+/**
+ * One account's entries, newest first, below `before`'s place (the top when null): at
+ * most `count`, read straight from the account's indexes, however many it holds
+ */
+export const accountEntries = (
+  email: string,
+  accountId: string,
+  before: string | null,
+  count: number,
+): Promise<Transaction[]> =>
+  inTransaction('readonly', async (entries) => {
+    const high = before == null ? TOP : orderOfCursor(before) ?? TOP;
+    const range = IDBKeyRange.bound([email, accountId, ''], [email, accountId, high], false, true);
+    const [from, to] = await Promise.all([
+      newestRows(entries.index('account'), range, count),
+      newestRows(entries.index('toAccount'), range, count),
+    ]);
+    return [...from, ...to]
+      .sort((a, b) => (a.order < b.order ? 1 : a.order > b.order ? -1 : 0))
+      .slice(0, count)
+      .map((r) => r.t);
   });
 
 /** Whether `email` has any entry held */
@@ -297,12 +448,12 @@ export const holdsAny = (email: string) =>
   inTransaction(
     'readonly',
     async (entries) =>
-      ((await done(entries.count(IDBKeyRange.bound([email, ''], [email, TOP])))) as number) > 0,
+      (await done<number>(entries.count(IDBKeyRange.bound([email, ''], [email, TOP])))) > 0,
   );
 
 /** How many entries are held, whoever's: for checking that signing out leaves none */
 export const heldEntries = () =>
-  inTransaction('readonly', async (entries) => (await done(entries.count())) as number);
+  inTransaction('readonly', (entries) => done<number>(entries.count()));
 
 /** Deletes every account's history from this device */
 export const forgetHistory = () =>

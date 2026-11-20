@@ -412,7 +412,7 @@ export default function ActivityPage({ query }: { query: string }) {
               className={classes.muted}
               role="status"
             >
-              {onDeviceLine(found.onDevice.from, days, today)}
+              {onDeviceLine(found.onDevice, days, today)}
             </p>
           )}
           {!ready || rows == null || accounts == null || categories == null ? (

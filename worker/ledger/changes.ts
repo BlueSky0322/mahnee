@@ -75,7 +75,7 @@ import { listCategories } from './read';
 import { readMonthStart } from './month-start';
 import { changeFingerprint, receiptStatements, savedReceipts } from './receipts';
 import { DEFAULT_SETTINGS } from '../../shared/api';
-import { isEntryCurrency } from '../../shared/rates';
+import { convertSignedCents, isEntryCurrency } from '../../shared/rates';
 import type { Rate } from '../currency/exchange-rates';
 import { RatesUnavailable } from '../currency/exchange-rates';
 import { type Typed, TypedTooLarge, typedIn, typedStatements } from '../currency/typed-in';
@@ -151,7 +151,7 @@ interface Model {
   counts: Map<string, number>;
   recurring: Map<string, RecurringState>;
   /** The imports the batch names, and whether each was undone (one not here doesn't exist) */
-  imports: Map<string, { undone: boolean; accountId: string | null }>;
+  imports: Map<string, { undone: boolean; accountId: string | null; opening: OpeningRead | null }>;
   /** The day the person's month starts on (read only when the batch sets a budget) */
   monthStart: number;
   /**
@@ -387,7 +387,8 @@ function changeStatements(
             .prepare(
               `UPDATE imports
                SET opening_change_cents = opening_change_cents + ?1 -
-                 (SELECT opening_cents FROM accounts WHERE email = ?2 AND id = ?3)
+                 (SELECT opening_cents FROM accounts WHERE email = ?2 AND id = ?3),
+                 opening_change_currency = NULL, opening_change_typed_cents = NULL
                WHERE email = ?2 AND id = ?4`,
             )
             .bind(readOpening(change.openingCents), email, change.id, importId),
@@ -738,7 +739,7 @@ function changeStatements(
       }
       const added = readImportCount(record.addedCount);
       const skipped = readImportCount(record.skippedCount);
-      model.imports.set(record.id, { undone: false, accountId });
+      model.imports.set(record.id, { undone: false, accountId, opening: null });
       return [
         db
           .prepare(
@@ -757,18 +758,7 @@ function changeStatements(
       if (record.undone) return [];
       record.undone = true;
       return [
-        // The opening balance it changed goes back by as much, so a change made by hand
-        // since stays; kept within an opening balance's limit
-        db
-          .prepare(
-            `UPDATE accounts
-             SET opening_cents = MAX(-?1, MIN(?1, opening_cents - i.opening_change_cents)),
-                 updated_at = ?2
-             FROM imports i
-             WHERE i.email = ?3 AND i.id = ?4 AND i.opening_change_cents != 0
-               AND accounts.email = i.email AND accounts.id = i.account_id`,
-          )
-          .bind(MAX_TRANSACTION_CENTS, now, email, change.id),
+        ...openingBack(db, email, change.id as string, record.opening, now),
         db
           .prepare('DELETE FROM transactions WHERE email = ? AND import_id = ?')
           .bind(email, change.id),
@@ -1182,6 +1172,107 @@ function readNextDue(schedule: Schedule, day: number, value: unknown, now: numbe
   return value;
 }
 
+/**
+ * Undoing an import gives back the opening balance it changed, by as much, so a change made
+ * by hand since stays; kept within an opening balance's limit. When both were converted from
+ * the same currency (a change of home currency since), it's worked out from what each was
+ * typed as, at the opening balance's own rate, so the opening balance is exactly what it
+ * would be on its own, and converts back exactly. That holds only while both are as they
+ * were read: otherwise (changed earlier in the same batch) it's by as much, as it is now.
+ */
+function openingBack(
+  db: D1Database,
+  email: string,
+  importId: string,
+  read: OpeningRead | null,
+  now: number,
+): D1PreparedStatement[] {
+  const exact =
+    read != null &&
+    read.changeCurrency != null &&
+    read.changeCurrency === read.openingCurrency &&
+    read.openingTyped != null &&
+    read.changeTyped != null &&
+    read.rate != null
+      ? (() => {
+          const typed = read.openingTyped - read.changeTyped;
+          const cents = convertSignedCents(typed, read.rate);
+          return Number.isSafeInteger(cents) && Math.abs(cents) <= MAX_TRANSACTION_CENTS
+            ? { typed, cents }
+            : null;
+        })()
+      : null;
+  // Both as read: the import's change and the opening balance, with what each was typed as
+  const asRead = `?5 = 1 AND accounts.opening_cents = ?6 AND accounts.original_currency = ?7
+    AND accounts.original_cents = ?8 AND i.opening_change_cents = ?9
+    AND i.opening_change_currency = ?7 AND i.opening_change_typed_cents = ?10`;
+  const params = [
+    exact == null ? 0 : 1,
+    read?.openingCents ?? 0,
+    read?.changeCurrency ?? '',
+    read?.openingTyped ?? 0,
+    read?.changeCents ?? 0,
+    read?.changeTyped ?? 0,
+  ];
+  const statements = [
+    db
+      .prepare(
+        `UPDATE accounts
+         SET opening_cents = CASE WHEN ${asRead} THEN ?11
+               ELSE MAX(-?1, MIN(?1, opening_cents - i.opening_change_cents)) END,
+             updated_at = ?2
+         FROM imports i
+         WHERE i.email = ?3 AND i.id = ?4
+           AND (i.opening_change_cents <> 0 OR i.opening_change_currency IS NOT NULL)
+           AND accounts.email = i.email AND accounts.id = i.account_id`,
+      )
+      .bind(MAX_TRANSACTION_CENTS, now, email, importId, ...params, exact?.cents ?? 0),
+  ];
+  if (exact != null && read != null) {
+    // Changing the opening balance lets go of what it was typed as (the 0011 trigger): it's
+    // kept again, as typed less the import's change, at the same rate
+    statements.push(
+      db
+        .prepare(
+          `UPDATE accounts SET original_currency = ?4, original_cents = ?5, rate = ?6,
+             rate_source = ?7, rate_at = ?8
+           FROM imports i
+           WHERE i.email = ?1 AND i.id = ?2 AND i.undone_at IS NULL
+             AND i.opening_change_cents = ?9 AND i.opening_change_currency = ?4
+             AND i.opening_change_typed_cents = ?10
+             AND accounts.email = i.email AND accounts.id = i.account_id
+             AND accounts.opening_cents = ?3`,
+        )
+        .bind(
+          email,
+          importId,
+          exact.cents,
+          read.changeCurrency,
+          exact.typed,
+          read.rate,
+          read.rateSource,
+          read.rateAt,
+          read.changeCents,
+          read.changeTyped,
+        ),
+    );
+  }
+  return statements;
+}
+
+/** An import's change to an opening balance and that opening balance, as read before a batch */
+interface OpeningRead {
+  changeCents: number;
+  changeCurrency: string | null;
+  changeTyped: number | null;
+  openingCents: number | null;
+  openingCurrency: string | null;
+  openingTyped: number | null;
+  rate: number | null;
+  rateSource: string | null;
+  rateAt: number | null;
+}
+
 /** The import an entry came in with: one of the person's own, not undone */
 function readImport(model: Model, value: unknown): string {
   const record = isRowId(value) ? model.imports.get(value) : undefined;
@@ -1430,11 +1521,19 @@ export async function applyChanges(
       ? { results: [] }
       : db
           .prepare(
-            `SELECT id, undone_at AS undoneAt, account_id AS accountId FROM imports
-             WHERE email = ? AND id IN (SELECT value FROM json_each(?))`,
+            `SELECT i.id, i.undone_at AS undoneAt, i.account_id AS accountId,
+                    i.opening_change_cents AS changeCents,
+                    i.opening_change_currency AS changeCurrency,
+                    i.opening_change_typed_cents AS changeTyped,
+                    a.opening_cents AS openingCents, a.original_currency AS openingCurrency,
+                    a.original_cents AS openingTyped, a.rate, a.rate_source AS rateSource,
+                    a.rate_at AS rateAt
+             FROM imports i
+             LEFT JOIN accounts a ON a.email = i.email AND a.id = i.account_id
+             WHERE i.email = ? AND i.id IN (SELECT value FROM json_each(?))`,
           )
           .bind(email, JSON.stringify([...importIds]))
-          .all<{ id: string; undoneAt: number | null; accountId: string | null }>(),
+          .all<OpeningRead & { id: string; undoneAt: number | null; accountId: string | null }>(),
   ]);
   const model: Model = {
     accounts: new Map(
@@ -1450,7 +1549,10 @@ export async function applyChanges(
       ]),
     ),
     imports: new Map(
-      imports.results.map((r) => [r.id, { undone: r.undoneAt != null, accountId: r.accountId }]),
+      imports.results.map(({ id, undoneAt, accountId, ...opening }) => [
+        id,
+        { undone: undoneAt != null, accountId, opening },
+      ]),
     ),
     // A budget is set from the person's month (shared/period.ts)
     monthStart: budgeting ? await readMonthStart(db, email) : 1,

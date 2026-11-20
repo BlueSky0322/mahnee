@@ -29,12 +29,62 @@ export interface Rate {
   source: FetchedRateSource;
   /**
    * When the rate was fetched from the service, in ms; for an earlier day's rate, noon
-   * UTC on that day, so it reads as that day wherever people are
+   * UTC on that day
    */
   fetchedAt: number;
+  /** For an earlier day's rate, the calendar day it's from (2026-11-12) */
+  day?: string;
 }
 
 export class RatesUnavailable extends Error {}
+
+/**
+ * The services were asked as often as one conversion step or request may (RateLookups):
+ * the rest wait for the next step, or the change is tried again
+ */
+export class LookupsSpent extends RatesUnavailable {}
+
+/**
+ * The most requests to the rate services one conversion step or request makes, well
+ * under the Worker's 50 per run on the free plan, and above the 18 one day's rate can
+ * take (each of 8 days from both services, then today's from both)
+ */
+export const MAX_RATE_REQUESTS = 40;
+
+/**
+ * The services' answers within one conversion step or request, so each day is asked
+ * for at most once (found or not) and the requests stay within MAX_RATE_REQUESTS
+ */
+export class RateLookups {
+  private readonly answers = new Map<string, Promise<unknown>>();
+  private requests = 0;
+
+  constructor(private readonly limit = MAX_RATE_REQUESTS) {}
+
+  /** What `ask` answers for `key`, asked once */
+  once<T>(key: string, ask: () => Promise<T>): Promise<T> {
+    let answer = this.answers.get(key) as Promise<T> | undefined;
+    if (answer == null) {
+      answer = ask();
+      this.answers.set(key, answer);
+    }
+    return answer;
+  }
+
+  /** `deps` with each request counted, refused (LookupsSpent) past the limit */
+  counted(deps: Deps): Deps {
+    return {
+      ...deps,
+      fetch: (input, init) => {
+        if (this.requests >= this.limit) {
+          return Promise.reject(new LookupsSpent('Asked for as many rates as one step may'));
+        }
+        this.requests++;
+        return deps.fetch(input, init);
+      },
+    };
+  }
+}
 
 /** Fresh for this long; older copies are refetched but still used if that fails */
 const FRESH_MS = 4 * 60 * 60 * 1000;
@@ -66,6 +116,8 @@ export interface RateOptions {
   prefer?: RatePreference;
   /** The network, cache and clock; tests stand in for them */
   deps?: Deps;
+  /** Answers already had in this conversion step or request, and how many may be asked */
+  lookups?: RateLookups;
 }
 
 const cacheKey = (from: string, to: string, prefer: RatePreference) =>
@@ -163,6 +215,7 @@ export async function getRate(
     try {
       rate = await FETCHERS[source](env, from, to, deps);
     } catch (err) {
+      if (err instanceof LookupsSpent) throw err;
       console.error(err);
       continue;
     }
@@ -265,19 +318,40 @@ const daysBefore = (day: string, days: number) =>
  * closest earlier day either has, up to MAX_EARLIER_DAYS before, then today's rate. The
  * rate's time (`fetchedAt`) is always on the day it's really from, so what's kept never
  * claims a day it didn't use. A service that is down throws RatesUnavailable instead, so
- * the change is tried again rather than settling for another day's rate.
+ * the change is tried again rather than settling for another day's rate. Within `lookups`
+ * (one conversion step or request), each service is asked about each day once, and past
+ * its limit LookupsSpent is thrown.
  */
-export async function getRateOn(
+export function getRateOn(
   env: RatesEnv,
   from: string,
   to: string,
   at: number,
-  { prefer, deps = defaultDeps() }: Omit<RateOptions, 'maxAgeMs'> = {},
+  { prefer, deps = defaultDeps(), lookups = new RateLookups() }: Omit<RateOptions, 'maxAgeMs'> = {},
 ): Promise<Rate> {
   const day = rateDay(at);
-  if (from === to || day >= rateDay(deps.now())) return getRate(env, from, to, { prefer, deps });
+  return lookups.once(`on ${prefer ?? ''} ${from} ${to} ${day}`, () =>
+    rateOn(env, from, to, day, prefer, lookups.counted(deps), lookups),
+  );
+}
 
-  const key = `https://rates.internal/v1/day/${day}/${from}/${to}`;
+async function rateOn(
+  env: RatesEnv,
+  from: string,
+  to: string,
+  day: string,
+  prefer: RatePreference | undefined,
+  deps: Deps,
+  lookups: RateLookups,
+): Promise<Rate> {
+  const live = () =>
+    lookups.once(`live ${prefer ?? ''} ${from} ${to}`, () =>
+      getRate(env, from, to, { prefer, deps }),
+    );
+  if (from === to || day >= rateDay(deps.now())) return live();
+
+  // v2: each copy says its day
+  const key = `https://rates.internal/v2/day/${day}/${from}/${to}`;
   const saved = await readKept(deps.cache, key);
   if (saved) return saved;
 
@@ -287,8 +361,12 @@ export async function getRateOn(
     for (const [source, fetcher] of DAY_FETCHERS) {
       let found: DayRate;
       try {
-        found = await fetcher(env, from, to, asked, deps);
+        // Each service asked about each day once, whichever entry's day it's for
+        found = await lookups.once(`${source} ${from} ${to} ${asked}`, () =>
+          fetcher(env, from, to, asked, deps),
+        );
       } catch (err) {
+        if (err instanceof LookupsSpent) throw err;
         console.error(err);
         down = true;
         continue;
@@ -299,6 +377,7 @@ export async function getRateOn(
         rate: found.rate,
         source,
         fetchedAt: Date.parse(`${found.day}T12:00:00Z`),
+        day: found.day,
       };
       await keep(deps.cache, key, rate, KEEP_DAY_SECONDS);
       return rate;
@@ -306,5 +385,5 @@ export async function getRateOn(
     // A service that's down may have this day: tried again later, never settled past
     if (down) throw new RatesUnavailable(`No rate for ${from} to ${to} on ${asked} right now`);
   }
-  return getRate(env, from, to, { prefer, deps });
+  return live();
 }

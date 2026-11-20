@@ -157,11 +157,13 @@ export async function typedIn(
 /** Writes what each amount a change saved was typed as, once the change itself is saved */
 export function typedStatements(db: D1Database, email: string, typed: Typed[]) {
   return typed.map(({ table, row, currency, cents, rate }) => {
-    const where = 'id' in row ? 'id = ?7' : 'category_id = ?7 AND from_month = ?8';
+    const where = 'id' in row ? 'id = ?8' : 'category_id = ?8 AND from_month = ?9';
+    // An entry keeps the calendar day its rate is from, to say it as that day everywhere
+    const day = table === 'transactions' ? ', rate_day = ?7' : '';
     return db
       .prepare(
         `UPDATE ${table} SET original_currency = ?2, original_cents = ?3, rate = ?4,
-           rate_source = ?5, rate_at = ?6
+           rate_source = ?5, rate_at = ?6${day}
          WHERE email = ?1 AND ${where}`,
       )
       .bind(
@@ -171,6 +173,7 @@ export function typedStatements(db: D1Database, email: string, typed: Typed[]) {
         rate.rate,
         rate.source,
         rate.fetchedAt,
+        rate.day ?? null,
         ...('id' in row ? [row.id] : [row.categoryId, row.fromMonth]),
       );
   });

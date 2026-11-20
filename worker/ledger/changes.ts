@@ -1625,7 +1625,7 @@ export async function applyChanges(
         db
           .prepare(
             `UPDATE transactions SET original_currency = NULL, original_cents = NULL,
-               rate = NULL, rate_source = NULL, rate_at = NULL
+               rate = NULL, rate_source = NULL, rate_at = NULL, rate_day = NULL
              WHERE email = ? AND id = ?`,
           )
           .bind(email, (change as { id: string }).id),

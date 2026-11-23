@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-23
 
-- Changed: the installed app's icon is in your accent, not always cobalt; an app already on an iPhone keeps its old icon until added again [#?]
+- Changed: the installed app's icon is in your accent, not always cobalt; an app already on an iPhone keeps its old icon until added again [#71]
 
 ## 2026-11-20
 
@@ -186,3 +186,4 @@ For agents:
 [#67]: https://github.com/BlueSky0322/mahnee/pull/67
 [#69]: https://github.com/BlueSky0322/mahnee/pull/69
 [#70]: https://github.com/BlueSky0322/mahnee/pull/70
+[#71]: https://github.com/BlueSky0322/mahnee/pull/71

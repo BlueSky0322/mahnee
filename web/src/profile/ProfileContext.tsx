@@ -164,11 +164,19 @@ export function useCurrency() {
  * How far the conversion under way has got, as the server last said while the app asked:
  * kept apart from the profile, so each answer redraws only what shows it
  */
-let progressNow: Conversion['progress'] | null = null;
+let progressNow: { since: number; progress: Conversion['progress'] | null } | null = null;
 const progressListeners = new Set<() => void>();
-function showProgress(progress: Conversion['progress'] | null) {
-  if (progressNow?.done === progress?.done && progressNow?.total === progress?.total) return;
-  progressNow = progress;
+function showProgress(conversion: Conversion | null) {
+  const progress = conversion?.progress ?? null;
+  const now = progressNow;
+  if (
+    now?.since === conversion?.since &&
+    now?.progress?.done === progress?.done &&
+    now?.progress?.total === progress?.total
+  ) {
+    return;
+  }
+  progressNow = conversion == null ? null : { since: conversion.since, progress };
   progressListeners.forEach((listener) => listener());
 }
 const subscribeProgress = (listener: () => void) => {
@@ -191,7 +199,9 @@ export function useConversionProgress(): Conversion['progress'] | null {
   const asked = useSyncExternalStore(subscribeProgress, () => progressNow);
   const conversion = profile?.conversion;
   if (conversion == null || conversion.refused != null) return null;
-  return asked ?? conversion.progress ?? null;
+  // Only what was said about this conversion, never one before it
+  const said = asked?.since === conversion.since ? asked.progress : null;
+  return said ?? conversion.progress ?? null;
 }
 
 /** The name to show for someone: their display name, else the part of the email before @ */
@@ -554,7 +564,6 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const converting = profile != null && isConverting(profile);
   useEffect(() => {
     if (!converting) return;
-    showProgress(null);
     let asking = false;
     const timer = setInterval(() => {
       if (asking) return;
@@ -566,7 +575,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           // A change made since wins; the next ask brings the rest
           if (asked !== latest.current || profileRef.current?.email !== me.email) return;
           // Only further on: said where it's shown, without drawing every screen again
-          showProgress(me.conversion?.progress ?? null);
+          showProgress(me.conversion);
           if (sameButProgress(me, profileRef.current)) return;
           replace(me);
           void writeCache(ME_CACHE_KEY, me);

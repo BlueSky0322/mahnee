@@ -2146,6 +2146,23 @@ describe('transactions', () => {
     expect(bankIds.filter((id) => expected.includes(id))).toHaveLength(days.length);
   });
 
+  it('lists a transfer from an account into itself once, should one ever be saved', async () => {
+    const { me, wallet } = await withWallet();
+    const [own, onto] = [rowId(), rowId()];
+    await send(me, [add(own, wallet, 100, { date: '2025-10-02' })]);
+    // Every write refuses it; written straight to the database, it's still listed once
+    await api.sql(
+      `INSERT INTO transactions (email, id, kind, account_id, to_account_id, amount_cents,
+         category_id, date, created_at, updated_at)
+       VALUES (?, ?, 'transfer', ?, ?, 300, NULL, '2025-10-03', 1, 1)`,
+      me,
+      onto,
+      wallet,
+      wallet,
+    );
+    expect((await listed(me, wallet)).map((t) => t.id)).toEqual([onto, own]);
+  });
+
   it('lists a month across every account, and only the person’s own', async () => {
     const { me, wallet } = await withWallet();
     const bank = rowId();

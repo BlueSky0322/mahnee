@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { act, screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { Recurring, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
 import {
+  addEntry,
   fakeServer,
+  finishConversion,
   goToPlace,
   holdNext,
   reloadApp,
@@ -254,6 +256,73 @@ describe.each(SIZES)('a copy on hand draws at once (%s)', (size) => {
     held.release();
     balances.release();
     expect((await screen.findAllByText(/125\.00/)).length).toBeGreaterThan(0);
+  });
+
+  test("an entry saved here counts in the month's totals kept for the next start", async () => {
+    tenthOfNovember();
+    const server = withEntries();
+    renderApp(server, '/?plan', { size });
+    expect((await screen.findAllByText(/75\.00/)).length).toBeGreaterThan(0);
+    // Away from Plan, an entry is added and saved
+    await goToPlace('Accounts');
+    await addEntry('8');
+    await waitFor(() => expect(server.transactions).toHaveLength(4));
+    await pause(300);
+
+    // The next start, the server's answers held back: the kept totals have it
+    const held = holdNext(server, 'GET', '/api/summary');
+    const balances = holdNext(server, 'GET', '/api/accounts');
+    await reloadApp(server, '/?plan', { size });
+    expect((await screen.findAllByText(/83\.00/)).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText(/75\.00/)).toHaveLength(0);
+    held.release();
+    balances.release();
+  });
+
+  test("someone else signing in on this device never sees the month's totals kept for another", async () => {
+    tenthOfNovember();
+    const server = withEntries();
+    renderApp(server, '/?plan', { size });
+    expect((await screen.findAllByText(/75\.00/)).length).toBeGreaterThan(0);
+    await pause(300);
+
+    // Someone else, with entries of their own
+    server.me = { ...server.me, email: 'ana@example.com', displayName: 'Ana' };
+    server.transactions = [entry(1, { amountCents: 4_200 })];
+    const held = holdNext(server, 'GET', '/api/summary');
+    const trend = holdNext(server, 'GET', '/api/summary/trend');
+    await reloadApp(server, '/?plan', { size });
+    await screen.findByText('Loading this month');
+    await pause(300);
+    expect(screen.queryAllByText(/75\.00/)).toHaveLength(0);
+    held.release();
+    trend.release();
+    expect((await screen.findAllByText(/42\.00/)).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText(/75\.00/)).toHaveLength(0);
+  });
+
+  test("the month's totals kept in another currency aren't drawn after it changed elsewhere", async () => {
+    tenthOfNovember();
+    const server = withEntries();
+    renderApp(server, '/?plan', { size });
+    expect((await screen.findAllByText(/75\.00/)).length).toBeGreaterThan(0);
+    await pause(300);
+
+    // Changed to USD on another device while this one was closed: RM 75.00 is about $ 18.75
+    server.rates.set('MYRUSD', 0.25);
+    server.me = {
+      ...server.me,
+      conversion: { from: 'MYR', to: 'USD', since: Date.now(), refused: null },
+    };
+    finishConversion(server);
+    server.me = { ...server.me, settings: { ...server.me.settings, currency: 'USD' } };
+    const held = holdNext(server, 'GET', '/api/summary');
+    await reloadApp(server, '/?plan', { size });
+    await screen.findByText('Loading this month');
+    await pause(300);
+    expect(screen.queryAllByText(/75\.00/)).toHaveLength(0);
+    held.release();
+    expect((await screen.findAllByText(/\$ 18\.7\d/)).length).toBeGreaterThan(0);
   });
 
   test('the accounts kept on the device draw at once on the next start', async () => {

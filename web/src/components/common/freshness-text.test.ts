@@ -90,10 +90,23 @@ describe('the label', () => {
     ['offline, nothing waiting, figures fetched before', { online: false }, 'Offline', false],
     // Amounts converting into a new home currency: changes wait until it's done
     ['converting', { convertingTo: 'USD' }, 'Converting to USD…', false],
+    // Saved once it's done, so how many wait is said with it
     [
       'converting, changes waiting',
       { convertingTo: 'USD', waiting: 2 },
-      'Converting to USD…',
+      'Converting to USD… · 2 changes waiting',
+      false,
+    ],
+    [
+      'converting, how far it has got, one change waiting',
+      { convertingTo: 'USD', convertedPercent: 40, waiting: 1 },
+      'Converting to USD… 40% · 1 change waiting',
+      false,
+    ],
+    [
+      'converting, how far it has got, three changes waiting',
+      { convertingTo: 'USD', convertedPercent: 40, waiting: 3 },
+      'Converting to USD… 40% · 3 changes waiting',
       false,
     ],
     [

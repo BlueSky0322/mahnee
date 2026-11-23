@@ -848,9 +848,12 @@ the old month card (Home's month end takes its place; see the changelog).
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), as for transactions; Plan keeps
 no state of its own but what's typed, and changes budgets through `setBudget` (Budgets). A
 month's totals are a query keyed by month (`summaryKey`), fetched from the server
-(`fetchSummary`) with a device copy (`summary-v3:<month>`) shown offline, and shown at once
+(`fetchSummary`) with a device copy (`summary-v3:<month>`, saying the currency it was summed
+in, `keptIn`, and brought up to date as each batch is saved) shown offline, and shown at once
 (`showKeptSummary`, `showKeptTrend` for the 12 months) while the server's first answer is on
-its way, marked as from the device until it comes. They're kept
+its way, marked as from the device until it comes. A copy in another currency than the one
+amounts are in now (changed on another device) is never drawn; one from before `keptIn` is
+drawn only offline. They're kept
 as the server summed them, with each saved batch counted in (before the lists take it,
 so an edited transaction is taken out as it was), and the changes still to send counted
 on top as they're shown (`shownSummary`). Once nothing is left to send they're fetched
@@ -1942,7 +1945,8 @@ a panel under the row on computers) with "Search currencies" and the groups "You
 one in use) and "All currencies" (the ECB's 30, `HOME_CURRENCIES` in `shared/rates.ts`, so
 each converts without Wise). Picking one closes the picker (drawn first) and saves it at once; the server then converts
 every amount in the background while the app stays usable (places, search, adding entries,
-which wait on the device). Until that's done the row and the freshness line say "Converting
+which wait on the device and are saved once it's done; the freshness line says "Converting to
+USD… 40% · 2 changes waiting"). Until that's done the row and the freshness line say "Converting
 to USD… 40%" (`Conversion.progress`, when the server says), the row can't be changed, amounts
 are shown as they still are, and the totals on Home, Activity and Accounts say "conversion
 pending" ([common/ConversionPending.tsx](../web/src/components/common/ConversionPending.tsx)). A change
@@ -1966,9 +1970,17 @@ totals kept, fetches everything again and sends the changes kept meanwhile. `use
   while one is under way) and queues the first step on `mahnee-reconvert`
   ([worker/currency/convert-queue.ts](../worker/currency/convert-queue.ts)).
 - Each step ([worker/currency/convert.ts](../worker/currency/convert.ts)) works out a page
-  of 200 transactions, by day then id, each at the rate on its own day (`getRateOn`: the
-  ECB's, else Wise's), into `conversion_staged`, checking each against its limit. A step
-  asks the services about each day once (`RateLookups`, found or not) and at most 40 times;
+  of 2,000 transactions, by day then id, each at the rate on its own day (`getRateOn`: the
+  ECB's, else Wise's), into `conversion_staged`, checking each against its limit. First it
+  asks for the page's days as ranges (`prefetchRatesOn` in
+  [exchange-rates.ts](../worker/currency/exchange-rates.ts)): fixed spans of 128 days from
+  the ECB, then 32-day spans from Wise for days the ECB had nothing within a week of, each
+  span one request kept in the cache as one copy (so the next step reads it), each day's
+  answer noted as asking for that day alone would give it. A year of about 12,000 entries
+  takes 8 steps and about ten requests, a few seconds (it was 63 steps, 373 requests and
+  over two minutes a day at a time). A span that fails leaves its days to be asked one at a
+  time, as before. A step asks the services about each day once (`RateLookups`, found or
+  not) and at most 40 times;
   a page whose rates need more stops there, and the next step carries on; so do the
   opening balances, budgets and scheduled items, keeping those worked out. The last
   step works out the opening balances, budgets and scheduled items at the rate on the day of

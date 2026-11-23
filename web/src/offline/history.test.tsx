@@ -401,6 +401,11 @@ describe('kept up to date', () => {
     vi.setSystemTime(new Date(2026, 10, 20, 10, 3, 0));
     await download();
     expect(looks()).toBe(4);
+    // The device's clock put back a minute, to before the last look: it looks again, rather
+    // than waiting for the clock to catch up
+    vi.setSystemTime(new Date(2026, 10, 20, 10, 2, 0));
+    await download();
+    expect(looks()).toBe(6);
     await coldStartOffline(server, '/?activity&q=new%20stall');
     await waitFor(() => expect(registerTitles()).toEqual(['New stall']), { timeout: 6000 });
   });

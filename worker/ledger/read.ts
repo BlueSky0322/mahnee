@@ -294,7 +294,8 @@ export async function listTransactions(
  * A page of one account's transactions: those on it, and the transfers into it, each read
  * in order down its own index (transactions_account, transactions_to_account) and merged,
  * so a page reads about as many rows as it holds rather than every one the person has. A
- * transfer never goes into the account it left, so none is in both.
+ * transfer never goes into the account it left; one that did is listed by the first side
+ * alone.
  */
 function accountPage(
   db: D1Database,
@@ -304,7 +305,14 @@ function accountPage(
   limit: number,
 ) {
   const side = (column: string) => {
-    const where = ['email = ?', `${column} = ?`, ...(cursor == null ? [] : [AFTER('')])];
+    const where = [
+      'email = ?',
+      `${column} = ?`,
+      // Belt and braces: every write refuses a transfer into the account it left, but one
+      // would otherwise be listed by both sides
+      ...(column === 'to_account_id' ? ['account_id <> to_account_id'] : []),
+      ...(cursor == null ? [] : [AFTER('')]),
+    ];
     return `SELECT * FROM (SELECT ${transactionColumns()} FROM transactions
        WHERE ${where.join(' AND ')}
        ORDER BY ${NEWEST_FIRST('')}

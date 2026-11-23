@@ -24,11 +24,23 @@ import money from './MoneyPage.module.css';
 // done the row says "Converting to USD…" and can't be changed again. A change refused for an
 // amount past its limit is said under the row. It needs a connection.
 
-/** Resolves once what's changed so far has been drawn: the next frame, then a turn after it */
+/** How long to wait for a frame: a hidden tab or a backgrounded app draws none */
+const FRAME_WAIT_MS = 100;
+
+/**
+ * Resolves once what's changed so far has been drawn (the next frame, then a turn after
+ * it), or after FRAME_WAIT_MS without a frame, whichever comes first
+ */
 const afterPaint = () =>
   new Promise<void>((resolve) => {
-    if (typeof requestAnimationFrame !== 'function') return void setTimeout(resolve, 0);
-    requestAnimationFrame(() => setTimeout(resolve, 0));
+    const timer = setTimeout(resolve, FRAME_WAIT_MS);
+    if (typeof requestAnimationFrame !== 'function') return;
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        clearTimeout(timer);
+        resolve();
+      }, 0),
+    );
   });
 
 /** "MYR, RM", as the row reads */

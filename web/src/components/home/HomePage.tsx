@@ -589,7 +589,7 @@ function Answers({
     ) : (
       <span className={big ? classes.heroFigure : classes.cardFigure}>
         {signedMoney(cents, homeCurrency)}
-        {big && <ConversionPending />}
+        <ConversionPending />
       </span>
     );
 

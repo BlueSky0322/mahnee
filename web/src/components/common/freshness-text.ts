@@ -71,9 +71,11 @@ export function freshnessText({
   if (!online && waiting > 0) text = `Offline · ${changes(waiting)} waiting to save`;
   else if (!online) text = fromDevice ?? 'Offline';
   else if (signedOut && waiting > 0) text = `Signed out · ${changes(waiting)} waiting to save`;
-  // Changes wait until it's done, so this is what's going on
-  else if (convertingTo != null) text = convertingText(convertingTo, convertedPercent);
-  else if (fromDevice != null) text = fromDevice;
+  // Changes wait until it's done, so this is what's going on, with how many are waiting
+  else if (convertingTo != null) {
+    text = convertingText(convertingTo, convertedPercent);
+    if (waiting > 0) text = `${text} · ${changes(waiting)} waiting`;
+  } else if (fromDevice != null) text = fromDevice;
   else if (waiting > 0) text = `Saving ${changes(waiting)}`;
   else return { text: 'Up to date', fresh: true };
   return { text, fresh: false };

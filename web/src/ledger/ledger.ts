@@ -138,6 +138,32 @@ export const trendKey = (month: string) => ['trend', month] as const;
 const TREND_CACHE = 'trend-v3:';
 const trendCacheKey = (month: string) => `${TREND_CACHE}${month}`;
 
+/**
+ * A month's totals (or 12 months') as kept on the device: with the currency they were
+ * summed in, so a copy kept before the home currency changed (here or elsewhere) is never
+ * drawn as the new one's. A copy from before this was kept says none.
+ */
+type KeptTotals<T> = T & { keptIn?: string };
+
+/** Keeps totals on the device with the currency they're in, when it's known */
+function keepTotals<T extends object>(key: string, totals: T, currency = homeCurrency()) {
+  if (currency == null) return;
+  void writeCache(key, { ...totals, keptIn: currency });
+}
+
+/** Totals as kept, without what they were kept with */
+const keptValue = <T extends object>({ keptIn: _in, ...totals }: KeptTotals<T>) => totals as T;
+
+/**
+ * Whether totals kept in `keptIn` are in the currency amounts are in now; `strict` asks it
+ * be known (a copy that doesn't say isn't drawn ahead of the server's)
+ */
+function inCurrencyNow(keptIn: string | undefined, strict: boolean) {
+  const now = homeCurrency();
+  if (keptIn == null || now == null) return !strict;
+  return keptIn === now;
+}
+
 /** The person's recent imports (GET /api/imports) */
 export const IMPORTS_KEY = ['imports'] as const;
 /** The same, kept on the device for opening offline */
@@ -299,12 +325,17 @@ const queue = createSaveQueue({
       if (summary == null) continue;
       // Not those it counted already when it was read
       const counted = notHeld(changes, ids, new Set(summary.alreadySaved));
-      queryClient.setQueryData(key, applyToSummary(summary, counted, savedTransaction));
+      const next = applyToSummary(summary, counted, savedTransaction);
+      queryClient.setQueryData(key, next);
+      // And the copy kept on the device, so the next start's totals aren't short of it
+      keepTotals(summaryCacheKey(key[1] as string), next);
     }
     for (const [key, trend] of queryClient.getQueriesData<MonthTrend>({ queryKey: TREND_KEY })) {
       if (trend == null) continue;
       const counted = notHeld(changes, ids, new Set(trend.alreadySaved));
-      queryClient.setQueryData(key, applyToTrend(trend, counted, savedTransaction));
+      const next = applyToTrend(trend, counted, savedTransaction);
+      queryClient.setQueryData(key, next);
+      keepTotals(trendCacheKey(key[1] as string), next);
     }
     // Saved, so part of every list as the server has it
     for (const [key, data] of listsInCache()) {
@@ -780,12 +811,13 @@ export async function fetchSummary(month: string): Promise<MonthSummary> {
     summary = await api.getSummary(month, named);
   } catch (err) {
     if (!isOfflineFailure(err)) throw err;
-    const kept = await readCacheEntry<MonthSummary>(summaryCacheKey(month));
-    if (kept == null) throw err;
+    if (homeCurrency() == null) await profileShown();
+    const kept = await readCacheEntry<KeptTotals<MonthSummary>>(summaryCacheKey(month));
+    if (kept == null || !inCurrencyNow(kept.value.keptIn, false)) throw err;
     shownFromDevice(`summary:${month}`, kept.at);
-    return kept.value;
+    return keptValue(kept.value);
   }
-  void writeCache(summaryCacheKey(month), summary);
+  keepTotals(summaryCacheKey(month), summary);
   const shown = queryClient.getQueryData<MonthSummary>(summaryKey(month));
   if (savedCount !== savedBefore && shown != null) return shown;
   shownFresh(`summary:${month}`);
@@ -815,12 +847,13 @@ export async function fetchTrend(month: string): Promise<MonthTrend> {
     trend = await api.getTrend(month, named);
   } catch (err) {
     if (!isOfflineFailure(err)) throw err;
-    const kept = await readCache<MonthTrend>(trendCacheKey(month));
-    if (kept == null) throw err;
+    if (homeCurrency() == null) await profileShown();
+    const kept = await readCache<KeptTotals<MonthTrend>>(trendCacheKey(month));
+    if (kept == null || !inCurrencyNow(kept.keptIn, false)) throw err;
     trendsFromDevice.add(month);
-    return kept;
+    return keptValue(kept);
   }
-  void writeCache(trendCacheKey(month), trend);
+  keepTotals(trendCacheKey(month), trend);
   const shown = queryClient.getQueryData<MonthTrend>(trendKey(month));
   if (savedCount !== savedBefore && shown != null) return shown;
   trendsFromDevice.delete(month);
@@ -845,24 +878,33 @@ export function shownTrend(trend: MonthTrend, pending: Queued[]) {
 export function showKeptSummary(month: string) {
   const key = summaryKey(month);
   if (queryClient.getQueryData(key) !== undefined) return;
-  void readCacheEntry<MonthSummary>(summaryCacheKey(month)).then((kept) => {
-    if (kept == null || queryClient.getQueryData(key) !== undefined) return;
-    if (queryClient.getQueryState(key)?.dataUpdatedAt) return;
-    queryClient.setQueryData(key, kept.value, { updatedAt: 0 });
-    shownFromDevice(`summary:${month}`, kept.at);
-  });
+  // Read once the profile says what currency amounts are in
+  void (homeCurrency() == null ? profileShown() : Promise.resolve())
+    .then(() => readCacheEntry<KeptTotals<MonthSummary>>(summaryCacheKey(month)))
+    .then((kept) => {
+      if (kept == null || queryClient.getQueryData(key) !== undefined) return;
+      if (queryClient.getQueryState(key)?.dataUpdatedAt) return;
+      // Only in the currency amounts are in now, as the profile says
+      if (!inCurrencyNow(kept.value.keptIn, true)) return;
+      queryClient.setQueryData(key, keptValue(kept.value), { updatedAt: 0 });
+      shownFromDevice(`summary:${month}`, kept.at);
+    });
 }
 
 /** The same for the 12 months' totals ending at `month` */
 export function showKeptTrend(month: string) {
   const key = trendKey(month);
   if (queryClient.getQueryData(key) !== undefined) return;
-  void readCacheEntry<MonthTrend>(trendCacheKey(month)).then((kept) => {
-    if (kept == null || queryClient.getQueryData(key) !== undefined) return;
-    if (queryClient.getQueryState(key)?.dataUpdatedAt) return;
-    queryClient.setQueryData(key, kept.value, { updatedAt: 0 });
-    trendsFromDevice.add(month);
-  });
+  // Read once the profile says what currency amounts are in
+  void (homeCurrency() == null ? profileShown() : Promise.resolve())
+    .then(() => readCacheEntry<KeptTotals<MonthTrend>>(trendCacheKey(month)))
+    .then((kept) => {
+      if (kept == null || queryClient.getQueryData(key) !== undefined) return;
+      if (queryClient.getQueryState(key)?.dataUpdatedAt) return;
+      if (!inCurrencyNow(kept.value.keptIn, true)) return;
+      queryClient.setQueryData(key, keptValue(kept.value), { updatedAt: 0 });
+      trendsFromDevice.add(month);
+    });
 }
 
 /**

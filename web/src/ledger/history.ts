@@ -238,7 +238,9 @@ async function download(
         coverage = restarted(coverage, now, currency);
       }
       const looked = lookedAt.get(`${email}:${accountId}`);
-      const lookedLately = coverage.complete && looked != null && now - looked < LOOK_AGAIN_MS;
+      // Not if the clock has gone back since, which would hold it off until it caught up
+      const lookedLately =
+        coverage.complete && looked != null && now >= looked && now - looked < LOOK_AGAIN_MS;
       if ((coverage.complete || coverage.oldest != null) && !lookedLately) {
         coverage = await lookForNew(coverage, stillMine);
         lookedAt.set(`${email}:${accountId}`, Date.now());

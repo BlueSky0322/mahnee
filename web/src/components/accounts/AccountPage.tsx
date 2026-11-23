@@ -16,6 +16,7 @@ import MainAmount from '../common/MainAmount';
 import { amountWords, leavesOutText, typedAmount } from '../common/typed-amount';
 import classes from './AccountsPage.module.css';
 import BackButton from '../ui/BackButton';
+import ConversionPending from '../common/ConversionPending';
 
 /** Placeholder rows while the transactions load */
 const LOADING_ROWS = 5;
@@ -124,6 +125,7 @@ export function Balance({ account, small }: { account: Account; small?: boolean 
       aria-label={`Balance ${balanceText(account)}`}
     >
       {balanceText(account)}
+      <ConversionPending />
     </p>
   );
 }

@@ -6,6 +6,7 @@ import type { Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
 import {
+  addEntry,
   fakeServer,
   finishConversion,
   goToPlace,
@@ -81,7 +82,7 @@ const together = async () =>
   (await screen.findByRole('group', { name: 'All together' })).textContent ?? '';
 
 describe.each(SIZES)('changing the main currency (%s)', (size) => {
-  test('the app stays usable while it converts: places open, search types, entries add', async () => {
+  test('the app stays usable while it converts: places open, search types, an entry is added and saved once done', async () => {
     const server = withWallet();
     renderApp(server, '/?settings=money', { size });
     const user = await pickCurrency('USD');
@@ -97,9 +98,29 @@ describe.each(SIZES)('changing the main currency (%s)', (size) => {
     await waitFor(() => expect(screen.queryByText('Kedai 1')).toBeNull());
     expect(server.me.conversion?.refused).toBeNull();
 
+    // An entry added meanwhile shows at once, says it waits, and is saved once it's done
+    await user.clear(search);
+    await goToPlace('Home');
+    await addEntry('8');
+    expect((await screen.findAllByText(/8\.00/)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/^Converting to USD….* · 1 change waiting$/)).toBeTruthy();
+    expect(server.transactions).toHaveLength(2);
+
     await goToPlace('Accounts');
-    expect(await together()).toContain('RM');
-  });
+    // RM 100.00 less RM 30.00 and the RM 8.00 just added, still in ringgit
+    await waitFor(async () => expect(await together()).toContain('RM 62.00'));
+
+    finishConversion(server);
+    await waitFor(() => expect(server.transactions).toHaveLength(3), {
+      timeout: CONVERSION_POLL_MS * 5,
+    });
+    // Typed in ringgit, saved in dollars at the day's rate: RM 8.00 is $ 2.00
+    expect(server.transactions.at(-1)).toMatchObject({ kind: 'expense', amountCents: 200 });
+    await waitFor(async () => expect(await together()).toContain('$ 15.50'), {
+      timeout: CONVERSION_POLL_MS * 4,
+    });
+    expect(screen.queryByText(/change waiting/)).toBeNull();
+  }, 30_000);
 
   test('totals say conversion pending, with how far it has got, then are the new currency', async () => {
     const server = withWallet();
@@ -127,6 +148,28 @@ describe.each(SIZES)('changing the main currency (%s)', (size) => {
     });
     expect(await together()).not.toContain('conversion pending');
     expect(screen.queryByText(/^Converting to USD/)).toBeNull();
+  });
+});
+
+describe.each(SIZES)('totals still in the old currency say so (%s)', (size) => {
+  test.each([
+    ['Home', '/'],
+    ['Activity', '/?activity'],
+    ['an account', `/?account=${WALLET}`],
+    ['Plan', '/?plan'],
+  ])('%s', async (_page, path) => {
+    const server = withWallet();
+    server.me = {
+      ...server.me,
+      settings: { ...server.me.settings, currency: 'USD' },
+      conversion: { from: 'MYR', to: 'USD', since: Date.now(), refused: null },
+    };
+    renderApp(server, path, { size });
+    expect((await screen.findAllByText('conversion pending')).length).toBeGreaterThan(0);
+    finishConversion(server);
+    await waitFor(() => expect(screen.queryAllByText('conversion pending')).toHaveLength(0), {
+      timeout: CONVERSION_POLL_MS * 3,
+    });
   });
 });
 
@@ -171,3 +214,16 @@ test('asks the server how it is going one ask at a time, however slow it answers
   await act(() => new Promise((r) => setTimeout(r, CONVERSION_POLL_MS + 200)));
   expect(asks() - before).toBe(2);
 }, 20_000);
+
+test('a pick made just before the app is hidden still saves, though no frame is drawn', async () => {
+  const server = withWallet();
+  renderApp(server, '/?settings=money', { size: 'phone' });
+  const user = userEvent.setup();
+  const card = await screen.findByRole('region', { name: 'Money' });
+  await user.click(await within(card).findByRole('button', { name: /^Main currency/ }));
+  const dialog = within(await screen.findByRole('dialog', { name: 'Main currency' }));
+  // Then the app is hidden: a hidden tab or a backgrounded app draws no frames
+  vi.stubGlobal('requestAnimationFrame', () => 0);
+  await user.click(dialog.getByRole('option', { name: /^USD/ }));
+  await waitFor(() => expect(server.me.conversion?.to).toBe('USD'), { timeout: 1_000 });
+});

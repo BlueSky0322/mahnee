@@ -165,7 +165,7 @@ describe.each(ACCENTS)('installing the app in %s', (accent) => {
   const files = installFiles(accent);
   const own = manifestOf(accent);
 
-  test('reads a manifest the same as the app’s own but for its icons', () => {
+  test("reads a manifest the same as the app's own but for its icons", () => {
     const { icons, ...rest } = own;
     const { icons: base, ...baseRest } = manifest;
     expect(rest).toEqual(baseRest);
@@ -185,7 +185,7 @@ describe.each(ACCENTS)('installing the app in %s', (accent) => {
   });
 
   test.each(own.icons.map((i) => [i.src, i.sizes] as const))(
-    '%s is %s, the white mark on the light theme’s accent',
+    "%s is %s, the white mark on the light theme's accent",
     (src, sizes) => {
       expect(png(src).size).toBe(sizes);
       expect(drawn(src)).toMatchObject({ tile, solid: true });
@@ -193,7 +193,7 @@ describe.each(ACCENTS)('installing the app in %s', (accent) => {
     },
   );
 
-  test('the iPhone’s is 180 square, filled to the corners, the white mark on the accent', () => {
+  test("the iPhone's is 180 square, filled to the corners, the white mark on the accent", () => {
     expect(png(files.appleTouchIcon)).toEqual({ size: '180x180', clear: false });
     expect(drawn(files.appleTouchIcon)).toMatchObject({ tile, solid: true });
     expect(drawn(files.appleTouchIcon).white).toBeGreaterThan(0.1);

@@ -55,6 +55,7 @@ describe("index.html's first script", () => {
 
   test('keeps the default for an accent the app never offered', () => {
     expect(open({ theme: 'light', accent: 'teal' })).toEqual(installFiles('cobalt'));
+    expect(open({ theme: 'light', accent: ['plum'] })).toEqual(installFiles('cobalt'));
   });
 });
 

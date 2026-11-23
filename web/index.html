@@ -77,7 +77,8 @@
       The first screen, shown before the app's code has loaded: the background of the
       theme this device last used (or the phone's own, on Auto) and the logo on a tile of
       the saved accent, the coin coming to rest in the hand, and installing pointed at that
-      accent's manifest and iPhone icon. main.tsx fades it out once the app is up. The saved theme's key and the colours are the app's own (sf-appearance in
+      accent's manifest and iPhone icon. main.tsx fades it out once the app is up. The saved
+      theme's key and the colours are the app's own (sf-appearance in
       profile/ProfileContext.tsx, --ground and --accent in theme/tokens.css);
       launch-screen.test.ts and paper-ledger-launch.test.ts keep them in step.
     -->
@@ -88,7 +89,11 @@
         try {
           var saved = JSON.parse(localStorage.getItem('sf-appearance') || '{}');
           if (saved.theme === 'light' || saved.theme === 'dark') theme = saved.theme;
-          if (/^(cobalt|green|plum|rust|graphite)$/.test(saved.accent)) accent = saved.accent;
+          if (
+            typeof saved.accent === 'string' &&
+            /^(cobalt|green|plum|rust|graphite)$/.test(saved.accent)
+          )
+            accent = saved.accent;
         } catch (e) {}
         if (theme === 'auto') {
           theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';

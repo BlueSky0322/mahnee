@@ -22,6 +22,11 @@ export interface RatesEnv {
   /** Overridable so tests can stand in for the services */
   WISE_BASE?: string;
   FRANKFURTER_BASE?: string;
+  /**
+   * For tests: "no" keeps no range of rates in the cache (the stand-in services gain rates
+   * as tests go, which the real ones never do for a day gone by)
+   */
+  RATES_KEEP_RANGES?: string;
 }
 
 export interface Rate {
@@ -68,9 +73,25 @@ export const MAX_RATE_REQUESTS = 40;
  */
 export class RateLookups {
   private readonly answers = new Map<string, Promise<unknown>>();
+  private readonly known = new Set<string>();
   private requests = 0;
 
   constructor(private readonly limit = MAX_RATE_REQUESTS) {}
+
+  /**
+   * Notes what `key` is, found ahead of time (a range of days' rates fetched at once), so
+   * asking for it later costs no request; one asked already keeps its answer
+   */
+  know<T>(key: string, value: T) {
+    if (this.answers.has(key)) return;
+    this.answers.set(key, Promise.resolve(value));
+    this.known.add(key);
+  }
+
+  /** Whether `key` was found ahead of time (know) */
+  knows(key: string) {
+    return this.known.has(key);
+  }
 
   /** What `ask` answers for `key`, asked once */
   once<T>(key: string, ask: () => Promise<T>): Promise<T> {
@@ -366,9 +387,11 @@ async function rateOn(
     );
   if (from === to || day >= rateDay(deps.now())) return live();
 
-  // v2: each copy says its day
+  // v2: each copy says its day. A day a range answered (prefetchRatesOn) is kept with its
+  // range, so it costs no cache call here
   const key = `https://rates.internal/v2/day/${day}/${from}/${to}`;
-  const saved = await readKept(deps.cache, key);
+  const ranged = lookups.knows(`frankfurter ${from} ${to} ${day}`);
+  const saved = ranged ? null : await readKept(deps.cache, key);
   if (saved) return saved;
 
   for (let earlier = 0; earlier <= MAX_EARLIER_DAYS; earlier++) {
@@ -395,11 +418,243 @@ async function rateOn(
         fetchedAt: Date.parse(`${found.day}T12:00:00Z`),
         day: found.day,
       };
-      await keep(deps.cache, key, rate, KEEP_DAY_SECONDS);
+      if (!ranged) await keep(deps.cache, key, rate, KEEP_DAY_SECONDS);
       return rate;
     }
     // A service that's down may have this day: tried again later, never settled past
     if (down) throw new RatesUnavailable(`No rate for ${from} to ${to} on ${asked} right now`);
   }
   return live();
+}
+
+// --- Ranges of days -----------------------------------------------------------------------
+// A conversion needs the rate of every day its entries fall on: a year of entries is a few
+// hundred days, and asked a day at a time that was hundreds of requests over many steps. So
+// before a step works out its entries, the days they need are asked for by range: the
+// calendar is cut into fixed spans (MAX_RANGE_DAYS for the ECB, WISE_RANGE_DAYS for Wise,
+// whose answer has a rate an hour), and each span a needed day (or the week before it)
+// falls in is one request, kept in the cache as one copy, so the next step, or the next
+// conversion, reads it rather than asking again. Each day's answer is then noted
+// (RateLookups.know) exactly as asking for that day alone would have answered: the ECB's
+// rate on the day or the working day before it, Wise's at noon UTC on it. getRateOn reads
+// those with no request or cache call of its own (a step may make 50 of those in all). A span
+// that fails, or isn't asked, leaves its days to be asked one at a time and kept a day at a
+// time, as before.
+
+/** The days one request to the ECB covers */
+export const MAX_RANGE_DAYS = 128;
+/** The days one request to Wise covers: its answer has a rate for every hour */
+export const WISE_RANGE_DAYS = 32;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const dayNumber = (day: string) => Math.floor(Date.parse(`${day}T12:00:00Z`) / DAY_MS);
+const dayOfNumber = (n: number) => new Date(n * DAY_MS).toISOString().slice(0, 10);
+
+/** The fixed spans of `size` days that hold any day from `first` to `last` */
+function spansOver(first: string, last: string, size: number): [string, string][] {
+  const out: [string, string][] = [];
+  for (let w = Math.floor(dayNumber(first) / size); w * size <= dayNumber(last); w++) {
+    out.push([dayOfNumber(w * size), dayOfNumber(w * size + size - 1)]);
+  }
+  return out;
+}
+
+/** The days from `first` to `last`, both included, in order */
+function daysFrom(first: string, last: string): string[] {
+  const out: string[] = [];
+  for (let n = dayNumber(first); n <= dayNumber(last); n++) out.push(dayOfNumber(n));
+  return out;
+}
+
+/**
+ * The ECB's rates from `start` to `end` by day (its working days, and the one on or before
+ * `start`); none when it doesn't publish the pair; throws when it fails
+ */
+async function frankfurterRange(
+  env: RatesEnv,
+  from: string,
+  to: string,
+  [start, end]: [string, string],
+  deps: Deps,
+): Promise<Record<string, number>> {
+  const base = env.FRANKFURTER_BASE ?? 'https://api.frankfurter.dev';
+  const res = await deps.fetch(`${base}/v1/${start}..${end}?base=${from}&symbols=${to}`, {
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (noRateFor(res.status)) return {};
+  if (!res.ok) throw new Error(`Frankfurter: ${res.status}`);
+  const body = await res.json<{ rates?: Record<string, Record<string, unknown>> }>();
+  const found: Record<string, number> = {};
+  for (const [day, rates] of Object.entries(body.rates ?? {})) {
+    const rate = rates?.[to];
+    if (DAY.test(day) && day <= end && isValidRate(rate)) found[day] = rate;
+  }
+  return found;
+}
+
+/**
+ * Wise's rates at noon UTC on each day from `start` to `end` (asked an hour at a time, so
+ * the noon one is there); none without a token or for a pair it doesn't have
+ */
+async function wiseRange(
+  env: RatesEnv,
+  from: string,
+  to: string,
+  [start, end]: [string, string],
+  deps: Deps,
+): Promise<Record<string, number>> {
+  const found: Record<string, number> = {};
+  if (!env.WISE_TOKEN) return found;
+  const base = env.WISE_BASE ?? 'https://api.wise.com';
+  const res = await deps.fetch(
+    `${base}/v1/rates?source=${from}&target=${to}&from=${start}T00:00&to=${end}T23:00&group=hour`,
+    {
+      headers: { Authorization: `Bearer ${env.WISE_TOKEN}` },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    },
+  );
+  if (noRateFor(res.status)) return found;
+  if (!res.ok) throw new Error(`Wise rates: ${res.status}`);
+  const body = await res.json<unknown>();
+  for (const item of Array.isArray(body) ? (body as { rate?: unknown; time?: unknown }[]) : []) {
+    const { rate, time } = item ?? {};
+    if (typeof time !== 'string' || !isValidRate(rate)) continue;
+    const at = Date.parse(time.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+    // Noon UTC on its day, as asking for that day alone gives
+    if (Number.isFinite(at) && at % DAY_MS === 12 * 60 * 60 * 1000) {
+      const day = rateDay(at);
+      if (day >= start && day <= end) found[day] = rate;
+    }
+  }
+  return found;
+}
+
+/** One span's rates as kept: the last day it was asked to, and each day's rate */
+interface KeptSpan {
+  end: string;
+  rates: Record<string, number>;
+}
+
+const isKeptSpan = (kept: unknown): kept is KeptSpan => {
+  const k = kept as Partial<KeptSpan> | null;
+  return (
+    typeof k?.end === 'string' &&
+    DAY.test(k.end) &&
+    typeof k.rates === 'object' &&
+    k.rates != null &&
+    Object.entries(k.rates).every(([d, r]) => DAY.test(d) && isValidRate(r))
+  );
+};
+
+/**
+ * Asks for the rates of `days` (2026-11-05, an entry's day each) from `from` into `to` by
+ * span, noting each day's answer in `lookups` for getRateOn to read. Today and later are
+ * left to the live rate. Never throws: what it couldn't find is asked one day at a time.
+ */
+export async function prefetchRatesOn(
+  env: RatesEnv,
+  from: string,
+  to: string,
+  days: string[],
+  { deps = defaultDeps(), lookups = new RateLookups() }: Omit<RateOptions, 'maxAgeMs'> = {},
+): Promise<void> {
+  if (from === to) return;
+  const today = rateDay(deps.now());
+  const yesterday = daysBefore(today, 1);
+  const wanted = [...new Set(days)].filter((d) => DAY.test(d) && d < today).sort();
+  if (wanted.length === 0) return;
+  const counted = lookups.counted(deps);
+
+  /**
+   * Every span of `size` days holding a wanted day or the `back` days before it: from the
+   * cache, else asked for (to yesterday at the latest) and kept. Answers each day found, and
+   * the days covered by spans that came back.
+   */
+  const gather = async (
+    source: FetchedRateSource,
+    fetch: typeof frankfurterRange,
+    size: number,
+    back: number,
+    only: (day: string) => boolean,
+  ) => {
+    const spans = new Map<string, [string, string]>();
+    for (const day of wanted.filter(only)) {
+      for (const span of spansOver(daysBefore(day, back), day, size)) spans.set(span[0], span);
+    }
+    const covered = new Set<string>();
+    const found = new Map<string, number>();
+    for (const [start, spanEnd] of [...spans.values()].sort(([a], [b]) => (a < b ? -1 : 1))) {
+      const end = spanEnd < yesterday ? spanEnd : yesterday;
+      const key = `https://rates.internal/v1/range/${source}/${from}/${to}/${start}`;
+      let span: KeptSpan | null = null;
+      const cache = env.RATES_KEEP_RANGES === 'no' ? null : deps.cache;
+      try {
+        const kept = cache == null ? null : await cache.match(key);
+        const value = kept ? await kept.json<unknown>() : null;
+        if (isKeptSpan(value) && value.end >= end) span = value;
+      } catch (err) {
+        console.error(err);
+      }
+      if (span == null) {
+        try {
+          span = { end, rates: await fetch(env, from, to, [start, end], counted) };
+        } catch (err) {
+          if (!(err instanceof LookupsSpent)) console.error(err);
+          continue;
+        }
+        // A span wholly in the past never changes; one reaching yesterday is asked again
+        // tomorrow
+        const seconds = end === spanEnd ? KEEP_DAY_SECONDS : KEEP_SECONDS;
+        await cache
+          ?.put(
+            key,
+            new Response(JSON.stringify(span), {
+              headers: { 'Cache-Control': `max-age=${seconds}` },
+            }),
+          )
+          .catch((err: unknown) => console.error(err));
+      }
+      for (const [day, rate] of Object.entries(span.rates)) found.set(day, rate);
+      for (const day of daysFrom(start, span.end)) covered.add(day);
+    }
+    return { covered, found };
+  };
+
+  // The ECB, for each day and the week before it, and the week before that, so its "on or
+  // before" is known for every day a rate may be asked for
+  const ecb = await gather(
+    'frankfurter',
+    frankfurterRange,
+    MAX_RANGE_DAYS,
+    2 * MAX_EARLIER_DAYS,
+    () => true,
+  );
+  const ecbDays = [...ecb.found.keys()].sort();
+  /** The ECB's latest day on or before `day`, within a week of it */
+  const ecbOn = (day: string) => {
+    const cutoff = daysBefore(day, MAX_EARLIER_DAYS);
+    for (let i = ecbDays.length - 1; i >= 0; i--) {
+      if (ecbDays[i] > day) continue;
+      return ecbDays[i] >= cutoff ? ecbDays[i] : null;
+    }
+    return null;
+  };
+  for (const day of daysFrom(daysBefore(wanted[0], MAX_EARLIER_DAYS), wanted.at(-1)!)) {
+    // Known only where the ECB was asked about the day and the week before it
+    if (!ecb.covered.has(day) || !ecb.covered.has(daysBefore(day, MAX_EARLIER_DAYS))) continue;
+    const on = ecbOn(day);
+    lookups.know<DayRate>(
+      `frankfurter ${from} ${to} ${day}`,
+      on == null ? null : { rate: ecb.found.get(on)!, day: on },
+    );
+  }
+
+  // Wise only for the days the ECB had nothing close to, as getRateOn would ask it
+  const noEcb = (day: string) => ecb.covered.has(day) && ecbOn(day) == null;
+  if (!env.WISE_TOKEN || !wanted.some(noEcb)) return;
+  const wise = await gather('wise', wiseRange, WISE_RANGE_DAYS, MAX_EARLIER_DAYS, noEcb);
+  for (const day of wise.covered) {
+    const rate = wise.found.get(day);
+    lookups.know<DayRate>(`wise ${from} ${to} ${day}`, rate == null ? null : { rate, day });
+  }
 }

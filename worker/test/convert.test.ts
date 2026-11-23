@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { MAX_TRANSACTIONS_PER_ACCOUNT } from '../../shared/ledger';
+import { convertCents } from '../../shared/rates';
 import {
   type ConvertJob,
   type FetchRate,
@@ -143,6 +144,18 @@ const amounts = (db: DatabaseSync) =>
     .all() as { cents: number; typed: number | null }[];
 
 describe('converting, step by step', () => {
+  it('a year and more of entries, 4,000 of them, takes a handful of steps, not one per 200', async () => {
+    const db = person(4_000);
+    const job = await switchTo(db, 'USD', 1_000);
+    // Each step a page of entries; then the rest and the swap
+    expect(await runAll(db, job, flat(0.25))).toBeLessThanOrEqual(3);
+    expect(
+      amounts(db).every(
+        (a) => a.typed != null && a.cents === Math.max(1, convertCents(a.typed, 0.25)),
+      ),
+    ).toBe(true);
+  });
+
   it("a stale step refused after a newer change began leaves the newer one's work alone", async () => {
     const db = person(3);
     const old = await switchTo(db, 'IDR', 1_000);
@@ -191,7 +204,7 @@ describe('converting, step by step', () => {
   });
 
   it('a conversion under way as 0014 rebuilds its worked-out amounts starts over once, and finishes', async () => {
-    const db = person(450, '0013');
+    const db = person(2 * PAGE + 50, '0013');
     // The columns (0015) this code reads, which land with 0014 in one deploy
     migrate(db, MIGRATIONS.find((f) => f.startsWith('0015'))!);
     const before = amounts(db);
@@ -199,7 +212,9 @@ describe('converting, step by step', () => {
     // Two pages of three worked out, then the migration lands
     expect(await convertStep(d1(db), job, flat(0.5))).toBe(true);
     expect(await convertStep(d1(db), job, flat(0.5))).toBe(true);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({ n: 400 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({
+      n: 2 * PAGE,
+    });
     migrate(db, MIGRATIONS.find((f) => f.startsWith('0014'))!);
     // 0015 follows it in the same deploy, adding back the column it gives worked-out amounts
     db.exec('ALTER TABLE conversion_staged ADD COLUMN rate_day TEXT');
@@ -364,7 +379,7 @@ describe('converting, step by step', () => {
     const before = amounts(db);
     const there = await switchTo(db, 'USD', 1_000);
     const steps = await runAll(db, there, flat(0.25));
-    expect(steps).toBe(MAX_TRANSACTIONS_PER_ACCOUNT / 200 + 1);
+    expect(steps).toBe(Math.ceil(MAX_TRANSACTIONS_PER_ACCOUNT / PAGE) + 1);
     const converted = amounts(db);
     expect(converted.every((a, i) => a.typed === before[i].cents)).toBe(true);
     expect(converted[0]).toEqual({ cents: 25, typed: 100 });

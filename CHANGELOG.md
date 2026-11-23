@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-23
 
-- Fixed: changing the main currency no longer holds up the app: it stays usable, totals say "conversion pending" with how far it has got, and a refused change offers Try again [#?]
+- Fixed: changing the main currency converts a year of entries in seconds, not minutes; entries added meanwhile show at once and are saved when it finishes, the freshness line says how many wait, and totals say "conversion pending" until then; a refused change offers Try again [#?]
 - Changed: Home and Plan draw the month's totals kept on the device at once on opening, an account's entries load from their own index, and the app asks the server less often after each save [#?]
 - Changed: every page and section that waits on data shows grey placeholders in its own shape, after a moment and never over what's already on the device, including Settings sections, Scheduled, Import and a computer's account pane [#?]
 

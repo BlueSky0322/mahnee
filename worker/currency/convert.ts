@@ -46,8 +46,11 @@ export interface ConvertJob {
   since: number;
 }
 
-/** Transactions worked out in one step: few enough rates to fetch within one run */
-export const PAGE = 200;
+/**
+ * Transactions worked out in one step: their days' rates come as a few ranges
+ * (prefetchRatesOn in exchange-rates.ts), so a year of entries takes a handful of steps
+ */
+export const PAGE = 2_000;
 /**
  * How many times in a row a stalled conversion is started again before it's given back;
  * a step that moves on starts the count afresh
@@ -72,7 +75,13 @@ export const SWAP_CHUNK = 10_000;
  * The rate from one currency into another for a day (2026-11-05), or null once the step
  * has asked for as many rates as one run may: the rest wait for the next step
  */
-export type FetchRate = (from: string, to: string, day: string) => Promise<Rate | null>;
+export type FetchRate = ((from: string, to: string, day: string) => Promise<Rate | null>) & {
+  /**
+   * Asks for the rates of many days at once (a range per service), before they're asked
+   * for one by one; never throws. Without it each day is asked for alone.
+   */
+  prefetch?: (from: string, to: string, days: string[]) => Promise<void>;
+};
 
 /** An amount as it is now, and what it was typed as, if it was converted before */
 interface Amount {
@@ -354,6 +363,13 @@ export async function convertStep(
     .all<Amount>();
 
   if (page.length > 0) {
+    // The rates of every day the page needs, a range per currency typed in
+    const byCurrency = new Map<string, string[]>();
+    for (const a of page) {
+      const typedIn = a.originalCurrency ?? from;
+      if (typedIn !== to) byCurrency.set(typedIn, [...(byCurrency.get(typedIn) ?? []), a.day]);
+    }
+    for (const [currency, days] of byCurrency) await fetchRate.prefetch?.(currency, to, days);
     const staged = await stage(page, 'amount', from, to, rateOf);
     if (typeof staged === 'string') {
       await release(db, { email, since }, staged);

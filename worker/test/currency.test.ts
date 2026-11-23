@@ -12,6 +12,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_CATEGORIES } from '../../shared/categories';
+import { convertCents } from '../../shared/rates';
 import type { LocalWorker } from './local-worker';
 import { startLocalWorker } from './local-worker';
 
@@ -715,5 +716,107 @@ describe('changing the home currency', () => {
     // Its rate is today's, as rate_at says, not one for the entry's own day
     expect(new Date(rateAt).toISOString().slice(0, 10)).toBe(new Date().toISOString().slice(0, 10));
     expect(entries[0].day < new Date().toISOString().slice(0, 10)).toBe(true);
+  });
+});
+
+describe('the rates of a year of days, asked as ranges', () => {
+  /** Fresh days from the next Monday on: `count` of them, Monday first */
+  const fromMonday = (count: number) => {
+    let day = freshDay();
+    while (new Date(`${day}T12:00:00Z`).getUTCDay() !== 1) day = freshDay();
+    return [day, ...Array.from({ length: count - 1 }, () => freshDay())];
+  };
+
+  /**
+   * The ECB has Monday to Friday of the first week and the Monday after, then nothing for
+   * eleven days, then day 19; Wise has day 12 in the gap. Each entry: its day, the amount
+   * typed (whole cents) and the rate and day it must be converted at.
+   */
+  function rateDays(to: string) {
+    const d = fromMonday(20);
+    const ecb: Record<number, number> = { 0: 0.191, 1: 0.192, 2: 0.193, 3: 0.194, 4: 0.195 };
+    Object.assign(ecb, { 7: 0.197, 19: 0.199 });
+    for (const [i, rate] of Object.entries(ecb))
+      api.rates.setOn(d[+i], 'MYR', to, rate, 'frankfurter');
+    api.rates.setOn(d[12], 'MYR', to, 0.188, 'wise');
+    const entries = [
+      { day: d[2], cents: 12_345, rate: 0.193, from: d[2] },
+      // Saturday and Sunday: Friday's
+      { day: d[5], cents: 999, rate: 0.195, from: d[4] },
+      { day: d[6], cents: 1, rate: 0.195, from: d[4] },
+      { day: d[7], cents: 250_000_01, rate: 0.197, from: d[7] },
+      // A week and a day after the ECB's last: Wise's on day 12
+      { day: d[15], cents: 7_777, rate: 0.188, from: d[12] },
+      { day: d[19], cents: 33, rate: 0.199, from: d[19] },
+    ];
+    return entries;
+  }
+
+  async function convertAll(to: string) {
+    const entries = rateDays(to);
+    const who = person('ranges');
+    const wallet = rowId();
+    const added = entries.map((e) => spend(wallet, e.cents, e.day));
+    await saved(who, [
+      { op: 'addAccount', account: { id: wallet, name: 'Wallet', kind: 'cash', openingCents: 0 } },
+      ...added,
+    ]);
+    const before = api.rates.asked('MYR', to);
+    expect((await change(who, to)).status).toBe(200);
+    expect((await finished(who)).conversion).toBeNull();
+    return {
+      who,
+      entries,
+      ids: added.map((a) => a.transaction.id),
+      asked: api.rates.asked('MYR', to) - before,
+    };
+  }
+
+  it('converts each entry at its day’s rate, in whole cents, asking each service once', async () => {
+    api.rates.set('MYR', 'CHF', 0.18);
+    const { who, entries, ids, asked } = await convertAll('CHF');
+    for (const [i, e] of entries.entries()) {
+      const [row] = await entry(who, ids[i]);
+      // Exactly what shared/rates.ts makes of it: a cent at the least
+      expect(row).toMatchObject({
+        cents: Math.max(1, convertCents(e.cents, e.rate)),
+        currency: 'MYR',
+        originalCents: e.cents,
+        rate: e.rate,
+        rateAt: Date.parse(`${e.from}T12:00:00Z`),
+      });
+    }
+    // One range from the ECB, one from Wise for the days the ECB had nothing close to, and
+    // today's rate for the opening balance; a day at a time it was a dozen or more
+    expect(asked).toBe(3);
+  });
+
+  it('a range that fails is asked a day at a time, and comes to the same', async () => {
+    api.rates.set('MYR', 'HUF', 67);
+    const entries = rateDays('HUF');
+    api.rates.downOn([entries[0].day]);
+    try {
+      const who = person('ranges-down');
+      const wallet = rowId();
+      const added = entries.map((e) => spend(wallet, e.cents, e.day));
+      await saved(who, [
+        {
+          op: 'addAccount',
+          account: { id: wallet, name: 'Wallet', kind: 'cash', openingCents: 0 },
+        },
+        ...added,
+      ]);
+      expect((await change(who, 'HUF')).status).toBe(200);
+      expect((await finished(who)).conversion).toBeNull();
+      for (const [i, e] of entries.entries()) {
+        const [row] = await entry(who, added[i].transaction.id);
+        expect(row).toMatchObject({
+          cents: Math.max(1, convertCents(e.cents, e.rate)),
+          rate: e.rate,
+        });
+      }
+    } finally {
+      api.rates.downOn([]);
+    }
   });
 });

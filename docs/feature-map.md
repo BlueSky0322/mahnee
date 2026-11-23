@@ -848,7 +848,9 @@ the old month card (Home's month end takes its place; see the changelog).
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), as for transactions; Plan keeps
 no state of its own but what's typed, and changes budgets through `setBudget` (Budgets). A
 month's totals are a query keyed by month (`summaryKey`), fetched from the server
-(`fetchSummary`) with a device copy (`summary-v3:<month>`) shown offline. They're kept
+(`fetchSummary`) with a device copy (`summary-v3:<month>`) shown offline, and shown at once
+(`showKeptSummary`, `showKeptTrend` for the 12 months) while the server's first answer is on
+its way, marked as from the device until it comes. They're kept
 as the server summed them, with each saved batch counted in (before the lists take it,
 so an edited transaction is taken out as it was), and the changes still to send counted
 on top as they're shown (`shownSummary`). Once nothing is left to send they're fetched
@@ -2134,7 +2136,8 @@ leaves that part in (without its opening balance change) and to use Undo import 
   seconds after the balances come fresh (not while amounts are converting): each account
   newest first, 200 a page, how far it got kept with each page (`coverage`), so a stopped
   download carries on from its cursor; a started one first looks for new entries at the
-  top (50 a page, down to the newest it held). Kept up to date by each change saved here
+  top (50 a page, down to the newest it held), at most once every two minutes an account
+  (`LOOK_AGAIN_MS`), since the balances are fetched again after every save. Kept up to date by each change saved here
   (`recordSaved`, marked with when, so no page asked for earlier, by any tab, undoes it)
   and each page the server sends (an account's page replaces what was held over its
   range). The server keeps no record of deletions, so what other devices change below the

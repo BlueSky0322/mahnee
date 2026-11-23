@@ -234,6 +234,28 @@ describe.each(SIZES)('a copy on hand draws at once (%s)', (size) => {
     },
   );
 
+  test("the month's totals kept on the device draw at once on the next start", async () => {
+    tenthOfNovember();
+    const server = withEntries();
+    renderApp(server, '/?plan', { size });
+    expect((await screen.findAllByText(/Food/)).length).toBeGreaterThan(0);
+    await pause(300);
+
+    // An entry added elsewhere meanwhile. The next start: the server's totals held back, the
+    // device's copy (without it) shown meanwhile, then the server's with it
+    server.transactions.push(entry(4, { categoryId: BILLS, payee: 'Power' }));
+    const held = holdNext(server, 'GET', '/api/summary');
+    const balances = holdNext(server, 'GET', '/api/accounts');
+    await reloadApp(server, '/?plan', { size });
+    expect((await screen.findAllByText(/Food/)).length).toBeGreaterThan(0);
+    expect(placeholders('Loading this month')).toBeNull();
+    // RM 75.00 spent on the device's copy; RM 125.00 on the server's
+    expect(screen.queryAllByText(/125\.00/)).toHaveLength(0);
+    held.release();
+    balances.release();
+    expect((await screen.findAllByText(/125\.00/)).length).toBeGreaterThan(0);
+  });
+
   test('the accounts kept on the device draw at once on the next start', async () => {
     tenthOfNovember();
     const server = withEntries();

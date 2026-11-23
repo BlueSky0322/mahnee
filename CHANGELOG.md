@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-23
 
+- Changed: Home and Plan draw the month's totals kept on the device at once on opening, an account's entries load from their own index, and the app asks the server less often after each save [#?]
 - Changed: every page and section that waits on data shows grey placeholders in its own shape, after a moment and never over what's already on the device, including Settings sections, Scheduled, Import and a computer's account pane [#?]
 
 ## 2026-11-20

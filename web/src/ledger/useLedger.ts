@@ -36,6 +36,8 @@ import {
   shownSummary,
   shownTrend,
   showKeptCopy,
+  showKeptSummary,
+  showKeptTrend,
   summaryKey,
   trendKey,
   subscribeDataAge,
@@ -64,6 +66,10 @@ function useLedgerPart<T>(select: (ledger: Ledger) => T): Loaded<T> {
     queryKey: LEDGER_KEY,
     queryFn: ({ signal }) => fetchLedger({ signal }),
     select,
+    // The balances change only through this device's changes (each fetches them again once
+    // saved) or elsewhere: a screen opening within a minute of the last fetch uses that copy,
+    // and coming back to the app after that fetches it
+    staleTime: 60_000,
     // A page opening after the first load failed, with nothing kept, says so and offers to
     // try again rather than asking by itself: asking would show it loading, and take the
     // tab bar or sidebar away, until it failed again. Try again, coming back online, a
@@ -281,6 +287,8 @@ export interface Summary {
 
 /** What was spent and received in a month (2026-11), in total and by category */
 export function useMonthSummary(month: string): Summary {
+  // The copy kept on the device draws at once, while the server's is fetched
+  useEffect(() => showKeptSummary(month), [month]);
   const pending = useSyncExternalStore(subscribeUnsaved, pendingWithIds);
   const select = useCallback((data: MonthSummary) => shownSummary(data, pending), [pending]);
   const { data, isError, refetch } = useQuery({
@@ -305,6 +313,7 @@ export interface Trend {
  * category: one read for all 12
  */
 export function useMonthTrend(month: string): Trend {
+  useEffect(() => showKeptTrend(month), [month]);
   const pending = useSyncExternalStore(subscribeUnsaved, pendingWithIds);
   const select = useCallback((data: MonthTrend) => shownTrend(data, pending), [pending]);
   const { data, isError, refetch } = useQuery({

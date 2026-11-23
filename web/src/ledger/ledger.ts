@@ -838,6 +838,34 @@ export function shownTrend(trend: MonthTrend, pending: Queued[]) {
 }
 
 /**
+ * Shows the month's totals kept on this device while fresh ones load, unless something is
+ * showing already, so Home and Plan draw at once on a start; marked as from the device
+ * (dataAge) until the server's come
+ */
+export function showKeptSummary(month: string) {
+  const key = summaryKey(month);
+  if (queryClient.getQueryData(key) !== undefined) return;
+  void readCacheEntry<MonthSummary>(summaryCacheKey(month)).then((kept) => {
+    if (kept == null || queryClient.getQueryData(key) !== undefined) return;
+    if (queryClient.getQueryState(key)?.dataUpdatedAt) return;
+    queryClient.setQueryData(key, kept.value, { updatedAt: 0 });
+    shownFromDevice(`summary:${month}`, kept.at);
+  });
+}
+
+/** The same for the 12 months' totals ending at `month` */
+export function showKeptTrend(month: string) {
+  const key = trendKey(month);
+  if (queryClient.getQueryData(key) !== undefined) return;
+  void readCacheEntry<MonthTrend>(trendCacheKey(month)).then((kept) => {
+    if (kept == null || queryClient.getQueryData(key) !== undefined) return;
+    if (queryClient.getQueryState(key)?.dataUpdatedAt) return;
+    queryClient.setQueryData(key, kept.value, { updatedAt: 0 });
+    trendsFromDevice.add(month);
+  });
+}
+
+/**
  * Shows the copy kept on this device while the first fresh one loads, unless something
  * is showing already
  */

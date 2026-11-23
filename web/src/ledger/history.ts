@@ -69,6 +69,15 @@ const TOP_UP_PAGE = 50;
 const MAX_PAGES = Math.ceil(MAX_TRANSACTIONS_PER_ACCOUNT / PAGE) + 1;
 /** An account's page holds this many unless asked (worker/ledger/read.ts PAGE_SIZE) */
 const ACCOUNT_PAGE = 50;
+/**
+ * How long after a look for an account's new entries another is skipped: the ledger is
+ * fetched again after every save from here (which the history follows already), and each
+ * fetch would otherwise look at every account's newest entries again
+ */
+export const LOOK_AGAIN_MS = 2 * 60 * 1000;
+/** When each account last looked for new entries, by `email:accountId` */
+const lookedAt = new Map<string, number>();
+
 /** How long an account's history counts as checked before it's checked again in full */
 export const RECHECK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -156,6 +165,7 @@ onCacheCleared(() => {
   running = null;
   savedLog = [];
   lastSearch = null;
+  lookedAt.clear();
   void forgetHistory().catch(() => undefined);
 });
 
@@ -227,8 +237,11 @@ async function download(
       if (coverage.currency !== currency || (coverage.complete && !lately(coverage, now))) {
         coverage = restarted(coverage, now, currency);
       }
-      if (coverage.complete || coverage.oldest != null) {
+      const looked = lookedAt.get(`${email}:${accountId}`);
+      const lookedLately = coverage.complete && looked != null && now - looked < LOOK_AGAIN_MS;
+      if ((coverage.complete || coverage.oldest != null) && !lookedLately) {
         coverage = await lookForNew(coverage, stillMine);
+        lookedAt.set(`${email}:${accountId}`, Date.now());
       }
       for (let pages = 0; !coverage.complete && pages < MAX_PAGES; pages++) {
         if (!(await stillHeld())) return;
@@ -353,6 +366,7 @@ export function recordSaved(changes: LedgerChange[]) {
 
 /** Every account's download starts again from the top, what's held staying shown */
 export function startAgain() {
+  lookedAt.clear();
   const email = cacheUser();
   if (email == null) return;
   const stillMine = stillMineFor(email, generation);

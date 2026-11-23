@@ -446,7 +446,8 @@ describe('getRateOn', () => {
       // The first day asks both services about it and the 7 before, then today's rate; each
       // day after asks only about itself
       const settled = answers.findIndex((a) => a instanceof Error);
-      expect(settled).toBe(12);
+      // 18 for the first day, 2 for each after it
+      expect(settled).toBe(1 + (MAX_RATE_REQUESTS - 18) / 2);
       expect(answers.slice(0, settled)).toEqual(
         Array.from({ length: settled }, () => ({ rate: 0.00019, source: 'wise', fetchedAt: now })),
       );

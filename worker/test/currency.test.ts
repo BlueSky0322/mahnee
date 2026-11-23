@@ -786,9 +786,11 @@ describe('the rates of a year of days, asked as ranges', () => {
         rateAt: Date.parse(`${e.from}T12:00:00Z`),
       });
     }
-    // One range from the ECB, one from Wise for the days the ECB had nothing close to, and
-    // today's rate for the opening balance; a day at a time it was a dozen or more
-    expect(asked).toBe(3);
+    // One range from the ECB; one or two from Wise (28-day spans) for the days the ECB had
+    // nothing close to; the days the stand-in Wise has no point for (it has day 12 alone,
+    // where the real one has every day) asked alone: 15, 14, 13; and today's rate for the
+    // opening balance. A day at a time it was a dozen or more.
+    expect(asked).toBeLessThanOrEqual(8);
   });
 
   it('a range that fails is asked a day at a time, and comes to the same', async () => {

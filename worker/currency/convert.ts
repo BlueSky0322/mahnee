@@ -48,9 +48,15 @@ export interface ConvertJob {
 
 /**
  * Transactions worked out in one step: their days' rates come as a few ranges
- * (prefetchRatesOn in exchange-rates.ts), so a year of entries takes a handful of steps
+ * (prefetchRatesOn in exchange-rates.ts). Small enough that a step's own work stays well
+ * within a run's CPU time on the free plan.
  */
-export const PAGE = 2_000;
+export const PAGE = 500;
+/**
+ * The most days a step's page spans, first to last: a long, sparse import's page then asks
+ * for no more ranges of rates than a step may (each span a cache call or three)
+ */
+export const MAX_PAGE_DAYS = 90;
 /**
  * How many times in a row a stalled conversion is started again before it's given back;
  * a step that moves on starts the count afresh
@@ -146,6 +152,10 @@ async function stage(
   }
   return staged;
 }
+
+/** The day `days` after `day` (2026-11-05) */
+const daysAfter = (day: string, days: number) =>
+  new Date(Date.parse(`${day}T12:00:00Z`) + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 /** Rates fetched once per currency and day within a step */
 function rateKeeper(to: string, fetchRate: FetchRate) {
@@ -351,7 +361,7 @@ export async function convertStep(
   const { from, to, afterDate, afterId } = conversion;
   const rateOf = rateKeeper(to, fetchRate);
 
-  const { results: page } = await db
+  let { results: page } = await db
     .prepare(
       `SELECT id AS key, amount_cents AS cents, original_currency AS originalCurrency,
          original_cents AS originalCents, date AS day
@@ -361,6 +371,10 @@ export async function convertStep(
     )
     .bind(email, afterDate, afterId, PAGE)
     .all<Amount>();
+
+  // A page over many months (a long, sparse import) stops short, and the next step goes on
+  const lastDay = page.length === 0 ? null : daysAfter(page[0].day, MAX_PAGE_DAYS - 1);
+  if (lastDay != null) page = page.filter((a) => a.day <= lastDay);
 
   if (page.length > 0) {
     // The rates of every day the page needs, a range per currency typed in

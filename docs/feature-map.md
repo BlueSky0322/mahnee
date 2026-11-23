@@ -1970,17 +1970,23 @@ totals kept, fetches everything again and sends the changes kept meanwhile. `use
   while one is under way) and queues the first step on `mahnee-reconvert`
   ([worker/currency/convert-queue.ts](../worker/currency/convert-queue.ts)).
 - Each step ([worker/currency/convert.ts](../worker/currency/convert.ts)) works out a page
-  of 2,000 transactions, by day then id, each at the rate on its own day (`getRateOn`: the
-  ECB's, else Wise's), into `conversion_staged`, checking each against its limit. First it
-  asks for the page's days as ranges (`prefetchRatesOn` in
-  [exchange-rates.ts](../worker/currency/exchange-rates.ts)): fixed spans of 128 days from
-  the ECB, then 32-day spans from Wise for days the ECB had nothing within a week of, each
-  span one request kept in the cache as one copy (so the next step reads it), each day's
-  answer noted as asking for that day alone would give it. A year of about 12,000 entries
-  takes 8 steps and about ten requests, a few seconds (it was 63 steps, 373 requests and
-  over two minutes a day at a time). A span that fails leaves its days to be asked one at a
-  time, as before. A step asks the services about each day once (`RateLookups`, found or
-  not) and at most 40 times;
+  of up to 500 transactions over at most 90 days (`PAGE`, `MAX_PAGE_DAYS`), by day then id,
+  each at the rate on its own day (`getRateOn`: the ECB's, else Wise's), into
+  `conversion_staged`, checking each against its limit. First it asks for the page's days as
+  ranges (`prefetchRatesOn` in [exchange-rates.ts](../worker/currency/exchange-rates.ts)):
+  fixed 128-day spans from the ECB, then 28-day spans from Wise, an hour at a time (it gives
+  hourly points only up to 720 hours), for days the ECB has nothing within a week of. Each
+  span is one request, kept in the cache as one copy (`v2/range/<source>/<size>/...`, long
+  only when it ends before yesterday), and each day's answer is noted as asking for that
+  day alone would give it: the ECB's on or before it; Wise's latest point at or before noon
+  UTC that day, the same rule for a single day. A Wise range refused, not hourly, or with no
+  point for a day, and any ECB range failure but its 404 (the pair not published, as a single
+  day says too), keeps nothing: those days are asked one at a time, never taken as having no
+  rate. A year of about 12,000 entries takes about 26 steps and a few seconds (it was 63
+  steps, 373 requests and over two minutes a day at a time). A step asks the services about each day once (`RateLookups`, found or
+  not), and its requests and cache calls together are at most 36 (`MAX_RATE_REQUESTS`, within
+  the free plan's 50 subrequests a run, with its database calls), 20 of them kept back from
+  ranges for single days;
   a page whose rates need more stops there, and the next step carries on; so do the
   opening balances, budgets and scheduled items, keeping those worked out. The last
   step works out the opening balances, budgets and scheduled items at the rate on the day of

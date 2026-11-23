@@ -303,26 +303,33 @@ async function startFakeRates(): Promise<
       const [from, to] = [url.searchParams.get('source'), url.searchParams.get('target')];
       heard(from, to);
       if (isDown.wise || req.headers.authorization !== 'Bearer test-token') return send(500, {});
-      // A range, an hour at a time: each day it has, at noon UTC (and nothing else of the day)
+      // A range, as the real one answers it: a point every hour for up to 720 hours, and past
+      // that one point a day, at midnight, with no word that it changed; only the days given
+      // a rate have points
       const [start, end] = [url.searchParams.get('from'), url.searchParams.get('to')];
       if (start != null && end != null) {
+        const hours = (Date.parse(`${end}:00Z`) - Date.parse(`${start}:00Z`)) / 3_600_000 + 1;
         const days = setDays('wise', from, to).filter(
           (d) => d >= start.slice(0, 10) && d <= end.slice(0, 10),
         );
+        const point = (d: string, hour: number) => ({
+          rate: table.get(`wise:${d}:${from}${to}`),
+          source: from,
+          target: to,
+          time: `${d}T${String(hour).padStart(2, '0')}:00:00+0000`,
+        });
         return send(
           200,
-          days.map((d) => ({
-            rate: table.get(`wise:${d}:${from}${to}`),
-            source: from,
-            target: to,
-            time: `${d}T12:00:00+0000`,
-          })),
+          hours > 720
+            ? days.map((d) => point(d, 0))
+            : days.flatMap((d) => Array.from({ length: 24 }, (_, h) => point(d, h))),
         );
       }
       const day = url.searchParams.get('time')?.slice(0, 10);
       const onDay = day == null ? null : table.get(`wise:${day}:${from}${to}`);
       if (onDay != null) {
-        return send(200, [{ rate: onDay, source: from, target: to, time: `${day}T12:00:00+0000` }]);
+        // The latest point at or before the time asked, as the real one: a little before noon
+        return send(200, [{ rate: onDay, source: from, target: to, time: `${day}T11:59:14+0000` }]);
       }
       const rate = table.get(`wise:${from}${to}`);
       const now = new Date().toISOString().slice(0, 19);

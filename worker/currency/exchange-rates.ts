@@ -61,11 +61,13 @@ export class NoRate extends RatesUnavailable {
 export class LookupsSpent extends RatesUnavailable {}
 
 /**
- * The most requests to the rate services one conversion step or request makes, well
- * under the Worker's 50 per run on the free plan, and above the 18 one day's rate can
- * take (each of 8 days from both services, then today's from both)
+ * The most requests to the rate services and calls to the cache one conversion step or
+ * request makes. They share the Worker's 50 subrequests a run on the free plan with the
+ * step's few database calls and its queue message, so this leaves a margin; and it's above
+ * the 20 one day's rate can take (each of 8 days from both services, then today's from
+ * both, and reading and keeping that day's copy).
  */
-export const MAX_RATE_REQUESTS = 40;
+export const MAX_RATE_REQUESTS = 36;
 
 /**
  * The services' answers within one conversion step or request, so each day is asked
@@ -105,16 +107,32 @@ export class RateLookups {
 
   /** `deps` with each request counted, refused (LookupsSpent) past the limit */
   counted(deps: Deps): Deps {
+    /** Runs `call` if there's room left, counting it; refused (LookupsSpent) otherwise */
+    const spend = <T>(call: () => Promise<T>): Promise<T> => {
+      if (this.requests >= this.limit) {
+        return Promise.reject(new LookupsSpent('Asked for as many rates as one step may'));
+      }
+      this.requests++;
+      return call();
+    };
+    const cache = deps.cache;
     return {
       ...deps,
-      fetch: (input, init) => {
-        if (this.requests >= this.limit) {
-          return Promise.reject(new LookupsSpent('Asked for as many rates as one step may'));
-        }
-        this.requests++;
-        return deps.fetch(input, init);
-      },
+      fetch: (input, init) => spend(() => deps.fetch(input, init)),
+      // Each cache call counts too: the Worker counts them with its requests
+      cache:
+        cache == null
+          ? null
+          : ({
+              match: (...args: Parameters<Cache['match']>) => spend(() => cache.match(...args)),
+              put: (...args: Parameters<Cache['put']>) => spend(() => cache.put(...args)),
+            } as Cache),
     };
+  }
+
+  /** How many more requests and cache calls this step may make */
+  remaining() {
+    return this.limit - this.requests;
   }
 }
 
@@ -208,7 +226,7 @@ async function readKept(cache: Cache | null, key: string): Promise<Rate | null> 
     const rate = kept ? await kept.json<unknown>() : null;
     return isRate(rate) ? rate : null;
   } catch (err) {
-    console.error(err);
+    if (!(err instanceof LookupsSpent)) console.error(err);
     return null;
   }
 }
@@ -220,7 +238,9 @@ async function keep(cache: Cache | null, key: string, rate: Rate, seconds: numbe
       key,
       new Response(JSON.stringify(rate), { headers: { 'Cache-Control': `max-age=${seconds}` } }),
     )
-    .catch((err: unknown) => console.error(err));
+    .catch((err: unknown) => {
+      if (!(err instanceof LookupsSpent)) console.error(err);
+    });
 }
 
 /** The rate to convert `from` into `to`: 1 unit of `from` is `rate` units of `to` */
@@ -328,11 +348,23 @@ async function wiseOn(
   if (!res.ok) throw new Error(`Wise rates: ${res.status}`);
   const body = await res.json<{ rate?: unknown; time?: unknown }[]>();
   const { rate, time } = body[0] ?? {};
-  // Wise writes the offset as +0000, which not every date parser reads
-  const at =
-    typeof time === 'string' ? Date.parse(time.replace(/([+-]\d{2})(\d{2})$/, '$1:$2')) : NaN;
-  return Number.isFinite(at) && rateDay(at) === day && isValidRate(rate) ? { rate, day } : null;
+  // The latest point at or before noon that day (Wise answers one a little before it)
+  return isWiseNoonPoint(wiseTime(time), day) && isValidRate(rate) ? { rate, day } : null;
 }
+
+/** Noon UTC, in ms into a day */
+const NOON_MS = 12 * 60 * 60 * 1000;
+
+/** A time as Wise writes it (2026-09-15T11:59:14+0000), in ms; NaN when it isn't one */
+const wiseTime = (time: unknown) =>
+  typeof time === 'string' ? Date.parse(time.replace(/([+-]\d{2})(\d{2})$/, '$1:$2')) : NaN;
+
+/**
+ * Wise's rate for a day: its latest point at or before noon UTC on that day, the same rule
+ * whether the day is asked for alone or in a range
+ */
+const isWiseNoonPoint = (at: number, day: string) =>
+  Number.isFinite(at) && rateDay(at) === day && at % (24 * 60 * 60 * 1000) <= NOON_MS;
 
 const DAY_FETCHERS: [FetchedRateSource, typeof frankfurterOn][] = [
   ['frankfurter', frankfurterOn],
@@ -443,8 +475,16 @@ async function rateOn(
 
 /** The days one request to the ECB covers */
 export const MAX_RANGE_DAYS = 128;
-/** The days one request to Wise covers: its answer has a rate for every hour */
-export const WISE_RANGE_DAYS = 32;
+/**
+ * The days one request to Wise covers: it gives a point every hour only up to 720 hours
+ * (30 days), and one a day at midnight past that, without saying so
+ */
+export const WISE_RANGE_DAYS = 28;
+/**
+ * What a step keeps back from asking for ranges, so the days a range couldn't answer can
+ * still be asked one at a time (one day can take 20)
+ */
+const KEEP_FOR_DAYS = 20;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const dayNumber = (day: string) => Math.floor(Date.parse(`${day}T12:00:00Z`) / DAY_MS);
@@ -466,9 +506,16 @@ function daysFrom(first: string, last: string): string[] {
   return out;
 }
 
+/** A span's answer: each day's rate, and the days it answers for (with a rate or none) */
+interface SpanAnswer {
+  rates: Record<string, number>;
+  days: string[];
+}
+
 /**
  * The ECB's rates from `start` to `end` by day (its working days, and the one on or before
- * `start`); none when it doesn't publish the pair; throws when it fails
+ * `start`), answering for every day of the span. A 404 is the ECB not publishing the pair
+ * (as a day asked alone says); anything else that isn't a rate is a failure, thrown.
  */
 async function frankfurterRange(
   env: RatesEnv,
@@ -476,25 +523,29 @@ async function frankfurterRange(
   to: string,
   [start, end]: [string, string],
   deps: Deps,
-): Promise<Record<string, number>> {
+): Promise<SpanAnswer> {
   const base = env.FRANKFURTER_BASE ?? 'https://api.frankfurter.dev';
   const res = await deps.fetch(`${base}/v1/${start}..${end}?base=${from}&symbols=${to}`, {
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  if (noRateFor(res.status)) return {};
-  if (!res.ok) throw new Error(`Frankfurter: ${res.status}`);
+  const days = daysFrom(start, end);
+  if (res.status === 404) return { rates: {}, days };
+  if (!res.ok) throw new Error(`Frankfurter range: ${res.status}`);
   const body = await res.json<{ rates?: Record<string, Record<string, unknown>> }>();
-  const found: Record<string, number> = {};
-  for (const [day, rates] of Object.entries(body.rates ?? {})) {
-    const rate = rates?.[to];
-    if (DAY.test(day) && day <= end && isValidRate(rate)) found[day] = rate;
+  const rates: Record<string, number> = {};
+  for (const [day, found] of Object.entries(body.rates ?? {})) {
+    const rate = found?.[to];
+    if (DAY.test(day) && day <= end && isValidRate(rate)) rates[day] = rate;
   }
-  return found;
+  return { rates, days };
 }
 
 /**
- * Wise's rates at noon UTC on each day from `start` to `end` (asked an hour at a time, so
- * the noon one is there); none without a token or for a pair it doesn't have
+ * Wise's rate for each day from `start` to `end`, asked an hour at a time: each day's
+ * latest point at or before noon UTC, as a day asked alone gives it. It answers only for
+ * the days it has such a point for. Any refusal, or an answer that isn't hourly (Wise's
+ * one point a day, at midnight, for a range too long), is a failure, thrown: it is never
+ * taken to mean Wise has no rate.
  */
 async function wiseRange(
   env: RatesEnv,
@@ -502,9 +553,8 @@ async function wiseRange(
   to: string,
   [start, end]: [string, string],
   deps: Deps,
-): Promise<Record<string, number>> {
-  const found: Record<string, number> = {};
-  if (!env.WISE_TOKEN) return found;
+): Promise<SpanAnswer> {
+  if (!env.WISE_TOKEN) throw new Error('Wise range: no token');
   const base = env.WISE_BASE ?? 'https://api.wise.com';
   const res = await deps.fetch(
     `${base}/v1/rates?source=${from}&target=${to}&from=${start}T00:00&to=${end}T23:00&group=hour`,
@@ -513,26 +563,34 @@ async function wiseRange(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     },
   );
-  if (noRateFor(res.status)) return found;
-  if (!res.ok) throw new Error(`Wise rates: ${res.status}`);
+  if (!res.ok) throw new Error(`Wise range: ${res.status}`);
   const body = await res.json<unknown>();
-  for (const item of Array.isArray(body) ? (body as { rate?: unknown; time?: unknown }[]) : []) {
-    const { rate, time } = item ?? {};
-    if (typeof time !== 'string' || !isValidRate(rate)) continue;
-    const at = Date.parse(time.replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
-    // Noon UTC on its day, as asking for that day alone gives
-    if (Number.isFinite(at) && at % DAY_MS === 12 * 60 * 60 * 1000) {
-      const day = rateDay(at);
-      if (day >= start && day <= end) found[day] = rate;
-    }
+  if (!Array.isArray(body)) throw new Error('Wise range: not a list');
+  const perDay = new Map<string, number>();
+  const best = new Map<string, { at: number; rate: number }>();
+  for (const item of body as { rate?: unknown; time?: unknown }[]) {
+    const at = wiseTime(item?.time);
+    if (!Number.isFinite(at) || !isValidRate(item.rate)) continue;
+    const day = rateDay(at);
+    perDay.set(day, (perDay.get(day) ?? 0) + 1);
+    if (day < start || day > end || !isWiseNoonPoint(at, day)) continue;
+    const held = best.get(day);
+    if (held == null || at > held.at) best.set(day, { at, rate: item.rate });
   }
-  return found;
+  // Hourly has many points a day; one a day is the answer for a range too long
+  if (perDay.size > 0 && [...perDay.values()].every((n) => n <= 1)) {
+    throw new Error('Wise range: not hourly');
+  }
+  const rates = Object.fromEntries([...best].map(([day, { rate }]) => [day, rate]));
+  return { rates, days: Object.keys(rates) };
 }
 
 /** One span's rates as kept: the last day it was asked to, and each day's rate */
 interface KeptSpan {
   end: string;
   rates: Record<string, number>;
+  /** The days it answers for, with a rate or none */
+  days: string[];
 }
 
 const isKeptSpan = (kept: unknown): kept is KeptSpan => {
@@ -542,6 +600,8 @@ const isKeptSpan = (kept: unknown): kept is KeptSpan => {
     DAY.test(k.end) &&
     typeof k.rates === 'object' &&
     k.rates != null &&
+    Array.isArray(k.days) &&
+    k.days.every((d) => typeof d === 'string' && DAY.test(d)) &&
     Object.entries(k.rates).every(([d, r]) => DAY.test(d) && isValidRate(r))
   );
 };
@@ -572,7 +632,13 @@ export async function prefetchRatesOn(
    */
   const gather = async (
     source: FetchedRateSource,
-    fetch: typeof frankfurterRange,
+    fetch: (
+      env: RatesEnv,
+      from: string,
+      to: string,
+      span: [string, string],
+      deps: Deps,
+    ) => Promise<SpanAnswer>,
     size: number,
     back: number,
     only: (day: string) => boolean,
@@ -583,28 +649,31 @@ export async function prefetchRatesOn(
     }
     const covered = new Set<string>();
     const found = new Map<string, number>();
+    // The step's cache calls and requests count alike; some are kept back for single days
+    const cache = env.RATES_KEEP_RANGES === 'no' ? null : counted.cache;
     for (const [start, spanEnd] of [...spans.values()].sort(([a], [b]) => (a < b ? -1 : 1))) {
+      if (lookups.remaining() < KEEP_FOR_DAYS + 3) break;
       const end = spanEnd < yesterday ? spanEnd : yesterday;
-      const key = `https://rates.internal/v1/range/${source}/${from}/${to}/${start}`;
+      // v2: named by the span's size too, so spans of another size are never read as these
+      const key = `https://rates.internal/v2/range/${source}/${size}/${from}/${to}/${start}`;
       let span: KeptSpan | null = null;
-      const cache = env.RATES_KEEP_RANGES === 'no' ? null : deps.cache;
       try {
         const kept = cache == null ? null : await cache.match(key);
         const value = kept ? await kept.json<unknown>() : null;
         if (isKeptSpan(value) && value.end >= end) span = value;
       } catch (err) {
-        console.error(err);
+        if (!(err instanceof LookupsSpent)) console.error(err);
       }
       if (span == null) {
         try {
-          span = { end, rates: await fetch(env, from, to, [start, end], counted) };
+          span = { end, ...(await fetch(env, from, to, [start, end], counted)) };
         } catch (err) {
+          // A failure keeps nothing: its days are asked one at a time
           if (!(err instanceof LookupsSpent)) console.error(err);
           continue;
         }
-        // A span wholly in the past never changes; one reaching yesterday is asked again
-        // tomorrow
-        const seconds = end === spanEnd ? KEEP_DAY_SECONDS : KEEP_SECONDS;
+        // Kept for long only when it ends before yesterday, whose rate may not be out yet
+        const seconds = spanEnd < yesterday ? KEEP_DAY_SECONDS : KEEP_SECONDS;
         await cache
           ?.put(
             key,
@@ -612,10 +681,12 @@ export async function prefetchRatesOn(
               headers: { 'Cache-Control': `max-age=${seconds}` },
             }),
           )
-          .catch((err: unknown) => console.error(err));
+          .catch((err: unknown) => {
+            if (!(err instanceof LookupsSpent)) console.error(err);
+          });
       }
       for (const [day, rate] of Object.entries(span.rates)) found.set(day, rate);
-      for (const day of daysFrom(start, span.end)) covered.add(day);
+      for (const day of span.days) if (day <= span.end) covered.add(day);
     }
     return { covered, found };
   };
@@ -649,12 +720,13 @@ export async function prefetchRatesOn(
     );
   }
 
-  // Wise only for the days the ECB had nothing close to, as getRateOn would ask it
-  const noEcb = (day: string) => ecb.covered.has(day) && ecbOn(day) == null;
+  // Wise only for the days the ECB may have nothing close to, as getRateOn would ask it.
+  // A day Wise's range has no point for is left to be asked alone.
+  const noEcb = (day: string) => !ecb.covered.has(day) || ecbOn(day) == null;
   if (!env.WISE_TOKEN || !wanted.some(noEcb)) return;
   const wise = await gather('wise', wiseRange, WISE_RANGE_DAYS, MAX_EARLIER_DAYS, noEcb);
   for (const day of wise.covered) {
     const rate = wise.found.get(day);
-    lookups.know<DayRate>(`wise ${from} ${to} ${day}`, rate == null ? null : { rate, day });
+    if (rate != null) lookups.know<DayRate>(`wise ${from} ${to} ${day}`, { rate, day });
   }
 }

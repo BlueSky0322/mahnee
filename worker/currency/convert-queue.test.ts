@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../app';
+import { MAX_PAGE_DAYS, PAGE } from './convert';
 import { stepRates } from './convert-queue';
 import { MAX_RANGE_DAYS, MAX_RATE_REQUESTS, RatesUnavailable } from './exchange-rates';
 
@@ -196,5 +197,146 @@ describe('ranges kept for the next step', () => {
     await next.prefetch!('MYR', 'USD', days(30));
     expect((await next('MYR', 'USD', days(30)[10]))?.rate).toBe(0.2);
     expect(asked).toHaveLength(before);
+  });
+});
+
+/**
+ * Wise as the real one answers, for VND to MYR: a rate for each day in `rates` (none on
+ * days left out); a range gives a point every hour up to 720 hours and one at midnight a
+ * day past that; a single time gives the latest point at or before it. `noNoon` days have
+ * no 12:00 point (the 11:00 one is the latest before noon).
+ */
+function realWise(rates: Record<string, number>, noNoon: string[] = [], rangeStatus = 200) {
+  const hoursOf = (day: string) =>
+    Array.from({ length: 24 }, (_, h) => h).filter((h) => !(h === 12 && noNoon.includes(day)));
+  const at = (day: string, h: number, s = '00:00') =>
+    `${day}T${String(h).padStart(2, '0')}:${s}+0000`;
+  return (url: string) => {
+    if (!url.startsWith('https://wise.test')) return new Response('', { status: 404 });
+    const q = new URL(url).searchParams;
+    const [start, end] = [q.get('from'), q.get('to')];
+    if (start != null && end != null) {
+      if (rangeStatus !== 200) return new Response('', { status: rangeStatus });
+      const hours = (Date.parse(`${end}:00Z`) - Date.parse(`${start}:00Z`)) / 3_600_000 + 1;
+      const days = Object.keys(rates).filter(
+        (d) => d >= start.slice(0, 10) && d <= end.slice(0, 10),
+      );
+      const points =
+        hours > 720
+          ? days.map((d) => ({ rate: rates[d], time: at(d, 0) }))
+          : days.flatMap((d) => hoursOf(d).map((h) => ({ rate: rates[d], time: at(d, h) })));
+      return new Response(JSON.stringify(points));
+    }
+    const time = q.get('time');
+    if (time != null) {
+      const day = time.slice(0, 10);
+      if (rates[day] == null)
+        return new Response(JSON.stringify([{ rate: 0.00019, time: at('2026-11-20', 9) }]));
+      const point = noNoon.includes(day) ? at(day, 11) : at(day, 11, '59:14');
+      return new Response(JSON.stringify([{ rate: rates[day], time: point }]));
+    }
+    return new Response(JSON.stringify([{ rate: 0.00019 }]));
+  };
+}
+
+describe('Wise’s rates for a range of days', () => {
+  const vnd = Object.fromEntries(days(40).map((d, i) => [d, 0.00017 + i / 10_000_000]));
+
+  it('asks at most 28 days, an hour at a time, and agrees with asking a day alone', async () => {
+    const asked = services(realWise(vnd, [days(40)[5]]));
+    const ranged = stepRates(env, 'wise');
+    await ranged.prefetch!('VND', 'MYR', days(40));
+    const fromRange = await Promise.all(days(40).map((d) => ranged('VND', 'MYR', d)));
+    for (const u of asked.filter((x) => x.includes('group=hour'))) {
+      const q = new URL(u).searchParams;
+      const hours =
+        (Date.parse(`${q.get('to')}:00Z`) - Date.parse(`${q.get('from')}:00Z`)) / 3_600_000 + 1;
+      expect(hours).toBeLessThanOrEqual(28 * 24);
+    }
+    // The same days asked one at a time
+    services(realWise(vnd, [days(40)[5]]));
+    const alone = [];
+    for (const d of days(40)) alone.push(await stepRates(env, 'wise')('VND', 'MYR', d));
+    expect(fromRange.map((r) => [r?.rate, r?.day, r?.source])).toEqual(
+      alone.map((r) => [r?.rate, r?.day, r?.source]),
+    );
+    expect(fromRange.map((r) => r?.rate)).toEqual(days(40).map((d) => vnd[d]));
+  });
+
+  it.each([
+    ['answers one point a day, at midnight', realWise(vnd, [], 200), true],
+    ['refuses the range (400)', realWise(vnd, [], 400), false],
+  ])(
+    'when Wise %s, each day is asked alone, never taken as having no rate',
+    async (_why, wise, daily) => {
+      const answer = daily
+        ? (url: string) => {
+            // Every range asked for answered as one too long would be
+            const u = new URL(url);
+            if (u.searchParams.get('from') != null) u.searchParams.set('from', '2025-01-01T00:00');
+            return wise(u.toString());
+          }
+        : wise;
+      const asked = services(answer);
+      const rateOf = stepRates(env, 'wise');
+      await rateOf.prefetch!('VND', 'MYR', days(10));
+      const found = [];
+      for (const d of days(10)) found.push(await rateOf('VND', 'MYR', d));
+      expect(found.map((r) => r?.rate)).toEqual(days(10).map((d) => vnd[d]));
+      expect(asked.filter((u) => u.includes('time=')).length).toBeGreaterThan(0);
+    },
+  );
+});
+
+describe('a step’s budget', () => {
+  it('a sparse import over six years: each page by range, every step within its calls', async () => {
+    // 3,000 entries over six years, a day apart or so, paged as convertStep pages them
+    const all = Array.from({ length: 3_000 }, (_, i) =>
+      new Date(Date.UTC(2019, 0, 1) + Math.floor(i * 0.73) * 86_400_000).toISOString().slice(0, 10),
+    );
+    const pages: string[][] = [];
+    for (let i = 0; i < all.length; ) {
+      const last = new Date(Date.parse(`${all[i]}T12:00:00Z`) + (MAX_PAGE_DAYS - 1) * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const page = all.slice(i, i + PAGE).filter((d) => d <= last);
+      pages.push(page);
+      i += page.length;
+    }
+    // A cache that counts its calls, and the ECB with a rate every day
+    const kept = new Map<string, string>();
+    let calls = 0;
+    vi.stubGlobal('caches', {
+      default: {
+        match: (key: string) => {
+          calls++;
+          return Promise.resolve(kept.has(key) ? new Response(kept.get(key)) : undefined);
+        },
+        put: async (key: string, res: Response) => {
+          calls++;
+          kept.set(key, await res.text());
+        },
+      },
+    });
+    const every = Object.fromEntries(
+      Array.from({ length: 2_400 }, (_, i) => [
+        new Date(Date.UTC(2018, 11, 1) + i * 86_400_000).toISOString().slice(0, 10),
+        0.25,
+      ]),
+    );
+    const asked = services((url) => {
+      calls++;
+      return ecbDays(every)(url);
+    });
+    for (const page of pages) {
+      calls = 0;
+      const rateOf = stepRates(env, 'ecb');
+      await rateOf.prefetch!('MYR', 'USD', page);
+      for (const day of new Set(page)) expect((await rateOf('MYR', 'USD', day))?.rate).toBe(0.25);
+      // Within the step's budget, which leaves room for its database calls and queue message
+      expect(calls).toBeLessThanOrEqual(MAX_RATE_REQUESTS);
+    }
+    // Every day by range: none asked alone
+    expect(asked.filter((u) => /ecb\.test\/v1\/\d{4}-\d{2}-\d{2}\?/.test(u))).toHaveLength(0);
   });
 });

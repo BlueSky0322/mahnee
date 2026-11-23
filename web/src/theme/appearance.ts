@@ -1,10 +1,12 @@
 import { useSyncExternalStore } from 'react';
 import type { Accent, ExpenseColour } from '@shared/api';
 import { DEFAULT_SETTINGS } from '@shared/api';
+import { showInstallIcons } from '../pwa/install-icons';
 
 // The accent the app is drawn in and the colour of spending, as the person chose them in
 // Look and start: marked on the page (data-accent, data-expenses on <html>) for the
-// stylesheets (theme/tokens.css), and kept here for Mantine's own colours (Root.tsx)
+// stylesheets (theme/tokens.css), kept here for Mantine's own colours (Root.tsx), and
+// named to installing the app, so its icon takes the accent too
 
 let accent: Accent = DEFAULT_SETTINGS.accent;
 const listeners = new Set<() => void>();
@@ -12,6 +14,7 @@ const listeners = new Set<() => void>();
 /** Draws the app in `next`, at once */
 export function showAccent(next: Accent) {
   document.documentElement.setAttribute('data-accent', next);
+  showInstallIcons(next);
   if (next === accent) return;
   accent = next;
   listeners.forEach((l) => l());

@@ -42,20 +42,28 @@ const PRECACHE_LIST = '/precache.json';
 /** Kept in SHELL beside the page: which built files it and the page before it need */
 const SHELL_FILES = '/shell-files';
 /**
- * What installing the app reads: the manifest, the icons it names, the one iPhones use and
- * the browser tab's (web/public/manifest.webmanifest and web/index.html; shell.test.ts
- * checks they match).
+ * What installing the app reads: each accent's manifest, the icons it names and its iPhone
+ * icon (the page names the chosen accent's), and the browser tab's (web/public/manifest*.webmanifest,
+ * web/index.html and installFiles in web/src/pwa/install-icons.ts; shell.test.ts checks
+ * they match).
  * Kept beside the page, so a page opened from here can still be installed properly, with
  * its name, icon and launch screen, when Cloudflare Access or the connection would turn
- * the browser's request for them away.
+ * the browser's request for them away. Every accent's, as the accent can change offline.
  */
 const INSTALL_FILES = [
   '/manifest.webmanifest',
   '/icon-192.png',
   '/icon-512.png',
   '/icon-maskable-512.png',
-  '/icon.svg',
   '/apple-touch-icon.png',
+  ...['green', 'plum', 'rust', 'graphite'].flatMap((accent) => [
+    `/manifest-${accent}.webmanifest`,
+    `/icons/${accent}/icon-192.png`,
+    `/icons/${accent}/icon-512.png`,
+    `/icons/${accent}/icon-maskable-512.png`,
+    `/icons/${accent}/apple-touch-icon.png`,
+  ]),
+  '/icon.svg',
   '/favicon-16.png',
   '/favicon-32.png',
 ];

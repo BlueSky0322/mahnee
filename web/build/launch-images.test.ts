@@ -31,6 +31,8 @@ function openApp(saved: string | null, system: 'light' | 'dark', accent?: string
           (set[name === 'data-launch' ? 'theme' : name] = value),
       },
       querySelectorAll: () => bars,
+      // The install links are install-icons.test.tsx's to check; this page has none
+      querySelector: () => null,
     },
   });
   return { ...set, statusBars };

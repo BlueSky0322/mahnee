@@ -76,8 +76,8 @@
     <!--
       The first screen, shown before the app's code has loaded: the background of the
       theme this device last used (or the phone's own, on Auto) and the logo on a tile of
-      the saved accent, the coin coming to rest in the hand. main.tsx fades it out once the
-      app is up. The saved theme's key and the colours are the app's own (sf-appearance in
+      the saved accent, the coin coming to rest in the hand, and installing pointed at that
+      accent's manifest and iPhone icon. main.tsx fades it out once the app is up. The saved theme's key and the colours are the app's own (sf-appearance in
       profile/ProfileContext.tsx, --ground and --accent in theme/tokens.css);
       launch-screen.test.ts and paper-ledger-launch.test.ts keep them in step.
     -->
@@ -95,6 +95,13 @@
         }
         document.documentElement.setAttribute('data-launch', theme);
         if (accent) document.documentElement.setAttribute('data-accent', accent);
+        // Installing takes the saved accent's icons (installFiles in pwa/install-icons.ts)
+        if (accent && accent !== 'cobalt') {
+          var manifest = document.querySelector('link[rel="manifest"]');
+          var touch = document.querySelector('link[rel="apple-touch-icon"]');
+          if (manifest) manifest.setAttribute('href', '/manifest-' + accent + '.webmanifest');
+          if (touch) touch.setAttribute('href', '/icons/' + accent + '/apple-touch-icon.png');
+        }
         var bars = document.querySelectorAll('meta[name="theme-color"]');
         for (var i = 0; i < bars.length; i++) {
           bars[i].setAttribute('content', theme === 'light' ? '#f3f1ec' : '#0f1012');

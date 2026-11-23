@@ -18,6 +18,7 @@ import Skeleton from '../ui/Skeleton';
 import classes from './Home.module.css';
 import { medianText, signedMoney } from './home-text';
 import PageLink from './PageLink';
+import ConversionPending from '../common/ConversionPending';
 
 /** The most entries Recent activity lists; See all has the rest */
 const MAX_RECENT = 20;
@@ -201,6 +202,7 @@ function SpentSoFar({
       ) : (
         <span className={classes.heroFigure}>
           {formatMoney(spentSoFar(summary.spentByDay, firstDay, day), currency)}
+          <ConversionPending />
         </span>
       )}
     </PageLink>

@@ -12,7 +12,7 @@ import type { Env } from '../app';
 import { getRatePreference } from '../accounts/profiles';
 import type { RatePreference } from '../../shared/api';
 import { type ConvertJob, type FetchRate, convertStep, release, restartIfStalled } from './convert';
-import { LookupsSpent, RateLookups, getRateOn } from './exchange-rates';
+import { LookupsSpent, RateLookups, getRateOn, prefetchRatesOn } from './exchange-rates';
 
 /** The first retry waits this long, giving the rate services a moment to come back */
 const FIRST_RETRY_S = 30;
@@ -45,13 +45,16 @@ export async function queueConversion(env: Env, job: ConvertJob) {
  */
 export function stepRates(env: Env, prefer: RatePreference): FetchRate {
   const lookups = new RateLookups();
-  return (from, to, day) =>
+  const rateOf: FetchRate = (from, to, day) =>
     getRateOn(env, from, to, Date.parse(`${day}T12:00:00Z`), { prefer, lookups }).catch(
       (err: unknown) => {
         if (err instanceof LookupsSpent) return null;
         throw err;
       },
     );
+  // The step's days asked for as ranges first, so each costs no request of its own
+  rateOf.prefetch = (from, to, days) => prefetchRatesOn(env, from, to, days, { prefer, lookups });
+  return rateOf;
 }
 
 /** Takes a conversion one step on, at the rates the person prefers, queueing the next */

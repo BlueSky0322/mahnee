@@ -1,4 +1,8 @@
-/* A grey block with a soft light sweeping across it, where content is still on its way */
+/*
+ * A grey block with a soft light sweeping across it, where content is still on its way.
+ * It stays clear for its first moments, so an answer that comes quickly (or a copy read from
+ * the device) never flashes it on and off.
+ */
 .block {
   display: block;
   flex-shrink: 0;
@@ -14,11 +18,22 @@
   background-repeat: no-repeat;
   /* Every block sweeps in step, measured from the page, so a group reads as one */
   background-attachment: fixed;
-  animation: shimmer 1.4s ease-in-out infinite;
+  animation:
+    appear 1ms linear 180ms both,
+    shimmer 1.4s ease-in-out 180ms infinite;
 }
 
 .circle {
   border-radius: 50%;
+}
+
+@keyframes appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes shimmer {
@@ -30,9 +45,40 @@
   }
 }
 
+/* No sweep, only the still blocks, still held back a moment */
 @media (prefers-reduced-motion: reduce) {
   .block {
-    animation: none;
+    animation: appear 1ms linear 180ms both;
     background-image: none;
   }
+}
+
+/* A card of rows (LoadingRows), drawn as a list's card is */
+.card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 3.75rem;
+  padding: 10px 16px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--line);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }

@@ -57,6 +57,7 @@ import {
   writeFilters,
 } from './address';
 import classes from './Activity.module.css';
+import ConversionPending from '../common/ConversionPending';
 
 /** How long typing rests before it's searched for */
 const TYPING_MS = 250;
@@ -427,6 +428,7 @@ export default function ActivityPage({ query }: { query: string }) {
             <>
               <span className={classes.found}>
                 {foundLine(totals.found, currency, { category: categoryShown }, partial)}
+                <ConversionPending />
               </span>
               <Button
                 variant="subtle"
@@ -762,13 +764,18 @@ function FoundLine({
   currency: string;
   partial: boolean;
 }) {
-  return <span className="sf-tabular">{foundLine(totals.found, currency, null, partial)}</span>;
+  return (
+    <span className="sf-tabular">
+      {foundLine(totals.found, currency, null, partial)}
+      <ConversionPending />
+    </span>
+  );
 }
 
 function Placeholders() {
   return (
     <Loading
-      label="Searching"
+      label="Loading Activity"
       className={classes.list}
     >
       {Array.from({ length: LOADING_ROWS }, (_, i) => (

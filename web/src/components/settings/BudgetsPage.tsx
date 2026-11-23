@@ -14,7 +14,7 @@ import { useSettingInView } from './setting-in-view';
 import { NewTag } from '../ui/Badge';
 import { ForwardIcon, DownIcon } from '../ui/icons';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
-import { OnOff, SettingRow } from './setting-parts';
+import { OnOff, SettingRow, SettingsLoading } from './setting-parts';
 import classes from './Settings.module.css';
 import own from './BudgetsPage.module.css';
 
@@ -58,6 +58,7 @@ export default function BudgetsPage() {
     return (
       <div className={classes.page}>
         <SectionHeader title={title} />
+        <SettingsLoading rows={4} />
       </div>
     );
   }

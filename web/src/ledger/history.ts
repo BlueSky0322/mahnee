@@ -69,6 +69,15 @@ const TOP_UP_PAGE = 50;
 const MAX_PAGES = Math.ceil(MAX_TRANSACTIONS_PER_ACCOUNT / PAGE) + 1;
 /** An account's page holds this many unless asked (worker/ledger/read.ts PAGE_SIZE) */
 const ACCOUNT_PAGE = 50;
+/**
+ * How long after a look for an account's new entries another is skipped: the ledger is
+ * fetched again after every save from here (which the history follows already), and each
+ * fetch would otherwise look at every account's newest entries again
+ */
+export const LOOK_AGAIN_MS = 2 * 60 * 1000;
+/** When each account last looked for new entries, by `email:accountId` */
+const lookedAt = new Map<string, number>();
+
 /** How long an account's history counts as checked before it's checked again in full */
 export const RECHECK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -156,6 +165,7 @@ onCacheCleared(() => {
   running = null;
   savedLog = [];
   lastSearch = null;
+  lookedAt.clear();
   void forgetHistory().catch(() => undefined);
 });
 
@@ -227,10 +237,18 @@ async function download(
       if (coverage.currency !== currency || (coverage.complete && !lately(coverage, now))) {
         coverage = restarted(coverage, now, currency);
       }
-      if (coverage.complete || coverage.oldest != null) {
+      const looked = lookedAt.get(`${email}:${accountId}`);
+      // Not if the clock has gone back since, which would hold it off until it caught up
+      const lookedLately =
+        coverage.complete && looked != null && now >= looked && now - looked < LOOK_AGAIN_MS;
+      if ((coverage.complete || coverage.oldest != null) && !lookedLately) {
         coverage = await lookForNew(coverage, stillMine);
+        lookedAt.set(`${email}:${accountId}`, Date.now());
       }
       for (let pages = 0; !coverage.complete && pages < MAX_PAGES; pages++) {
+        // A turn for the page between pages, so a download of the whole history (after a
+        // change of home currency, say) never holds up a tap or typing
+        await breathe();
         if (!(await stillHeld())) return;
         coverage = await downloadPage(coverage, stillMine);
       }
@@ -240,6 +258,13 @@ async function download(
     if (err instanceof ApiError || err instanceof NetworkError) return;
     storageFailed(err);
   }
+}
+
+/** Lets the page take its turn: the browser's scheduler where it has one, else a timer */
+function breathe(): Promise<void> {
+  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+  if (typeof scheduler?.yield === 'function') return scheduler.yield();
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /** Whether an account's history was checked in full lately */
@@ -353,6 +378,7 @@ export function recordSaved(changes: LedgerChange[]) {
 
 /** Every account's download starts again from the top, what's held staying shown */
 export function startAgain() {
+  lookedAt.clear();
   const email = cacheUser();
   if (email == null) return;
   const stillMine = stillMineFor(email, generation);

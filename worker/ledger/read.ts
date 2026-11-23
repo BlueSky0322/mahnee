@@ -260,8 +260,8 @@ export async function listTransactions(
   const limit = readLimit(params);
   if (limit == null) return fail(`Ask for 1-${MAX_PAGE_SIZE} at a time`, 400);
 
-  const where = ['email = ?'];
-  const values: (string | number)[] = [email];
+  const cursor = readCursor(params);
+  if (cursor === undefined) return fail('Unknown place to carry on from', 400);
   if (account != null) {
     if (!isRowId(account)) return notFound();
     const found = await db
@@ -269,16 +269,11 @@ export async function listTransactions(
       .bind(email, account)
       .first();
     if (found == null) return fail('Account not found', 404);
-    where.push('(account_id = ? OR to_account_id = ?)');
-    values.push(account, account);
-  } else {
-    if (month == null || !MONTH_PATTERN.test(month)) return fail('Give a month, like 2026-11', 400);
-    where.push('date BETWEEN ? AND ?');
-    values.push(`${month}-01`, `${month}-31`);
+    return accountPage(db, email, account, cursor, limit);
   }
-
-  const cursor = readCursor(params);
-  if (cursor === undefined) return fail('Unknown place to carry on from', 400);
+  if (month == null || !MONTH_PATTERN.test(month)) return fail('Give a month, like 2026-11', 400);
+  const where = ['email = ?', 'date BETWEEN ? AND ?'];
+  const values: (string | number)[] = [email, `${month}-01`, `${month}-31`];
   if (cursor != null) {
     where.push(AFTER(''));
     values.push(...cursor);
@@ -291,6 +286,47 @@ export async function listTransactions(
        LIMIT ?`,
     ),
     values,
+    limit,
+  );
+}
+
+/**
+ * A page of one account's transactions: those on it, and the transfers into it, each read
+ * in order down its own index (transactions_account, transactions_to_account) and merged,
+ * so a page reads about as many rows as it holds rather than every one the person has. A
+ * transfer never goes into the account it left; one that did is listed by the first side
+ * alone.
+ */
+function accountPage(
+  db: D1Database,
+  email: string,
+  account: string,
+  cursor: Cursor | null,
+  limit: number,
+) {
+  const side = (column: string) => {
+    const where = [
+      'email = ?',
+      `${column} = ?`,
+      // Belt and braces: every write refuses a transfer into the account it left, but one
+      // would otherwise be listed by both sides
+      ...(column === 'to_account_id' ? ['account_id <> to_account_id'] : []),
+      ...(cursor == null ? [] : [AFTER('')]),
+    ];
+    return `SELECT * FROM (SELECT ${transactionColumns()} FROM transactions
+       WHERE ${where.join(' AND ')}
+       ORDER BY ${NEWEST_FIRST('')}
+       LIMIT ?)`;
+  };
+  const values = [email, account, ...(cursor ?? [])];
+  return pageOf(
+    db.prepare(
+      `${side('account_id')} UNION ALL ${side('to_account_id')}
+       ORDER BY date DESC, time DESC, createdAt DESC, id DESC
+       LIMIT ?`,
+    ),
+    // Each side reads one more than asked, as the page does, to say whether there's more
+    [...values, limit + 1, ...values, limit + 1],
     limit,
   );
 }

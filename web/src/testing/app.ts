@@ -447,6 +447,8 @@ function answerNow(server: FakeServer) {
             to: settings.currency,
             since: Date.now(),
             refused: null,
+            // Nothing worked out yet, of every entry, as the real one says
+            progress: { done: 0, total: server.transactions.length },
           };
         }
       }

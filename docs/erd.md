@@ -278,7 +278,8 @@ erDiagram
   the person deletes one (Undo adds it again with the same id). An account's balance is
   its opening balance plus its income and transfers in, less its spending and transfers
   out, summed when read. Indexed for an account's newest first, by day and then time
-  (by `account_id`; the transfers into an account are found by scanning the person's rows)
+  (by `account_id`, and since migration 0016 the transfers into it by `to_account_id`, a
+  partial index on the rows that have one; a page reads each side down its index and merges them)
   and for a month across accounts. `time` is the time of day on the person's clock when
   they add times ("Ask for a time"), null otherwise (and for everything from before); lists
   order a day's rows by it, latest first, those with none after (`ifnull(time, '')`), then

@@ -6,7 +6,7 @@ import { useProfile } from '../../profile/ProfileContext';
 import { SECTION_NAMES } from './settings-search';
 import { SectionHeader } from './SettingsPage';
 import { useSettingInView } from './setting-in-view';
-import { Choice, SettingRow } from './setting-parts';
+import { Choice, SettingRow, SettingsLoading } from './setting-parts';
 import classes from './Settings.module.css';
 
 // Look and start (R-Set-Look, R-Desk-Set-Look): the theme, the accent buttons and links
@@ -25,6 +25,7 @@ export default function LookPage() {
   return (
     <div className={classes.page}>
       <SectionHeader title={title} />
+      {settings == null && <SettingsLoading rows={5} />}
       {settings != null && (
         <section
           className={classes.card}

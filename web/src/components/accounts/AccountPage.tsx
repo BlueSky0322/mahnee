@@ -16,6 +16,7 @@ import MainAmount from '../common/MainAmount';
 import { amountWords, leavesOutText, typedAmount } from '../common/typed-amount';
 import classes from './AccountsPage.module.css';
 import BackButton from '../ui/BackButton';
+import ConversionPending from '../common/ConversionPending';
 
 /** Placeholder rows while the transactions load */
 const LOADING_ROWS = 5;
@@ -124,6 +125,7 @@ export function Balance({ account, small }: { account: Account; small?: boolean 
       aria-label={`Balance ${balanceText(account)}`}
     >
       {balanceText(account)}
+      <ConversionPending />
     </p>
   );
 }
@@ -349,6 +351,23 @@ export function EntriesLoading() {
       label="Loading the transactions"
       className={classes.groupCard}
     >
+      <EntryRowsSkeleton />
+    </Loading>
+  );
+}
+
+/** The register's rows while they load, inside something already marked as loading */
+export function EntriesSkeleton() {
+  return (
+    <div className={classes.groupCard}>
+      <EntryRowsSkeleton />
+    </div>
+  );
+}
+
+function EntryRowsSkeleton() {
+  return (
+    <>
       {Array.from({ length: LOADING_ROWS }, (_, i) => (
         <div
           key={i}
@@ -370,6 +389,6 @@ export function EntriesLoading() {
           />
         </div>
       ))}
-    </Loading>
+    </>
   );
 }

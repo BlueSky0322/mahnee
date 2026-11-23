@@ -378,6 +378,38 @@ describe('kept up to date', () => {
   /** Nine days on, past when the device checks its whole history again */
   const nineDaysOn = () => vi.setSystemTime(new Date(2026, 10, 29, 10, 0, 0));
 
+  test('looks for new entries at most once every two minutes, not after every fetch', async () => {
+    const server = withHistory();
+    await openOnline(server);
+    await screen.findByRole('navigation', { name: 'Main' });
+    await download();
+    /** How many looks at an account's newest entries the app has made */
+    const looks = () =>
+      asked().filter(
+        (u) => u.pathname === '/api/transactions' && u.searchParams.get('limit') === '50',
+      ).length;
+
+    // Each account, once, the first time after it's held whole
+    await download();
+    expect(looks()).toBe(2);
+    // Again a minute later (the ledger fetched after a save, say): nothing more asked
+    vi.setSystemTime(new Date(2026, 10, 20, 10, 1, 0));
+    await download();
+    expect(looks()).toBe(2);
+    // Past two minutes it looks again, and finds what was added elsewhere
+    seed(server, { date: '2026-11-11', amountCents: 450, payee: 'New stall', createdAt: 9e9 });
+    vi.setSystemTime(new Date(2026, 10, 20, 10, 3, 0));
+    await download();
+    expect(looks()).toBe(4);
+    // The device's clock put back a minute, to before the last look: it looks again, rather
+    // than waiting for the clock to catch up
+    vi.setSystemTime(new Date(2026, 10, 20, 10, 2, 0));
+    await download();
+    expect(looks()).toBe(6);
+    await coldStartOffline(server, '/?activity&q=new%20stall');
+    await waitFor(() => expect(registerTitles()).toEqual(['New stall']), { timeout: 6000 });
+  });
+
   test('edits, deletions and back-dated entries made on another device reach it', async () => {
     const server = withHistory();
     await openOnline(server);

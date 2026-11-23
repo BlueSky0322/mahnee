@@ -9,11 +9,13 @@ import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { MAX_TRANSACTIONS_PER_ACCOUNT } from '../../shared/ledger';
+import { convertCents } from '../../shared/rates';
 import {
   type ConvertJob,
   type FetchRate,
   MAX_RESTARTS,
   MAX_START_OVERS,
+  MAX_PAGE_DAYS,
   PAGE,
   STALLED_MS,
   convertStep,
@@ -143,6 +145,20 @@ const amounts = (db: DatabaseSync) =>
     .all() as { cents: number; typed: number | null }[];
 
 describe('converting, step by step', () => {
+  it('4,000 entries over four years take a page of rows or of days a step, then the swap', async () => {
+    // Two or three entries a day over 1,500 days
+    const db = person(4_000);
+    const job = await switchTo(db, 'USD', 1_000);
+    // A page ends at PAGE entries or MAX_PAGE_DAYS days, whichever comes first
+    const pages = Math.ceil(1_500 / Math.min(MAX_PAGE_DAYS, Math.floor(PAGE / 3)));
+    expect(await runAll(db, job, flat(0.25))).toBeLessThanOrEqual(pages + 1);
+    expect(
+      amounts(db).every(
+        (a) => a.typed != null && a.cents === Math.max(1, convertCents(a.typed, 0.25)),
+      ),
+    ).toBe(true);
+  });
+
   it("a stale step refused after a newer change began leaves the newer one's work alone", async () => {
     const db = person(3);
     const old = await switchTo(db, 'IDR', 1_000);
@@ -199,7 +215,10 @@ describe('converting, step by step', () => {
     // Two pages of three worked out, then the migration lands
     expect(await convertStep(d1(db), job, flat(0.5))).toBe(true);
     expect(await convertStep(d1(db), job, flat(0.5))).toBe(true);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({ n: 400 });
+    // One entry a day, so each page is MAX_PAGE_DAYS of them
+    expect(db.prepare('SELECT COUNT(*) AS n FROM conversion_staged').get()).toEqual({
+      n: 2 * Math.min(PAGE, MAX_PAGE_DAYS),
+    });
     migrate(db, MIGRATIONS.find((f) => f.startsWith('0014'))!);
     // 0015 follows it in the same deploy, adding back the column it gives worked-out amounts
     db.exec('ALTER TABLE conversion_staged ADD COLUMN rate_day TEXT');
@@ -364,7 +383,7 @@ describe('converting, step by step', () => {
     const before = amounts(db);
     const there = await switchTo(db, 'USD', 1_000);
     const steps = await runAll(db, there, flat(0.25));
-    expect(steps).toBe(MAX_TRANSACTIONS_PER_ACCOUNT / 200 + 1);
+    expect(steps).toBe(Math.ceil(MAX_TRANSACTIONS_PER_ACCOUNT / PAGE) + 1);
     const converted = amounts(db);
     expect(converted.every((a, i) => a.typed === before[i].cents)).toBe(true);
     expect(converted[0]).toEqual({ cents: 25, typed: 100 });
@@ -373,4 +392,47 @@ describe('converting, step by step', () => {
     await runAll(db, await switchTo(db, 'MYR', 2_000), flat(4));
     expect(amounts(db)).toEqual(before);
   }, 240_000);
+});
+
+describe('a page of a step', () => {
+  it('spans at most MAX_PAGE_DAYS, so a sparse import over six years asks few rates a step', async () => {
+    const db = person(0);
+    const add = db.prepare(
+      `INSERT INTO transactions (email, id, kind, account_id, amount_cents, category_id, date, created_at, updated_at)
+       VALUES (?, ?, 'expense', ?, ?, ?, ?, 1, 1)`,
+    );
+    db.exec('BEGIN');
+    // 3,000 entries over six years, a day apart or so
+    for (let i = 0; i < 3_000; i++) {
+      const day = new Date(Date.UTC(2019, 0, 1) + Math.floor(i * 0.73) * 86_400_000);
+      add.run(
+        ME,
+        i.toString(16).padStart(16, '0'),
+        ACCOUNT,
+        100 + i,
+        FOOD,
+        day.toISOString().slice(0, 10),
+      );
+    }
+    db.exec('COMMIT');
+    const pages: string[][] = [];
+    const fetchRate: FetchRate = flat(0.25);
+    fetchRate.prefetch = (_from, _to, days) => {
+      pages.push(days);
+      return Promise.resolve();
+    };
+    const job = await switchTo(db, 'USD', 1_000);
+    const steps = await runAll(db, job, fetchRate);
+    expect(steps).toBe(pages.length + 1);
+    for (const days of pages) {
+      expect(days.length).toBeLessThanOrEqual(PAGE);
+      const span = (Date.parse(days.at(-1)!) - Date.parse(days[0])) / 86_400_000;
+      expect(span).toBeLessThan(MAX_PAGE_DAYS);
+    }
+    expect(
+      amounts(db).every(
+        (a) => a.typed != null && a.cents === Math.max(1, convertCents(a.typed, 0.25)),
+      ),
+    ).toBe(true);
+  });
 });

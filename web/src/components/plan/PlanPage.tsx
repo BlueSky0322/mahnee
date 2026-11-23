@@ -30,6 +30,7 @@ import { planAddress } from './plan-address';
 import { type PlanMonth, planMonth } from './plan-month';
 import { useMonths } from '../../ledger/month-start';
 import { budgetWords, deskSubtitle, phoneSubtitle, shareLabel } from './plan-text';
+import ConversionPending from '../common/ConversionPending';
 
 /** The earliest month a transaction can be in */
 const FIRST_MONTH = FIRST_DAY.slice(0, 7);
@@ -526,7 +527,10 @@ function WhereItWent({ data, shown }: { data: Month; shown: PlanMonth }) {
           >
             Where it went
           </h2>
-          <span className={`${classes.num} ${classes.headFigure}`}>{money(total)}</span>
+          <span className={`${classes.num} ${classes.headFigure}`}>
+            {money(total)}
+            <ConversionPending />
+          </span>
         </div>
         {total === 0 ? (
           <p
@@ -774,6 +778,7 @@ function ExpensesTable({
         <span className={classes.tableHeadEnd}>
           <span className={`${classes.num} ${classes.soft}`}>
             {money(data.summary.spentCents)} spent
+            <ConversionPending />
           </span>
           <PageLink
             href="?settings=categories"

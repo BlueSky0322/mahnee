@@ -226,6 +226,8 @@ export interface FakeRates {
   setOn: (day: string, from: string, to: string, rate: number, service?: Service) => void;
   /** Makes one service answer 500 */
   down: (service: Service, isDown: boolean) => void;
+  /** Makes the ECB answer 500 to any range that holds one of these days (none to stop) */
+  downOn: (days: string[]) => void;
   /** Forgets every rate and brings both services back, so tests don't lean on each other */
   reset: () => void;
   /**
@@ -255,6 +257,15 @@ async function startFakeRates(): Promise<
   }
 > {
   const table = new Map<string, number>();
+  /** Days a range answers 500 for, as a service failing for part of a long range */
+  let downDays: string[] = [];
+  /** The days a service has a rate for the pair on, in order */
+  const setDays = (service: Service, from: string | null, to: string | null) =>
+    [...table.keys()]
+      .map((k) => k.split(':'))
+      .filter(([s, d, pair]) => s === service && pair === `${from}${to}` && d !== '')
+      .map(([, d]) => d)
+      .sort();
   // Every rate a pair was given this run, to catch a test that would get a kept one
   const given = new Map<string, number>();
   const isDown = { wise: false, frankfurter: false };
@@ -292,16 +303,62 @@ async function startFakeRates(): Promise<
       const [from, to] = [url.searchParams.get('source'), url.searchParams.get('target')];
       heard(from, to);
       if (isDown.wise || req.headers.authorization !== 'Bearer test-token') return send(500, {});
+      // A range, as the real one answers it: a point every hour for up to 720 hours, and past
+      // that one point a day, at midnight, with no word that it changed; only the days given
+      // a rate have points
+      const [start, end] = [url.searchParams.get('from'), url.searchParams.get('to')];
+      if (start != null && end != null) {
+        const hours = (Date.parse(`${end}:00Z`) - Date.parse(`${start}:00Z`)) / 3_600_000 + 1;
+        const days = setDays('wise', from, to).filter(
+          (d) => d >= start.slice(0, 10) && d <= end.slice(0, 10),
+        );
+        const point = (d: string, hour: number) => ({
+          rate: table.get(`wise:${d}:${from}${to}`),
+          source: from,
+          target: to,
+          time: `${d}T${String(hour).padStart(2, '0')}:00:00+0000`,
+        });
+        return send(
+          200,
+          hours > 720
+            ? days.map((d) => point(d, 0))
+            : days.flatMap((d) => Array.from({ length: 24 }, (_, h) => point(d, h))),
+        );
+      }
       const day = url.searchParams.get('time')?.slice(0, 10);
       const onDay = day == null ? null : table.get(`wise:${day}:${from}${to}`);
       if (onDay != null) {
-        return send(200, [{ rate: onDay, source: from, target: to, time: `${day}T12:00:00+0000` }]);
+        // The latest point at or before the time asked, as the real one: a little before noon
+        return send(200, [{ rate: onDay, source: from, target: to, time: `${day}T11:59:14+0000` }]);
       }
       const rate = table.get(`wise:${from}${to}`);
       const now = new Date().toISOString().slice(0, 19);
       return rate == null
         ? send(400, {})
         : send(200, [{ rate, source: from, target: to, time: `${now}+0000` }]);
+    }
+    // A range of days: each working day it has from the first to the last, and the one on
+    // or before the first, as the real one starts there
+    const range = /^\/v1\/(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(url.pathname);
+    if (range) {
+      const [from, to] = [url.searchParams.get('base'), url.searchParams.get('symbols')];
+      heard(from, to);
+      if (isDown.frankfurter || downDays.some((d) => d >= range[1] && d <= range[2])) {
+        return send(500, {});
+      }
+      const all = setDays('frankfurter', from, to);
+      const before = all.filter((d) => d < range[1]).at(-1);
+      const days = [
+        ...(before == null ? [] : [before]),
+        ...all.filter((d) => d >= range[1] && d <= range[2]),
+      ];
+      if (days.length === 0 && table.get(`frankfurter:${from}${to}`) == null) return send(404, {});
+      return send(200, {
+        base: from,
+        rates: Object.fromEntries(
+          days.map((d) => [d, { [to!]: table.get(`frankfurter:${d}:${from}${to}`) }]),
+        ),
+      });
     }
     const dated = /^\/v1\/(latest|\d{4}-\d{2}-\d{2})$/.exec(url.pathname);
     if (dated) {
@@ -360,8 +417,12 @@ async function startFakeRates(): Promise<
     down: (service, value) => {
       isDown[service] = value;
     },
+    downOn: (days) => {
+      downDays = days;
+    },
     reset: () => {
       table.clear();
+      downDays = [];
       isDown.wise = false;
       isDown.frankfurter = false;
     },
@@ -493,6 +554,9 @@ export async function startLocalWorker(): Promise<LocalWorker> {
           // A conversion step that failed is tried again after a second, not minutes
           '--var',
           'CONVERT_RETRY_DELAY_S:1',
+          // The stand-in services gain rates as tests go, so no range of them is kept
+          '--var',
+          'RATES_KEEP_RANGES:no',
           '--var',
           `GOOGLE_PICTURE_BASE:${rates.google.base}`,
           '--log-level',

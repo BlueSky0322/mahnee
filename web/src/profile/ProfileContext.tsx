@@ -1,7 +1,15 @@
 import { useMantineColorScheme } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type { Profile } from '../api';
 import { ApiError, api } from '../api';
 import { ME_KEY, queryClient } from '../query-client';
@@ -38,6 +46,7 @@ import {
   currencyNow,
   isConverting,
   type Accent,
+  type Conversion,
   type PictureChoice,
   type ProfilePatch,
   type Settings,
@@ -149,6 +158,50 @@ export function useCurrency() {
   // Drawn alone (a part on its own in a test), the default
   const profile = useContext(ProfileContext)?.profile;
   return profile == null ? DEFAULT_SETTINGS.currency : currencyNow(profile);
+}
+
+/**
+ * How far the conversion under way has got, as the server last said while the app asked:
+ * kept apart from the profile, so each answer redraws only what shows it
+ */
+let progressNow: { since: number; progress: Conversion['progress'] | null } | null = null;
+const progressListeners = new Set<() => void>();
+function showProgress(conversion: Conversion | null) {
+  const progress = conversion?.progress ?? null;
+  const now = progressNow;
+  if (
+    now?.since === conversion?.since &&
+    now?.progress?.done === progress?.done &&
+    now?.progress?.total === progress?.total
+  ) {
+    return;
+  }
+  progressNow = conversion == null ? null : { since: conversion.since, progress };
+  progressListeners.forEach((listener) => listener());
+}
+const subscribeProgress = (listener: () => void) => {
+  progressListeners.add(listener);
+  return () => progressListeners.delete(listener);
+};
+
+/** Two profiles the same but for how far a conversion has got */
+const sameButProgress = (a: Profile, b: Profile | null) =>
+  b != null &&
+  JSON.stringify({ ...a, conversion: a.conversion && { ...a.conversion, progress: null } }) ===
+    JSON.stringify({ ...b, conversion: b.conversion && { ...b.conversion, progress: null } });
+
+/**
+ * How far the conversion into a new home currency has got, while one is under way: the
+ * latest the server said, else what the profile came with; null when it isn't said
+ */
+export function useConversionProgress(): Conversion['progress'] | null {
+  const profile = useContext(ProfileContext)?.profile;
+  const asked = useSyncExternalStore(subscribeProgress, () => progressNow);
+  const conversion = profile?.conversion;
+  if (conversion == null || conversion.refused != null) return null;
+  // Only what was said about this conversion, never one before it
+  const said = asked?.since === conversion.since ? asked.progress : null;
+  return said ?? conversion.progress ?? null;
 }
 
 /** The name to show for someone: their display name, else the part of the email before @ */
@@ -504,22 +557,33 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   }, [profile, update]);
 
   // While amounts convert into a new home currency, the server is asked every few seconds
-  // how it's going; once it's done, the ledger fetches everything again in the new currency
-  // and sends the changes kept meanwhile (ledger/ledger.ts)
+  // how it's going (one ask at a time, however slow the answers); once it's done, the ledger
+  // fetches everything again in the new currency and sends the changes kept meanwhile
+  // (ledger/ledger.ts). An answer that says only how far it has got goes to what shows that
+  // (useConversionProgress), so the app isn't drawn again every few seconds while it waits.
   const converting = profile != null && isConverting(profile);
   useEffect(() => {
     if (!converting) return;
+    let asking = false;
     const timer = setInterval(() => {
+      if (asking) return;
+      asking = true;
       const asked = latest.current;
       void api
         .getMe()
         .then((me) => {
           // A change made since wins; the next ask brings the rest
           if (asked !== latest.current || profileRef.current?.email !== me.email) return;
+          // Only further on: said where it's shown, without drawing every screen again
+          showProgress(me.conversion);
+          if (sameButProgress(me, profileRef.current)) return;
           replace(me);
           void writeCache(ME_CACHE_KEY, me);
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          asking = false;
+        });
     }, CONVERSION_POLL_MS);
     return () => clearInterval(timer);
   }, [converting, replace]);

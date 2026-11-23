@@ -2098,6 +2098,71 @@ describe('transactions', () => {
     expect((await page(me, `account=${wallet}`)).data).toMatchObject({ nextBefore: null });
   });
 
+  it('pages an account with the transfers into it, each once and in order', async () => {
+    const { me, wallet } = await withWallet();
+    const bank = rowId();
+    const theirs = rowId();
+    await send(me, [
+      addAccount(bank, 'bank', 50_000, 'Bank'),
+      addAccount(theirs, 'bank', 0, 'Other'),
+    ]);
+    // Its own spending, transfers into it and out of it, on the same days and between,
+    // with other accounts' entries around them that it never lists
+    const days = ['2025-10-01', '2025-10-05', '2025-10-05', '2025-10-09', '2025-10-12'];
+    const expected: string[] = [];
+    const changes: unknown[] = [];
+    days.forEach((date, i) => {
+      const [own, into, out, elsewhere] = [rowId(), rowId(), rowId(), rowId()];
+      changes.push(
+        add(own, wallet, 100 + i, { date }),
+        move(into, bank, wallet, 200 + i, { date }),
+        move(out, wallet, theirs, 300 + i, { date }),
+        add(elsewhere, bank, 400 + i, { date }),
+      );
+      expected.push(own, into, out);
+    });
+    await send(me, changes);
+    const whole = (await page(me, `account=${wallet}&limit=200`)).data.transactions as {
+      id: string;
+    }[];
+    expect(new Set(whole.map((t) => t.id))).toEqual(new Set(expected));
+    expect(whole).toHaveLength(expected.length);
+    // A page at a time gives the same, in the same order, whatever the page size
+    for (const size of [1, 2, 4]) {
+      const seen: string[] = [];
+      let before: string | null = null;
+      do {
+        const query: string = `account=${wallet}&limit=${size}${before == null ? '' : `&before=${encodeURIComponent(before)}`}`;
+        const res = await page(me, query);
+        expect(res.status).toBe(200);
+        expect(res.data.transactions.length).toBeLessThanOrEqual(size);
+        seen.push(...res.data.transactions.map((t: { id: string }) => t.id));
+        before = res.data.nextBefore;
+      } while (before != null);
+      expect(seen).toEqual(whole.map((t) => t.id));
+    }
+    // The bank lists the transfers it sent, not those into the wallet twice
+    const bankIds = (await listed(me, bank)).map((t) => t.id);
+    expect(bankIds.filter((id) => expected.includes(id))).toHaveLength(days.length);
+  });
+
+  it('lists a transfer from an account into itself once, should one ever be saved', async () => {
+    const { me, wallet } = await withWallet();
+    const [own, onto] = [rowId(), rowId()];
+    await send(me, [add(own, wallet, 100, { date: '2025-10-02' })]);
+    // Every write refuses it; written straight to the database, it's still listed once
+    await api.sql(
+      `INSERT INTO transactions (email, id, kind, account_id, to_account_id, amount_cents,
+         category_id, date, created_at, updated_at)
+       VALUES (?, ?, 'transfer', ?, ?, 300, NULL, '2025-10-03', 1, 1)`,
+      me,
+      onto,
+      wallet,
+      wallet,
+    );
+    expect((await listed(me, wallet)).map((t) => t.id)).toEqual([onto, own]);
+  });
+
   it('lists a month across every account, and only the person’s own', async () => {
     const { me, wallet } = await withWallet();
     const bank = rowId();

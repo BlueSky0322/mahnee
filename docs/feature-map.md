@@ -848,7 +848,12 @@ the old month card (Home's month end takes its place; see the changelog).
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts), as for transactions; Plan keeps
 no state of its own but what's typed, and changes budgets through `setBudget` (Budgets). A
 month's totals are a query keyed by month (`summaryKey`), fetched from the server
-(`fetchSummary`) with a device copy (`summary-v3:<month>`) shown offline. They're kept
+(`fetchSummary`) with a device copy (`summary-v3:<month>`, saying the currency it was summed
+in, `keptIn`, and brought up to date as each batch is saved) shown offline, and shown at once
+(`showKeptSummary`, `showKeptTrend` for the 12 months) while the server's first answer is on
+its way, marked as from the device until it comes. A copy in another currency than the one
+amounts are in now (changed on another device) is never drawn; one from before `keptIn` is
+drawn only offline. They're kept
 as the server summed them, with each saved batch counted in (before the lists take it,
 so an edited transaction is taken out as it was), and the changes still to send counted
 on top as they're shown (`shownSummary`). Once nothing is left to send they're fetched
@@ -1938,15 +1943,22 @@ is shown, marked `fromDevice`.
 every amount is kept and shown in, reading "MYR, RM". It opens a picker (a sheet on phones,
 a panel under the row on computers) with "Search currencies" and the groups "You use" (the
 one in use) and "All currencies" (the ECB's 30, `HOME_CURRENCIES` in `shared/rates.ts`, so
-each converts without Wise). Picking one saves it at once; the server then converts every
-amount in the background. Until that's done the row and the freshness line say "Converting
-to USD…", the row can't be changed, and amounts are shown as they still are. A change
+each converts without Wise). Picking one closes the picker (drawn first) and saves it at once; the server then converts
+every amount in the background while the app stays usable (places, search, adding entries,
+which wait on the device and are saved once it's done; the freshness line says "Converting to
+USD… 40% · 2 changes waiting"). Until that's done the row and the freshness line say "Converting
+to USD… 40%" (`Conversion.progress`, when the server says), the row can't be changed, amounts
+are shown as they still are, and the totals on Home, Activity and Accounts say "conversion
+pending" ([common/ConversionPending.tsx](../web/src/components/common/ConversionPending.tsx)). A change
 refused for an amount past its limit is said under the row ("Kept MYR: an entry would come
-to more than 10,000,000 IDR"). It needs a connection ("Connect to change the currency").
+to more than 10,000,000 IDR"). A refused change offers "Try USD again" under it. It needs a connection ("Connect to change
+the currency").
 
 **Owner.** The profile ([profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx)):
 the setting saves through `change()`, and `Profile.conversion` says what's converting (or
-the last change refused). While converting it asks `GET /api/me` every 2 seconds; once
+the last change refused). While converting it asks `GET /api/me` every 2 seconds, one ask at a time;
+an answer that only moves `progress` on goes to `useConversionProgress()` (what shows it),
+not the profile, so the screens aren't drawn again each time. Once
 done, the ledger ([ledger/ledger.ts](../web/src/ledger/ledger.ts)) drops every month's
 totals kept, fetches everything again and sends the changes kept meanwhile. `useCurrency()`
 (and `useMoney()` in `hooks/`) is the currency every amount is shown in: `currencyNow` in
@@ -1958,9 +1970,23 @@ totals kept, fetches everything again and sends the changes kept meanwhile. `use
   while one is under way) and queues the first step on `mahnee-reconvert`
   ([worker/currency/convert-queue.ts](../worker/currency/convert-queue.ts)).
 - Each step ([worker/currency/convert.ts](../worker/currency/convert.ts)) works out a page
-  of 200 transactions, by day then id, each at the rate on its own day (`getRateOn`: the
-  ECB's, else Wise's), into `conversion_staged`, checking each against its limit. A step
-  asks the services about each day once (`RateLookups`, found or not) and at most 40 times;
+  of up to 500 transactions over at most 90 days (`PAGE`, `MAX_PAGE_DAYS`), by day then id,
+  each at the rate on its own day (`getRateOn`: the ECB's, else Wise's), into
+  `conversion_staged`, checking each against its limit. First it asks for the page's days as
+  ranges (`prefetchRatesOn` in [exchange-rates.ts](../worker/currency/exchange-rates.ts)):
+  fixed 128-day spans from the ECB, then 28-day spans from Wise, an hour at a time (it gives
+  hourly points only up to 720 hours), for days the ECB has nothing within a week of. Each
+  span is one request, kept in the cache as one copy (`v2/range/<source>/<size>/...`, long
+  only when it ends before yesterday), and each day's answer is noted as asking for that
+  day alone would give it: the ECB's on or before it; Wise's latest point at or before noon
+  UTC that day, the same rule for a single day. A Wise range refused, not hourly, or with no
+  point for a day, and any ECB range failure but its 404 (the pair not published, as a single
+  day says too), keeps nothing: those days are asked one at a time, never taken as having no
+  rate. A year of about 12,000 entries takes about 26 steps and a few seconds (it was 63
+  steps, 373 requests and over two minutes a day at a time). A step asks the services about each day once (`RateLookups`, found or
+  not), and its requests and cache calls together are at most 36 (`MAX_RATE_REQUESTS`, within
+  the free plan's 50 subrequests a run, with its database calls), 20 of them kept back from
+  ranges for single days;
   a page whose rates need more stops there, and the next step carries on; so do the
   opening balances, budgets and scheduled items, keeping those worked out. The last
   step works out the opening balances, budgets and scheduled items at the rate on the day of
@@ -2134,7 +2160,8 @@ leaves that part in (without its opening balance change) and to use Undo import 
   seconds after the balances come fresh (not while amounts are converting): each account
   newest first, 200 a page, how far it got kept with each page (`coverage`), so a stopped
   download carries on from its cursor; a started one first looks for new entries at the
-  top (50 a page, down to the newest it held). Kept up to date by each change saved here
+  top (50 a page, down to the newest it held), at most once every two minutes an account
+  (`LOOK_AGAIN_MS`), since the balances are fetched again after every save. Kept up to date by each change saved here
   (`recordSaved`, marked with when, so no page asked for earlier, by any tab, undoes it)
   and each page the server sends (an account's page replaces what was held over its
   range). The server keeps no record of deletions, so what other devices change below the
@@ -2305,6 +2332,14 @@ browser's history is named, `visit` in its state), else on its last visit, held 
 what it shows is still drawn, until the person moves it; where it gets to while settling
 isn't kept. A reload opens where its page was (kept for the tab in sessionStorage). A change within a page (Activity's
 filters, Home's month) leaves it where it is.
+
+**While a page loads.** A page or part of one waiting on the server draws placeholders in
+its own shape ([ui/Skeleton.tsx](../web/src/components/ui/Skeleton.tsx): `Skeleton`, `Loading`,
+`LoadingRows`), in a region marked busy and read out once as "Loading …" (each block hidden
+from screen readers). Each block stays clear for its first 180 ms and has no sweep with
+reduced motion. Only what has no copy yet shows them: a copy in memory or kept on the device
+draws at once, and offline with no copy a page says so in its own words
+([shell/Loading.test.tsx](../web/src/components/shell/Loading.test.tsx)).
 
 **Addresses.** Later pieces link to these; each is a query string read by `readRoute`.
 

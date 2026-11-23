@@ -40,6 +40,7 @@ import {
 } from './home-text';
 import PageLink from './PageLink';
 import { recurringName } from './recurring-text';
+import ConversionPending from '../common/ConversionPending';
 
 /** The earliest month a transaction can be in */
 const FIRST_MONTH = FIRST_DAY.slice(0, 7);
@@ -588,6 +589,7 @@ function Answers({
     ) : (
       <span className={big ? classes.heroFigure : classes.cardFigure}>
         {signedMoney(cents, homeCurrency)}
+        <ConversionPending />
       </span>
     );
 

@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { URL as NodeURL, fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { ACCENTS } from '@shared/api';
 import { OPENED_FROM_DEVICE, OPENED_SIGNED_OUT, SIGN_IN_PARAM } from './cache';
+import { installFiles as installFilesIn } from '../pwa/install-icons';
 import {
   type Answer,
   type Site,
@@ -265,15 +267,19 @@ describe('updating the kept page', () => {
 describe('keeping what installing the app reads', () => {
   const read = (file: string) =>
     readFileSync(fileURLToPath(new NodeURL(`../../${file}`, import.meta.url)), 'utf8');
-  /** The manifest, each icon it names, and the iPhone and browser tab icons the page links */
+  /**
+   * Each accent's manifest, the icons it names and its iPhone icon (the page names the
+   * chosen accent's), and the browser tab icons the page links
+   */
   const installFiles = () => {
-    const manifest = JSON.parse(read('public/manifest.webmanifest')) as {
-      icons: { src: string }[];
-    };
     const page = read('index.html');
-    const touch = /rel="apple-touch-icon"\s+href="([^"]+)"/.exec(page)![1];
     const tab = [...page.matchAll(/rel="icon"[^>]*?href="([^"]+)"/g)].map((m) => m[1]);
-    return ['/manifest.webmanifest', ...manifest.icons.map((i) => i.src), touch, ...tab].sort();
+    const accents = ACCENTS.flatMap((accent) => {
+      const { manifest, appleTouchIcon } = installFilesIn(accent);
+      const icons = (JSON.parse(read(`public${manifest}`)) as { icons: { src: string }[] }).icons;
+      return [manifest, ...icons.map((i) => i.src), appleTouchIcon];
+    });
+    return [...new Set([...accents, ...tab])].sort();
   };
   const serving = (files: string[]) =>
     Object.fromEntries(
@@ -300,6 +306,19 @@ describe('keeping what installing the app reads', () => {
     const { response } = await fetchThroughWorker('/manifest.webmanifest', answer, caches);
     expect(await response?.text()).toBe('file /manifest.webmanifest');
   });
+
+  test.each(ACCENTS.filter((a) => a !== 'cobalt'))(
+    "with no connection, %s's manifest and iPhone icon come from the kept copies",
+    async (accent) => {
+      const caches = fakeCaches();
+      await visit(caches, deployed(version(1), serving(installFiles())));
+      const { manifest, appleTouchIcon } = installFilesIn(accent);
+      for (const file of [manifest, appleTouchIcon]) {
+        const { response } = await fetchThroughWorker(file, { networkError: true }, caches);
+        expect(await response?.text()).toBe(`file ${file}`);
+      }
+    },
+  );
 
   test('from the network it is fresh, and kept so', async () => {
     const caches = fakeCaches();

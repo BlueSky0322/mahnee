@@ -2186,9 +2186,20 @@ The logo: in the app,
 the first run, the signed-out screen) draws its tile in `--accent` and the hand and coin in
 `--accent-ink`, so it follows the accent and theme as they change. The browser tab's
 icon, [web/public/icon.svg](../web/public/icon.svg), follows the device's light or dark.
-The icons that can't change (installing, the iPhone's, maskable, a reminder's icon, and
-the PNG tab icons) stay cobalt, and a reminder's badge is the mark alone;
-[tools/icons/make-icons.js](../tools/icons/make-icons.js) makes them all from icon.svg.
+Installing the app takes the accent: each accent has its own manifest
+(`manifest-<accent>.webmanifest`, the app's own with only its icons changed, keeping
+`"id": "/"` so it stays one app) naming icons on that accent's light tile in
+`web/public/icons/<accent>/`, with its own iPhone icon; cobalt's are the page's own
+files. [pwa/install-icons.ts](../web/src/pwa/install-icons.ts) (`installFiles`) says which
+an accent reads, and `showAccent` ([theme/appearance.ts](../web/src/theme/appearance.ts))
+points the page's `manifest` and `apple-touch-icon` links at them whenever the accent is
+shown; index.html's first script does the same from the kept accent, before the app
+loads, so Android's check on an installed app reads them too. An app already installed
+keeps its icon until the browser updates it: never on an iPhone (remove and add it again),
+and on Chrome after the person accepts the change. The tab PNGs and a reminder's icon stay
+cobalt, and a reminder's badge is the mark alone;
+[tools/icons/make-icons.js](../tools/icons/make-icons.js) makes them all from icon.svg and
+the accents' ramps.
 
 **Flow.** A page load waits up to 3 seconds for the network; offline, slower, or a 5xx
 or non-page answer, and the kept page opens instead, marked as opened from the device.
@@ -2229,14 +2240,19 @@ account's saved copy ([ProfileContext](../web/src/profile/ProfileContext.tsx)).
 - The kept page is only replaced once every file it and `precache.json` name is kept,
   so a stopped update leaves the old page whole. Built files of the newest two pages are
   kept, for a tab still open on the older one.
-- The manifest, the icons it names and the browser tab's icons are kept beside the page
-  and answered from there when the network fails or Access answers in their place, so a
-  page opened from the device still installs properly (`INSTALL_FILES` in `sw.js`).
+- Every accent's manifest, the icons it names and its iPhone icon, and the browser tab's
+  icons, are kept beside the page and answered from there when the network fails or
+  Access answers in their place, so a page opened from the device still installs properly
+  in whichever accent is chosen (`INSTALL_FILES` in `sw.js`).
 
 **Tests.** [AppLogo.test.tsx](../web/src/components/common/AppLogo.test.tsx) (the logo
 takes the accent and theme, and every copy of the mark is the same),
-[icons.test.ts](../web/src/pwa/icons.test.ts) (every icon named is there at its size; the
-tab icon's colours are the app's), [cache.test.ts](../web/src/offline/cache.test.ts),
+[icons.test.ts](../web/src/pwa/icons.test.ts) (every icon named is there at its size; each
+accent's manifest matches the app's but for its icons, whose tile is that accent's colour;
+the tab icon's colours are the app's),
+[install-icons.test.tsx](../web/src/pwa/install-icons.test.tsx) (the page names the kept
+accent's install files before the app loads, and the app switches them as the accent
+changes), [cache.test.ts](../web/src/offline/cache.test.ts),
 [shell.test.ts](../web/src/offline/shell.test.ts) (slow, failing and redirected page
 loads, stopped updates, which files are kept),
 [sw.test.ts](../web/src/offline/sw.test.ts) (web fonts, the API left alone, background

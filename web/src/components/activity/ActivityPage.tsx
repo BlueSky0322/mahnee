@@ -768,7 +768,7 @@ function FoundLine({
 function Placeholders() {
   return (
     <Loading
-      label="Searching"
+      label="Loading Activity"
       className={classes.list}
     >
       {Array.from({ length: LOADING_ROWS }, (_, i) => (

@@ -18,6 +18,7 @@ import CurrencyRow from './CurrencyRow';
 import OtherCurrencies from './OtherCurrencies';
 import { ordinal } from './settings-text';
 import { useSettingInView } from './setting-in-view';
+import { SettingsLoading } from './setting-parts';
 import { SectionHeader } from './SettingsPage';
 import classes from './Settings.module.css';
 import money from './MoneyPage.module.css';
@@ -98,11 +99,13 @@ export default function MoneyPage() {
   return (
     <div className={classes.page}>
       <SectionHeader title="Money" />
-      {known && (
+      {known ? (
         <MoneyCard
           settings={profile.settings}
           pays={paysIn(ledger?.recurring)}
         />
+      ) : (
+        <SettingsLoading rows={5} />
       )}
     </div>
   );

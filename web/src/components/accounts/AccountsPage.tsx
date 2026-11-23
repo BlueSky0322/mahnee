@@ -1,6 +1,7 @@
 import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { useAccounts } from '../../ledger/useLedger';
-import AccountPage, { NotFound } from './AccountPage';
+import Skeleton, { Loading } from '../ui/Skeleton';
+import AccountPage, { EntriesSkeleton as LoadingEntries, NotFound } from './AccountPage';
 import AccountPane from './AccountPane';
 import AccountsList from './AccountsList';
 import classes from './AccountsPage.module.css';
@@ -10,7 +11,7 @@ import classes from './AccountsPage.module.css';
 // and on the right the account picked, or with none picked the first running one.
 export default function AccountsPage({ id }: { id: string | null }) {
   const isDesktop = useIsDesktop();
-  const { accounts } = useAccounts();
+  const { accounts, failed } = useAccounts();
   if (!isDesktop) {
     return id == null ? (
       <div className={classes.page}>
@@ -33,6 +34,7 @@ export default function AccountsPage({ id }: { id: string | null }) {
       data-layout="panes"
     >
       <AccountsList selected={open?.id ?? null} />
+      {accounts == null && !failed && <PaneLoading />}
       {accounts != null &&
         (open != null ? (
           <AccountPane
@@ -43,5 +45,33 @@ export default function AccountsPage({ id }: { id: string | null }) {
           id != null && <NotFound beside />
         ))}
     </div>
+  );
+}
+
+/** The account beside the list while the accounts load: its name, balance and entries */
+function PaneLoading() {
+  return (
+    <Loading
+      label="Loading the account"
+      className={classes.pane}
+    >
+      <div className={classes.paneHead}>
+        <div className={classes.paneTitle}>
+          <Skeleton
+            width={180}
+            height={24}
+          />
+          <Skeleton
+            width={140}
+            height={12}
+          />
+          <Skeleton
+            width={120}
+            height={28}
+          />
+        </div>
+      </div>
+      <LoadingEntries />
+    </Loading>
   );
 }

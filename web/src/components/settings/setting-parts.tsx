@@ -1,12 +1,22 @@
 import { Switch } from '@mantine/core';
 import type { ReactNode } from 'react';
 import { NewTag } from '../ui/Badge';
+import { LoadingRows } from '../ui/Skeleton';
 import classes from './Settings.module.css';
 
 // What a section of Settings is built from: a row for each setting (its name, what it's
 // for, and its control below or beside it), and a choice of one of a few, drawn as a
 // segmented control or as colour swatches. A search opens the section with the row it
 // found in view (`found`), so each row is named by its setting's key (`data-setting`).
+
+/** A section's settings while the profile loads: a row for each, `rows` of them */
+export const SettingsLoading = ({ rows }: { rows: number }) => (
+  <LoadingRows
+    label="Loading your settings"
+    rows={rows}
+    icons={false}
+  />
+);
 
 /** One setting: its name and line, and its control under them (or beside, for a switch) */
 export function SettingRow({

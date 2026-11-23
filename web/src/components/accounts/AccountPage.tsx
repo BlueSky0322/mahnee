@@ -349,6 +349,23 @@ export function EntriesLoading() {
       label="Loading the transactions"
       className={classes.groupCard}
     >
+      <EntryRowsSkeleton />
+    </Loading>
+  );
+}
+
+/** The register's rows while they load, inside something already marked as loading */
+export function EntriesSkeleton() {
+  return (
+    <div className={classes.groupCard}>
+      <EntryRowsSkeleton />
+    </div>
+  );
+}
+
+function EntryRowsSkeleton() {
+  return (
+    <>
       {Array.from({ length: LOADING_ROWS }, (_, i) => (
         <div
           key={i}
@@ -370,6 +387,6 @@ export function EntriesLoading() {
           />
         </div>
       ))}
-    </Loading>
+    </>
   );
 }

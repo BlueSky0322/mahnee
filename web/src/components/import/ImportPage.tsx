@@ -49,6 +49,7 @@ import { rememberMapping, rememberedMapping } from './remembered-mapping';
 import classes from './Import.module.css';
 import BackButton from '../ui/BackButton';
 import Picker from '../ui/Picker';
+import Skeleton, { Loading } from '../ui/Skeleton';
 import { CloseIcon } from '../ui/icons';
 import Settings from '../settings/SettingsPage';
 
@@ -118,7 +119,7 @@ const countOf = (transactions: number, repeating: number | null) =>
 export default function ImportPage() {
   const { profile } = useProfile();
   const email = profile?.email ?? null;
-  const { accounts } = useAccounts();
+  const { accounts, failed: accountsFailed } = useAccounts();
   const { categories } = useCategories();
   const listed = accounts?.filter((a) => !a.archived) ?? [];
   const [chosenAccount, setChosenAccount] = useState<string | null>(null);
@@ -520,16 +521,33 @@ export default function ImportPage() {
         A CSV file from your bank, or one exported from Mahnee. Nothing is saved until you look it
         over and say Import.
       </p>
-      <Picker
-        label="Account"
-        value={accountId}
-        onChange={chooseAccount}
-        options={
-          listed.length === 0
-            ? [{ value: '', label: 'No accounts yet' }]
-            : listed.map((a) => ({ value: a.id, label: a.name }))
-        }
-      />
+      {accounts == null && !accountsFailed ? (
+        <Loading
+          label="Loading the accounts to import into"
+          className={classes.fieldLoading}
+        >
+          <Skeleton
+            width={64}
+            height={12}
+          />
+          <Skeleton
+            width="100%"
+            height={36}
+            radius={8}
+          />
+        </Loading>
+      ) : (
+        <Picker
+          label="Account"
+          value={accountId}
+          onChange={chooseAccount}
+          options={
+            listed.length === 0
+              ? [{ value: '', label: 'No accounts yet' }]
+              : listed.map((a) => ({ value: a.id, label: a.name }))
+          }
+        />
+      )}
       <label className={classes.fileButton}>
         <FileArrowUp size={18} />
         <span>{file == null ? 'Pick a CSV file' : 'Pick another file'}</span>

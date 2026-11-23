@@ -14,6 +14,7 @@ import { formatMoney } from '../../utils/money';
 import EntryTile from '../common/EntryTile';
 import PageLink from '../home/PageLink';
 import { AlertIcon, ForwardIcon, ScheduledIcon } from '../ui/icons';
+import { LoadingRows } from '../ui/Skeleton';
 import NextDays from './NextDays';
 import type { Opened, Prefill } from './ScheduleSheet';
 import classes from './Scheduled.module.css';
@@ -48,11 +49,18 @@ const COMMON: { label: string; kind: TransactionKind; category: string; payee: s
 
 export default function ScheduledView({ onOpen }: { onOpen: (opened: Opened) => void }) {
   const homeCurrency = useCurrency();
-  const { data: ledger } = useWholeLedger();
+  const { data: ledger, failed } = useWholeLedger();
   const months = useMonths();
   const { summary } = useMonthSummary(months.current.month);
   const isDesktop = useIsDesktop() === true;
-  if (ledger == null) return null;
+  if (ledger == null) {
+    return failed ? null : (
+      <LoadingRows
+        label="Loading Scheduled"
+        rows={5}
+      />
+    );
+  }
   const categories = categoriesOrDefaults(ledger.categories);
   const items = (ledger.recurring ?? []).filter((r) => running(ledger, r));
   if (items.length === 0) {

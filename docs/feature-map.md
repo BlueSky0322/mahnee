@@ -2290,6 +2290,14 @@ what it shows is still drawn, until the person moves it; where it gets to while 
 isn't kept. A reload opens where its page was (kept for the tab in sessionStorage). A change within a page (Activity's
 filters, Home's month) leaves it where it is.
 
+**While a page loads.** A page or part of one waiting on the server draws placeholders in
+its own shape ([ui/Skeleton.tsx](../web/src/components/ui/Skeleton.tsx): `Skeleton`, `Loading`,
+`LoadingRows`), in a region marked busy and read out once as "Loading …" (each block hidden
+from screen readers). Each block stays clear for its first 180 ms and has no sweep with
+reduced motion. Only what has no copy yet shows them: a copy in memory or kept on the device
+draws at once, and offline with no copy a page says so in its own words
+([shell/Loading.test.tsx](../web/src/components/shell/Loading.test.tsx)).
+
 **Addresses.** Later pieces link to these; each is a query string read by `readRoute`.
 
 | Page                      | Address                                                                                                                                  | Now                                                                              |

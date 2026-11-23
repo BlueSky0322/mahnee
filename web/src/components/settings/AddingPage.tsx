@@ -9,7 +9,7 @@ import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { SECTION_NAMES } from './settings-search';
 import { SectionHeader } from './SettingsPage';
 import { useSettingInView } from './setting-in-view';
-import { Choice, OnOff, SettingRow } from './setting-parts';
+import { Choice, OnOff, SettingRow, SettingsLoading } from './setting-parts';
 import classes from './Settings.module.css';
 
 const LAST_USED = 'Last used';
@@ -34,6 +34,7 @@ export default function AddingPage() {
   return (
     <div className={classes.page}>
       <SectionHeader title={title} />
+      {settings == null && <SettingsLoading rows={4} />}
       {settings != null && (
         <section
           className={classes.card}

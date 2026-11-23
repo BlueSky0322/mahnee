@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-23
+
+- Changed: every page and section that waits on data shows grey placeholders in its own shape, after a moment and never over what's already on the device, including Settings sections, Scheduled, Import and a computer's account pane [#?]
+
 ## 2026-11-20
 
 - Fixed: a preference changed offline and not sent yet stays shown when the app opens online, even before the server takes it [#70]

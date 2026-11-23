@@ -183,6 +183,8 @@ describe('changing the home currency', () => {
       to: 'USD',
       since: expect.any(Number),
       refused: null,
+      // Nothing worked out yet, of every one of the person's entries
+      progress: { done: 0, total: entries.length },
     });
 
     expect((await finished(who)).conversion).toBeNull();

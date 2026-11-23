@@ -244,6 +244,9 @@ async function download(
         lookedAt.set(`${email}:${accountId}`, Date.now());
       }
       for (let pages = 0; !coverage.complete && pages < MAX_PAGES; pages++) {
+        // A turn for the page between pages, so a download of the whole history (after a
+        // change of home currency, say) never holds up a tap or typing
+        await breathe();
         if (!(await stillHeld())) return;
         coverage = await downloadPage(coverage, stillMine);
       }
@@ -253,6 +256,13 @@ async function download(
     if (err instanceof ApiError || err instanceof NetworkError) return;
     storageFailed(err);
   }
+}
+
+/** Lets the page take its turn: the browser's scheduler where it has one, else a timer */
+function breathe(): Promise<void> {
+  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+  if (typeof scheduler?.yield === 'function') return scheduler.yield();
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /** Whether an account's history was checked in full lately */

@@ -20,6 +20,7 @@ import {
 } from './account-text';
 import KindIcon from './KindIcon';
 import classes from './AccountsPage.module.css';
+import ConversionPending from '../common/ConversionPending';
 
 /** Placeholder rows while the accounts load */
 const LOADING_ROWS = 3;
@@ -81,8 +82,9 @@ export default function AccountsList({ selected }: { selected?: string | null })
               <p className={classes.soft}>
                 <span className={`${classes.inkFigure} sf-tabular`}>
                   {signedMoneyText(totals.togetherCents, currency)}
-                </span>{' '}
-                all together{breakdown && ` · ${totalsLine(totals, currency)}`}
+                </span>
+                <ConversionPending /> all together
+                {breakdown && ` · ${totalsLine(totals, currency)}`}
               </p>
             </div>
           )}
@@ -110,6 +112,7 @@ export default function AccountsList({ selected }: { selected?: string | null })
           <p className={classes.eyebrow}>All together</p>
           <p className={`${classes.together} sf-tabular`}>
             {signedMoneyText(totals.togetherCents, currency)}
+            <ConversionPending />
           </p>
           {breakdown && <p className={classes.soft}>{totalsLine(totals, currency)}</p>}
         </div>

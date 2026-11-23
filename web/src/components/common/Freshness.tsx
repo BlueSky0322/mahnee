@@ -2,8 +2,8 @@ import { useNetwork } from '@mantine/hooks';
 import { useEffect, useState } from 'react';
 import { useDataAge, useLedgerShown, useUnsaved } from '../../ledger/useLedger';
 import { isConverting } from '@shared/api';
-import { useProfile } from '../../profile/ProfileContext';
-import { freshnessText } from './freshness-text';
+import { useConversionProgress, useProfile } from '../../profile/ProfileContext';
+import { convertedPercent, freshnessText } from './freshness-text';
 import classes from './Freshness.module.css';
 
 // How fresh the figures are, always said: "Up to date" with a green dot once the server
@@ -19,7 +19,9 @@ function useFreshness(month: string) {
   const { waiting, signedOut } = useUnsaved();
   const at = useDataAge(month);
   const { profile } = useProfile();
-  const convertingTo = profile != null && isConverting(profile) ? profile.conversion!.to : null;
+  const converting = profile != null && isConverting(profile) ? profile.conversion! : null;
+  const convertingTo = converting?.to ?? null;
+  const percent = convertedPercent(useConversionProgress() ?? undefined);
   const [now, setNow] = useState(Date.now);
   // An age keeps counting while it's shown
   useEffect(() => {
@@ -29,7 +31,15 @@ function useFreshness(month: string) {
     return () => clearInterval(timer);
   }, [at]);
   if (!shown) return null;
-  return freshnessText({ online, waiting, signedOut, convertingTo, at, now });
+  return freshnessText({
+    online,
+    waiting,
+    signedOut,
+    convertingTo,
+    convertedPercent: percent,
+    at,
+    now,
+  });
 }
 
 /**

@@ -141,6 +141,12 @@ export interface Conversion {
   /** When the currency was changed, in ms */
   since: number;
   refused: ConversionRefusal | null;
+  /**
+   * While it's under way, how many of the person's transactions have been worked out so far
+   * of how many there are, for the app to show how far it has got; missing otherwise, or
+   * from a server or a copy from before it was said
+   */
+  progress?: { done: number; total: number };
 }
 
 /** Where the picture shown in place of the initial came from */

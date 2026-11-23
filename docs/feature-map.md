@@ -1940,15 +1940,21 @@ is shown, marked `fromDevice`.
 every amount is kept and shown in, reading "MYR, RM". It opens a picker (a sheet on phones,
 a panel under the row on computers) with "Search currencies" and the groups "You use" (the
 one in use) and "All currencies" (the ECB's 30, `HOME_CURRENCIES` in `shared/rates.ts`, so
-each converts without Wise). Picking one saves it at once; the server then converts every
-amount in the background. Until that's done the row and the freshness line say "Converting
-to USD…", the row can't be changed, and amounts are shown as they still are. A change
+each converts without Wise). Picking one closes the picker (drawn first) and saves it at once; the server then converts
+every amount in the background while the app stays usable (places, search, adding entries,
+which wait on the device). Until that's done the row and the freshness line say "Converting
+to USD… 40%" (`Conversion.progress`, when the server says), the row can't be changed, amounts
+are shown as they still are, and the totals on Home, Activity and Accounts say "conversion
+pending" ([common/ConversionPending.tsx](../web/src/components/common/ConversionPending.tsx)). A change
 refused for an amount past its limit is said under the row ("Kept MYR: an entry would come
-to more than 10,000,000 IDR"). It needs a connection ("Connect to change the currency").
+to more than 10,000,000 IDR"). A refused change offers "Try USD again" under it. It needs a connection ("Connect to change
+the currency").
 
 **Owner.** The profile ([profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx)):
 the setting saves through `change()`, and `Profile.conversion` says what's converting (or
-the last change refused). While converting it asks `GET /api/me` every 2 seconds; once
+the last change refused). While converting it asks `GET /api/me` every 2 seconds, one ask at a time;
+an answer that only moves `progress` on goes to `useConversionProgress()` (what shows it),
+not the profile, so the screens aren't drawn again each time. Once
 done, the ledger ([ledger/ledger.ts](../web/src/ledger/ledger.ts)) drops every month's
 totals kept, fetches everything again and sends the changes kept meanwhile. `useCurrency()`
 (and `useMoney()` in `hooks/`) is the currency every amount is shown in: `currencyNow` in

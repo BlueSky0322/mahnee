@@ -18,6 +18,16 @@ export function ageInWords(ms: number) {
 /** "1 change", "2 changes" */
 const changes = (n: number) => `${n} ${n === 1 ? 'change' : 'changes'}`;
 
+/** "Converting to USD… 40%", or without the share while it isn't known */
+export const convertingText = (to: string, percent: number | null) =>
+  `Converting to ${to}…${percent == null ? '' : ` ${percent}%`}`;
+
+/** How far a conversion has got, as a whole percentage; null when the server doesn't say */
+export function convertedPercent(progress?: { done: number; total: number }) {
+  if (progress == null || progress.total <= 0) return null;
+  return Math.min(99, Math.floor((progress.done * 100) / progress.total));
+}
+
 export interface FreshnessState {
   /** The browser has a connection */
   online: boolean;
@@ -27,6 +37,8 @@ export interface FreshnessState {
   signedOut: boolean;
   /** The currency amounts are being converted into on the server, if they are */
   convertingTo?: string | null;
+  /** How far that has got, as a whole percentage, when the server says */
+  convertedPercent?: number | null;
   /**
    * When the server last confirmed the figures shown, while they come from this device's
    * copy: 0 when that isn't known; null while they're fresh from the server
@@ -45,6 +57,7 @@ export function freshnessText({
   waiting,
   signedOut,
   convertingTo = null,
+  convertedPercent = null,
   at,
   now,
 }: FreshnessState) {
@@ -59,7 +72,7 @@ export function freshnessText({
   else if (!online) text = fromDevice ?? 'Offline';
   else if (signedOut && waiting > 0) text = `Signed out · ${changes(waiting)} waiting to save`;
   // Changes wait until it's done, so this is what's going on
-  else if (convertingTo != null) text = `Converting to ${convertingTo}…`;
+  else if (convertingTo != null) text = convertingText(convertingTo, convertedPercent);
   else if (fromDevice != null) text = fromDevice;
   else if (waiting > 0) text = `Saving ${changes(waiting)}`;
   else return { text: 'Up to date', fresh: true };

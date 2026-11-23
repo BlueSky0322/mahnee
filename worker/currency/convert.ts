@@ -171,6 +171,15 @@ export const SELECT_CONVERSION = `SELECT from_currency AS "from", to_currency AS
     start_overs AS startOvers, refused
   FROM conversions WHERE email = ?`;
 
+/**
+ * How far a conversion under way has got: its transactions worked out so far, of all the
+ * person's; no row unless one is under way. Binds the email.
+ */
+export const SELECT_PROGRESS = `SELECT
+    (SELECT COUNT(*) FROM conversion_staged WHERE email = ?1 AND kind = 'transaction') AS done,
+    (SELECT COUNT(*) FROM transactions WHERE email = ?1) AS total
+  WHERE EXISTS (SELECT 1 FROM conversions WHERE email = ?1 AND phase = 'converting')`;
+
 export const readConversionRow = (db: D1Database, email: string) =>
   db.prepare(SELECT_CONVERSION).bind(email).first<ConversionRow>();
 

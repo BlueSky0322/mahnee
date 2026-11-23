@@ -24,6 +24,12 @@
 /* A phone's row is one button, the whole width */
 .rowHolder {
   padding: 0;
+  flex-wrap: wrap;
+}
+
+/* On a phone, under the row's button, on a line of its own */
+.rowHolder > .retry {
+  margin: 0 16px 12px;
 }
 
 .rowButton {
@@ -246,4 +252,10 @@
 .addChip:disabled {
   color: var(--ink-3);
   cursor: default;
+}
+
+/* Try again, under a change of currency that was refused */
+.retry {
+  align-self: flex-start;
+  margin-top: 4px;
 }

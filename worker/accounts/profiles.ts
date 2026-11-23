@@ -17,6 +17,7 @@ import {
   type ConversionRow,
   type ConvertJob,
   SELECT_CONVERSION,
+  SELECT_PROGRESS,
   conversionOf,
   readConversionRow,
   startStatements,
@@ -107,7 +108,7 @@ export const ensureProfileStatement = (db: D1Database, email: string) =>
 
 export async function getProfile(db: D1Database, email: string): Promise<Profile> {
   // Read together, so a currency and the conversion that changed it always agree
-  const [profile, settings, pictures, conversion] = await db.batch([
+  const [profile, settings, pictures, conversion, progress] = await db.batch([
     db
       .prepare(
         'SELECT display_name AS displayName, google_picture AS google FROM profiles WHERE email = ?',
@@ -116,14 +117,23 @@ export async function getProfile(db: D1Database, email: string): Promise<Profile
     db.prepare(SELECT_SETTINGS).bind(email),
     pictureRowsStatement(db, email),
     db.prepare(SELECT_CONVERSION).bind(email),
+    db.prepare(SELECT_PROGRESS).bind(email),
   ]);
+  const converting = conversionOf((conversion.results[0] as ConversionRow | undefined) ?? null);
+  const howFar = progress.results[0] as { done: number; total: number } | undefined;
   const row = settings.results[0] as Record<string, unknown> | undefined;
   const saved = profile.results[0] as { displayName: string | null; google: number } | undefined;
   return {
     email,
     displayName: saved?.displayName ?? null,
     settings: row ? fromRow(row) : { ...DEFAULT_SETTINGS },
-    conversion: conversionOf((conversion.results[0] as ConversionRow | undefined) ?? null),
+    conversion:
+      converting != null && converting.refused == null && howFar != null
+        ? {
+            ...converting,
+            progress: { done: Math.min(howFar.done, howFar.total), total: howFar.total },
+          }
+        : converting,
     // The Google picture shows until they ask for the initial
     ...shownPicture(pictures.results as unknown as PictureRow[], saved?.google !== 0),
   };

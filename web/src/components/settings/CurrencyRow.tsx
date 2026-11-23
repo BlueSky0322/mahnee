@@ -6,10 +6,11 @@ import { isConverting } from '@shared/api';
 import { MAX_TRANSACTION } from '@shared/ledger';
 import { HOME_CURRENCIES } from '@shared/rates';
 import { api } from '../../api';
-import { useProfile } from '../../profile/ProfileContext';
+import { useConversionProgress, useProfile } from '../../profile/ProfileContext';
 import { currencySign } from '../../utils/currencies';
 import { showError } from '../../utils/notify';
 import CurrencyList from '../common/CurrencyList';
+import { convertedPercent, convertingText } from '../common/freshness-text';
 import { DownIcon, ForwardIcon } from '../ui/icons';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import classes from './Settings.module.css';
@@ -22,6 +23,13 @@ import money from './MoneyPage.module.css';
 // the profile. The server then converts every amount into it in the background: until it's
 // done the row says "Converting to USD…" and can't be changed again. A change refused for an
 // amount past its limit is said under the row. It needs a connection.
+
+/** Resolves once what's changed so far has been drawn: the next frame, then a turn after it */
+const afterPaint = () =>
+  new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame !== 'function') return void setTimeout(resolve, 0);
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  });
 
 /** "MYR, RM", as the row reads */
 const currencyValue = (code: string) => `${code}, ${currencySign(code)}`;
@@ -42,9 +50,11 @@ function refusedText({ from, to, refused }: Conversion) {
 }
 
 /** What's said under the row: converting, refused, or that it needs a connection */
-function statusOf(profile: Profile, online: boolean) {
+function statusOf(profile: Profile, online: boolean, progress: Conversion['progress'] | null) {
   const { conversion } = profile;
-  if (conversion != null && isConverting(profile)) return `Converting to ${conversion.to}…`;
+  if (conversion != null && isConverting(profile)) {
+    return convertingText(conversion.to, convertedPercent(progress ?? undefined));
+  }
   if (!online) return 'Connect to change the currency';
   if (conversion?.refused != null) return refusedText(conversion);
   return null;
@@ -66,25 +76,30 @@ export default function CurrencyRow({
   settingKey: string;
 }) {
   const { profile, change } = useProfile();
+  const progress = useConversionProgress();
   const { online } = useNetwork();
   const [open, setOpen] = useState(false);
   const panelName = useId();
   if (profile == null) return null;
   const value = currencyValue(settings.currency);
-  const status = statusOf(profile, online);
+  const status = statusOf(profile, online, progress);
   const locked = !online || isConverting(profile);
 
   const pick = (currency: string) => {
     setOpen(false);
     if (currency === profile.settings.currency) return;
-    void change(
-      (p) => ({
-        ...p,
-        settings: { ...p.settings, currency },
-        conversion: { from: p.settings.currency, to: currency, since: Date.now(), refused: null },
-      }),
-      () => api.updateMe({ settings: { currency } }),
-    ).catch((err: unknown) => showError(err, 'Could not change the currency'));
+    // The picker closes and that's drawn first; the new currency, which every screen draws,
+    // follows on the next turn, so the tap answers at once however much there is to draw
+    void afterPaint().then(() =>
+      change(
+        (p) => ({
+          ...p,
+          settings: { ...p.settings, currency },
+          conversion: { from: p.settings.currency, to: currency, since: Date.now(), refused: null },
+        }),
+        () => api.updateMe({ settings: { currency } }),
+      ).catch((err: unknown) => showError(err, 'Could not change the currency')),
+    );
   };
 
   const statusLine = status != null && (
@@ -94,6 +109,19 @@ export default function CurrencyRow({
     >
       {status}
     </span>
+  );
+  // Refused (an amount past its limit, or rates that never came): the same change can be
+  // asked for again from here
+  const refusedTo = profile.conversion?.refused != null && !locked ? profile.conversion.to : null;
+  const retry = refusedTo != null && (
+    <Button
+      variant="subtle"
+      size="compact-sm"
+      className={money.retry}
+      onClick={() => pick(refusedTo)}
+    >
+      {`Try ${refusedTo} again`}
+    </Button>
   );
   const picker = (
     <Picker
@@ -113,6 +141,7 @@ export default function CurrencyRow({
           <div className={classes.label}>{name}</div>
           <div className={classes.detail}>{line}</div>
           {statusLine}
+          {retry}
         </div>
         <Popover
           opened={open}
@@ -176,6 +205,7 @@ export default function CurrencyRow({
             className={classes.caret}
           />
         </button>
+        {retry}
       </div>
       <ResponsiveDialog
         opened={open}

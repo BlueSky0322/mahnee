@@ -2118,8 +2118,9 @@ server answering, shown only once a save has gone 400 ms so a quick one never fl
 and without a count), then "Saved" for 2 seconds once changes were sent and taken (not
 when refused or still waiting), "Signed out · 2 changes waiting", and "From this device"
 alone when the copy's time isn't known (`components/common/useSaveTiming.ts`, worked out
-once around every page by `FreshnessProvider`, so a page opened mid-save agrees). One label
-cross-fades into the next in 160 ms; with reduced motion it simply swaps. Words that don't
+once around every page by `FreshnessProvider`, so a page opened mid-save agrees). The cloud
+keeps one place in every state, the words starting just after it, never pushed right; they
+cross-fade in 160 ms (the cloud too when it changes); with reduced motion they simply swap. Words that don't
 fit end in an ellipsis, whole in the tooltip and for screen readers; beside "Mahnee" in the
 sidebar it shows a few words instead ("2 waiting", "USD 40%", "3 h old"). Problems
 (offline, signed out, the device's copy) are announced once, politely, from one live region

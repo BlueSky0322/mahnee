@@ -10,10 +10,10 @@
   border-right: 1px solid var(--line);
 }
 
+/* The freshness label starts just after the name, wherever its words end, so it never shifts */
 .brand {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   height: 22px;
   padding: 0 12px;

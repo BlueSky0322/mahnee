@@ -140,51 +140,63 @@ export default function Freshness({
   }
   if (onlyStale && label.tone !== 'old') return null;
   const Icon = ICONS[label.icon];
-  const Gone = leaving == null ? null : ICONS[leaving.icon];
+  // The cloud fades only when it changes; the words whenever they do
+  const iconChanged =
+    leaving != null && (leaving.icon !== label.icon || leaving.tone !== label.tone);
+  const Gone = iconChanged ? ICONS[leaving.icon] : null;
+  const words = (shown: FreshnessLabel) => (compact ? shown.short : shown.text);
   return (
     <span
       className={`${classes.status} ${className ?? ''}`}
       title={label.text}
     >
-      {leaving != null && Gone != null && (
-        // Drawn from its attribute, so it's seen fading but never read or found as text
-        <span
-          aria-hidden
-          className={classes.leaving}
-          data-tone={leaving.tone}
-          data-text={compact ? leaving.short : leaving.text}
-        >
+      {/* The cloud keeps one place, whatever the words after it */}
+      <span
+        aria-hidden
+        className={classes.iconSlot}
+      >
+        {Gone != null && (
           <Gone
             size={14}
             weight="bold"
-            className={classes.icon}
+            className={classes.leaving}
+            data-tone={leaving!.tone}
           />
-        </span>
-      )}
-      <span
-        key={label.text}
-        className={classes.current}
-        data-tone={label.tone}
-        data-entering={leaving != null || undefined}
-      >
+        )}
         <Icon
+          key={`${label.icon} ${label.tone}`}
           size={14}
           weight="bold"
-          aria-hidden
-          className={classes.icon}
+          data-tone={label.tone}
+          data-entering={iconChanged || undefined}
         />
+      </span>
+      <span className={classes.words}>
+        {leaving != null && (
+          // Drawn from its attribute, so it's seen fading but never read or found as text
+          <span
+            aria-hidden
+            className={`${classes.word} ${classes.leaving}`}
+            data-text={words(leaving)}
+          />
+        )}
         {compact && label.short !== label.text ? (
-          <>
-            <span
-              aria-hidden
-              className={classes.text}
-            >
-              {label.short}
-            </span>
+          <span
+            key={label.text}
+            className={classes.word}
+            data-entering={leaving != null || undefined}
+          >
+            <span aria-hidden>{label.short}</span>
             <span className={classes.unseen}>{label.text}</span>
-          </>
+          </span>
         ) : (
-          <span className={classes.text}>{label.text}</span>
+          <span
+            key={label.text}
+            className={classes.word}
+            data-entering={leaving != null || undefined}
+          >
+            {label.text}
+          </span>
         )}
       </span>
     </span>

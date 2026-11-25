@@ -1,10 +1,13 @@
 /*
  * A 14px cloud, green when fresh, muted while saving, amber when old or waiting, then 12px
- * muted words, on one line of a fixed height: words that don't fit end in an ellipsis
+ * muted words, on one line of a fixed height. The cloud has its own slot at the start, so
+ * it never moves; the words start just after it, and those that don't fit end in an
+ * ellipsis.
  */
 .status {
-  display: inline-grid;
+  display: inline-flex;
   align-items: center;
+  gap: 5px;
   max-width: 100%;
   min-width: 0;
   height: calc(0.75rem * 1.4);
@@ -15,42 +18,46 @@
   white-space: nowrap;
 }
 
-/* The label, and the one before it fading out over it, in the same place */
-.current,
-.leaving {
-  display: inline-flex;
-  grid-area: 1 / 1;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-}
-
-.icon {
+/* The cloud, and the one before it fading out over it, in the same 14px square */
+.iconSlot {
+  display: grid;
   flex: none;
+  width: 14px;
+  height: 14px;
 }
 
-.current[data-tone='fresh'] .icon,
-.leaving[data-tone='fresh'] .icon {
+.iconSlot > * {
+  grid-area: 1 / 1;
+}
+
+.iconSlot [data-tone='fresh'] {
   color: var(--pos);
 }
 
-.current[data-tone='old'] .icon,
-.leaving[data-tone='old'] .icon {
+.iconSlot [data-tone='old'] {
   color: var(--due);
 }
 
-.text,
-.leaving::after {
+/* The words, and the ones before them fading out, from the same left edge */
+.words {
+  display: grid;
+  justify-items: start;
+  min-width: 0;
+}
+
+.word {
+  grid-area: 1 / 1;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.leaving::after {
+.word[data-text]::after {
   content: attr(data-text);
 }
 
-.current[data-entering] {
+.status [data-entering] {
   animation: freshness-in 160ms ease both;
 }
 
@@ -73,7 +80,7 @@
 
 /* Where motion is reduced, one label simply takes the place of the last */
 @media (prefers-reduced-motion: reduce) {
-  .current[data-entering] {
+  .status [data-entering] {
     animation: none;
   }
 

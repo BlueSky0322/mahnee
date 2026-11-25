@@ -4,9 +4,11 @@ import { useNetwork } from '@mantine/hooks';
 import { CloudSlash } from '@phosphor-icons/react';
 import { ActivityIcon, DownIcon, SearchIcon } from '../ui/icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type React from 'react';
 import type { Account, Category, Transaction } from '@shared/api';
 import { MAX_BULK_TRANSACTIONS } from '@shared/ledger';
 import { MAX_SEARCH_TEXT } from '@shared/search';
+import { useBackDismiss } from '../../hooks/useBackDismiss';
 import { useIsDesktop, useIsWide } from '../../hooks/useBreakpoints';
 import { navigate, useLeaveGuard } from '../../hooks/useRoute';
 import { takeSearchFocus, useShortcuts } from '../../hooks/useShortcuts';
@@ -43,8 +45,12 @@ import {
   listAmount,
   noMatchLine,
   onDeviceLine,
+  pickedLine,
+  pickedOf,
+  pickedParts,
+  pickedSaid,
+  type Picked,
   rowText,
-  selectionLine,
   shortDay,
 } from './activity-text';
 import type { Filters } from './address';
@@ -58,11 +64,12 @@ import {
 } from './address';
 import classes from './Activity.module.css';
 import ConversionPending from '../common/ConversionPending';
+import { ROW_ATTR, between, useDragSelect, useLongPress, withAll } from './select-gestures';
 
 /** How long typing rests before it's searched for */
 const TYPING_MS = 250;
-/** How long a row is pressed to start selecting with it */
-const LONG_PRESS_MS = 500;
+/** How long a selection rests before a screen reader is told what it adds up to */
+const SETTLE_MS = 400;
 /** Placeholder rows while the first page loads */
 const LOADING_ROWS = 5;
 
@@ -274,24 +281,107 @@ export default function ActivityPage({ query }: { query: string }) {
     else setSheet(null);
   };
 
-  const toggle = (id: string) =>
+  // Where a range of rows is ticked from (Shift-click, Shift with the arrows, a drag), what
+  // was ticked before it, and the row it last reached
+  const range = useRef<{ anchor: string | null; base: Set<string> | null; last: string | null }>({
+    anchor: null,
+    base: null,
+    last: null,
+  });
+  const order = useMemo(() => (rows ?? []).map((t) => t.id), [rows]);
+  /** The row picked last, which a range is ticked from */
+  const pickFrom = (id: string) => (range.current = { anchor: id, base: null, last: id });
+  const toggle = (id: string) => {
+    pickFrom(id);
     setTicked((now) => {
       const next = new Set(now);
       if (!next.delete(id)) next.add(id);
       return next;
     });
+  };
+  /**
+   * Ticks from the row picked last (or the open one) to `to`, keeping what was ticked
+   * before; from the focused row `from` when the keys carry on from somewhere else
+   */
+  const extend = (to: string, from?: string) => {
+    const now = range.current;
+    if (from != null && now.last !== from) {
+      now.anchor = from;
+      now.base = null;
+    }
+    const anchor = now.anchor ?? open?.id ?? to;
+    const base = now.base ?? new Set(ticked);
+    range.current = { anchor, base, last: to };
+    setTicked(withAll(base, between(order, anchor, to)));
+  };
+  const clearTicked = () => {
+    range.current = { anchor: null, base: null, last: null };
+    setTicked(new Set());
+  };
+  // Another search or filter lets go of what was ticked, so the count, the totals and Select
+  // all only ever speak of rows that are listed
+  const searched = JSON.stringify(search);
+  const lastSearched = useRef(searched);
+  useEffect(() => {
+    if (lastSearched.current === searched) return;
+    lastSearched.current = searched;
+    clearTicked();
+  }, [searched]);
   const selectAll = async () => {
     const all = await found.loadAll(MAX_BULK_TRANSACTIONS);
     setTicked(new Set(all.map((t) => t.id)));
   };
   const startSelecting = (first?: string) => {
+    if (first != null) pickFrom(first);
     setTicked(new Set(first == null ? [] : [first]));
     setFilters({ select: true });
   };
+  // On phones and tablets, Back stops selecting before it leaves Activity
+  const selectingLayer = useBackDismiss(
+    selecting,
+    () => {
+      clearTicked();
+      setFilters({ select: false });
+    },
+    { tablets: true },
+  );
+  /** Done: through Back where selecting holds a step in the history, so none is left behind */
   const stopSelecting = () => {
-    setTicked(new Set());
+    if (selectingLayer.back()) return;
+    clearTicked();
     setFilters({ select: false });
   };
+  // A mouse or a pen drags over rows to tick them; on a phone or tablet that starts selecting
+  const { onPointerDown: dragFrom, dragging } = useDragSelect({
+    order,
+    selected: isDesktop || selecting ? ticked : new Set(),
+    onRange: (next) => {
+      setTicked(next);
+      if (!isDesktop && !latest.current.select) setFilters({ select: true });
+    },
+    onEnd: (anchor, base) => (range.current = { anchor, base, last: null }),
+    enabled: rows != null && rows.length > 0,
+  });
+  // What the ticked rows add up to, and what a screen reader hears once it settles
+  const picked = useMemo(() => pickedOf(chosen), [chosen]);
+  const said = pickedSaid(picked, currency);
+  const [announced, setAnnounced] = useState('');
+  useEffect(() => {
+    if (dragging) return;
+    const timer = setTimeout(() => setAnnounced(said), SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [said, dragging]);
+  const [breakdown, setBreakdown] = useState(false);
+  // Esc lets what's ticked go, and stops selecting
+  useShortcuts(
+    {
+      Escape: () => {
+        if (selecting) stopSelecting();
+        else clearTicked();
+      },
+    },
+    ticked.size > 0 || selecting,
+  );
 
   /** Opens Change category for `those`, unless one change can't take them */
   const changeCategory = (those: Transaction[]) => {
@@ -310,7 +400,7 @@ export default function ActivityPage({ query }: { query: string }) {
     if (chosen.length > MAX_BULK_TRANSACTIONS) return showRefusal(TOO_MANY);
     const gone = chosen;
     change({ op: 'removeTransactions', ids: gone.map((t) => t.id) });
-    setTicked(new Set());
+    clearTicked();
     // Undo adds each again, with its own id
     showUndo(`Deleted ${entriesText(gone.length)}`, () => addAgain(...gone));
   };
@@ -351,6 +441,7 @@ export default function ActivityPage({ query }: { query: string }) {
     <div
       className={classes.page}
       data-layout={isDesktop ? 'register' : 'list'}
+      data-dragging={dragging || undefined}
     >
       <header className={classes.header}>
         {selecting ? (
@@ -584,7 +675,19 @@ export default function ActivityPage({ query }: { query: string }) {
               ticked={ticked}
               count={count}
               openId={open?.id ?? null}
-              onOpen={inDialog ? openInDialog : openRow}
+              onOpen={(id) => {
+                pickFrom(id);
+                if (inDialog) openInDialog(id);
+                else openRow(id);
+              }}
+              onExtend={extend}
+              onDragFrom={dragFrom}
+              picked={
+                <PickedTotals
+                  picked={picked}
+                  currency={currency}
+                />
+              }
               inDialog={inDialog}
               moved={moved}
               onToggle={toggle}
@@ -608,6 +711,7 @@ export default function ActivityPage({ query }: { query: string }) {
               onOpen={setSheet}
               onToggle={toggle}
               onLongPress={(id) => startSelecting(id)}
+              onDragFrom={dragFrom}
             />
           )}
           {rows != null && rows.length > 0 && found.hasMore && (
@@ -653,8 +757,31 @@ export default function ActivityPage({ query }: { query: string }) {
       </div>
 
       {selecting && (
-        <div className={classes.selectionBar}>
-          <p className={classes.found}>{selectionLine(chosen, currency)}</p>
+        <div
+          className={classes.selectionBar}
+          role="region"
+          aria-label="Selected"
+        >
+          <button
+            type="button"
+            className={`${classes.pickedSummary} sf-tabular`}
+            aria-expanded={breakdown}
+            onClick={() => setBreakdown((open) => !open)}
+          >
+            {pickedLine(picked, currency)}
+            <DownIcon
+              size={14}
+              aria-hidden
+              className={classes.pickedCaret}
+            />
+          </button>
+          {breakdown && (
+            <PickedTotals
+              picked={picked}
+              currency={currency}
+              stacked
+            />
+          )}
           <div className={classes.selectionActions}>
             <Button
               variant="default"
@@ -674,12 +801,19 @@ export default function ActivityPage({ query }: { query: string }) {
         </div>
       )}
 
+      <div
+        aria-live="polite"
+        data-selection
+        className={classes.srOnly}
+      >
+        {announced}
+      </div>
       <ChangeCategory
         chosen={moving}
         onClose={() => setMoving(null)}
         onMoved={() => {
           setMoving(null);
-          setTicked(new Set());
+          clearTicked();
         }}
       />
       <ResponsiveDialog
@@ -772,6 +906,67 @@ function FoundLine({
   );
 }
 
+/**
+ * What the ticked rows add up to: "Expenses RM 21.80 · Income RM 50.00 · Net +RM 28.20",
+ * each in its kind's colour, then what the net leaves out ("1 transfer not counted"). In a
+ * row in a computer's bar, or one under another in a phone's when opened.
+ */
+function PickedTotals({
+  picked,
+  currency,
+  stacked = false,
+}: {
+  picked: Picked;
+  currency: string;
+  stacked?: boolean;
+}) {
+  const { expenses, income, net, notes } = pickedParts(picked, currency);
+  const netKind = picked.netCents < 0 ? 'expense' : picked.netCents > 0 ? 'income' : 'transfer';
+  return (
+    <span
+      className={`${classes.picked} sf-tabular`}
+      data-stacked={stacked || undefined}
+    >
+      <span>
+        Expenses{' '}
+        <span
+          className={classes.amount}
+          data-kind="expense"
+        >
+          {expenses}
+        </span>
+      </span>
+      <span>
+        Income{' '}
+        <span
+          className={classes.amount}
+          data-kind="income"
+        >
+          {income}
+        </span>
+      </span>
+      <span>
+        Net{' '}
+        <span
+          className={classes.amount}
+          data-kind={netKind}
+        >
+          {net}
+        </span>
+        <ConversionPending />
+      </span>
+      {notes.map((note) => (
+        <span
+          key={note}
+          className={classes.pickedNote}
+        >
+          {note}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function Placeholders() {
   return (
     <Loading
@@ -834,6 +1029,7 @@ function DayList({
   onOpen,
   onToggle,
   onLongPress,
+  onDragFrom,
 }: {
   rows: Transaction[];
   totals: Totals | null;
@@ -847,16 +1043,10 @@ function DayList({
   onOpen: (t: Transaction) => void;
   onToggle: (id: string) => void;
   onLongPress: (id: string) => void;
+  /** A mouse or a pen pressed on the list, which may become a drag over its rows */
+  onDragFrom: (e: React.PointerEvent) => void;
 }) {
-  const press = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({
-    timer: null,
-    fired: false,
-  });
-  const letGo = () => {
-    if (press.current.timer != null) clearTimeout(press.current.timer);
-    press.current.timer = null;
-  };
-  useEffect(() => letGo, []);
+  const hold = useLongPress(onLongPress);
 
   // Grouped by day, newest first, as they come
   const days: { day: string; rows: Transaction[] }[] = [];
@@ -893,9 +1083,10 @@ function DayList({
         {selecting ? (
           <label
             className={classes.row}
+            {...{ [ROW_ATTR]: t.id }}
             // A fresh press, so the next tick is never mistaken for a long
             // press's release
-            onPointerDown={() => (press.current.fired = false)}
+            onPointerDown={hold.fresh}
           >
             <input
               type="checkbox"
@@ -904,10 +1095,7 @@ function DayList({
               checked={ticked.has(t.id)}
               onChange={() => {
                 // The release of the long press that ticked it leaves it ticked
-                if (press.current.fired) {
-                  press.current.fired = false;
-                  return;
-                }
+                if (hold.takeRelease()) return;
                 onToggle(t.id);
               }}
             />
@@ -918,28 +1106,11 @@ function DayList({
             type="button"
             className={classes.row}
             aria-label={name}
-            onPointerDown={() => {
-              letGo();
-              press.current.fired = false;
-              press.current.timer = setTimeout(() => {
-                press.current.timer = null;
-                press.current.fired = true;
-                onLongPress(t.id);
-              }, LONG_PRESS_MS);
-            }}
-            onPointerUp={letGo}
-            onPointerLeave={letGo}
-            onPointerCancel={letGo}
-            // A long press on a phone would open the browser's menu
-            onContextMenu={(e) => {
-              if (press.current.timer != null || press.current.fired) e.preventDefault();
-            }}
+            {...{ [ROW_ATTR]: t.id }}
+            {...hold.handlers(t.id)}
             onClick={() => {
               // The press that started selecting isn't also a tap
-              if (press.current.fired) {
-                press.current.fired = false;
-                return;
-              }
+              if (hold.takeRelease()) return;
               onOpen(t);
             }}
           >
@@ -960,6 +1131,7 @@ function DayList({
       <ul
         className={`${classes.list} ${classes.selectingList}`}
         aria-label="Entries"
+        onPointerDown={onDragFrom}
       >
         {rows.map(row)}
       </ul>
@@ -967,7 +1139,10 @@ function DayList({
   }
 
   return (
-    <div className={classes.days}>
+    <div
+      className={classes.days}
+      onPointerDown={onDragFrom}
+    >
       {days.map(({ day, rows: onDay }) => {
         const heading = dayHeading(day);
         const total = totals?.days.get(day);
@@ -1008,6 +1183,9 @@ function Register({
   inDialog,
   moved,
   onToggle,
+  onExtend,
+  onDragFrom,
+  picked,
   onSelectAll,
   onChangeCategory,
   onDelete,
@@ -1027,6 +1205,12 @@ function Register({
   /** Counts J and K's moves, after each of which a dialog's row takes the focus */
   moved: number;
   onToggle: (id: string) => void;
+  /** Ticks from the row picked last to `to`; from `from` when the keys moved there */
+  onExtend: (to: string, from?: string) => void;
+  /** A mouse or a pen pressed on a row, which may become a drag over the rows */
+  onDragFrom: (e: React.PointerEvent) => void;
+  /** What the ticked rows add up to */
+  picked: React.ReactNode;
   onSelectAll: () => void;
   onChangeCategory: (those: Transaction[]) => void;
   onDelete: () => void;
@@ -1044,39 +1228,53 @@ function Register({
   const allTicked = chosen.length > 0 && chosen.length >= count;
   return (
     <>
-      <div className={classes.bar}>
-        {chosen.length > 0 && (
-          <>
-            <strong className={classes.barCount}>{chosen.length} selected</strong>
-            <Button
-              size="xs"
-              onClick={() => onChangeCategory(chosen)}
-            >
-              Change category
-            </Button>
-            <Button
-              size="xs"
-              variant="default"
-              className="sf-danger-outline"
-              onClick={onDelete}
-            >
-              Delete {chosen.length}
-            </Button>
-          </>
-        )}
-        <Button
-          size="xs"
-          variant="subtle"
-          onClick={onSelectAll}
-        >
-          Select all {count}
-        </Button>
-        <span className={classes.hints}>
-          <Key>J</Key>
-          <Key>K</Key> move {inDialog && <Key>Enter</Key>}
-          {inDialog && ' open '}
-          <Key>X</Key> tick <Key>C</Key> category
-        </span>
+      {/* Two lines whatever is ticked, so the rows under a drag never move: what's ticked
+          and its actions over what it adds up to, or Select all over the keys */}
+      <div
+        className={classes.bar}
+        role={chosen.length > 0 ? 'region' : undefined}
+        aria-label={chosen.length > 0 ? 'Selected' : undefined}
+      >
+        <div className={classes.barLine}>
+          {chosen.length > 0 && (
+            <>
+              <strong className={classes.barCount}>{chosen.length} selected</strong>
+              <Button
+                size="xs"
+                onClick={() => onChangeCategory(chosen)}
+              >
+                Change category
+              </Button>
+              <Button
+                size="xs"
+                variant="default"
+                className="sf-danger-outline"
+                onClick={onDelete}
+              >
+                Delete {chosen.length}
+              </Button>
+            </>
+          )}
+          <Button
+            size="xs"
+            variant="subtle"
+            onClick={onSelectAll}
+          >
+            Select all {count}
+          </Button>
+        </div>
+        <div className={classes.barLine}>
+          {chosen.length > 0 ? (
+            picked
+          ) : (
+            <span className={classes.hints}>
+              <Key>J</Key>
+              <Key>K</Key> move {inDialog && <Key>Enter</Key>}
+              {inDialog && ' open '}
+              <Key>X</Key> tick <Key>C</Key> category
+            </span>
+          )}
+        </div>
       </div>
       <div className={classes.tableWrap}>
         <table
@@ -1114,7 +1312,23 @@ function Register({
               </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody
+            onPointerDown={onDragFrom}
+            onKeyDown={(e) => {
+              // Shift with the arrows ticks from the focused row to the next one
+              if (!e.shiftKey || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+              const from = (e.target as Element).closest(`[${ROW_ATTR}]`);
+              const id = from?.getAttribute(ROW_ATTR);
+              const at = rows.findIndex((t) => t.id === id);
+              const next = rows[at + (e.key === 'ArrowDown' ? 1 : -1)];
+              if (id == null || at === -1 || next == null) return;
+              e.preventDefault();
+              onExtend(next.id, id);
+              from?.parentElement
+                ?.querySelector<HTMLElement>(`[${ROW_ATTR}="${next.id}"] button`)
+                ?.focus();
+            }}
+          >
             {rows.map((t) => {
               const { title, subtitle } = rowText(t, {
                 accounts,
@@ -1136,8 +1350,14 @@ function Register({
                   ref={isOpen ? opened : undefined}
                   aria-selected={isOpen}
                   data-ticked={ticked.has(t.id) || undefined}
+                  {...{ [ROW_ATTR]: t.id }}
                   className={classes.registerRow}
+                  // Shift-click selects no text
+                  onMouseDown={(e) => e.shiftKey && e.preventDefault()}
                   onClick={(e) => {
+                    // Shift-click ticks a range, Ctrl- or Cmd-click one row, neither opening it
+                    if (e.shiftKey) return onExtend(t.id);
+                    if (e.ctrlKey || e.metaKey) return onToggle(t.id);
                     // A dialog's focus comes back to the row it was opened from
                     if (inDialog) e.currentTarget.querySelector('button')?.focus();
                     onOpen(t.id);
@@ -1163,6 +1383,8 @@ function Register({
                       type="button"
                       className={classes.payeeButton}
                       onClick={(e) => {
+                        // With Shift, Ctrl or Cmd, the row ticks instead
+                        if (e.shiftKey || e.ctrlKey || e.metaKey) return;
                         e.stopPropagation();
                         onOpen(t.id);
                       }}

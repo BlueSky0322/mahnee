@@ -11,8 +11,10 @@ import {
   movingLine,
   noMatchLine,
   periodText,
+  pickedLine,
+  pickedOf,
+  pickedParts,
   rowText,
-  selectionLine,
   shortDay,
 } from './activity-text';
 
@@ -206,21 +208,71 @@ describe('nothing found', () => {
 describe('changing many', () => {
   const kedai = (date: string, amountCents: number) => t({ payee: 'Kedai', date, amountCents });
 
-  test('what is ticked: how many, their sum, and their payee when they share one', () => {
+  test('what is ticked: how many, and what they add up to as expenses, income and net', () => {
     const three = [
       kedai('2026-11-08', 730),
       kedai('2026-10-21', 1_345),
       kedai('2026-10-12', 1_015),
     ];
-    expect(selectionLine(three, 'MYR')).toBe('3 entries · RM 30.90 · all Kedai');
-    expect(selectionLine([three[0], t({ payee: 'Kiosk', amountCents: 270 })], 'MYR')).toBe(
-      '2 entries · RM 10.00',
+    const spent = pickedOf(three);
+    expect(spent).toEqual({
+      entries: 3,
+      spentCents: 3_090,
+      receivedCents: 0,
+      netCents: -3_090,
+      transfers: 0,
+      waiting: 0,
+      payee: 'Kedai',
+    });
+    expect(pickedLine(spent, 'MYR')).toBe('3 selected · Net −RM 30.90');
+    expect(pickedParts(spent, 'MYR')).toEqual({
+      expenses: 'RM 30.90',
+      income: 'RM 0.00',
+      net: '−RM 30.90',
+      notes: ['All Kedai'],
+    });
+
+    // Expense 1 and expense 2 with income 1: net is what came in less what went out
+    const mixed = pickedOf([
+      three[0],
+      three[1],
+      t({ kind: 'income', amountCents: 5_000, payee: 'Boss' }),
+    ]);
+    expect(mixed).toMatchObject({ spentCents: 2_075, receivedCents: 5_000, netCents: 2_925 });
+    expect(pickedLine(mixed, 'MYR')).toBe('3 selected · Net +RM 29.25');
+    expect(pickedParts(mixed, 'MYR').notes).toEqual([]);
+    expect(pickedLine(pickedOf([three[0], t({ kind: 'income', amountCents: 730 })]), 'MYR')).toBe(
+      '2 selected · Net RM 0.00',
     );
-    expect(selectionLine([three[0]], 'MYR')).toBe('1 entry · RM 7.30 · all Kedai');
-    // Spending and income together have no one sum
-    expect(selectionLine([three[0], t({ kind: 'income', payee: 'Kedai' })], 'MYR')).toBe(
-      '2 entries · all Kedai',
-    );
+  });
+
+  test('transfers are counted as selected but never as spending or income, and say so', () => {
+    const picked = pickedOf([
+      kedai('2026-11-08', 730),
+      t({ kind: 'transfer', toAccountId: 'b'.repeat(16), categoryId: null, amountCents: 9_999 }),
+      t({ kind: 'transfer', toAccountId: 'b'.repeat(16), categoryId: null, amountCents: 1 }),
+    ]);
+    expect(picked).toMatchObject({ entries: 3, spentCents: 730, receivedCents: 0, transfers: 2 });
+    expect(pickedLine(picked, 'MYR')).toBe('3 selected · Net −RM 7.30 · 2 transfers not counted');
+    expect(pickedParts(picked, 'MYR').notes).toEqual(['2 transfers not counted']);
+    const one = pickedOf([t({ kind: 'transfer', toAccountId: 'b'.repeat(16), categoryId: null })]);
+    expect(pickedLine(one, 'MYR')).toBe('1 selected · Net RM 0.00 · 1 transfer not counted');
+  });
+
+  test('another currency counts at what it came to; one waiting for a rate is said to be left out', () => {
+    const thb = t({
+      amountCents: 1_530,
+      original: { currency: 'THB', cents: 12_000, rate: 0.1275, source: 'wise', at: 1 },
+    });
+    expect(pickedOf([thb, kedai('2026-11-08', 730)])).toMatchObject({ spentCents: 2_260 });
+    const waiting = t({
+      amountCents: 0,
+      original: { currency: 'THB', cents: 12_000, rate: 1, source: 'wise', at: 1, pending: true },
+    });
+    const picked = pickedOf([waiting, kedai('2026-11-08', 730)]);
+    expect(picked).toMatchObject({ spentCents: 730, waiting: 1 });
+    expect(pickedLine(picked, 'MYR')).toBe('2 selected · Net −RM 7.30 · 1 waiting for a rate');
+    expect(pickedParts(picked, 'MYR').notes).toEqual(['Leaves out 1 entry waiting for a rate']);
   });
 
   test('the days they are from, and where they are now', () => {

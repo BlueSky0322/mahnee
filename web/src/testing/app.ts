@@ -132,6 +132,7 @@ import { isPeriodMonth, monthStartDayOf, periodMonthOf, periodOf } from '@shared
 import { Root } from '../Root';
 import { queryClient } from '../query-client';
 import { clearCache } from '../offline/cache';
+import { backLanded } from '../hooks/useBackDismiss';
 
 // The whole app renders in each test, which takes a while when every test file runs at
 // once: wait longer than the default second for things to appear
@@ -1975,6 +1976,10 @@ export async function reloadApp(
 /** Lets what the app set going finish, and empties what it kept, for the next test */
 export async function closeApp() {
   cleanup();
+  // Back the app takes as it closes (to take off the step an open sheet or selecting kept in
+  // the history) lands now, not on the next test's address; a second at most, should the
+  // history have nowhere to go back to
+  await Promise.race([backLanded(), new Promise((resolve) => setTimeout(resolve, 1000))]);
   // What the test set going finishes now, rather than landing in the next test as its data
   await settle();
   queryClient.clear();

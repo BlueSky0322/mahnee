@@ -593,6 +593,27 @@ describe('an entry waiting for a rate, offline', () => {
     );
   });
 
+  test('selected, the total says it leaves the entry out, until it is converted', async () => {
+    const server = withWallet(['THB']);
+    const { user, back } = await pendingEntry(server);
+    const row = await screen.findByRole('button', { name: /^Night market, .*conversion pending$/ });
+    fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 3, clientX: 50, clientY: 50 });
+    await act(() => new Promise((r) => setTimeout(r, 550)));
+    fireEvent.pointerUp(row, { pointerType: 'touch', pointerId: 3, clientX: 50, clientY: 50 });
+    const bar = within(await screen.findByRole('region', { name: 'Selected' }));
+    const summary = bar.getByRole('button', {
+      name: '1 selected · Net RM 0.00 · 1 waiting for a rate',
+    });
+    await user.click(summary);
+    expect(bar.getByText('Leaves out 1 entry waiting for a rate')).toBeTruthy();
+
+    back();
+    expect(
+      await bar.findByRole('button', { name: '1 selected · Net −RM 15.30' }, { timeout: 10_000 }),
+    ).toBeTruthy();
+    expect(bar.queryByText('Leaves out 1 entry waiting for a rate')).toBeNull();
+  });
+
   test('deleted and put back with Undo, it is still waiting, and saved once', async () => {
     const server = withWallet(['THB']);
     const { user, back } = await pendingEntry(server);

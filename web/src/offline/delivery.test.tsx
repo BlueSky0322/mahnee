@@ -28,7 +28,7 @@ setupAppTests();
 const RYAN = 'ryan@example.com';
 const SIZES = ['desktop', 'phone'] as const;
 /** The freshness label, under Home's title on phones and in the sidebar on a computer */
-const waiting = (n: number) => `Offline · ${n} ${n === 1 ? 'change' : 'changes'} waiting to save`;
+const waiting = (n: number) => `Offline · ${n} ${n === 1 ? 'change' : 'changes'} waiting`;
 
 function seed(server: FakeServer, account: Partial<Account> & Pick<Account, 'id' | 'name'>) {
   server.accounts.push({
@@ -327,7 +327,7 @@ describe('closing the app while a save is on its way', () => {
     await rename('Wallet', 'Purse');
     await waitFor(() => expect(requests()).toHaveLength(1));
     await addAccount('Savings');
-    expect(await screen.findByText('Saving 2 changes')).toBeTruthy();
+    expect(await screen.findByText('Saving')).toBeTruthy();
     await waitFor(async () => expect(await keptForRyan()).toHaveLength(2));
 
     await reloadApp(server, '/?accounts');

@@ -334,7 +334,7 @@ describe('My account', () => {
       .click(await screen.findByRole('link', { name: /^Ryan ryan@example\.com/ }));
     await waitFor(() =>
       expect(text(screen.getByRole('region', { name: 'This phone' }))).toMatch(
-        /^Saved Offline · 1 change waiting to save/,
+        /^Saved Offline · 1 change waiting(?! to save)/,
       ),
     );
   });

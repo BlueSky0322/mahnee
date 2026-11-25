@@ -38,7 +38,10 @@ export default function Sidebar({
           {/* The logo is read out as Mahnee already */}
           <span aria-hidden="true">Mahnee</span>
         </span>
-        <Freshness month={month} />
+        <Freshness
+          month={month}
+          compact
+        />
       </div>
       {addable != null && (
         <Button

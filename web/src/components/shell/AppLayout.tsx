@@ -7,7 +7,7 @@ import { placeOf } from '../../hooks/useRoute';
 import { focusSearch, useShortcuts } from '../../hooks/useShortcuts';
 import { useAccounts } from '../../ledger/useLedger';
 import { useForgetMonthsWhenTheStartChanges, useMonths } from '../../ledger/month-start';
-import Freshness from '../common/Freshness';
+import Freshness, { FreshnessProvider } from '../common/Freshness';
 import AddEntry, { type AddRequest } from '../entry/AddEntry';
 import { AddEntryContext } from './add-entry';
 import classes from './AppLayout.module.css';
@@ -23,8 +23,8 @@ import UpdateNotice from './UpdateNotice';
 // account, and a category's own page under Plan on a phone or tablet. Add (New entry, or N)
 // opens a new entry, on the account whose page is open; it can't be used while every
 // account is archived. How fresh the figures are shows in the sidebar, and on a phone's or
-// tablet's pages other than Home (which has its own) whenever it isn't "Up to date", so
-// changes waiting are never out of sight.
+// tablet's pages other than Home (which has its own) whenever something is wrong, so
+// changes waiting are never out of sight; its problems are announced once, from here.
 export default function AppLayout({ route, children }: { route: Route; children: ReactNode }) {
   const isDesktop = useIsDesktop();
   const { accounts, failed } = useAccounts();
@@ -65,45 +65,47 @@ export default function AppLayout({ route, children }: { route: Route; children:
   // Each page opens at the top, or where it was left when the person comes back to it
   useKeepScroll(pageOf(route, isDesktop === true), route);
   return (
-    <div
-      className={classes.layout}
-      data-shell={shell}
-    >
-      {shell === 'sidebar' && place != null && (
-        <Sidebar
-          place={place}
-          month={month}
-          addable={addable}
-          onAdd={add}
-        />
-      )}
-      <main className={classes.main}>
-        {shell === 'tabs' && place !== 'home' && (
-          <div className={classes.freshness}>
-            <Freshness
-              month={month}
-              onlyStale
-            />
-          </div>
+    <FreshnessProvider month={month}>
+      <div
+        className={classes.layout}
+        data-shell={shell}
+      >
+        {shell === 'sidebar' && place != null && (
+          <Sidebar
+            place={place}
+            month={month}
+            addable={addable}
+            onAdd={add}
+          />
         )}
-        <AddEntryContext.Provider value={addable ? addFor : null}>
-          {children}
-        </AddEntryContext.Provider>
-      </main>
-      {shell === 'tabs' && place != null && (
-        <TabBar
-          place={place}
-          addable={addable}
-          onAdd={add}
+        <main className={classes.main}>
+          {shell === 'tabs' && place !== 'home' && (
+            <div className={classes.freshness}>
+              <Freshness
+                month={month}
+                onlyStale
+              />
+            </div>
+          )}
+          <AddEntryContext.Provider value={addable ? addFor : null}>
+            {children}
+          </AddEntryContext.Provider>
+        </main>
+        {shell === 'tabs' && place != null && (
+          <TabBar
+            place={place}
+            addable={addable}
+            onAdd={add}
+          />
+        )}
+        <AddEntry
+          open={entry}
+          onClose={() => setEntry(null)}
         />
-      )}
-      <AddEntry
-        open={entry}
-        onClose={() => setEntry(null)}
-      />
-      <OfflineNotice />
-      <UpdateNotice />
-    </div>
+        <OfflineNotice />
+        <UpdateNotice />
+      </div>
+    </FreshnessProvider>
   );
 }
 

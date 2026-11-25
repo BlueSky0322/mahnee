@@ -459,13 +459,13 @@ describe('categories offline', () => {
       expect(await chip('Coffee', 'Food')).toBeTruthy();
       expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
       // The foot of the page says it waits, and the device keeps it
-      expect(await screen.findByText('Mahnee · Offline · 1 change waiting to save')).toBeTruthy();
+      expect(await screen.findByText('Mahnee · Offline · 1 change waiting')).toBeTruthy();
       await waitFor(async () => expect(await keptForRyan()).toHaveLength(1));
 
       await reloadApp(server, '/?categories', { size });
       expect(await chip('Coffee', 'Food')).toBeTruthy();
       expect(await screen.findByText(OFFLINE_NOTICE[size])).toBeTruthy();
-      expect(await screen.findByText('Mahnee · Offline · 1 change waiting to save')).toBeTruthy();
+      expect(await screen.findByText('Mahnee · Offline · 1 change waiting')).toBeTruthy();
       expect(await keptForRyan()).toHaveLength(1);
       expect(server.categories).toEqual([]);
 

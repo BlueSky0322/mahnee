@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import { OPENED_FROM_DEVICE } from '../../offline/cache';
 import type { FakeServer } from '../../testing/app';
+import { SAVING_AFTER_MS } from './useSaveTiming';
 import {
   OFFLINE_NOTICE,
   fakeServer,
@@ -16,7 +17,7 @@ import {
 
 // How fresh the figures are, always said: "Up to date" once the server has confirmed them
 // and nothing is waiting; "From this device, 2 h old" while they come from the copy kept
-// on this device; "Offline · 1 change waiting to save" while changes wait without a
+// on this device; "Offline · 1 change waiting" while changes wait without a
 // connection. It sits under the title on Home on phones and tablets, in the sidebar on a
 // computer, and at the foot of Settings ("Mahnee · Up to date"). On a phone's or tablet's
 // other pages, and on Settings' own pages, it shows whenever it isn't "Up to date", so
@@ -31,7 +32,7 @@ const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 /** Every label the app can show, and nothing else (the notices start alike) */
 const LABEL =
-  /^(Up to date|From this device(, .+ old)?|Offline|Offline · \d+ changes? waiting to save|Saving \d+ changes?|Signed out · \d+ changes? waiting to save)$/;
+  /^(Up to date|Saving|Saved|From this device(, .+ old)?|Offline|Offline · \d+ changes? waiting|Signed out · \d+ changes? waiting)$/;
 
 function withWallet() {
   const server = fakeServer();
@@ -105,6 +106,40 @@ function labelArea(size: Size) {
 /** Every freshness label on the page, by its text */
 const labels = () =>
   screen.queryAllByText(LABEL).map((el) => el.textContent?.replace(/\s+/g, ' ').trim());
+
+/** What the polite live regions next to the labels say, one per label shown */
+const liveText = () =>
+  [...document.querySelectorAll('[aria-live="polite"][data-freshness]')].map(
+    (el) => el.textContent ?? '',
+  );
+
+/**
+ * Every label shown from now on, in order, each once as it changes, and when each first
+ * showed, in ms from now
+ */
+function watchLabels() {
+  const start = performance.now();
+  const seen: string[] = [];
+  const when = new Map<string, number>();
+  const look = () => {
+    const now = labels().join(' | ');
+    if (now !== '' && now !== seen.at(-1)) {
+      seen.push(now);
+      if (!when.has(now)) when.set(now, performance.now() - start);
+    }
+  };
+  look();
+  const observer = new MutationObserver(look);
+  observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+  return {
+    firstAfter: (label: string) => when.get(label) ?? -1,
+    stop: () => {
+      look();
+      observer.disconnect();
+      return seen;
+    },
+  };
+}
 
 /** Adds an account on Accounts, where they're listed, and comes back to Home */
 async function addAccount(name: string) {
@@ -261,10 +296,10 @@ describe('how fresh the figures are', () => {
       const back = goOffline(server);
 
       await addAccount('Savings');
-      expect(await labelArea(size).findByText('Offline · 1 change waiting to save')).toBeTruthy();
+      expect(await labelArea(size).findByText('Offline · 1 change waiting')).toBeTruthy();
       await addAccount('Purse');
-      expect(await labelArea(size).findByText('Offline · 2 changes waiting to save')).toBeTruthy();
-      expect(labels()).toEqual(['Offline · 2 changes waiting to save']);
+      expect(await labelArea(size).findByText('Offline · 2 changes waiting')).toBeTruthy();
+      expect(labels()).toEqual(['Offline · 2 changes waiting']);
 
       // Back online, both are saved, and the figures are the server's again
       back();
@@ -283,8 +318,8 @@ describe('how fresh the figures are', () => {
     await wallet();
     expect(await labelArea('phone').findByText('From this device, 2 h old')).toBeTruthy();
     await addAccount('Savings');
-    expect(await labelArea('phone').findByText('Offline · 1 change waiting to save')).toBeTruthy();
-    expect(labels()).toEqual(['Offline · 1 change waiting to save']);
+    expect(await labelArea('phone').findByText('Offline · 1 change waiting')).toBeTruthy();
+    expect(labels()).toEqual(['Offline · 1 change waiting']);
   });
 
   test.each(SIZES)(
@@ -300,24 +335,95 @@ describe('how fresh the figures are', () => {
     },
   );
 
-  test.each(SIZES)('online while changes are being saved, it says so (%s)', async (size) => {
+  test.each(SIZES)(
+    'a save that takes a while says "Saving" after a moment, then "Saved", then "Up to date" (%s)',
+    async (size) => {
+      const server = withWallet();
+      renderApp(server, '/', { size });
+      await wallet();
+      const seen = watchLabels();
+      const held = holdNext(server, 'POST', '/api/changes');
+      try {
+        await addAccount('Savings');
+        expect(await labelArea(size).findByText('Saving')).toBeTruthy();
+        // The second waits behind the first; how many isn't counted while merely saving
+        await addAccount('Purse');
+        await wait(100);
+        expect(labels()).toEqual(['Saving']);
+        // "Saving" came only once the save had been going a moment
+        expect(seen.firstAfter('Saving')).toBeGreaterThanOrEqual(SAVING_AFTER_MS - 50);
+      } finally {
+        held.release();
+      }
+      expect(await labelArea(size).findByText('Saved', {}, { timeout: 5000 })).toBeTruthy();
+      expect(await labelArea(size).findByText('Up to date', {}, { timeout: 5000 })).toBeTruthy();
+      expect(seen.stop()).toEqual(['Up to date', 'Saving', 'Saved', 'Up to date']);
+      expect(server.accounts.map((a) => a.name)).toEqual(['Wallet', 'Savings', 'Purse']);
+      // Saving and saved are never announced
+      expect(liveText()).toEqual(['']);
+    },
+  );
+
+  test.each(SIZES)('a quick save never flashes "Saving", and says "Saved" (%s)', async (size) => {
     const server = withWallet();
     renderApp(server, '/', { size });
     await wallet();
-    const held = holdNext(server, 'POST', '/api/changes');
-    try {
-      await addAccount('Savings');
-      expect(await labelArea(size).findByText('Saving 1 change')).toBeTruthy();
-      // The second waits behind the first
-      await addAccount('Purse');
-      expect(await labelArea(size).findByText('Saving 2 changes')).toBeTruthy();
-      expect(labels()).toEqual(['Saving 2 changes']);
-    } finally {
-      held.release();
-    }
+    await wait(100);
+    const seen = watchLabels();
+    await addAccount('Savings');
+    await waitFor(() => expect(server.accounts.map((a) => a.name)).toContain('Savings'));
+    expect(await labelArea(size).findByText('Saved')).toBeTruthy();
     expect(await labelArea(size).findByText('Up to date', {}, { timeout: 5000 })).toBeTruthy();
-    expect(server.accounts.map((a) => a.name)).toEqual(['Wallet', 'Savings', 'Purse']);
+    expect(seen.stop()).toEqual(['Up to date', 'Saved', 'Up to date']);
   });
+
+  test.each(SIZES)(
+    'a long label stays whole for a tooltip and screen readers, and problems are announced once (%s)',
+    async (size) => {
+      const server = withWallet();
+      renderApp(server, '/', { size });
+      await wallet();
+      goOffline(server);
+      expect(liveText()).toEqual(['Offline.']);
+      for (const name of ['A', 'B', 'C']) await addAccount(name);
+      const label = await labelArea(size).findByText('Offline · 3 changes waiting');
+      // Cut short with an ellipsis where it doesn't fit, so its whole text is its tooltip
+      expect(label.closest('[title]')?.getAttribute('title')).toBe('Offline · 3 changes waiting');
+      if (size === 'desktop') {
+        // Beside "Mahnee" there's room for a few words: the count stays in sight, and the
+        // whole words are what's read out
+        const seen = labelArea(size).getByText('3 waiting');
+        expect(seen.getAttribute('aria-hidden')).toBe('true');
+        expect(seen.closest('[title]')).toBe(label.closest('[title]'));
+      } else {
+        expect(screen.queryByText('3 waiting')).toBeNull();
+      }
+      // One polite region for the label, saying the problem in a sentence
+      expect(liveText()).toEqual(['Offline, 3 changes waiting to save.']);
+    },
+  );
+
+  test.each(SIZES)(
+    'converting with changes waiting is said in full, cut short only on screen (%s)',
+    async (size) => {
+      const server = withWallet();
+      server.me.conversion = {
+        from: 'MYR',
+        to: 'USD',
+        since: Date.now(),
+        refused: null,
+        progress: { done: 40, total: 100 },
+      };
+      renderApp(server, '/', { size });
+      await wallet();
+      for (const name of ['A', 'B', 'C']) await addAccount(name);
+      const text = 'Converting to USD… 40% · 3 changes waiting';
+      const label = await labelArea(size).findByText(text);
+      expect(label.closest('[title]')?.getAttribute('title')).toBe(text);
+      // Under way, not a problem: nothing is announced as it counts up
+      expect(liveText()).toEqual(['']);
+    },
+  );
 
   test("online but the server failing, a change waits and the figures stay the device's", async () => {
     const server = withWallet();
@@ -346,14 +452,10 @@ describe('how fresh the figures are', () => {
     await wallet();
     server.health = 'signedOut';
     await addAccount('Savings');
-    expect(
-      await labelArea('phone').findByText('Signed out · 1 change waiting to save'),
-    ).toBeTruthy();
+    expect(await labelArea('phone').findByText('Signed out · 1 change waiting')).toBeTruthy();
     await addAccount('Purse');
-    expect(
-      await labelArea('phone').findByText('Signed out · 2 changes waiting to save'),
-    ).toBeTruthy();
-    expect(labels()).toEqual(['Signed out · 2 changes waiting to save']);
+    expect(await labelArea('phone').findByText('Signed out · 2 changes waiting')).toBeTruthy();
+    expect(labels()).toEqual(['Signed out · 2 changes waiting']);
   });
 
   test.each(['desktop', 'tablet', 'phone'] as const)(
@@ -372,7 +474,7 @@ describe('how fresh the figures are', () => {
     goOffline(server);
     await addAccount('Savings');
     await reloadApp(server, '/?settings', { size });
-    expect(await screen.findByText('Mahnee · Offline · 1 change waiting to save')).toBeTruthy();
+    expect(await screen.findByText('Mahnee · Offline · 1 change waiting')).toBeTruthy();
   });
 
   test("a computer's Settings pages end with it too", async () => {
@@ -407,13 +509,13 @@ describe("a phone's other pages", () => {
 
       goOffline(server);
       await addAccount('Savings');
-      expect(await screen.findByText('Offline · 1 change waiting to save')).toBeTruthy();
-      expect(labels()).toEqual(['Offline · 1 change waiting to save']);
+      expect(await screen.findByText('Offline · 1 change waiting')).toBeTruthy();
+      expect(labels()).toEqual(['Offline · 1 change waiting']);
 
       await goToPlace('Activity');
-      expect(await screen.findByText('Offline · 1 change waiting to save')).toBeTruthy();
+      expect(await screen.findByText('Offline · 1 change waiting')).toBeTruthy();
       await goToPlace('Plan');
-      expect(await screen.findByText('Offline · 1 change waiting to save')).toBeTruthy();
+      expect(await screen.findByText('Offline · 1 change waiting')).toBeTruthy();
     },
   );
 });
@@ -433,7 +535,7 @@ describe('the offline notice', () => {
       await addAccount('Savings');
       // The count is the label's to say; the notice adds what happens once back (this
       // browser has no Background Sync)
-      expect(await screen.findByText('Offline · 1 change waiting to save')).toBeTruthy();
+      expect(await screen.findByText('Offline · 1 change waiting')).toBeTruthy();
       await waitFor(async () =>
         expect((await screen.findByRole('status')).textContent?.trim()).toBe(
           `${text}Open Mahnee when connected to finish syncing.`,

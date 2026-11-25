@@ -1946,7 +1946,7 @@ one in use) and "All currencies" (the ECB's 30, `HOME_CURRENCIES` in `shared/rat
 each converts without Wise). Picking one closes the picker (drawn first) and saves it at once; the server then converts
 every amount in the background while the app stays usable (places, search, adding entries,
 which wait on the device and are saved once it's done; the freshness line says "Converting to
-USD… 40% · 2 changes waiting"). Until that's done the row and the freshness line say "Converting
+USD… 40% · 2 changes waiting", "USD 40%" beside "Mahnee"). Until that's done the row and the freshness line say "Converting
 to USD… 40%" (`Conversion.progress`, when the server says), the row can't be changed, amounts
 are shown as they still are, and the totals on Home, Activity and Accounts say "conversion
 pending" ([common/ConversionPending.tsx](../web/src/components/common/ConversionPending.tsx)). A change
@@ -2105,21 +2105,34 @@ the 0012 cases in [worker/test/migrations.test.ts](../worker/test/migrations.tes
 
 **What it is.** The app installs as an app and opens offline or on a bad connection,
 showing what this device last loaded with the changes made since on top. How fresh the
-figures are is always said, by a freshness label: "Up to date" (a green dot) once the
-server has confirmed them and nothing waits; "From this device, 3 h old" (amber) while the
-balances or the month come from that copy (offline, or the server hasn't answered yet);
-"Offline · 2 changes waiting to save" while changes wait without a connection. This
-replaces the old rule that fresh from the server it said nothing (the redesign's
-"Freshness, always labelled"). The design doesn't draw these, so they're the run's
-defaults: "Offline" (offline, nothing waiting, figures fetched earlier), "Saving 2
-changes" (online, the server answering, changes on their way), "Signed out · 2 changes
-waiting to save", and "From this device" alone when the copy's time isn't known. Ages read
+figures are is always said, by a freshness label: a small cloud and a few words on one
+line of a fixed height, so changing state never moves anything around it. "Up to date"
+(a green cloud with a tick) once the server has confirmed them and nothing waits;
+"From this device, 3 h old" (an amber struck-through cloud) while the balances or the
+month come from that copy (offline, or the server hasn't answered yet); "Offline · 2
+changes waiting" while changes wait without a connection. This replaces the old rule that
+fresh from the server it said nothing (the redesign's "Freshness, always labelled"). The
+design doesn't draw these, so they're the run's defaults: "Offline" (offline, nothing
+waiting, figures fetched earlier), "Saving" (a muted cloud with an arrow, online, the
+server answering, shown only once a save has gone 400 ms so a quick one never flashes it,
+and without a count), then "Saved" for 2 seconds once changes were sent and taken (not
+when refused or still waiting), "Signed out · 2 changes waiting", and "From this device"
+alone when the copy's time isn't known (`components/common/useSaveTiming.ts`, worked out
+once around every page by `FreshnessProvider`, so a page opened mid-save agrees). The cloud
+keeps one place in every state, the words starting just after it, never pushed right (in
+Settings' "This computer" row the label has a box as wide as its longest words); they
+cross-fade in 160 ms (the cloud too when it changes); with reduced motion they simply swap. Words that don't
+fit end in an ellipsis, whole in the tooltip and for screen readers; beside "Mahnee" in the
+sidebar it shows a few words instead ("2 waiting", "USD 40%", "3 h old"). Problems
+(offline, signed out, the device's copy) are announced once, politely, from one live region
+around every page; saving, saved and a counting age never are. Ages read
 "less than a minute", "5 min", "3 h", "2 d", rounded down, and keep counting while shown.
 The label sits under Home's title on phones and tablets, beside "Mahnee" in a computer's
 sidebar, and at the foot of Settings ("Mahnee · Up to date"); on a phone's or tablet's
-other pages, and at the foot of Settings' own pages there, it shows only when it isn't
-"Up to date", so changes waiting are never out of sight (Settings' own pages show it always
-on a computer, as the settings boards draw). It judges the balances and Home's open month,
+other pages, and at the foot of Settings' own pages there, it shows only when something is
+wrong (amber), not while up to date, saving or saved, so changes waiting are never out of
+sight and a save moves nothing (Settings' own pages show it always on a computer, as the
+settings boards draw). It judges the balances and Home's open month,
 or this month off Home; nothing shows until the balances first load, and Home keeps its
 line meanwhile. Changes made offline are kept on the device and saved once the connection
 is back, even with the app closed. The offline notice says so on the due tint ("Offline.
@@ -2289,10 +2302,14 @@ another account's changes kept through sign-in and sign-out),
 [start.test.tsx](../web/src/offline/start.test.tsx) (starting from the device's copy, with
 how old it is, and once Access asks to sign in again),
 [Freshness.test.tsx](../web/src/components/common/Freshness.test.tsx) (every label where
-it's drawn at each size, ages, which label wins, the offline notice's words, and the undo
+it's drawn at each size, ages, which label wins, Saving only after a moment then Saved,
+long labels whole for the tooltip and screen readers, what's announced, the offline
+notice's words, and the undo
 toast: announced, Undo its only button, gone after 6 seconds; refusals keep their close
 button), [freshness-text.test.ts](../web/src/components/common/freshness-text.test.ts)
-(age edges and the order of the labels),
+(age edges, the order of the labels, their short forms, look and what's announced),
+[useSaveTiming.test.ts](../web/src/components/common/useSaveTiming.test.ts) (when Saving
+and Saved show, on a fake clock),
 [history.test.tsx](../web/src/offline/history.test.tsx) (offline cold start: a month
 never opened, page by page, with the server's figures; a transfer; an edit made offline;
 an account's entries past the first page; a download stopped, said so, and carried on

@@ -1,7 +1,8 @@
 // What the freshness label says: whether the figures shown are the server's and nothing is
-// waiting ("Up to date"), come from the copy kept on this device ("From this device, 3 h
-// old"), changes wait to be saved ("Offline · 2 changes waiting to save"), or amounts are
-// being converted into a new home currency ("Converting to USD…")
+// waiting ("Up to date"), a save is taking a moment ("Saving") or just landed ("Saved"),
+// the figures come from the copy kept on this device ("From this device, 3 h old"),
+// changes wait to be saved ("Offline · 2 changes waiting"), or amounts are being converted
+// into a new home currency ("Converting to USD…")
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -45,12 +46,31 @@ export interface FreshnessState {
    */
   at: number | null;
   now: number;
+  /** A save has been on its way long enough to say so (useSaveTiming) */
+  savingShown?: boolean;
+  /** Changes were sent and taken a moment ago (useSaveTiming) */
+  justSaved?: boolean;
+}
+
+export interface FreshnessLabel {
+  text: string;
+  /** The same in a few words, for where there's little room (beside "Mahnee" in the sidebar) */
+  short: string;
+  /** Green when fresh or just saved, muted while saving, amber when old or waiting */
+  tone: 'fresh' | 'quiet' | 'old';
+  /** The cloud drawn before it: a tick, an arrow up, or struck through */
+  icon: 'check' | 'up' | 'slash';
+  /**
+   * What screen readers are told, once, as a sentence: only problems (offline, signed out,
+   * the device's copy), never saving, and without an age that would count up
+   */
+  say: string | null;
 }
 
 /**
- * The label's words, and whether it's the fresh kind (the green dot). Changes waiting
- * offline come first, so they're never out of sight; nothing is said to be saving while
- * the figures are still the device's, since the server isn't answering then.
+ * The label's words, look and what's announced. Changes waiting offline come first, so
+ * they're never out of sight; nothing is said to be saving while the figures are still
+ * the device's, since the server isn't answering then.
  */
 export function freshnessText({
   online,
@@ -60,23 +80,54 @@ export function freshnessText({
   convertedPercent = null,
   at,
   now,
-}: FreshnessState) {
+  savingShown = false,
+  justSaved = false,
+}: FreshnessState): FreshnessLabel {
   const fromDevice =
     at == null
       ? null
       : at === 0
         ? 'From this device'
         : `From this device, ${ageInWords(now - at)} old`;
-  let text: string;
-  if (!online && waiting > 0) text = `Offline · ${changes(waiting)} waiting to save`;
-  else if (!online) text = fromDevice ?? 'Offline';
-  else if (signedOut && waiting > 0) text = `Signed out · ${changes(waiting)} waiting to save`;
+  const problem = (text: string, say: string, short = text): FreshnessLabel => ({
+    text,
+    short,
+    tone: 'old',
+    icon: 'slash',
+    say,
+  });
+  if (!online && waiting > 0) {
+    return problem(
+      `Offline · ${changes(waiting)} waiting`,
+      `Offline, ${changes(waiting)} waiting to save.`,
+      `${waiting} waiting`,
+    );
+  }
+  if (!online && fromDevice == null) return problem('Offline', 'Offline.');
+  if (online && signedOut && waiting > 0) {
+    return problem(
+      `Signed out · ${changes(waiting)} waiting`,
+      `Signed out, ${changes(waiting)} waiting to save.`,
+      `${waiting} waiting`,
+    );
+  }
   // Changes wait until it's done, so this is what's going on, with how many are waiting
-  else if (convertingTo != null) {
-    text = convertingText(convertingTo, convertedPercent);
+  if (online && convertingTo != null) {
+    let text = convertingText(convertingTo, convertedPercent);
     if (waiting > 0) text = `${text} · ${changes(waiting)} waiting`;
-  } else if (fromDevice != null) text = fromDevice;
-  else if (waiting > 0) text = `Saving ${changes(waiting)}`;
-  else return { text: 'Up to date', fresh: true };
-  return { text, fresh: false };
+    // The cloud's arrow says it's under way; the currency and how far, in the sidebar
+    const short = `${convertingTo}${convertedPercent == null ? '…' : ` ${convertedPercent}%`}`;
+    return { text, short, tone: 'old', icon: 'up', say: null };
+  }
+  if (fromDevice != null) {
+    return problem(
+      fromDevice,
+      'Showing what this device kept, not yet checked with the server.',
+      at === 0 ? 'Device copy' : `${ageInWords(now - at!)} old`,
+    );
+  }
+  if (waiting > 0 && savingShown)
+    return { text: 'Saving', short: 'Saving', tone: 'quiet', icon: 'up', say: null };
+  if (justSaved) return { text: 'Saved', short: 'Saved', tone: 'fresh', icon: 'check', say: null };
+  return { text: 'Up to date', short: 'Up to date', tone: 'fresh', icon: 'check', say: null };
 }

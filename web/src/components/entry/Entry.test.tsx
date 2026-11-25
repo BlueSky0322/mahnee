@@ -27,7 +27,7 @@ const SIZES = ['desktop', 'phone'] as const;
 const WALLET = 'a'.repeat(16);
 const BANK = 'b'.repeat(16);
 const OFFLINE = OFFLINE_NOTICE.phone;
-const ONE_WAITING = 'Offline · 1 change waiting to save';
+const ONE_WAITING = 'Offline · 1 change waiting';
 const categoryId = (name: string) => DEFAULT_CATEGORIES.find((c) => c.name === name)!.id;
 
 function seedAccount(server: FakeServer, account: Partial<Account> & Pick<Account, 'id' | 'name'>) {

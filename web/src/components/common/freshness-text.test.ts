@@ -31,91 +31,181 @@ describe('how old a copy is, in words', () => {
 
 describe('the label', () => {
   const base = { online: true, waiting: 0, signedOut: false, at: null as number | null, now: NOW };
+  const upToDate = {
+    text: 'Up to date',
+    short: 'Up to date',
+    tone: 'fresh',
+    icon: 'check',
+    say: null,
+  };
+  const saving = { text: 'Saving', short: 'Saving', tone: 'quiet', icon: 'up', say: null };
+  const saved = { text: 'Saved', short: 'Saved', tone: 'fresh', icon: 'check', say: null };
+  const fromDevice = (text: string, short: string) => ({
+    text,
+    short,
+    tone: 'old',
+    icon: 'slash',
+    say: 'Showing what this device kept, not yet checked with the server.',
+  });
 
+  // Each says it in full, and in a few words (`short`) for narrow places, the sidebar
   test.each([
-    ['fresh, nothing waiting', {}, 'Up to date', true],
-    ['from the device', { at: NOW - 2 * H }, 'From this device, 2 h old', false],
-    ['from the device, its time unknown', { at: 0 }, 'From this device', false],
-    ['saving one', { waiting: 1 }, 'Saving 1 change', false],
-    ['saving two', { waiting: 2 }, 'Saving 2 changes', false],
+    ['fresh, nothing waiting', {}, upToDate],
+    ['from the device', { at: NOW - 2 * H }, fromDevice('From this device, 2 h old', '2 h old')],
+    // The age keeps counting on screen, but what's announced stays the same
+    [
+      'from the device, older',
+      { at: NOW - 3 * H },
+      fromDevice('From this device, 3 h old', '3 h old'),
+    ],
+    ['from the device, its time unknown', { at: 0 }, fromDevice('From this device', 'Device copy')],
+    // A save on its way says nothing until it has taken a moment, then just "Saving"
+    ['saving one, not yet a moment', { waiting: 1 }, upToDate],
+    ['saving one', { waiting: 1, savingShown: true }, saving],
+    ['saving two, without the count', { waiting: 2, savingShown: true }, saving],
+    ['saved just now', { justSaved: true }, saved],
+    // Another save starting just after keeps "Saved" until it has taken a moment too
+    ['saved just now, another on its way', { waiting: 1, justSaved: true }, saved],
+    [
+      'saved just now, another taking a while',
+      { waiting: 1, justSaved: true, savingShown: true },
+      saving,
+    ],
     // Nothing can be sending while the server doesn't answer: the figures are the device's
     [
       'waiting, figures from the device',
-      { waiting: 1, at: NOW - 2 * H },
-      'From this device, 2 h old',
-      false,
+      { waiting: 1, at: NOW - 2 * H, savingShown: true },
+      fromDevice('From this device, 2 h old', '2 h old'),
     ],
     [
       'signed out, one waiting',
       { signedOut: true, waiting: 1 },
-      'Signed out · 1 change waiting to save',
-      false,
+      {
+        text: 'Signed out · 1 change waiting',
+        short: '1 waiting',
+        tone: 'old',
+        icon: 'slash',
+        say: 'Signed out, 1 change waiting to save.',
+      },
     ],
     [
       'signed out, two waiting',
-      { signedOut: true, waiting: 2 },
-      'Signed out · 2 changes waiting to save',
-      false,
+      { signedOut: true, waiting: 2, savingShown: true, justSaved: true },
+      {
+        text: 'Signed out · 2 changes waiting',
+        short: '2 waiting',
+        tone: 'old',
+        icon: 'slash',
+        say: 'Signed out, 2 changes waiting to save.',
+      },
     ],
     [
       'offline, one waiting',
       { online: false, waiting: 1 },
-      'Offline · 1 change waiting to save',
-      false,
+      {
+        text: 'Offline · 1 change waiting',
+        short: '1 waiting',
+        tone: 'old',
+        icon: 'slash',
+        say: 'Offline, 1 change waiting to save.',
+      },
     ],
     [
-      'offline, two waiting',
-      { online: false, waiting: 2 },
-      'Offline · 2 changes waiting to save',
-      false,
+      'offline, twelve waiting',
+      { online: false, waiting: 12, savingShown: true },
+      {
+        text: 'Offline · 12 changes waiting',
+        short: '12 waiting',
+        tone: 'old',
+        icon: 'slash',
+        say: 'Offline, 12 changes waiting to save.',
+      },
     ],
     [
       'offline, waiting, figures from the device',
       { online: false, waiting: 1, at: NOW - 2 * H },
-      'Offline · 1 change waiting to save',
-      false,
+      {
+        text: 'Offline · 1 change waiting',
+        short: '1 waiting',
+        tone: 'old',
+        icon: 'slash',
+        say: 'Offline, 1 change waiting to save.',
+      },
     ],
     [
       'offline, signed out, waiting',
       { online: false, waiting: 1, signedOut: true },
-      'Offline · 1 change waiting to save',
-      false,
+      {
+        text: 'Offline · 1 change waiting',
+        short: '1 waiting',
+        tone: 'old',
+        icon: 'slash',
+        say: 'Offline, 1 change waiting to save.',
+      },
     ],
     [
       'offline, nothing waiting, figures from the device',
       { online: false, at: NOW - 2 * H },
-      'From this device, 2 h old',
-      false,
+      fromDevice('From this device, 2 h old', '2 h old'),
     ],
-    ['offline, nothing waiting, figures fetched before', { online: false }, 'Offline', false],
-    // Amounts converting into a new home currency: changes wait until it's done
-    ['converting', { convertingTo: 'USD' }, 'Converting to USD…', false],
+    [
+      'offline, nothing waiting, figures fetched before',
+      { online: false, justSaved: true },
+      { text: 'Offline', short: 'Offline', tone: 'old', icon: 'slash', say: 'Offline.' },
+    ],
+    // Amounts converting into a new home currency: changes wait until it's done. It's
+    // under way, not a problem, so it isn't announced as it counts up.
+    [
+      'converting',
+      { convertingTo: 'USD' },
+      { text: 'Converting to USD…', short: 'USD…', tone: 'old', icon: 'up', say: null },
+    ],
     // Saved once it's done, so how many wait is said with it
     [
       'converting, changes waiting',
-      { convertingTo: 'USD', waiting: 2 },
-      'Converting to USD… · 2 changes waiting',
-      false,
+      { convertingTo: 'USD', waiting: 2, savingShown: true },
+      {
+        text: 'Converting to USD… · 2 changes waiting',
+        short: 'USD…',
+        tone: 'old',
+        icon: 'up',
+        say: null,
+      },
     ],
     [
       'converting, how far it has got, one change waiting',
       { convertingTo: 'USD', convertedPercent: 40, waiting: 1 },
-      'Converting to USD… 40% · 1 change waiting',
-      false,
+      {
+        text: 'Converting to USD… 40% · 1 change waiting',
+        short: 'USD 40%',
+        tone: 'old',
+        icon: 'up',
+        say: null,
+      },
     ],
     [
       'converting, how far it has got, three changes waiting',
       { convertingTo: 'USD', convertedPercent: 40, waiting: 3 },
-      'Converting to USD… 40% · 3 changes waiting',
-      false,
+      {
+        text: 'Converting to USD… 40% · 3 changes waiting',
+        short: 'USD 40%',
+        tone: 'old',
+        icon: 'up',
+        say: null,
+      },
     ],
     [
       'converting, offline with changes',
       { convertingTo: 'USD', online: false, waiting: 1 },
-      'Offline · 1 change waiting to save',
-      false,
+      {
+        text: 'Offline · 1 change waiting',
+        short: '1 waiting',
+        tone: 'old',
+        icon: 'slash',
+        say: 'Offline, 1 change waiting to save.',
+      },
     ],
-  ])('%s', (_, state, text, fresh) => {
-    expect(freshnessText({ ...base, ...state })).toEqual({ text, fresh });
+  ] as const)('%s', (_, state, label) => {
+    expect(freshnessText({ ...base, ...state })).toEqual(label);
   });
 });

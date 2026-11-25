@@ -77,6 +77,9 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
+  /* A long freshness label ends in an ellipsis rather than pushing the initial over */
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .monthNav {

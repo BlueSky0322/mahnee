@@ -95,9 +95,13 @@ let savedCount = 0;
 /** A fresh ledger came from the server since this page started (or its cache was emptied) */
 let ledgerFetched = false;
 
-/** Every list of transactions: one account's, a search's, or (later) a month's */
+/** Every list of transactions: one account's, a search's, Home's latest, or a month's */
 export const TRANSACTIONS_KEY = ['transactions'] as const;
-export type TransactionsKey = readonly ['transactions', 'account' | 'month' | 'search', string];
+export type TransactionsKey = readonly [
+  'transactions',
+  'account' | 'month' | 'search' | 'recent',
+  string,
+];
 /** One account's transactions, newest first */
 export const accountTransactionsKey = (accountId: string): TransactionsKey => [
   'transactions',
@@ -112,6 +116,17 @@ export const searchTransactionsKey = (query: SearchQuery): TransactionsKey => [
 ];
 /** A page of a search holds this many, the most the server sends at once */
 const SEARCH_PAGE_SIZE = 200;
+/** How many of a search's newest entries a computer's Home lists, and all it asks for */
+export const RECENT_ENTRIES = 8;
+/** The newest RECENT_ENTRIES a search finds (shared/search.ts), for Home; never more */
+export const recentTransactionsKey = (query: SearchQuery): TransactionsKey => [
+  'transactions',
+  'recent',
+  new URLSearchParams(searchParams(query)).toString(),
+];
+/** How many a list asks for at a time: a search 200, Home's latest RECENT_ENTRIES */
+const searchPageSize = (by: TransactionsKey[1]) =>
+  by === 'recent' ? RECENT_ENTRIES : SEARCH_PAGE_SIZE;
 
 /** Every account's transactions in a month (2026-11), newest first */
 export const monthTransactionsKey = (month: string): TransactionsKey => [
@@ -641,8 +656,8 @@ export async function fetchTransactionPage(
   let page: PageOnDevice;
   try {
     page =
-      by === 'search'
-        ? await api.search(value, before, SEARCH_PAGE_SIZE)
+      by === 'search' || by === 'recent'
+        ? await api.search(value, before, searchPageSize(by))
         : await api.getTransactions(
             by === 'account' ? { account: value, before } : { month: value, before },
           );
@@ -706,7 +721,7 @@ async function pageOnDevice(key: TransactionsKey, before: string | null) {
   const categories =
     queryClient.getQueryData<Ledger>(LEDGER_KEY)?.categories ?? ledger?.categories ?? [];
   const accounts = ledger?.accounts.map((a) => a.id) ?? [];
-  return localSearchPage(query, categories, accounts, homeCurrency(), before, SEARCH_PAGE_SIZE);
+  return localSearchPage(query, categories, accounts, homeCurrency(), before, searchPageSize(by));
 }
 
 /** The most a page of transactions holds (worker/ledger/read.ts MAX_PAGE_SIZE) */

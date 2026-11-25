@@ -1100,6 +1100,19 @@ calendar and the budgets. The full lists live in Activity, Plan and Accounts.
   expense category to set its monthly budget", and the category opened has Monthly budget
   ready to type, the first one opened only; Getting started's and Plan's "Set a budget" go
   there too).
+- On a computer, the latest entries beside the calendar (owner request 2026-11-25; under it
+  when Getting started or Coming up take that room): "Recent activity" on this month, the 8
+  newest of all, whatever month they're in, so the newest show however early in the month it
+  is; "Latest in October" on an earlier month, that month's last 8. Each row is Activity's:
+  the category's tile, what it was ("Kedai Ali", or the category) over "Food · Cash" (a
+  transfer's "Maybank to Cash"), its day ("Today", "Yesterday", "Mon, Nov 23") and its amount
+  signed and coloured as Activity's; it's a button read out as "Kedai Ali, Food · Cash,
+  Today, −RM 30.00" and opens the entry (EntrySheet, as Activity does on a computer too
+  narrow for its editor beside it). See all opens `?activity&kind=all&dates=all` (or the
+  month's days). None: "Nothing logged yet. New entry (N) adds one." (or "Nothing logged in
+  October."); placeholder rows (`LoadingRows`) only until the first copy; offline with no
+  copy, "Your entries aren't on this device yet."; offline from a history that doesn't reach
+  the oldest of them, which days it shows. Phones and tablets have none.
 - Getting started, this month while any of its five steps is left and it isn't hidden:
   where the money is (always done), the first expense (spending this month), "Import past
   transactions" (anything last month), rent, bills and pay (a repeating item), a budget (one
@@ -1177,7 +1190,9 @@ thing it keeps, per device.
   [ledger/forecast.ts](../web/src/ledger/forecast.ts); `budgetLines`; `dayByDay`; the phone
   glance's figures in [ledger/glance.ts](../web/src/ledger/glance.ts), drawn by
   [AtAGlance.tsx](../web/src/components/home/AtAGlance.tsx) (its entries from `useSearch`,
-  opened with EntrySheet).
+  opened with EntrySheet); a computer's latest entries from `useRecent`
+  ([ledger/useLedger.ts](../web/src/ledger/useLedger.ts)), drawn by
+  [RecentEntries.tsx](../web/src/components/home/RecentEntries.tsx).
 - Shared: `budgetPace` in [shared/budgets.ts](../shared/budgets.ts); `periodDay` in
   [shared/period.ts](../shared/period.ts) (with `addDays` and `weekStartOf` for the glance's
   week); the month end is the last day of the person's
@@ -1193,6 +1208,11 @@ thing it keeps, per device.
   Repeating bills and month end); "running fast" compares exact whole numbers.
 - Coming up and the calendar list only listed items on listed accounts, as the month-end
   sum counts them; transfers are in Coming up but never in the sum or the dots.
+- A computer's latest entries ask the server for 8 at most (`GET /api/search?limit=8`, a
+  list of its own in the ledger's cache, `recentTransactionsKey`), once per month shown,
+  and never more pages; changes still to send are drawn on top, as on every list, so an
+  entry added shows first at once. They stay in one place in the layout, so what needs you
+  appearing beside the calendar never reads them again.
 
 **Tests.** [Home.test.tsx](../web/src/components/home/Home.test.tsx) (each part, in Kuala
 Lumpur just after midnight so a UTC day would be wrong: the sum and its line, the arrows,
@@ -1208,7 +1228,11 @@ fast" exact and its tie-break, day names, weeks),
 [ComingUp.test.tsx](../web/src/components/home/ComingUp.test.tsx) (rows, amounts to check,
 added this month), [glance.test.tsx](../web/src/components/home/glance.test.tsx) (the phone
 glance: a month from the 25th, a week into last month, a zero median, a week without
-spending, an earlier month, an entry made offline, history not on the device) with
+spending, an earlier month, an entry made offline, history not on the device),
+[recent-desktop.test.tsx](../web/src/components/home/recent-desktop.test.tsx) (a computer's
+latest entries: the 8 newest in order, transfers, colours, opening one, See all, none,
+placeholders, an entry added, waiting and pending entries offline, no copy offline, an
+earlier month; phones and tablets unchanged) with
 [glance.test.ts](../web/src/ledger/glance.test.ts), and [forecast.test.ts](../web/src/ledger/forecast.test.ts) (bills and pay,
 coming up).
 
@@ -2330,7 +2354,10 @@ when signed out),
 **What it is.** Which page shows, the layouts for phones, tablets and computers, and
 what Back does. Four places are always a tap away: Home, Activity, Plan and Accounts, in
 a tab bar at the bottom on phones and tablets (with Add in the middle) and in a sidebar
-on computers (with Mahnee, New entry and, at its foot, Settings). Moving between places
+on computers (with Mahnee, New entry and, at its foot, Settings). Mahnee's logo and name
+there are a link to Home ("Mahnee, Home"), as Home below them is: from Home it takes
+Home's place in history, so nothing is added
+([brand-home.test.tsx](../web/src/components/shell/brand-home.test.tsx)). Moving between places
 takes the page's place in history, so Back never walks through them. An account's page
 (on a computer, Accounts with that account beside the list) keeps the places, with
 Accounts marked; Settings, its sections and Import cover them,

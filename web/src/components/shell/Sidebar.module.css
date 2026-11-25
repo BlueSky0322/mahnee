@@ -24,9 +24,17 @@
   flex: none;
   align-items: center;
   gap: 8px;
+  border-radius: 6px;
+  color: inherit;
   font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
 }
 
 .newEntry {

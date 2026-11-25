@@ -39,6 +39,7 @@ import {
   tidyText,
 } from './home-text';
 import PageLink from './PageLink';
+import RecentEntries from './RecentEntries';
 import { recurringName } from './recurring-text';
 import ConversionPending from '../common/ConversionPending';
 
@@ -54,7 +55,8 @@ const homeAddress = (month: string, current: string) => (month >= current ? '' :
 // what came in (each opening its last 12 months), what needs you (what's due now, Tidy up, and on a
 // computer Coming up), a day by day calendar and the budgets with a marker for today. The full lists live in
 // Activity, Plan and Accounts. An earlier month (`month`, ?month=2026-10; null for this one) says
-// what it left instead, with its days and budgets. Until the first account is added, the first run
+// what it left instead, with its days and budgets. A computer lists the latest entries beside the
+// calendar (RecentEntries). Until the first account is added, the first run
 // asks where the money is kept.
 const HomePage = ({ month }: { month: string | null }) => {
   const { accounts, failed, retry } = useAccounts();
@@ -282,6 +284,18 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
   );
 
   if (isDesktop) {
+    const latest = (
+      <RecentEntries
+        month={month}
+        isCurrent={isCurrent}
+        firstDay={figures.firstDay}
+        lastDay={figures.lastDay}
+        today={today}
+        accounts={ledger?.accounts ?? null}
+        categories={categories}
+      />
+    );
+    const needs = Boolean(started || comingUp);
     return (
       <>
         <Answers
@@ -298,21 +312,23 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
         {isCurrent && <DueItems />}
         {/* Beside Getting started, Tidy up joins its column rather than crossing the page */}
         {!started && tidy}
-        {/* A first day: Getting started beside the empty budgets and days, three parts to two */}
+        {/* A first day: Getting started beside the empty budgets and days, three parts to two.
+            The latest entries go under what needs you, or alone to the calendar's right; the
+            column is always drawn here, so they're never read again as what needs you comes */}
         <div
-          className={
-            bothEmpty && (started || comingUp)
-              ? `${classes.split} ${classes.splitFirst}`
-              : classes.split
-          }
+          data-home-row
+          className={bothEmpty && needs ? `${classes.split} ${classes.splitFirst}` : classes.split}
         >
-          {(started || comingUp) && (
-            <div className={classes.needsColumn}>
-              {started && tidy}
-              {started}
-              {comingUp}
-            </div>
-          )}
+          <div
+            className={
+              needs ? classes.needsColumn : `${classes.latestColumn} ${classes.latestAfter}`
+            }
+          >
+            {started && tidy}
+            {started}
+            {comingUp}
+            {latest}
+          </div>
           {essentials
             ? null
             : bothEmpty

@@ -2356,7 +2356,8 @@ what Back does. Four places are always a tap away: Home, Activity, Plan and Acco
 a tab bar at the bottom on phones and tablets (with Add in the middle) and in a sidebar
 on computers (with Mahnee, New entry and, at its foot, Settings). Mahnee's logo and name
 there are a link to Home ("Mahnee, Home"), as Home below them is: from Home it takes
-Home's place in history, so nothing is added (`shell/brand-home.test.tsx`). Moving between places
+Home's place in history, so nothing is added
+([brand-home.test.tsx](../web/src/components/shell/brand-home.test.tsx)). Moving between places
 takes the page's place in history, so Back never walks through them. An account's page
 (on a computer, Accounts with that account beside the list) keeps the places, with
 Accounts marked; Settings, its sections and Import cover them,

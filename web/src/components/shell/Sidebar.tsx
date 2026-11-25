@@ -43,7 +43,10 @@ export default function Sidebar({
           <AppLogo size={22} />
           <span aria-hidden="true">Mahnee</span>
         </a>
-        <Freshness month={month} />
+        <Freshness
+          month={month}
+          compact
+        />
       </div>
       {addable != null && (
         <Button

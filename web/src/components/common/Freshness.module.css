@@ -1,23 +1,92 @@
-/* A 6px dot, green when fresh, amber when not, then 12px muted words */
-.fresh {
+/*
+ * A 14px cloud, green when fresh, muted while saving, amber when old or waiting, then 12px
+ * muted words, on one line of a fixed height. The cloud has its own slot at the start, so
+ * it never moves; the words start just after it, and those that don't fit end in an
+ * ellipsis.
+ */
+.status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+  height: calc(0.75rem * 1.4);
+  overflow: hidden;
   font-size: 0.75rem;
+  line-height: 1.4;
   color: var(--ink-3);
+  white-space: nowrap;
 }
 
-.fresh::before {
-  content: '';
+/* The cloud, and the one before it fading out over it, in the same 14px square */
+.iconSlot {
+  display: grid;
   flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--pos);
+  width: 14px;
+  height: 14px;
 }
 
-.old::before {
-  background: var(--due);
+.iconSlot > * {
+  grid-area: 1 / 1;
+}
+
+.iconSlot [data-tone='fresh'] {
+  color: var(--pos);
+}
+
+.iconSlot [data-tone='old'] {
+  color: var(--due);
+}
+
+/* The words, and the ones before them fading out, from the same left edge */
+.words {
+  display: grid;
+  justify-items: start;
+  min-width: 0;
+}
+
+.word {
+  grid-area: 1 / 1;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.word[data-text]::after {
+  content: attr(data-text);
+}
+
+.status [data-entering] {
+  animation: freshness-in 160ms ease both;
+}
+
+.leaving {
+  animation: freshness-out 160ms ease both;
+  pointer-events: none;
+}
+
+@keyframes freshness-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes freshness-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* Where motion is reduced, one label simply takes the place of the last */
+@media (prefers-reduced-motion: reduce) {
+  .status [data-entering] {
+    animation: none;
+  }
+
+  .leaving {
+    display: none;
+  }
 }
 
 /* The label's line, held while the figures first load */
@@ -26,9 +95,23 @@
   height: calc(0.75rem * 1.4);
 }
 
+/* Read out, never seen */
+.unseen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .footer {
   margin: 0;
+  overflow: hidden;
   color: var(--ink-3);
   font-size: 0.75rem;
+  line-height: 1.4;
   text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

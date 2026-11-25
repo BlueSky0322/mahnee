@@ -16,6 +16,7 @@ For agents:
 
 - Added: on a computer, Mahnee's logo and name at the top of the sidebar go to Home [#?]
 - Added: a computer's Home lists the 8 latest entries beside the calendar, each opening the entry, with See all for the rest in Activity; on an earlier month, that month's last 8 [#?]
+- Fixed: saving no longer shifts the page; the sync status is a small cloud and a word on one steady line ("Saving" only after a moment, then "Saved"), offline and waiting counts stay in sight, and only problems are announced [#73]
 
 ## 2026-11-23
 
@@ -196,3 +197,4 @@ For agents:
 [#70]: https://github.com/BlueSky0322/mahnee/pull/70
 [#71]: https://github.com/BlueSky0322/mahnee/pull/71
 [#72]: https://github.com/BlueSky0322/mahnee/pull/72
+[#73]: https://github.com/BlueSky0322/mahnee/pull/73

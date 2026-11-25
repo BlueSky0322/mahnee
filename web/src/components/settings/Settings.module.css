@@ -135,6 +135,16 @@
   cursor: pointer;
 }
 
+/*
+ * The freshness label in "This computer": a box as wide as its longest words ("Converting to
+ * USD… 40% · 3 changes waiting"), narrower only when the row is, so its cloud stays in one
+ * place whatever it says; longer words end in an ellipsis
+ */
+.freshness {
+  flex: 0 1 264px;
+  width: 264px;
+}
+
 .row + .row {
   border-top: 1px solid var(--line);
 }

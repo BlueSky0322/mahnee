@@ -133,7 +133,10 @@ export default function MyAccount() {
           <div className={classes.rowText}>
             <div className={classes.label}>Saved</div>
           </div>
-          <Freshness month={month} />
+          <Freshness
+            month={month}
+            className={classes.freshness}
+          />
         </div>
         {install.available &&
           (isDesktop ? (

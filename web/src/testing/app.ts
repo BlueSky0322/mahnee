@@ -132,6 +132,7 @@ import { isPeriodMonth, monthStartDayOf, periodMonthOf, periodOf } from '@shared
 import { Root } from '../Root';
 import { queryClient } from '../query-client';
 import { clearCache } from '../offline/cache';
+import { backLanded } from '../hooks/useBackDismiss';
 
 // The whole app renders in each test, which takes a while when every test file runs at
 // once: wait longer than the default second for things to appear
@@ -389,8 +390,7 @@ export async function settle() {
   if (vi.isFakeTimers()) return;
   const giveUpAt = Date.now() + 3000;
   for (let quiet = 0; quiet < 5 && Date.now() < giveUpAt; ) {
-    // (jsdom traverses in a few timer turns)
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const busy = unanswered > 0 || queryClient.isFetching() > 0 || queryClient.isMutating() > 0;
     quiet = busy ? 0 : quiet + 1;
   }
@@ -1977,9 +1977,9 @@ export async function reloadApp(
 export async function closeApp() {
   cleanup();
   // Back the app takes as it closes (to take off the step an open sheet or selecting kept in
-  // the history) lands now, not on the next test's address
-  // (jsdom traverses in a few timer turns)
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  // the history) lands now, not on the next test's address; a second at most, should the
+  // history have nowhere to go back to
+  await Promise.race([backLanded(), new Promise((resolve) => setTimeout(resolve, 1000))]);
   // What the test set going finishes now, rather than landing in the next test as its data
   await settle();
   queryClient.clear();

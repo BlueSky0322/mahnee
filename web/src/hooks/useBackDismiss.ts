@@ -38,12 +38,21 @@ function goBack(steps: number) {
   window.history.go(-steps);
 }
 
+// Waiting for every Back this code took to land
+let onLanded: (() => void)[] = [];
+
+/** Resolves once every Back this code took (closing a layer some other way) has landed */
+export const backLanded = () =>
+  selfBack === 0 ? Promise.resolve() : new Promise<void>((resolve) => onLanded.push(resolve));
+
 function onPopState() {
   if (selfBack > 0) {
     selfBack--;
     if (selfBack === 0) {
       for (const id of waiting) push(id);
       waiting = [];
+      for (const resolve of onLanded) resolve();
+      onLanded = [];
     }
     return;
   }
@@ -80,7 +89,9 @@ if (typeof window !== 'undefined') window.addEventListener('popstate', onPopStat
 
 /**
  * Lets Back close this layer while `opened` (phones only, or tablets too with
- * `tablets`). `onBack` closes it, or returns false to keep it open.
+ * `tablets`). `onBack` closes it, or returns false to keep it open. Answers `back`, which
+ * closes it through Back when its own entry is the one showing (so none is left behind),
+ * and says whether it did; when it didn't, close it another way.
  */
 export function useBackDismiss(
   opened: boolean,
@@ -92,14 +103,17 @@ export function useBackDismiss(
   const active = tablets ? !isDesktop : isMobile;
   const latest = useRef(onBack);
   latest.current = onBack;
+  const own = useRef<number | null>(null);
 
   useEffect(() => {
     if (!opened || !active) return;
     const layer: Layer = { id: nextId++, onBack: () => latest.current() };
+    own.current = layer.id;
     layers.push(layer);
     if (selfBack > 0) waiting.push(layer.id);
     else push(layer.id);
     return () => {
+      own.current = null;
       const at = layers.indexOf(layer);
       // Already taken off by Back
       if (at === -1) return;
@@ -118,4 +132,12 @@ export function useBackDismiss(
       if (steps > 0) goBack(steps);
     };
   }, [opened, active]);
+
+  return {
+    back: () => {
+      if (own.current == null || layerOf(window.history.state) !== own.current) return false;
+      window.history.back();
+      return true;
+    },
+  };
 }

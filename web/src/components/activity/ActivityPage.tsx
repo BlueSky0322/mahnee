@@ -318,6 +318,15 @@ export default function ActivityPage({ query }: { query: string }) {
     range.current = { anchor: null, base: null, last: null };
     setTicked(new Set());
   };
+  // Another search or filter lets go of what was ticked, so the count, the totals and Select
+  // all only ever speak of rows that are listed
+  const searched = JSON.stringify(search);
+  const lastSearched = useRef(searched);
+  useEffect(() => {
+    if (lastSearched.current === searched) return;
+    lastSearched.current = searched;
+    clearTicked();
+  }, [searched]);
   const selectAll = async () => {
     const all = await found.loadAll(MAX_BULK_TRANSACTIONS);
     setTicked(new Set(all.map((t) => t.id)));
@@ -328,8 +337,7 @@ export default function ActivityPage({ query }: { query: string }) {
     setFilters({ select: true });
   };
   // On phones and tablets, Back stops selecting before it leaves Activity
-  const layered = !isDesktop;
-  useBackDismiss(
+  const selectingLayer = useBackDismiss(
     selecting,
     () => {
       clearTicked();
@@ -339,10 +347,7 @@ export default function ActivityPage({ query }: { query: string }) {
   );
   /** Done: through Back where selecting holds a step in the history, so none is left behind */
   const stopSelecting = () => {
-    if (layered) {
-      window.history.back();
-      return;
-    }
+    if (selectingLayer.back()) return;
     clearTicked();
     setFilters({ select: false });
   };

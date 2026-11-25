@@ -304,6 +304,49 @@ describe('a computer: clicks and keys', () => {
   });
 });
 
+describe('a filter changed', () => {
+  test('a computer: what was ticked is let go, so the count, the totals and Select all agree', async () => {
+    const user = await openRegister();
+    await user.click(box('coffee'));
+    await user.click(box('bus'));
+    await user.click(box('pay'));
+    expect(bar().getByText('3 selected')).toBeTruthy();
+    await user.type(screen.getByRole('searchbox', { name: 'Search' }), 'coffee');
+    await waitFor(() => expect(table().queryByText('bus')).toBeNull());
+    expect(screen.queryByRole('region', { name: 'Selected' })).toBeNull();
+    expect(screen.queryByText(/selected$/)).toBeNull();
+    expect(box('coffee').checked).toBe(false);
+    expect(screen.getByRole('checkbox', { name: 'Select all' })).toHaveProperty('checked', false);
+  });
+
+  test('a phone: the count in the header and the bar agree after the kind changes', async () => {
+    const user = await openList();
+    fireEvent.pointerDown(row('coffee'), finger);
+    await wait(550);
+    fireEvent.pointerUp(row('coffee'), finger);
+    await screen.findByRole('heading', { name: '1 selected' });
+    await user.click(row('bus'));
+    await user.click(row('pay'));
+    expect(screen.getByRole('heading', { name: '3 selected' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /^All kinds/ }));
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('radio', { name: 'Income' }),
+    );
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: /^bus, / })).toBeNull());
+    expect(await screen.findByRole('heading', { name: '0 selected' })).toBeTruthy();
+    expect(
+      within(screen.getByRole('region', { name: 'Selected' })).getByRole('button', {
+        name: '0 selected · Net RM 0.00',
+      }),
+    ).toBeTruthy();
+    expect(row('pay')).toHaveProperty('checked', false);
+    // The kind's list stays open until closed
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await done(user);
+  });
+});
+
 describe('what the selection adds up to', () => {
   test('a computer: expenses, income and net in their colours, transfers left out and said so, live as a drag grows', async () => {
     await openRegister();

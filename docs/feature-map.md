@@ -1398,7 +1398,8 @@ it came to), transfers counted as selected but never in Net, and said so; an ent
 for a rate counts as nothing and is said to be left out ("1 waiting for a rate", "Leaves
 out 1 entry waiting for a rate"), and while every amount is being converted "conversion
 pending" shows beside Net. Ticked rows are always loaded rows (Select all loads them all),
-so the sums are exact, in whole cents.
+so the sums are exact, in whole cents; another search or filter lets go of what was ticked,
+so the count, the totals and Select all only speak of rows listed.
 
 Change category lists the kind's categories (each top-level one with its subcategories,
 searchable; not the one they are all in already), says what moves ("RM 30.90 from Other to Food") and what it does to that

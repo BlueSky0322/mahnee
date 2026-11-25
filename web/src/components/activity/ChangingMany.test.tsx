@@ -536,6 +536,9 @@ describe('selecting', () => {
     await user.click(tick('first other'));
     expect(screen.getByText('1 selected')).toBeTruthy();
     hasLine('1 selected · Net −RM 1.00');
+    // Opened, the bar's breakdown says the payee they share
+    await user.click(screen.getByRole('button', { name: '1 selected · Net −RM 1.00' }));
+    hasLine('All Stall');
     await changeCategory(user);
     const sheet = within(await screen.findByRole('dialog', { name: 'Change the category of 1' }));
     await user.click(

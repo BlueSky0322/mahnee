@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-25
 
-- Fixed: saving no longer shifts the page; the sync status is a small cloud and a word on one steady line ("Saving" only after a moment, then "Saved"), offline and waiting counts stay in sight, and only problems are announced [#?]
+- Fixed: saving no longer shifts the page; the sync status is a small cloud and a word on one steady line ("Saving" only after a moment, then "Saved"), offline and waiting counts stay in sight, and only problems are announced [#73]
 
 ## 2026-11-23
 
@@ -195,3 +195,4 @@ For agents:
 [#70]: https://github.com/BlueSky0322/mahnee/pull/70
 [#71]: https://github.com/BlueSky0322/mahnee/pull/71
 [#72]: https://github.com/BlueSky0322/mahnee/pull/72
+[#73]: https://github.com/BlueSky0322/mahnee/pull/73

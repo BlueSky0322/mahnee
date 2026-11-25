@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-25
+
+- Added: a computer's Home lists the 8 latest entries beside the calendar, each opening the entry, with See all for the rest in Activity; on an earlier month, that month's last 8 [#?]
+
 ## 2026-11-23
 
 - Fixed: changing the main currency converts a year of entries in seconds, not minutes; entries added meanwhile show at once and are saved when it finishes, the freshness line says how many wait, and totals say "conversion pending" until then; a refused change offers Try again [#72]

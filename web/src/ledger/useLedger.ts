@@ -30,6 +30,8 @@ import {
   fetchTrend,
   fetchTransactionPage,
   searchTransactionsKey,
+  recentTransactionsKey,
+  RECENT_ENTRIES,
   pendingChanges,
   pendingWithIds,
   shownPages,
@@ -275,6 +277,54 @@ export function useSearch(query: SearchQuery, { enabled = true } = {}): Found {
     loadingMore: isFetchingNextPage,
     onDevice: data?.onDevice ?? null,
     loadAll,
+  };
+}
+
+export interface Recent {
+  /**
+   * The newest RECENT_ENTRIES the search finds, newest first, changes still to send on top;
+   * null until loaded
+   */
+  transactions: Transaction[] | null;
+  failed: boolean;
+  retry: () => void;
+  /** Read from the history on this device (offline), and how much it holds; null from the server */
+  onDevice: OnDevice | null;
+}
+
+/**
+ * The newest few entries a search finds (a computer's Home), asking the server for no
+ * more than that: one entry added or changed here moves them at once, as on every list
+ */
+export function useRecent(query: SearchQuery): Recent {
+  const key = recentTransactionsKey(query);
+  const pending = useSyncExternalStore(subscribeUnsaved, pendingChanges);
+  const value = key[2];
+  const select = useCallback(
+    (data: { pages: PageOnDevice[]; pageParams: (string | null)[] }) => ({
+      transactions: shownPages(['transactions', 'recent', value], data, pending).slice(
+        0,
+        RECENT_ENTRIES,
+      ),
+      onDevice: onDeviceOf(data.pages),
+    }),
+    [value, pending],
+  );
+  const { data, isError, refetch } = useInfiniteQuery({
+    queryKey: key,
+    queryFn: ({ pageParam }) => fetchTransactionPage(key, pageParam),
+    initialPageParam: null as string | null,
+    // One page is all it ever shows
+    getNextPageParam: () => null,
+    select,
+    // Asked for offline too, so what the history on this device holds shows
+    networkMode: 'offlineFirst',
+  });
+  return {
+    transactions: data?.transactions ?? null,
+    failed: isError && data == null,
+    retry: () => void refetch(),
+    onDevice: data?.onDevice ?? null,
   };
 }
 

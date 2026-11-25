@@ -2119,7 +2119,8 @@ and without a count), then "Saved" for 2 seconds once changes were sent and take
 when refused or still waiting), "Signed out · 2 changes waiting", and "From this device"
 alone when the copy's time isn't known (`components/common/useSaveTiming.ts`, worked out
 once around every page by `FreshnessProvider`, so a page opened mid-save agrees). The cloud
-keeps one place in every state, the words starting just after it, never pushed right; they
+keeps one place in every state, the words starting just after it, never pushed right (in
+Settings' "This computer" row the label has a box as wide as its longest words); they
 cross-fade in 160 ms (the cloud too when it changes); with reduced motion they simply swap. Words that don't
 fit end in an ellipsis, whole in the tooltip and for screen readers; beside "Mahnee" in the
 sidebar it shows a few words instead ("2 waiting", "USD 40%", "3 h old"). Problems

@@ -21,9 +21,12 @@ export const CONVERSION_PENDING = 'conversion pending';
  * "Leaves out 1 entry waiting for a rate"; null with none
  */
 export function leavesOutText(transactions: readonly Pick<Transaction, 'original'>[]) {
-  const n = transactions.filter((t) => t.original?.pending).length;
-  return n === 0 ? null : `Leaves out ${n === 1 ? '1 entry' : `${n} entries`} waiting for a rate`;
+  return leavesOutCount(transactions.filter((t) => t.original?.pending).length);
 }
+
+/** The same, for `n` entries waiting for a rate */
+export const leavesOutCount = (n: number) =>
+  n === 0 ? null : `Leaves out ${n === 1 ? '1 entry' : `${n} entries`} waiting for a rate`;
 
 /** Where a rate came from, as it's said */
 export const SOURCE_NAMES = { wise: 'Wise', frankfurter: 'the ECB' } as const;

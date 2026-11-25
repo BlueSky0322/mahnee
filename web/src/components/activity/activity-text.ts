@@ -6,6 +6,7 @@ import { clockText, fromDateInput, monthHeading, toDateInput } from '../../utils
 import { currencySymbol, formatAmount, formatMoney } from '../../utils/money';
 import { categoryName } from '../common/category-name';
 import { scheduledNote } from '../common/scheduled-note';
+import { leavesOutCount } from '../common/typed-amount';
 
 // Activity's words (R-Activity, R-Activity-Select, R-Activity-Move, R-Desk-Activity,
 // R-Desk-Bulk, R-Empty-Search). Amounts say which way the money went (R-System): spending
@@ -286,24 +287,88 @@ const sharedPayee = (chosen: readonly Transaction[]) => {
   return payee != null && chosen.every((t) => t.payee === payee) ? payee : null;
 };
 
+/** What a selection adds up to: spending, income and their net, in whole cents */
+export interface Picked {
+  /** Every kind counted, transfers too */
+  entries: number;
+  spentCents: number;
+  receivedCents: number;
+  /** What came in less what went out */
+  netCents: number;
+  /** Transfers between the person's own accounts, which are neither and aren't counted */
+  transfers: number;
+  /** Entries typed offline still waiting for a rate, counted as nothing until converted */
+  waiting: number;
+  /** The payee every one of them shares, or null */
+  payee: string | null;
+}
+
 /**
- * "3 entries · RM 30.90 · all Kedai": the sum when they're all one kind, the payee when
- * they share one
+ * What the ticked entries add up to, in the main currency: one typed in another currency
+ * at what it came to (`amountCents`), as every total counts it. The rows are those loaded,
+ * at most MAX_ACCOUNTS x MAX_TRANSACTIONS_PER_ACCOUNT of at most MAX_TRANSACTION_CENTS,
+ * so every sum stays a safe whole number of cents.
  */
-export function selectionLine(chosen: readonly Transaction[], currency: string) {
-  const parts = [entriesText(chosen.length)];
-  if (chosen.length > 0 && chosen.every((t) => t.kind === chosen[0].kind)) {
-    // At most MAX_BULK_TRANSACTIONS of at most MAX_TRANSACTION_CENTS: exact
-    parts.push(
-      formatMoney(
-        chosen.reduce((sum, t) => sum + t.amountCents, 0),
-        currency,
-      ),
-    );
+export function pickedOf(chosen: readonly Transaction[]): Picked {
+  let spentCents = 0;
+  let receivedCents = 0;
+  let transfers = 0;
+  let waiting = 0;
+  for (const t of chosen) {
+    if (t.original?.pending) waiting++;
+    if (t.kind === 'expense') spentCents += t.amountCents;
+    else if (t.kind === 'income') receivedCents += t.amountCents;
+    else transfers++;
   }
-  const payee = sharedPayee(chosen);
-  if (payee != null) parts.push(`all ${payee}`);
+  return {
+    entries: chosen.length,
+    spentCents,
+    receivedCents,
+    netCents: receivedCents - spentCents,
+    transfers,
+    waiting,
+    payee: sharedPayee(chosen),
+  };
+}
+
+/** "+RM 29.25", "−RM 30.90", "RM 0.00" */
+export const signedMoney = (cents: number, currency: string) =>
+  `${cents > 0 ? '+' : cents < 0 ? '−' : ''}${formatMoney(cents, currency)}`;
+
+const transfersText = (n: number) => `${n} ${n === 1 ? 'transfer' : 'transfers'} not counted`;
+
+/**
+ * The selection in a line: "3 selected · Net −RM 42.50", then what the net leaves out:
+ * "· 1 transfer not counted", "· 1 waiting for a rate"
+ */
+export function pickedLine(p: Picked, currency: string) {
+  const parts = [`${p.entries} selected`, `Net ${signedMoney(p.netCents, currency)}`];
+  if (p.transfers > 0) parts.push(transfersText(p.transfers));
+  if (p.waiting > 0) parts.push(`${p.waiting} waiting for a rate`);
   return parts.join(' · ');
+}
+
+/** The selection's breakdown: expenses, income, net, then what to know about them */
+export function pickedParts(p: Picked, currency: string) {
+  const notes: string[] = [];
+  if (p.transfers > 0) notes.push(transfersText(p.transfers));
+  const waiting = leavesOutCount(p.waiting);
+  if (waiting != null) notes.push(waiting);
+  if (p.payee != null) notes.push(`All ${p.payee}`);
+  return {
+    expenses: formatMoney(p.spentCents, currency),
+    income: formatMoney(p.receivedCents, currency),
+    net: signedMoney(p.netCents, currency),
+    notes,
+  };
+}
+
+/** What a screen reader says once a selection settles: "3 selected. Net −RM 42.50" */
+export function pickedSaid(p: Picked, currency: string) {
+  if (p.entries === 0) return '';
+  const said = [`${p.entries} selected`, `Net ${signedMoney(p.netCents, currency)}`];
+  if (p.transfers > 0) said.push(transfersText(p.transfers));
+  return said.join('. ');
 }
 
 /** Where they are now: "Other", or "2 categories" */

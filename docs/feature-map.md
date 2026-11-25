@@ -1352,11 +1352,15 @@ spending "−8.50" in ink, income "+50.00" green, a transfer "100.00" grey with 
 
 On phones and tablets the list is grouped by day, each day with its total (received less
 spent; none for a day of transfers alone); tapping one opens it in a sheet to change or
-delete. Select, or a long press on a row (half a second; the release isn't a tap), starts
-selecting (`&select`, with no tab bar): one list without day headings, each row saying its
-day, with tick boxes, "Select all N" ticks
+delete. Select, or a long press on a row with a finger (450 ms held within 10px, so
+scrolling never selects; a light buzz where the phone can; the release isn't a tap), starts
+selecting (`&select`, with no tab bar), and Back (or Done, or Esc) stops it first, through
+`useBackDismiss`: one list without day headings, each row saying its
+day, with tick boxes, taps ticking and unticking, "Select all N" ticks
 everything found (loading every page, stopping past 500), and the foot says what's ticked
-("3 entries · RM 30.90 · all Kedai") with Delete N and Change category. On a computer
+("3 selected · Net −RM 42.50 · 1 transfer not counted", which opens to Expenses, Income
+and Net) with Delete N and Change category. With a mouse or a pen (a tablet's), dragging over
+rows ticks them, as on a computer. On a computer
 it's a register (Date, Payee and note, Category, Account, Amount), every row with a tick
 box, and the open row (the first until another is picked) is changed beside it, its payee,
 day and amount typed where the pane shows them, each in a field's box (R-Desk-Activity).
@@ -1367,7 +1371,18 @@ window growing or shrinking past where the pane fits (1200px, or 1024px down to 
 tablet's or phone's sheet) moves an open edit between the pane and the dialog or sheet,
 typed changes and all, so there is only ever one editor. J and K
 move the open row, X ticks it, C changes the category of what's ticked (or of the open
-row), and a row's category opens Change category for it alone. Esc closes the top dialog;
+row), and a row's category opens Change category for it alone. Pressing on a row (not its
+payee, category or tick box) and dragging more than 4px ticks the rows from there to the
+pointer, like a file manager: dragging back unticks what the drag added, what was ticked
+before stays ticked (a drag never loses a selection, even one starting on a ticked row),
+no text is selected meanwhile, near the top or bottom edge the page scrolls by itself, and
+letting go anywhere ends it; a press with no movement is a click, as before. Shift-click
+ticks from the row picked last (or the open one), Ctrl- or Cmd-click ticks or unticks one,
+neither opening it; Shift with the arrows ticks from the focused row; Esc lets what's
+ticked go. The bar over the register says what's ticked adds up to beside the count
+("Expenses RM 21.80 · Income RM 50.00 · Net +RM 28.20 · 1 transfer not counted", in
+spending's and income's colours), live as a drag grows; once it settles, a screen reader is
+told the count and net. Esc closes the top dialog;
 with a row always open, there's no pane to close. Anything that would lose the open entry's changes not saved asks "Save your changes?"
 with Keep editing, Discard and Save (which stays put, saying why, when it can't be saved):
 another row (a click, J or K), a search or filter that leaves it out (it stays open beside
@@ -1376,6 +1391,14 @@ the register until answered), leaving Activity (any move through `navigate()`, g
 closing a phone's or tablet's entry sheet (its Cancel or Close, Esc, the backdrop, a
 phone's Back). An entry with nothing changed moves and closes at once (`EditorControl` and
 `onDirty` in `EntryEditor.tsx`). New entry (N) opens over it and leaves it as typed.
+
+What's ticked adds up as every total does (`pickedOf` in activity-text.ts): spending and
+income at their `amountCents` in the main currency (one typed in another currency at what
+it came to), transfers counted as selected but never in Net, and said so; an entry waiting
+for a rate counts as nothing and is said to be left out ("1 waiting for a rate", "Leaves
+out 1 entry waiting for a rate"), and while every amount is being converted "conversion
+pending" shows beside Net. Ticked rows are always loaded rows (Select all loads them all),
+so the sums are exact, in whole cents.
 
 Change category lists the kind's categories (each top-level one with its subcategories,
 searchable; not the one they are all in already), says what moves ("RM 30.90 from Other to Food") and what it does to that
@@ -1430,7 +1453,9 @@ requests. The filters live in the address
 **Parts.**
 
 - UI: [components/activity/ActivityPage.tsx](../web/src/components/activity/ActivityPage.tsx)
-  (the page, the day list, the register, selecting and the long press, the keys),
+  (the page, the day list, the register, selecting, the keys, what's ticked adds up to),
+  [select-gestures.ts](../web/src/components/activity/select-gestures.ts) (the drag, the
+  long press, ranges),
   [Filters.tsx](../web/src/components/activity/Filters.tsx) (the chips and their lists),
   [ChangeCategory.tsx](../web/src/components/activity/ChangeCategory.tsx),
   [EntryEditor.tsx](../web/src/components/activity/EntryEditor.tsx) (one entry, in the pane
@@ -1478,6 +1503,13 @@ and deleting one), [ChangingMany.test.tsx](../web/src/components/activity/Changi
 (ticking, the move sheet and its budget effect, from several categories, refusals, delete
 at once with Undo, Undo's few seconds, 501 refused and 500 in one change, the long press,
 Tidy up's flow on one page, offline, counted once when the answer is lost),
+[SelectTotals.test.tsx](../web/src/components/activity/SelectTotals.test.tsx) (a drag
+growing, shrinking, from a ticked row, not from a button, released outside, scrolling by
+itself, no text selected; a plain click; Shift-, Ctrl- and Cmd-click; Shift with the arrows
+and Esc; the totals with transfers and another currency, live, announced once settled,
+Select all across pages; a phone's long press, a tap, a scroll, taps ticking, the bar's
+breakdown, Back and Done), the entry waiting for a rate selected in
+[other-currencies.test.tsx](../web/src/components/entry/other-currencies.test.tsx),
 [ActivityKeys.test.tsx](../web/src/components/activity/ActivityKeys.test.tsx),
 [activity-text.test.ts](../web/src/components/activity/activity-text.test.ts),
 [amount-colours.test.tsx](../web/src/components/activity/amount-colours.test.tsx),

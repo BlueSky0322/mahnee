@@ -211,7 +211,7 @@ describe('moving several to another category', () => {
       expect(screen.getByText('3 selected')).toBeTruthy();
       expect(tick('bus fare')).toHaveProperty('checked', false);
       expect(screen.getByRole('button', { name: 'Delete 3' })).toBeTruthy();
-      if (size === 'phone') hasLine('3 entries · RM 6.00 · all Stall');
+      if (size === 'phone') hasLine('3 selected · Net −RM 6.00');
       else expect(screen.getByRole('button', { name: 'Select all 5' })).toBeTruthy();
 
       await changeCategory(user);
@@ -535,7 +535,7 @@ describe('selecting', () => {
     const user = await openActivity(server, 'phone');
     await user.click(tick('first other'));
     expect(screen.getByText('1 selected')).toBeTruthy();
-    hasLine('1 entry · RM 1.00 · all Stall');
+    hasLine('1 selected · Net −RM 1.00');
     await changeCategory(user);
     const sheet = within(await screen.findByRole('dialog', { name: 'Change the category of 1' }));
     await user.click(

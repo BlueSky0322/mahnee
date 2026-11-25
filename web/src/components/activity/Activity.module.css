@@ -415,6 +415,8 @@
 
 .tableWrap {
   overflow-x: auto;
+  /* Only sideways: the page scrolls up and down (and a drag scrolls it by itself) */
+  overflow-y: hidden;
 }
 
 .table {
@@ -944,4 +946,109 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* ---------- Selecting by gesture, and what it adds up to ---------- */
+
+/* A drag over rows selects them, not their text */
+.page[data-dragging] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* A long press on a row starts selecting: no browser menu, no text picked */
+.page[data-layout='list'] .row {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The register's bar: two lines, each one line high, whatever is ticked, so the rows under
+   a drag never move */
+.page[data-layout='register'] .bar {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.barLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 30px;
+  overflow: hidden;
+}
+
+.barLine > * {
+  flex: none;
+}
+
+.barLine .hints {
+  margin-left: 0;
+}
+
+.picked {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+
+.picked .amount {
+  font-size: inherit;
+}
+
+.picked[data-stacked] {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  width: 100%;
+  padding: 0 4px;
+  white-space: normal;
+}
+
+/* A phone's breakdown: each name on the left, its amount on the right */
+.picked[data-stacked] > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pickedNote {
+  color: var(--ink-3);
+}
+
+.pickedSummary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pickedSummary[aria-expanded='true'] .pickedCaret {
+  transform: rotate(180deg);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

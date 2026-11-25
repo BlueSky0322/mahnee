@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-25
 
+- Added: drag over Activity's rows to select them on a computer (Shift-click, Ctrl- or Cmd-click and Shift with the arrows too, Esc to clear), or hold one on a phone; what's selected shows its expenses, income and net, transfers left out and said so [#?]
 - Added: on a computer, Mahnee's logo and name at the top of the sidebar go to Home [#74]
 - Added: a computer's Home lists the 8 latest entries beside the calendar, each opening the entry, with See all for the rest in Activity; on an earlier month, that month's last 8 [#74]
 - Fixed: saving no longer shifts the page; the sync status is a small cloud and a word on one steady line ("Saving" only after a moment, then "Saved"), offline and waiting counts stay in sight, and only problems are announced [#73]

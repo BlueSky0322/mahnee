@@ -182,7 +182,7 @@ const checked = (group: HTMLElement) =>
     .map((r) => r.textContent);
 
 describe('the form', () => {
-  test('on a phone: Close, Which way, the amount, From and For, the note, chips, the keypad', async () => {
+  test('on a tall phone: the entry controls are available without Details', async () => {
     renderApp(withAccounts(), '/?accounts', { size: 'phone' });
     const user = userEvent.setup();
     const form = await openAdd(user);
@@ -198,8 +198,9 @@ describe('the form', () => {
     expect(amount(form)).toBe('Amount, RM 0.00');
     expect(form.getByRole('button', { name: /^From Wallet/ })).toBeTruthy();
     expect(form.getByRole('button', { name: /^For Food/ })).toBeTruthy();
-    const note = form.getByLabelText<HTMLInputElement>('Payee');
-    expect(note.getAttribute('placeholder')).toBe('Optional');
+    const payee = form.getByLabelText<HTMLInputElement>('Payee');
+    expect(payee.getAttribute('placeholder')).toBe('Optional');
+    expect(form.queryByRole('button', { name: /^Details/ })).toBeNull();
     expect(form.getByRole('radiogroup', { name: 'Recent categories' })).toBeTruthy();
     expect(form.getByRole('button', { name: 'Today' })).toBeTruthy();
     expect(form.getByRole('button', { name: 'Repeat' })).toBeTruthy();
@@ -245,16 +246,20 @@ describe('the form', () => {
     const dialog = within(await screen.findByRole('dialog', { name: 'New entry' }));
     const form = within(dialog.getByRole('form', { name: 'Add a transaction' }));
     expect(form.queryByRole('group', { name: 'Keypad' })).toBeNull();
-    // The amount is a field of its own, ready to type into, and the hint describes it
-    const field = amountField(form);
+    // The currency and amount are together, with the amount ready to type into
+    const figure = within(form.getByRole('group', { name: 'Amount and currency' }));
+    expect(figure.getByRole('button', { name: 'RM, currency' })).toBeTruthy();
+    const field = figure.getByRole('textbox', { name: 'Amount' });
     await waitFor(() => expect(document.activeElement).toBe(field));
     const hint = document.getElementById(field.getAttribute('aria-describedby') ?? '');
     // Nothing typed: the hint by the amount asks for one, and Save is just Save
     expect(hint?.textContent).toBe('Type an amount. Sums work: 8+4.5');
-    expect(form.getByRole('status', { name: 'Amount, RM 0.00' })).toBeTruthy();
+    expect(figure.getByRole('status', { name: 'Amount, RM 0.00' })).toBeTruthy();
     expect(form.getByRole('button', { name: 'Cancel' })).toBeTruthy();
     expect(form.getByRole('button', { name: 'Close' })).toBeTruthy();
-    expect(saveButton(form).textContent).toBe('SaveEnter');
+    const save = saveButton(form);
+    expect(save.textContent).toBe('SaveEnter');
+    expect(unusable(save)).toBe(true);
     // The keys beside them
     expect(form.getByText('Esc')).toBeTruthy();
     expect(form.getByText('Enter')).toBeTruthy();
@@ -304,7 +309,7 @@ describe('the amount', () => {
     );
   });
 
-  test('on a computer the amount takes the keys straight away, and Enter saves', async () => {
+  test('on a computer the amount takes the keys straight away, and Enter saves a sum', async () => {
     const server = withAccounts();
     renderApp(server, '/?accounts');
     const user = userEvent.setup();
@@ -313,9 +318,13 @@ describe('the amount', () => {
     expect(amount(form)).toBe('Amount, RM 6.40');
     await user.keyboard('{Backspace}');
     expect(amount(form)).toBe('Amount, RM 6.00');
+    await user.keyboard('+2.5');
+    const hint = document.getElementById(amountField(form).getAttribute('aria-describedby') ?? '');
+    expect(hint?.textContent).toBe('Sums work: 8+4.5');
+    expect(saveButton(form).textContent).toBe('Save RM 8.50Enter');
     await user.keyboard('{Enter}');
     await waitFor(() => expect(server.transactions).toHaveLength(1));
-    expect(server.transactions[0].amountCents).toBe(600);
+    expect(server.transactions[0].amountCents).toBe(850);
   });
 
   test('on a computer the Amount takes a pasted figure, and passes over letters', async () => {

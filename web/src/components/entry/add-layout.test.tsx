@@ -6,12 +6,9 @@ import type { ChangesBody, LedgerChange } from '@shared/api';
 import type { FakeServer, Within } from '../../testing/app';
 import { addButton, fakeServer, renderApp, resizeScreen, setupAppTests } from '../../testing/app';
 
-// The anchors of New entry: the currency and the amount are one field to type into, Save
-// is in reach from the first look, and the field that names who was paid says "Payee".
-// On a short phone (an iPhone SE's 375x667) the amount, From and For, the keypad and Save
-// all show at once; the payee, recent categories, the day, Repeat and the note fold under
-// Details, which says what they hold. A computer's figure is a field with its currency in
-// it and the hint beside it, not on Save. The figures and names are made up.
+// New entry keeps the payee and note separate.
+// On a short phone the payee, recent categories, the day, Repeat and the note fold under
+// Details, which says what they hold. The figures and names are made up.
 
 setupAppTests();
 
@@ -89,7 +86,7 @@ describe('the payee and the note', () => {
 });
 
 describe('a short phone', () => {
-  test('shows the amount, From and For, the keypad and Save; the rest folds under Details', async () => {
+  test('Details folds the optional fields and keeps their values', async () => {
     renderApp(withWallet(), '/?accounts', { size: 'short-phone' });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const form = await openAdd(user);
@@ -141,15 +138,6 @@ describe('a short phone', () => {
     await user.click(form.getByRole('button', { name: /^Save / }));
     await waitFor(() => expect(added()).toBeDefined());
     expect(added()!.transaction).toMatchObject({ amountCents: 500, date: '2026-08-17' });
-  });
-
-  test('a taller phone shows everything at once, with no Details', async () => {
-    renderApp(withWallet(), '/?accounts', { size: 'phone' });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const form = await openAdd(user);
-    expect(form.queryByRole('button', { name: /^Details/ })).toBeNull();
-    expect(form.getByLabelText('Payee')).toBeTruthy();
-    expect(form.getByRole('button', { name: 'Today' })).toBeTruthy();
   });
 });
 
@@ -212,32 +200,5 @@ describe('what Details folds, kept steady', () => {
     expect(form.getByRole('textbox', { name: 'Note' })).toHaveProperty('value', 'birthday');
     expect(document.activeElement).toBe(form.getByRole('textbox', { name: 'Note' }));
     expect(noteButton.getAttribute('aria-expanded')).toBe('true');
-  });
-});
-
-describe('a computer’s amount', () => {
-  test('is one field with its currency in it, the hint beside it and plain Save', async () => {
-    renderApp(withWallet(), '/?accounts');
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const form = await openAdd(user);
-    const group = within(form.getByRole('group', { name: 'Amount and currency' }));
-    expect(group.getByRole('button', { name: 'RM, currency' })).toBeTruthy();
-    const field = group.getByRole('textbox', { name: 'Amount' });
-    await waitFor(() => expect(document.activeElement).toBe(field));
-    const hint = document.getElementById(field.getAttribute('aria-describedby') ?? '');
-    expect(hint?.textContent).toBe('Type an amount. Sums work: 8+4.5');
-    expect(group.getByText('0.00')).toBeTruthy();
-    // Save says Save, unusable until there's an amount
-    const save = form.getByRole('button', { name: /^Save/ });
-    expect(save.textContent).toBe('SaveEnter');
-    expect(save.getAttribute('aria-disabled')).toBe('true');
-
-    // From the keyboard: a sum, then Enter
-    await user.keyboard('12.5+3');
-    expect(hint?.textContent).toBe('Sums work: 8+4.5');
-    expect(save.textContent).toBe('Save RM 15.50Enter');
-    await user.keyboard('{Enter}');
-    await waitFor(() => expect(added()).toBeDefined());
-    expect(added()!.transaction.amountCents).toBe(1_550);
   });
 });

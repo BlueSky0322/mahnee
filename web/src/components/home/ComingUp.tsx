@@ -36,12 +36,12 @@ export interface ComingUpCheck {
 export default function ComingUp({
   rows,
   added,
-  checks = [],
+  checks,
 }: {
   rows: readonly ComingUpRow[];
   /** What Scheduled added this month on its own, by name */
   added: readonly string[];
-  checks?: readonly ComingUpCheck[];
+  checks: readonly ComingUpCheck[];
 }) {
   const homeCurrency = useCurrency();
   const titleId = useId();

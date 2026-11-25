@@ -191,16 +191,17 @@ describe('the profile picture', () => {
     it("doesn't hold up the profile while Google is slow to answer", async () => {
       const who = person('google');
       const { name, signIn } = googlePicture(jpeg(800, 6));
-      const held = api.google.hold(`${name}=s256-c`);
+      const path = `${name}=s256-c`;
+      const held = api.google.hold(path);
       try {
-        const started = Date.now();
         const first = await me(who, signIn);
-        expect(Date.now() - started).toBeLessThan(2000);
         expect(first.data).toMatchObject({ email: who, picture: null, googlePicture: false });
+        await expect.poll(() => api.google.asked(path), { timeout: 10_000 }).toBe(1);
       } finally {
         held.release();
       }
-      expect((await copied(who, signIn)).data.picture).toMatchObject({ source: 'google' });
+      // Only the first request names the picture, so polling cannot start a second copy.
+      expect((await copied(who, {})).data.picture).toMatchObject({ source: 'google' });
     });
 
     it("isn't asked for again on every start after it couldn't be had", async () => {

@@ -1205,8 +1205,8 @@ the accounts fail, what's due on Home this month only; desktop and phone),
 per account, never without one),
 [home-text.test.ts](../web/src/components/home/home-text.test.ts) (the words, "running
 fast" exact and its tie-break, day names, weeks),
-[ComingUp.test.tsx](../web/src/components/home/ComingUp.test.tsx) (rows, amounts to check,
-added this month), [glance.test.tsx](../web/src/components/home/glance.test.tsx) (the phone
+[scheduled-home.test.tsx](../web/src/components/home/scheduled-home.test.tsx) (rows,
+amounts to check, added this month), [glance.test.tsx](../web/src/components/home/glance.test.tsx) (the phone
 glance: a month from the 25th, a week into last month, a zero median, a week without
 spending, an earlier month, an entry made offline, history not on the device) with
 [glance.test.ts](../web/src/ledger/glance.test.ts), and [forecast.test.ts](../web/src/ledger/forecast.test.ts) (bills and pay,
@@ -2458,5 +2458,5 @@ from nothing). The look: [theme/paper-ledger.test.tsx](../web/src/theme/paper-le
 (every colour light and dark, the ground, Geist, filled primary buttons whatever accent is
 saved), [theme/tokens-used.test.ts](../web/src/theme/tokens-used.test.ts),
 [components/ui/parts.test.tsx](../web/src/components/ui/parts.test.tsx) and
-[build/paper-ledger-launch.test.ts](../web/build/paper-ledger-launch.test.ts); tests read
+[pwa/launch-screen.test.ts](../web/src/pwa/launch-screen.test.ts); tests read
 colours through the cascade with [testing/css.ts](../web/src/testing/css.ts).

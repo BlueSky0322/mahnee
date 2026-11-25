@@ -1,75 +1,25 @@
 import { readFileSync } from 'node:fs';
-import { runInNewContext } from 'node:vm';
-import { describe, expect, test } from 'vitest';
+import { expect, test } from 'vitest';
+import { TOKENS } from '../src/testing/css';
 import { LAUNCH_BACKGROUNDS, solidPng } from './launch-images';
 
 // The first screen in index.html runs before the app's code, so it keeps its own copy of
 // the backgrounds; the iPhone launch screens use the same ones.
 
-const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
-const indexHtml = read('../index.html');
-const firstScreenScript = /<script>([\s\S]*?)<\/script>/.exec(indexHtml)![1];
-
-/**
- * Runs index.html's first-screen script with `saved` stored and the phone set to `system`:
- * the theme it paints, and the status bar's colour on a light device and a dark one
- */
-function openApp(saved: string | null, system: 'light' | 'dark', accent?: string) {
-  const set: Record<string, string | string[]> = {};
-  const statusBars: string[] = ['', ''];
-  const bars = statusBars.map((_, i) => ({
-    setAttribute: (_name: string, value: string) => (statusBars[i] = value),
-  }));
-  runInNewContext(firstScreenScript, {
-    localStorage: {
-      getItem: () => (saved == null ? null : JSON.stringify({ theme: saved, accent })),
-    },
-    matchMedia: (query: string) => ({ matches: query === `(prefers-color-scheme: ${system})` }),
-    document: {
-      documentElement: {
-        setAttribute: (name: string, value: string) =>
-          (set[name === 'data-launch' ? 'theme' : name] = value),
-      },
-      querySelectorAll: () => bars,
-      // The install links are install-icons.test.tsx's to check; this page has none
-      querySelector: () => null,
-    },
+test("the iPhone launch screens use the app's own backgrounds", () => {
+  const tokens = readFileSync(new URL('../src/theme/tokens.css', import.meta.url), 'utf8');
+  // Each theme's ground from its own rule: light on :root, dark under the dark scheme
+  const ground = (selector: string) => {
+    const block = new RegExp(`^${selector} \\{([^}]*)\\}`, 'm').exec(tokens)?.[1] ?? '';
+    return /^\s*--ground:\s*(#[0-9a-f]{6});/m.exec(block)?.[1];
+  };
+  const light = ground(':root');
+  const dark = ground(":root\\[data-mantine-color-scheme='dark'\\]");
+  expect({ dark, light }).toEqual({
+    dark: TOKENS.dark['--ground'],
+    light: TOKENS.light['--ground'],
   });
-  return { ...set, statusBars };
-}
-
-describe('the first screen', () => {
-  test.each([
-    ['the theme chosen in the app, over the phone’s', 'dark', 'light', 'dark'],
-    ['the theme chosen in the app, over the phone’s', 'light', 'dark', 'light'],
-    ['the phone’s theme on Auto', 'auto', 'dark', 'dark'],
-    ['the phone’s theme on Auto', 'auto', 'light', 'light'],
-    ['the phone’s theme before anything is saved', null, 'light', 'light'],
-  ] as const)('takes %s (saved %s, phone %s)', (_what, saved, system, expected) => {
-    expect(openApp(saved, system)).toEqual({
-      theme: expected,
-      statusBars: [LAUNCH_BACKGROUNDS[expected], LAUNCH_BACKGROUNDS[expected]],
-    });
-  });
-
-  test('marks the saved accent, for the logo’s tile, and ignores one the app never offered', () => {
-    expect(openApp('light', 'light', 'rust')).toMatchObject({ 'data-accent': 'rust' });
-    expect(openApp('light', 'light', 'teal')).not.toHaveProperty('data-accent');
-  });
-
-  test("uses the app's own backgrounds, as the iPhone launch screens do", () => {
-    const tokens = read('../src/theme/tokens.css');
-    // Each theme's ground from its own rule: light on :root, dark under the dark scheme
-    const ground = (selector: string) => {
-      const block = new RegExp(`^${selector} \\{([^}]*)\\}`, 'm').exec(tokens)?.[1] ?? '';
-      return /^\s*--ground:\s*(#[0-9a-f]{6});/m.exec(block)?.[1];
-    };
-    const light = ground(':root');
-    const dark = ground(":root\\[data-mantine-color-scheme='dark'\\]");
-    expect(LAUNCH_BACKGROUNDS).toEqual({ dark, light });
-    expect(indexHtml).toContain(`background: ${dark}`);
-    expect(indexHtml).toContain(`background: ${light}`);
-  });
+  expect(LAUNCH_BACKGROUNDS).toEqual({ dark, light });
 });
 
 test('an iPhone launch screen is exactly the size asked for, or iOS shows white instead', () => {

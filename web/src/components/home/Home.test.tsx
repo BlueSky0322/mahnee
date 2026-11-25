@@ -353,16 +353,17 @@ describe('Home at a glance', () => {
     expect(screen.queryByRole('link', { name: 'All scheduled' })).toBeNull();
   });
 
-  test('on a computer, lists what is coming up, and where it goes', async () => {
+  test('on a computer, lists what is coming up and opens Scheduled', async () => {
     tenthJustAfterMidnight();
     renderApp(aMonthUnderWay(), '/', { size: 'desktop' });
     const coming = await screen.findByRole('region', { name: 'Coming up' });
-    expect(within(coming).getByRole('link', { name: 'All scheduled' })).toBeTruthy();
     expect(rows(coming)).toEqual([
       'TNB electricity · RM 189.00 Nov 20 · Maybank Savings',
       'Salary · +RM 6,800.00 Nov 25 · Maybank Savings',
       'Rent · RM 1,200.00 Dec 1 · Maybank Savings',
     ]);
+    await userEvent.setup().click(within(coming).getByRole('link', { name: 'All scheduled' }));
+    expect(await screen.findByRole('button', { name: 'Schedule something' })).toBeTruthy();
   });
 
   test.each(SIZES)('leaves the lists to Activity and Accounts (%s)', async (size) => {

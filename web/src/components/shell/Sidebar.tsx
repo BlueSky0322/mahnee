@@ -12,7 +12,7 @@ import classes from './Sidebar.module.css';
 
 const ICONS = { home: HomeIcon, activity: ActivityIcon, plan: PlanIcon, accounts: AccountsIcon };
 
-// The computer's places, down the left of every page: Mahnee's logo and name, how fresh
+// The computer's places, down the left of every page: Mahnee's logo and name (going Home), how fresh
 // the figures are (judged on `month`, Home's open month or this one), New entry (N), Home,
 // Activity, Plan and Accounts with the open one marked, and Settings with who's signed in
 // at the foot. New entry waits for the accounts, and can't be used while every account is
@@ -33,11 +33,16 @@ export default function Sidebar({
   return (
     <aside className={classes.sidebar}>
       <div className={classes.brand}>
-        <span className={classes.name}>
+        {/* Goes to Home, as Home below does: from Home itself, in its place in the history */}
+        <a
+          href={hrefOf('')}
+          className={classes.name}
+          aria-label="Mahnee, Home"
+          onClick={(e) => goToPlace(e, '')}
+        >
           <AppLogo size={22} />
-          {/* The logo is read out as Mahnee already */}
           <span aria-hidden="true">Mahnee</span>
-        </span>
+        </a>
         <Freshness month={month} />
       </div>
       {addable != null && (

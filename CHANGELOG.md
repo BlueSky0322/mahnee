@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-26
 
-- Added: swipe, close or press Esc to put a message away; repeated deletes share one Undo [#?]
+- Added: swipe, close or press Esc to put a message away; repeated deletes share one Undo [#82]
 - Fixed: backdated offline edits use the entry’s exchange rate, long queues of foreign expenses sync on reconnect, and saved totals and pending settings survive an offline restart [#80]
 - Fixed: on a phone or tablet, Back after picking one of Activity's filters leaves Activity as it does on a computer, never bringing back the filter before, and Done or Back after changing a filter while selecting leaves no step behind [#77]
 
@@ -209,3 +209,4 @@ For agents:
 [#76]: https://github.com/BlueSky0322/mahnee/pull/76
 [#77]: https://github.com/BlueSky0322/mahnee/pull/77
 [#80]: https://github.com/BlueSky0322/mahnee/pull/80
+[#82]: https://github.com/BlueSky0322/mahnee/pull/82

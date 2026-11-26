@@ -174,16 +174,21 @@ function Moving({
     }
     change({ op: 'recategoriseTransactions', ids, categoryId: to });
     onMoved();
-    showUndo(`Moved ${ids.length} to ${short}`, () =>
-      change(
-        ...[...from].map(
-          ([back, those]): LedgerChange => ({
-            op: 'recategoriseTransactions',
-            ids: those,
-            categoryId: back,
-          }),
+    // Moves to the same category in a row add up in one message; its Undo takes back the
+    // newest first, so an entry moved twice ends where it began
+    showUndo(
+      `Moved ${ids.length} to ${short}`,
+      () =>
+        change(
+          ...[...from].map(
+            ([back, those]): LedgerChange => ({
+              op: 'recategoriseTransactions',
+              ids: those,
+              categoryId: back,
+            }),
+          ),
         ),
-      ),
+      { key: `moved-to-${to}`, count: ids.length, say: (n) => `Moved ${n} to ${short}` },
     );
   };
 

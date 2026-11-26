@@ -1,15 +1,13 @@
 // The app with everything around it: theme, icons, data, the signed-in profile,
-// and notifications. main.tsx starts it; tests render it the same way.
+// and its messages (toasts). main.tsx starts it; tests render it the same way.
 
 import { MantineProvider, useComputedColorScheme } from '@mantine/core';
 import '@mantine/core/styles.css';
-import { Notifications } from '@mantine/notifications';
-import '@mantine/notifications/styles.css';
 import { IconContext } from '@phosphor-icons/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import App from './App';
-import classes from './Root.module.css';
+import Toasts from './components/ui/Toasts';
 import './index.css';
 import { ProfileProvider, readAppearance } from './profile/ProfileContext';
 import { syncStatusBar } from './pwa/launch-screen';
@@ -50,7 +48,7 @@ export function Root() {
       <IconContext.Provider value={{ size: 20, weight: 'regular' }}>
         <QueryClientProvider client={queryClient}>
           <ProfileProvider>
-            <Notifications classNames={{ root: classes.notifications }} />
+            <Toasts />
             <App />
           </ProfileProvider>
         </QueryClientProvider>

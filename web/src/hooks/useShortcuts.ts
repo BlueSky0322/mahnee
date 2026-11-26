@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { dialogOpen, inField } from '../utils/fields';
 import { navigate } from './useRoute';
 
 // Keys on a computer's keyboard, each doing what a button on the page does: N for a new
@@ -11,41 +12,6 @@ import { navigate } from './useRoute';
 type Shortcuts = Partial<Record<string, () => void>>;
 
 const PASS_THROUGH_FIELDS = new Set(['Escape', 'Enter']);
-
-/** The kinds of input a person types into; a tick box, a choice or a button isn't one */
-const TYPED_INPUTS = new Set([
-  'text',
-  'search',
-  'number',
-  'date',
-  'datetime-local',
-  'month',
-  'week',
-  'time',
-  'email',
-  'tel',
-  'url',
-  'password',
-]);
-
-/**
- * Whether `target` is where a person types: a text-like field, a list to pick from (the
- * browser's, or the app's pickers, open or closed), or editable text
- */
-function inField(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  if (
-    target.isContentEditable ||
-    target.closest('[contenteditable]:not([contenteditable="false"])')
-  ) {
-    return true;
-  }
-  const field = target.closest('input, textarea, select, [role="combobox"], [role="listbox"]');
-  if (field == null) return false;
-  return field instanceof HTMLInputElement ? TYPED_INPUTS.has(field.type) : true;
-}
-
-const dialogOpen = () => document.querySelector('[role="dialog"]') != null;
 
 /** Runs `shortcuts[key]` when that key is pressed, while `enabled` */
 export function useShortcuts(shortcuts: Shortcuts, enabled = true) {

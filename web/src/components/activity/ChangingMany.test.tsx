@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { notifications } from '@mantine/notifications';
+import { clearToasts } from '../../utils/toasts';
 import { beforeEach, describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { ChangesBody, LedgerChange, Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
@@ -445,9 +445,12 @@ describe('deleting several', () => {
       // Held, to see they're gone before the server answers
       const answer = holdNext(server, 'POST', '/api/changes');
       await user.click(screen.getByRole('button', { name: 'Delete 2' }));
-      await waitFor(() => expect(findTick('bus fare')).toBeNull());
+      await waitFor(() => expect(screen.queryAllByText(/bus fare/)).toEqual([]));
       expect(findTick('first other')).toBeNull();
-      expect(findTick('second other')).not.toBeNull();
+      expect(screen.getAllByText(/lunch/).length).toBeGreaterThan(0);
+      // A phone stops selecting once what was ticked is gone
+      if (size === 'phone') expect(screen.getByRole('button', { name: 'Select' })).toBeTruthy();
+      else expect(findTick('second other')).not.toBeNull();
       answer.release();
       await waitFor(() => expect(server.transactions).toHaveLength(3));
       expect(sentChanges().map(sorted)).toEqual([
@@ -589,7 +592,7 @@ describe('selecting', () => {
     await user.click(bar().getByRole('button', { name: 'Change category' }));
     expect(await screen.findByText('You can change up to 500 transactions at once')).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
-    act(() => notifications.clean());
+    act(() => clearToasts());
     await waitFor(() =>
       expect(screen.queryByText('You can change up to 500 transactions at once')).toBeNull(),
     );

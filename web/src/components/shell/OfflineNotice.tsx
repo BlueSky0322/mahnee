@@ -8,6 +8,7 @@ import { keepChangesAgain } from '../../ledger/ledger';
 import { canSyncInBackground } from '../../offline/outbox';
 import { useUnsaved } from '../../ledger/useLedger';
 import { signIn, useProfile } from '../../profile/ProfileContext';
+import { useBottomBar } from '../../utils/bottom-bars';
 import { refusedText } from './describe-change';
 import RefusedChanges from './RefusedChanges';
 import classes from './OfflineNotice.module.css';
@@ -42,6 +43,8 @@ const OfflineNotice = () => {
   const { signInToSync } = useProfile();
   const { waiting, signedOut, unkept, refused } = useUnsaved();
   const [reviewing, setReviewing] = useState(false);
+  // Messages show above it
+  const bar = useBottomBar<HTMLDivElement>();
   const device = deviceWord(useIsMobile(), useIsDesktop());
   // Offline, signing in can't work yet: say so once the connection is back
   const toSignIn = (signInToSync || (signedOut && waiting > 0)) && online;
@@ -79,6 +82,7 @@ const OfflineNotice = () => {
   return (
     <>
       <div
+        ref={bar}
         className={classes.notice}
         role="status"
       >

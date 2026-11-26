@@ -1,4 +1,4 @@
-import { notifications } from '@mantine/notifications';
+import { showToast } from '../../utils/toasts';
 import { useState } from 'react';
 import { useInstall } from '../../pwa/useInstall';
 import type { Platform } from './InstallApp';
@@ -18,7 +18,7 @@ export function useInstallAction() {
   const run = async () => {
     if (install.canPrompt) {
       if (await install.prompt()) {
-        notifications.show({ message: 'Installed. Open Mahnee from your home screen.' });
+        showToast({ message: 'Installed. Open Mahnee from your home screen.' });
       }
     } else if (install.ios || install.android) {
       setSteps(install.ios ? 'ios' : 'android');

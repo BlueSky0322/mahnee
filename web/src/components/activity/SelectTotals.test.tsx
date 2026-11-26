@@ -480,7 +480,8 @@ describe('a phone: hold to select', () => {
     // The actions are still there, and act on what's ticked
     await user.click(screen.getByRole('button', { name: 'Delete 3' }));
     expect(await screen.findByText('Deleted 3 entries')).toBeTruthy();
-    await done(user);
+    // Everything ticked is gone, so selecting stops by itself
+    expect(await screen.findByRole('button', { name: 'Select' })).toBeTruthy();
   });
 
   test('Back stops selecting first, and Done leaves no step behind for Back', async () => {

@@ -563,7 +563,7 @@ describe('the undo toast', () => {
   }
 
   test.each(SIZES)(
-    'is announced, with Undo its only button, from the keyboard too (%s)',
+    'is announced, with Undo and Dismiss its only buttons, from the keyboard too (%s)',
     async (size) => {
       const { server, user } = await archiveWallet(size);
       const toast = await screen.findByRole('alert');
@@ -571,8 +571,8 @@ describe('the undo toast', () => {
       expect(
         within(toast)
           .getAllByRole('button')
-          .map((b) => b.textContent),
-      ).toEqual(['Undo']);
+          .map((b) => b.getAttribute('aria-label') ?? b.textContent),
+      ).toEqual(['Undo', 'Dismiss']);
       within(toast).getByRole('button', { name: 'Undo' }).focus();
       await user.keyboard('{Enter}');
       await waitFor(() => expect(server.accounts[0].archived).toBe(false));

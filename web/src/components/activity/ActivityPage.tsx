@@ -23,6 +23,7 @@ import {
 } from '../../ledger/useLedger';
 import type { Found as Totals } from '../../ledger/search-totals';
 import { clockText, dayHeading, toDateInput } from '../../utils/date-input';
+import { useBottomBar } from '../../utils/bottom-bars';
 import { showRefusal } from '../../utils/notify';
 import EntryTile from '../common/EntryTile';
 import MainAmount from '../common/MainAmount';
@@ -375,6 +376,8 @@ export default function ActivityPage({ query }: { query: string }) {
     return () => clearTimeout(timer);
   }, [said, dragging]);
   const [breakdown, setBreakdown] = useState(false);
+  // A phone's selection bar is at the foot of the screen: messages show above it
+  const selectionBar = useBottomBar<HTMLDivElement>();
   // Esc lets what's ticked go, and stops selecting
   useShortcuts(
     {
@@ -403,9 +406,17 @@ export default function ActivityPage({ query }: { query: string }) {
     if (chosen.length > MAX_BULK_TRANSACTIONS) return showRefusal(TOO_MANY);
     const gone = chosen;
     change({ op: 'removeTransactions', ids: gone.map((t) => t.id) });
-    clearTicked();
-    // Undo adds each again, with its own id
-    showUndo(`Deleted ${entriesText(gone.length)}`, () => addAgain(...gone));
+    // Everything ticked is gone: a phone or tablet stops selecting, as Done does, rather
+    // than showing "0 selected" with nothing to act on
+    if (selecting) stopSelecting();
+    else clearTicked();
+    // Undo adds each again, with its own id; deletes in a row add up in one message, whose
+    // Undo adds back all of them (each a different entry, so the order doesn't matter)
+    showUndo(`Deleted ${entriesText(gone.length)}`, () => addAgain(...gone), {
+      key: 'deleted-entries',
+      count: gone.length,
+      say: (n) => `Deleted ${entriesText(n)}`,
+    });
   };
 
   // A computer's keys: J and K move the open row, X ticks it, C changes the category
@@ -761,6 +772,7 @@ export default function ActivityPage({ query }: { query: string }) {
 
       {selecting && (
         <div
+          ref={selectionBar}
           className={classes.selectionBar}
           role="region"
           aria-label="Selected"

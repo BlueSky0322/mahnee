@@ -1,5 +1,6 @@
 import { AccountsIcon, ActivityIcon, HomeIcon, PlanIcon, PlusIcon } from '../ui/icons';
 import { useEffect } from 'react';
+import { useBottomBar } from '../../utils/bottom-bars';
 import type { Place } from '../../hooks/useRoute';
 import { PLACES, goToPlace, hrefOf } from './places';
 import classes from './TabBar.module.css';
@@ -20,6 +21,8 @@ export default function TabBar({
   addable: boolean | null;
   onAdd: () => void;
 }) {
+  // Messages keep clear of it
+  const bar = useBottomBar<HTMLElement>();
   useEffect(() => {
     document.documentElement.dataset.tabbar = '';
     return () => {
@@ -48,6 +51,7 @@ export default function TabBar({
 
   return (
     <nav
+      ref={bar}
       className={classes.bar}
       aria-label="Main"
     >

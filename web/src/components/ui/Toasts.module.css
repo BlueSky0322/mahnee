@@ -1,0 +1,121 @@
+/*
+ * Where the messages sit: at the foot of the screen, clear of the phone's home bar, the
+ * newest nearest the foot. Over a bar fixed at the foot, the page sets `bottom` from what
+ * it measured (utils/bottom-bars). Over the page and its sheets and dialogs (200, 300).
+ */
+.stack {
+  position: fixed;
+  z-index: 400;
+  left: 50%;
+  bottom: calc(16px + var(--sf-safe-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.stack[data-at='top'] {
+  top: calc(12px + env(safe-area-inset-top, 0px));
+}
+
+/* A computer: at the right, as before */
+@media (min-width: 1024px) {
+  .stack {
+    left: auto;
+    right: 24px;
+    transform: none;
+    width: 380px;
+  }
+}
+
+/* The design's toast: ink with ground text, 16px round, at least 52px tall */
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  min-height: 52px;
+  padding: 4px 4px 4px 16px;
+  border-radius: 16px;
+  background: var(--ink);
+  color: var(--ground);
+  box-shadow: var(--shadow-float);
+  font-size: 0.875rem;
+  pointer-events: auto;
+  /* A swipe is the message's own, not the page's scroll */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  animation: rise 160ms ease-out;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
+
+/* A refusal or a warning says so with its mark */
+.icon {
+  flex: none;
+  margin-right: 6px;
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+/* Undo: underlined, 600, with a 44px tap area */
+.action {
+  flex: none;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--ground);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* Dismiss: a quiet X, its tap area 44px square inside the toast's 52px */
+.dismiss {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: color-mix(in srgb, var(--ground) 70%, transparent);
+  cursor: pointer;
+}
+
+.dismiss:hover {
+  color: var(--ground);
+  background: color-mix(in srgb, var(--ground) 10%, transparent);
+}
+
+.action:focus-visible,
+.dismiss:focus-visible {
+  outline: 2px solid var(--ground);
+  outline-offset: -2px;
+  border-radius: 12px;
+}

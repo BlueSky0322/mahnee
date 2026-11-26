@@ -1,8 +1,7 @@
 // Spending over time: what a person spent and received in each of the 12 months ending at
 // a month (shared/trend.ts), across every account, so the month card can show each
 // category's last 12 months. One grouped sum over a fixed window, never a read per month.
-// Each month is the person's own (shared/period.ts), grouped by periodMonthSql, and says
-// which days it holds.
+// Each month uses the person's own first and last day (shared/period.ts).
 //
 // Each month is summed as GET /api/summary sums one (summary.ts): spending and income only,
 // never a transfer, each category under its own id with how many transactions make it
@@ -21,7 +20,6 @@ import { isPeriodMonth, periodOf } from '../../shared/period';
 import { trendMonths } from '../../shared/trend';
 import { fail, json } from '../http';
 import { readMonthStart } from './month-start';
-import { periodMonthSql } from './period-sql';
 import { savedIdsStatement } from './receipts';
 
 interface TrendRow {
@@ -50,15 +48,16 @@ export async function readTrend(
   const answers = await db.batch<TrendRow | { id: string }>([
     db
       .prepare(
-        `SELECT ${periodMonthSql('date', '?4')} AS month, kind, category_id AS categoryId,
-                SUM(amount_cents) AS cents, COUNT(*) AS entries,
-                CASE WHEN COUNT(*) = 1 THEN MAX(payee) END AS payee
-         FROM transactions
-         WHERE email = ?1 AND date BETWEEN ?2 AND ?3 AND kind IN ('expense', 'income')
-         GROUP BY month, kind, category_id
-         ORDER BY month, cents DESC, category_id`,
+        `WITH periods(month, first_day, last_day) AS (VALUES ${months.map(() => '(?, ?, ?)').join(', ')})
+         SELECT p.month, t.kind, t.category_id AS categoryId, SUM(t.amount_cents) AS cents,
+                COUNT(*) AS entries, CASE WHEN COUNT(*) = 1 THEN MAX(t.payee) END AS payee
+         FROM periods p CROSS JOIN transactions t
+         WHERE t.email = ? AND t.date BETWEEN p.first_day AND p.last_day
+           AND t.kind IN ('expense', 'income')
+         GROUP BY p.month, t.kind, t.category_id
+         ORDER BY p.month, cents DESC, t.category_id`,
       )
-      .bind(email, months[0].firstDay, months[months.length - 1].lastDay, start),
+      .bind(...months.flatMap((p) => [p.month, p.firstDay, p.lastDay]), email),
     ...(pending.length > 0 ? [savedIdsStatement(db, email, pending)] : []),
   ]);
   const rows = answers[0].results as TrendRow[];

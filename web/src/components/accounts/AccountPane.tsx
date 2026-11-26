@@ -16,6 +16,7 @@ import { useMonthStart } from '../../ledger/month-start';
 import EntrySheet, { type OpenEntry } from '../entry/EntrySheet';
 import { NewTag } from '../ui/Badge';
 import Chip from '../ui/Chip';
+import { DateRangeForm, FilterChoices, type DateRange } from '../ui/FilterChoices';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import AccountForm from './AccountForm';
 import { ArchivedNote, Balance, EntriesLoading, NoEntries } from './AccountPage';
@@ -26,7 +27,7 @@ import { typedAmount } from '../common/typed-amount';
 import classes from './AccountsPage.module.css';
 
 /** The days the register shows: every one (null), or from and/or to, both included */
-type Days = { from: string | null; to: string | null } | null;
+type Days = DateRange | null;
 
 /** The first and last days of the person's month `month` (2026-11) from `start` */
 function monthDays(month: string, start: number) {
@@ -436,8 +437,7 @@ function PickDays({
   const same = (a: Days, b: Days) => a?.from === b?.from && a?.to === b?.to;
   const own = days != null && !same(days, current) && !same(days, last);
   const [picking, setPicking] = useState(own);
-  const [from, setFrom] = useState(own ? days.from ?? '' : '');
-  const [to, setTo] = useState(own ? days.to ?? '' : '');
+  const [draft, setDraft] = useState<DateRange>(own ? days : { from: null, to: null });
   const choices = [
     { label: 'Any date', on: !picking && days == null, pick: () => onPick(null) },
     { label: 'This month', on: !picking && same(days, current), pick: () => onPick(current) },
@@ -450,56 +450,13 @@ function PickDays({
       onClose={onClose}
       title="When"
     >
-      <div
-        className={classes.choices}
-        role="radiogroup"
-      >
-        {choices.map((c) => (
-          <label
-            key={c.label}
-            className={classes.choice}
-          >
-            <input
-              type="radio"
-              name="account-days"
-              checked={c.on}
-              onChange={c.pick}
-              onClick={c.on ? c.pick : undefined}
-            />
-            {c.label}
-          </label>
-        ))}
-      </div>
+      <FilterChoices choices={choices} />
       {picking && (
-        <form
-          className={classes.pickDates}
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (from === '' && to === '') return;
-            onPick({ from: from || null, to: to || null });
-          }}
-        >
-          <TextInput
-            type="date"
-            label="From"
-            value={from}
-            max={to || undefined}
-            onChange={(e) => setFrom(e.currentTarget.value)}
-          />
-          <TextInput
-            type="date"
-            label="To"
-            value={to}
-            min={from || undefined}
-            onChange={(e) => setTo(e.currentTarget.value)}
-          />
-          <Button
-            type="submit"
-            disabled={from === '' && to === ''}
-          >
-            Show these dates
-          </Button>
-        </form>
+        <DateRangeForm
+          value={draft}
+          onChange={setDraft}
+          onApply={onPick}
+        />
       )}
     </ResponsiveDialog>
   );

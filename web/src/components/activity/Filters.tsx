@@ -1,4 +1,3 @@
-import { Button, TextInput } from '@mantine/core';
 import { DownIcon } from '../ui/icons';
 import { useState } from 'react';
 import type { TransactionKind } from '@shared/ledger';
@@ -11,7 +10,7 @@ import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { kindText, periodText } from './activity-text';
 import type { Days, Filters } from './address';
 import { dayRange, isDefaultKinds, monthDays } from './address';
-import classes from './Activity.module.css';
+import { DateRangeForm, FilterChoices, type DateRange } from '../ui/FilterChoices';
 
 type Which = 'account' | 'category' | 'days' | 'kind';
 
@@ -121,7 +120,7 @@ export default function FilterChips({
         title={TITLES[shownList]}
       >
         {shownList === 'account' && (
-          <Choices
+          <FilterChoices
             choices={[
               {
                 label: 'All accounts',
@@ -143,7 +142,7 @@ export default function FilterChips({
           />
         )}
         {shownList === 'kind' && (
-          <Choices
+          <FilterChoices
             choices={KINDS.map(({ label, kinds }) => ({
               label,
               on: kindText(filters.kinds) === label,
@@ -160,31 +159,6 @@ export default function FilterChips({
         )}
       </ResponsiveDialog>
     </>
-  );
-}
-
-function Choices({ choices }: { choices: { label: string; on: boolean; pick: () => void }[] }) {
-  return (
-    <div
-      className={classes.choices}
-      role="radiogroup"
-    >
-      {choices.map((c) => (
-        <label
-          key={c.label}
-          className={classes.choice}
-        >
-          <input
-            type="radio"
-            name="choice"
-            checked={c.on}
-            onChange={c.pick}
-            onClick={c.on ? c.pick : undefined}
-          />
-          {c.label}
-        </label>
-      ))}
-    </div>
   );
 }
 
@@ -207,7 +181,7 @@ function CategoryChoices({
     options.push({ id: current, label: categoryName(all, current) });
   }
   return (
-    <Choices
+    <FilterChoices
       choices={[
         { label: 'All categories', on: current == null, pick: () => onPick(null) },
         ...options.map((o) => ({ label: o.label, on: current === o.id, pick: () => onPick(o.id) })),
@@ -231,14 +205,14 @@ function DayChoices({
   const lastMonth = monthDays(last, start);
   const picking = days.kind === 'day' || (days.kind === 'range' && !isMonth(days, last, start));
   const [own, setOwn] = useState(picking);
-  const range = dayRange(days, today, start);
-  const [from, setFrom] = useState(
-    days.kind === 'month' || days.kind === 'all' ? '' : range.from ?? '',
+  const [draft, setDraft] = useState<DateRange>(() =>
+    days.kind === 'month' || days.kind === 'all'
+      ? { from: null, to: null }
+      : dayRange(days, today, start),
   );
-  const [to, setTo] = useState(days.kind === 'month' || days.kind === 'all' ? '' : range.to ?? '');
   return (
     <>
-      <Choices
+      <FilterChoices
         choices={[
           {
             label: 'This month',
@@ -259,35 +233,11 @@ function DayChoices({
         ]}
       />
       {own && (
-        <form
-          className={classes.pickDates}
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (from === '' && to === '') return;
-            onPick({ kind: 'range', from: from || null, to: to || null });
-          }}
-        >
-          <TextInput
-            type="date"
-            label="From"
-            value={from}
-            max={to || undefined}
-            onChange={(e) => setFrom(e.currentTarget.value)}
-          />
-          <TextInput
-            type="date"
-            label="To"
-            value={to}
-            min={from || undefined}
-            onChange={(e) => setTo(e.currentTarget.value)}
-          />
-          <Button
-            type="submit"
-            disabled={from === '' && to === ''}
-          >
-            Show these dates
-          </Button>
-        </form>
+        <DateRangeForm
+          value={draft}
+          onChange={setDraft}
+          onApply={(range) => onPick({ kind: 'range', ...range })}
+        />
       )}
     </>
   );

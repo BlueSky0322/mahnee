@@ -1,3 +1,4 @@
+import { jpeg } from '../test/picture-fixture';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { MAX_PICTURE_BYTES } from '../../shared/api';
 import { fetchGooglePicture } from './pictures';
@@ -17,12 +18,6 @@ function emptyDb() {
   } as unknown as D1Database;
   return { db, prepared };
 }
-
-const jpeg = (length: number) => {
-  const bytes = new Uint8Array(length).fill(3);
-  bytes.set([0xff, 0xd8, 0xff, 0xe0]);
-  return bytes;
-};
 
 let n = 0;
 /** A picture address of Google's own no other test has used */

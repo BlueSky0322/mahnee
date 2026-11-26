@@ -317,6 +317,12 @@ function countOn(model: Model, accountId: string, by: 1 | -1) {
 const sidesOf = (t: Pick<TransactionState, 'accountId' | 'toAccountId'>) =>
   t.toAccountId == null ? [t.accountId] : [t.accountId, t.toAccountId];
 
+/** Counts each side through its account index. A legacy transfer to itself counts once. */
+const transactionCount = (account: string) =>
+  `((SELECT COUNT(*) FROM transactions WHERE email = ?1 AND account_id = ${account}) +
+    (SELECT COUNT(*) FROM transactions WHERE email = ?1 AND to_account_id = ${account}
+       AND account_id <> to_account_id))`;
+
 /**
  * `accountId` (a parameter) for the account column, if each of `joining` (parameters:
  * accounts it's newly on) has room for one more transaction, of person ?1, either side
@@ -328,11 +334,7 @@ const withRoom = (accountId: string, joining: string[]) =>
   joining.length === 0
     ? accountId
     : `CASE WHEN ${joining
-        .map(
-          (p) => `(SELECT COUNT(*) FROM transactions
-                   WHERE email = ?1 AND (account_id = ${p} OR to_account_id = ${p}))
-                  < ${MAX_TRANSACTIONS_PER_ACCOUNT}`,
-        )
+        .map((p) => `${transactionCount(p)} < ${MAX_TRANSACTIONS_PER_ACCOUNT}`)
         .join(' AND ')} THEN ${accountId} END`;
 
 /** One change's statements, after checking it against the model, which it then updates */
@@ -1516,10 +1518,7 @@ export async function applyChanges(
       ? { results: [] }
       : db
           .prepare(
-            `SELECT a.value AS id,
-                    (SELECT COUNT(*) FROM transactions
-                     WHERE email = ?1
-                       AND (account_id = a.value OR to_account_id = a.value)) AS count
+            `SELECT a.value AS id, ${transactionCount('a.value')} AS count
              FROM json_each(?2) a`,
           )
           .bind(email, JSON.stringify([...addingTo]))

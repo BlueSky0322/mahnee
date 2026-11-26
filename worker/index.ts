@@ -4,7 +4,7 @@
 import { Hono } from 'hono';
 import type { AppEnv, Env } from './app';
 import { fail, isCrossSiteWrite, notFound } from './http';
-import { EXPECTED_ACCOUNT_HEADER } from '../shared/api';
+import { EXPECTED_ACCOUNT_HEADER, RESPONSE_ACCOUNT_HEADER } from '../shared/api';
 import { getSignIn } from './accounts/auth';
 import type { ConvertJob } from './currency/convert';
 import { handleConvertQueue } from './currency/convert-queue';
@@ -26,24 +26,20 @@ api.use('*', async (c, next) => {
   c.set('email', signIn.email);
   c.set('googlePicture', signIn.picture);
   await next();
+  if (c.req.method === 'GET' || c.req.method === 'HEAD')
+    c.header(RESPONSE_ACCOUNT_HEADER, signIn.email);
 });
 
-// A write says whose it is: one made as another account than the one signed in now (a
-// change kept on the device from before someone else signed in, or a tab left open) is
-// refused before it changes anything, and the app keeps it for that account. Apps too
-// old to say are refused once REQUIRE_EXPECTED_ACCOUNT is on, with a status they keep
-// their changes for, until they update.
+// A tab may still show the previous account after the browser's session changes.
 api.use('*', async (c, next) => {
-  if (c.req.method === 'GET' || c.req.method === 'HEAD') return next();
+  const read = c.req.method === 'GET' || c.req.method === 'HEAD';
   const expected = c.req.header(EXPECTED_ACCOUNT_HEADER);
-  if (expected == null) {
-    if (c.env.REQUIRE_EXPECTED_ACCOUNT === 'true') {
-      return fail('Update the app to save this.', 503, 'client_update_required');
-    }
-    return next();
-  }
-  if (expected.trim().toLowerCase() !== c.var.email.toLowerCase()) {
+  const discovery = read && c.req.path === '/api/me';
+  if (!discovery && expected != null && expected.trim().toLowerCase() !== c.var.email) {
     return fail('Signed in as someone else.', 409, 'account_mismatch');
+  }
+  if (!read && expected == null && c.env.REQUIRE_EXPECTED_ACCOUNT === 'true') {
+    return fail('Update the app to save this.', 503, 'client_update_required');
   }
   await next();
 });

@@ -102,7 +102,7 @@ let ledgerFetched = false;
 export const TRANSACTIONS_KEY = ['transactions'] as const;
 export type TransactionsKey = readonly [
   'transactions',
-  'account' | 'month' | 'search' | 'recent',
+  'account' | 'month' | 'search' | 'recent' | 'glance',
   string,
 ];
 /** One account's transactions, newest first */
@@ -121,10 +121,10 @@ export const searchTransactionsKey = (query: SearchQuery): TransactionsKey => [
 const SEARCH_PAGE_SIZE = 200;
 /** How many of a search's newest entries a computer's Home lists, and all it asks for */
 export const RECENT_ENTRIES = 8;
-/** The newest RECENT_ENTRIES a search finds (shared/search.ts), for Home; never more */
-export const recentTransactionsKey = (query: SearchQuery): TransactionsKey => [
+/** Home's two row-only lists use separate keys for their different page sizes. */
+export const homeTransactionsKey = (query: SearchQuery, latest: boolean): TransactionsKey => [
   'transactions',
-  'recent',
+  latest ? 'recent' : 'glance',
   new URLSearchParams(searchParams(query)).toString(),
 ];
 /** How many a list asks for at a time: a search 200, Home's latest RECENT_ENTRIES */
@@ -365,9 +365,60 @@ async function idsToName(): Promise<string[]> {
 /** A copy's own figures, without the list of what it holds */
 const figuresOf = ({ alreadySaved: _held, ...ledger }: Ledger): Ledger => ledger;
 
+// Only an acknowledged batch of plain additions can limit which reads are revalidated.
+let refreshAdds: Transaction[] | null = [];
+
+function noteSavedForRefresh(changes: LedgerChange[]) {
+  if (refreshAdds == null) return;
+  for (const change of changes) {
+    if (change.op !== 'addTransaction' || change.importId != null) {
+      refreshAdds = null;
+      return;
+    }
+    refreshAdds.push({ ...change.transaction, createdAt: Date.now() });
+  }
+}
+
+function refreshAfterSave() {
+  const adds = refreshAdds;
+  refreshAdds = [];
+  void reloadLedger();
+  if (adds == null || adds.length === 0) {
+    for (const queryKey of [IMPORTS_KEY, TRANSACTIONS_KEY, SUMMARY_KEY, TREND_KEY]) {
+      void queryClient.invalidateQueries({ queryKey });
+    }
+    return;
+  }
+  const earliest = adds.reduce((day, t) => (t.date < day ? t.date : day), adds[0].date);
+  void queryClient.invalidateQueries({
+    queryKey: TRANSACTIONS_KEY,
+    predicate: ({ queryKey }) =>
+      // Activity totals include whether there are any entries and matches outside its dates.
+      queryKey[1] === 'search' || adds.some(belongsTo(queryKey as TransactionsKey)),
+  });
+  // A historical addition may also move later budgets' carry-over and Tidy up counts.
+  void queryClient.invalidateQueries({
+    queryKey: SUMMARY_KEY,
+    predicate: ({ state }) => {
+      const summary = state.data as MonthSummary | undefined;
+      return summary == null || summary.lastDay >= earliest;
+    },
+  });
+  void queryClient.invalidateQueries({
+    queryKey: TREND_KEY,
+    predicate: ({ state }) => {
+      const trend = state.data as MonthTrend | undefined;
+      return adds.some(
+        (t) => trend?.months.some((m) => m.firstDay <= t.date && t.date <= m.lastDay) ?? true,
+      );
+    },
+  });
+}
+
 const queue = createSaveQueue({
   send: (body) => api.saveChanges(body),
   saved: (changes, ids) => {
+    noteSavedForRefresh(changes);
     savedCount++;
     if (confirmed != null) {
       confirmed = apply(confirmed, notHeld(changes, ids, confirmedHolds), savedTransaction);
@@ -381,7 +432,7 @@ const queue = createSaveQueue({
       // Not those it counted already when it was read
       const counted = notHeld(changes, ids, new Set(summary.alreadySaved));
       const next = applyToSummary(summary, counted, savedTransaction);
-      queryClient.setQueryData(key, next);
+      if (next !== summary) queryClient.setQueryData(key, next);
       // And the copy kept on the device, so the next start's totals aren't short of it
       keepSavedTotals(summaryCacheKey(key[1] as string), next, ids);
     }
@@ -389,7 +440,7 @@ const queue = createSaveQueue({
       if (trend == null) continue;
       const counted = notHeld(changes, ids, new Set(trend.alreadySaved));
       const next = applyToTrend(trend, counted, savedTransaction);
-      queryClient.setQueryData(key, next);
+      if (next !== trend) queryClient.setQueryData(key, next);
       keepSavedTotals(trendCacheKey(key[1] as string), next, ids);
     }
     // Saved, so part of every list as the server has it
@@ -416,6 +467,7 @@ const queue = createSaveQueue({
   // Made before a reload, or in another tab: shown on top, as the ones made here are.
   // Months' totals read before they were known didn't name them, so they're read again.
   found: (changes) => {
+    refreshAdds = null;
     queryClient.setQueryData<Ledger>(
       LEDGER_KEY,
       (old) => old && apply(old, changes, savedTransaction),
@@ -426,17 +478,15 @@ const queue = createSaveQueue({
   // Refused: kept for the person to review (needsAttention), and shown without it and
   // what's held with it
   failed: (err) => {
+    refreshAdds = null;
     showError(err, "Couldn't save that change.");
     showWithoutWithdrawn();
   },
-  withdrawn: () => showWithoutWithdrawn(),
-  idle: () => {
-    void reloadLedger();
-    void queryClient.invalidateQueries({ queryKey: IMPORTS_KEY });
-    void queryClient.invalidateQueries({ queryKey: TRANSACTIONS_KEY });
-    void queryClient.invalidateQueries({ queryKey: SUMMARY_KEY });
-    void queryClient.invalidateQueries({ queryKey: TREND_KEY });
+  withdrawn: () => {
+    refreshAdds = null;
+    showWithoutWithdrawn();
   },
+  idle: refreshAfterSave,
 });
 
 // Once it's known whose the ledger is, what they left unsent on this device is picked
@@ -446,6 +496,7 @@ onCacheUserKnown((email) => void queue.pickUp(email));
 // (what's kept on the device stays its owner's). What the server last sent stays, since
 // the server only ever sends the signed-in person's own.
 onCacheCleared(() => {
+  refreshAdds = [];
   totalsGeneration++;
   forgettingTotals = null;
   queue.forget();
@@ -532,11 +583,14 @@ export function dataAge(month: string): number | null {
 function refreshKeptSummaries() {
   for (const what of fromDevice.keys()) {
     if (what.startsWith('summary:')) {
-      void queryClient.invalidateQueries({ queryKey: summaryKey(what.slice('summary:'.length)) });
+      void queryClient.invalidateQueries(
+        { queryKey: summaryKey(what.slice('summary:'.length)) },
+        { cancelRefetch: false },
+      );
     }
   }
   for (const month of trendsFromDevice) {
-    void queryClient.invalidateQueries({ queryKey: trendKey(month) });
+    void queryClient.invalidateQueries({ queryKey: trendKey(month) }, { cancelRefetch: false });
   }
 }
 
@@ -711,11 +765,13 @@ export async function fetchTransactionPage(
   let page: PageOnDevice;
   try {
     page =
-      by === 'search' || by === 'recent'
+      by === 'search'
         ? await api.search(value, before, searchPageSize(by))
-        : await api.getTransactions(
-            by === 'account' ? { account: value, before } : { month: value, before },
-          );
+        : by === 'recent' || by === 'glance'
+          ? await api.searchRows(value, before, searchPageSize(by))
+          : await api.getTransactions(
+              by === 'account' ? { account: value, before } : { month: value, before },
+            );
     if (by === 'account' && before == null) void writeCache(pageCacheKey(value), page);
   } catch (err) {
     if (!isOfflineFailure(err) || by === 'month') throw err;
@@ -776,7 +832,15 @@ async function pageOnDevice(key: TransactionsKey, before: string | null) {
   const categories =
     queryClient.getQueryData<Ledger>(LEDGER_KEY)?.categories ?? ledger?.categories ?? [];
   const accounts = ledger?.accounts.map((a) => a.id) ?? [];
-  return localSearchPage(query, categories, accounts, homeCurrency(), before, searchPageSize(by));
+  return localSearchPage(
+    query,
+    categories,
+    accounts,
+    homeCurrency(),
+    before,
+    searchPageSize(by),
+    by !== 'search',
+  );
 }
 
 /** The most a page of transactions holds (worker/ledger/read.ts MAX_PAGE_SIZE) */

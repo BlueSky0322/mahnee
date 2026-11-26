@@ -19,6 +19,17 @@ export function installFiles(accent: Accent) {
   };
 }
 
+/** Gives the worker the manifest installed in the active accent before it keeps the others. */
+export function keepInstallIcons() {
+  if (!navigator.onLine || !('serviceWorker' in navigator)) return;
+  void navigator.serviceWorker.ready
+    .then(({ active }) => {
+      const manifest = document.querySelector('link[rel="manifest"]')?.getAttribute('href');
+      active?.postMessage({ type: 'keep-install-icons', manifest });
+    })
+    .catch(() => {});
+}
+
 /**
  * Points installing the app at `accent`'s icons: an install prompt, Add to Home Screen, or
  * Android's check on the installed app then reads them
@@ -31,4 +42,5 @@ export function showInstallIcons(accent: Accent) {
   };
   point('manifest', manifest);
   point('apple-touch-icon', appleTouchIcon);
+  if (import.meta.env.PROD && document.readyState === 'complete') keepInstallIcons();
 }

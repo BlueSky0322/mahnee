@@ -1,5 +1,15 @@
-import { clear, del, delMany, get, getMany, keys, set, update } from 'idb-keyval';
+import { createStore, del, get, keys, set, update } from 'idb-keyval';
 import { writeAs } from '../api';
+import {
+  LAST_EMAIL_KEY,
+  acceptSignInReturn,
+  accountCheckRequired,
+  deviceAccount,
+  logoutIntent,
+  sessionEpoch,
+  startSessionEpoch,
+} from './device-session';
+export { LAST_EMAIL_KEY } from './device-session';
 import { quietly } from '../utils/quietly';
 
 // Last-seen copies of API responses (the profile, the ledger) and the changes not yet
@@ -13,8 +23,6 @@ import { quietly } from '../utils/quietly';
  * choice, used only while it's the one last signed in here (see hooks/useRoute)
  */
 export const START_SCREEN_KEY = 'mahnee:startScreen';
-/** Who last signed in on this device, assumed while the server can't say */
-export const LAST_EMAIL_KEY = 'mahnee:lastEmail';
 /**
  * The signed-in email in IndexedDB, read by public/sw.js to send only that account's
  * changes (USER_KEY there; sw.test.ts runs it against what the app keeps)
@@ -57,10 +65,23 @@ interface Entry<T> {
 }
 
 /** Storage can be unavailable (private browsing, quota); the app works without it */
-const quietlyAsync = <T>(access: () => Promise<T>): Promise<T | undefined> =>
-  access().catch(() => undefined);
+async function quietlyAsync<T>(access: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await access();
+  } catch {
+    return undefined;
+  }
+}
 
-const lastEmail = () => quietly(() => localStorage.getItem(LAST_EMAIL_KEY)) ?? null;
+const lastEmail = () => deviceAccount() ?? null;
+
+let establishedEpoch: string | null | undefined;
+let persistedOwner = false;
+export const sessionBlocked = () =>
+  Boolean(logoutIntent()) ||
+  accountCheckRequired() ||
+  (user != null &&
+    ((persistedOwner && deviceAccount() !== user) || establishedEpoch !== sessionEpoch()));
 
 // Who the cache is for: unknown until the server says (or, offline, the last person
 // here is assumed). Reads and writes wait until then. It can change once more, when
@@ -77,6 +98,8 @@ export const whenCacheUserKnown = (): Promise<string> =>
 
 function confirmCacheUser(email: string) {
   user = email;
+  establishedEpoch = sessionEpoch();
+  persistedOwner = deviceAccount() === email;
   // The page's writes are made as this account, and refused once it's anyone else's
   writeAs(email);
   for (const resolve of waiting) resolve(email);
@@ -106,7 +129,9 @@ export async function readCacheEntry<T>(
 ): Promise<{ value: T; at: number | null } | undefined> {
   const email = await whenCacheUserKnown();
   const entry = await quietlyAsync(() => get<Entry<T>>(key));
-  return entry?.email === email ? { value: entry.value, at: entry.at ?? null } : undefined;
+  return entry?.email === email && user === email && !sessionBlocked()
+    ? { value: entry.value, at: entry.at ?? null }
+    : undefined;
 }
 
 /** Whether `access` worked; storage failing is reported, not thrown */
@@ -119,6 +144,7 @@ const succeeds = (access: () => Promise<unknown>): Promise<boolean> =>
 /** Resolves with whether it was kept */
 export async function writeCache<T>(key: string, value: T): Promise<boolean> {
   const email = await whenCacheUserKnown();
+  if (user !== email || sessionBlocked()) return false;
   return succeeds(() => set(key, { email, value, at: Date.now() } satisfies Entry<T>));
 }
 
@@ -127,9 +153,9 @@ export async function writeCache<T>(key: string, value: T): Promise<boolean> {
  * work kept for one account, which must never reach another
  */
 export async function readCacheAs<T>(email: string, key: string): Promise<T | undefined> {
-  if (user !== email) return undefined;
+  if (user !== email || sessionBlocked()) return undefined;
   const entry = await quietlyAsync(() => get<Entry<T>>(key));
-  return entry?.email === email && user === email ? entry.value : undefined;
+  return entry?.email === email && user === email && !sessionBlocked() ? entry.value : undefined;
 }
 
 /**
@@ -137,7 +163,7 @@ export async function readCacheAs<T>(email: string, key: string): Promise<T | un
  * whether it was kept.
  */
 export async function writeCacheAs<T>(email: string, key: string, value: T): Promise<boolean> {
-  if (user !== email) return false;
+  if (user !== email || sessionBlocked()) return false;
   return succeeds(() => set(key, { email, value } satisfies Entry<T>));
 }
 
@@ -147,10 +173,11 @@ export async function updateCacheAs<T>(
   key: string,
   updater: (value: T | undefined, at: number | null) => T | undefined,
 ): Promise<boolean> {
-  if (user !== email) return false;
+  if (user !== email || sessionBlocked()) return false;
   try {
     await update<Entry<T> | undefined>(key, (entry) => {
-      if (user !== email || (entry != null && entry.email !== email)) return entry;
+      if (user !== email || sessionBlocked() || (entry != null && entry.email !== email))
+        return entry;
       const value = updater(entry?.value, entry?.at ?? null);
       return value === undefined ? entry : { email, value, at: Date.now() };
     });
@@ -183,19 +210,33 @@ function keptFor(text: string): string | null {
  * Call once the signed-in email is known; someone else's cache is dropped
  */
 export async function setCacheUser(email: string): Promise<void> {
+  if (navigator.locks)
+    return navigator.locks.request('mahnee-device-owner', () => establishOwner(email));
+  return establishOwner(email);
+}
+
+async function establishOwner(email: string): Promise<void> {
+  if (logoutIntent()) throw new Error('Signed out');
   if (lastEmail() !== email) {
     // The page to open on is kept when it's this person's own (nobody was signed in before)
     const start =
       lastEmail() == null ? quietly(() => localStorage.getItem(START_SCREEN_KEY)) : null;
     // What the last account hasn't sent yet stays, theirs alone, for when they're back
     await clearCache(() => true);
+    if (logoutIntent() || (lastEmail() != null && lastEmail() !== email))
+      throw new Error('Account changed');
     quietly(() => {
       if (start != null && keptFor(start) === email) localStorage.setItem(START_SCREEN_KEY, start);
-      localStorage.setItem(LAST_EMAIL_KEY, email);
+      if (lastEmail() !== email) {
+        startSessionEpoch();
+        localStorage.setItem(LAST_EMAIL_KEY, email);
+      }
     });
   }
   // For the service worker, which sends this account's changes and nobody else's
   await quietlyAsync(() => set(SW_USER_KEY, email));
+  if (logoutIntent() || (lastEmail() != null && lastEmail() !== email))
+    throw new Error('Account changed');
   confirmCacheUser(email);
 }
 
@@ -205,7 +246,7 @@ export async function setCacheUser(email: string): Promise<void> {
  * their email, or null if nobody has signed in here.
  */
 export function assumeLastUser(): string | null {
-  const email = lastEmail();
+  const email = logoutIntent() || accountCheckRequired() ? null : lastEmail();
   if (email) confirmCacheUser(email);
   return email;
 }
@@ -233,15 +274,16 @@ export function signInAddress(): string {
 export function dropSignInMark() {
   const url = new URL(window.location.href);
   if (!url.searchParams.has(SIGN_IN_PARAM)) return;
+  acceptSignInReturn();
   url.searchParams.delete(SIGN_IN_PARAM);
   window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
 // What else the page holds for the account, forgotten with the cache
-const forgetters = new Set<() => void>();
+const forgetters = new Set<() => void | Promise<void>>();
 
 /** Runs `forget` whenever this device's cache is emptied: on signing out, or someone else signing in */
-export const onCacheCleared = (forget: () => void) => void forgetters.add(forget);
+export const onCacheCleared = (forget: () => void | Promise<void>) => void forgetters.add(forget);
 
 /**
  * Empties this device's cache, which is then nobody's until setCacheUser. Work not yet
@@ -250,18 +292,22 @@ export const onCacheCleared = (forget: () => void) => void forgetters.add(forget
  */
 export async function clearCache(
   keepUnsentOf: (email: string) => boolean = () => false,
+  leaving?: string,
 ): Promise<void> {
   user = null;
   writeAs(null);
-  forgetters.forEach((forget) => forget());
+  const cleanup = [...forgetters].map((forget) => forget());
   quietly(() => {
     localStorage.removeItem(LAST_EMAIL_KEY);
     // The page they open on is theirs too
     localStorage.removeItem(START_SCREEN_KEY);
   });
-  await quietlyAsync(() => clearExceptUnsent(keepUnsentOf));
+  const storage = clearExceptUnsent(keepUnsentOf, leaving);
   // Pictures the service worker kept, so the next person can't see them
-  if ('caches' in window) await quietlyAsync(clearImageCaches);
+  if ('caches' in window) cleanup.push(clearImageCaches());
+  const finished = Promise.all([storage, ...cleanup]);
+  if (leaving === undefined) await finished.catch(() => undefined);
+  else await finished;
 }
 
 async function clearImageCaches() {
@@ -269,15 +315,40 @@ async function clearImageCaches() {
   await Promise.all(names.map((name) => caches.delete(name)));
 }
 
-async function clearExceptUnsent(keepUnsentOf: (email: string) => boolean) {
-  const all = await keys();
-  const unsent = all.filter(
-    (k): k is string => typeof k === 'string' && UNSENT_PREFIXES.some((p) => k.startsWith(p)),
+/** Purge and retain records in one transaction, including only refused changes for the departing user. */
+const deviceStore = createStore('keyval-store', 'keyval');
+async function clearExceptUnsent(keep: (email: string) => boolean, leaving?: string) {
+  return deviceStore(
+    'readwrite',
+    (entries) =>
+      new Promise<void>((resolve, reject) => {
+        entries.transaction.oncomplete = () => resolve();
+        entries.transaction.onabort = () =>
+          reject(new Error('Could not clear stored account data'));
+        const request = entries.openCursor();
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (cursor == null) return;
+          const key = cursor.key;
+          const entry = cursor.value as Entry<unknown> | undefined;
+          const pending =
+            typeof key === 'string' && UNSENT_PREFIXES.some((prefix) => key.startsWith(prefix));
+          if (!pending || !entry || !keep(entry.email) || key === `profile-outbox:${leaving}`)
+            cursor.delete();
+          else if (
+            leaving &&
+            entry.email === leaving &&
+            key === `outbox:${leaving}` &&
+            Array.isArray(entry.value)
+          ) {
+            const refused = entry.value.filter(
+              (change: { refused?: unknown } | null) => change?.refused != null,
+            );
+            if (refused.length) cursor.update({ ...entry, value: refused });
+            else cursor.delete();
+          }
+          cursor.continue();
+        };
+      }),
   );
-  const entries = await getMany<Entry<unknown> | undefined>(unsent);
-  const kept = new Set(
-    unsent.filter((_, i) => entries[i] != null && keepUnsentOf(entries[i].email)),
-  );
-  if (kept.size === 0) return clear();
-  await delMany(all.filter((k) => !(typeof k === 'string' && kept.has(k))));
 }

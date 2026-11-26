@@ -8,6 +8,7 @@ import { hideLaunchScreen } from './pwa/launch-screen';
 import { openStartScreen } from './hooks/useRoute';
 import { dropSignInMark } from './offline/cache';
 import { keepStorageOnceInstalled } from './offline/storage';
+import { keepInstallIcons } from './pwa/install-icons';
 
 // Back from signing in: the address as it was, then (on a fresh start) the page chosen to
 // open on, before anything reads the address
@@ -32,8 +33,11 @@ hideLaunchScreen();
 // Installable app: the service worker keeps the built files for offline starts, and
 // sends changes kept on the device once the connection is back, even with the app closed
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('online', keepInstallIcons);
+  navigator.serviceWorker.addEventListener('controllerchange', keepInstallIcons);
   window.addEventListener('load', () => {
     // Without it, starting offline just doesn't work; the app runs the same otherwise
     navigator.serviceWorker.register('/sw.js').catch(() => {});
+    keepInstallIcons();
   });
 }

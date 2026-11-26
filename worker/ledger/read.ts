@@ -54,21 +54,18 @@ const accountsStatement = (db: D1Database, email: string) =>
     .prepare(
       `SELECT a.id, a.name, a.kind, a.currency,
               a.opening_cents AS openingCents,
-              a.opening_cents + COALESCE(t.net, 0) AS balanceCents,
+              a.opening_cents
+                + COALESCE((
+                    SELECT SUM(CASE t.kind WHEN 'income' THEN t.amount_cents ELSE -t.amount_cents END)
+                    FROM transactions t WHERE t.email = a.email AND t.account_id = a.id
+                  ), 0)
+                + COALESCE((
+                    SELECT SUM(t.amount_cents) FROM transactions t
+                    WHERE t.email = a.email AND t.to_account_id = a.id AND t.kind = 'transfer'
+                  ), 0) AS balanceCents,
               a.position, a.archived, a.archived_at AS archivedAt,
               a.created_at AS createdAt
        FROM accounts a
-       LEFT JOIN (
-         SELECT id, SUM(cents) AS net FROM (
-           SELECT account_id AS id,
-                  CASE kind WHEN 'income' THEN amount_cents ELSE -amount_cents END AS cents
-           FROM transactions WHERE email = ?1
-           UNION ALL
-           SELECT to_account_id, amount_cents
-           FROM transactions WHERE email = ?1 AND kind = 'transfer'
-         )
-         GROUP BY id
-       ) t ON t.id = a.id
        WHERE a.email = ?1
        ORDER BY a.position, a.created_at, a.id`,
     )
@@ -368,8 +365,8 @@ async function pageOf(query: D1PreparedStatement, values: (string | number)[], l
  * /api/transactions does. With it, what matches beyond the page (rest, and the part of it
  * on the page's last day), and on the first page of a search for days how many match
  * outside them (elsewhere), and on every first page whether the person has any entry at all
- * (anywhere). Someone else's account or category is answered as one that
- * doesn't exist.
+ * (anywhere). For lists that only show entries, ?rowsOnly=1 returns the page and cursor.
+ * Someone else's account or category is answered as one that doesn't exist.
  *
  * Every figure is one query built from the same conditions as the page, the person's
  * email first, so no filter can be left out of one: the page; rest and restOfLastDay
@@ -421,10 +418,16 @@ export async function searchTransactions(
     // SQLite's lower() folds only those, as foldCase does. (Not a LIKE pattern: D1 refuses
     // one over 50 bytes, and a search can be MAX_SEARCH_TEXT characters.)
     const words = foldCase(query.q);
-    const found = ['t.payee', 't.note', 'c.name', 'p.name'].map(
-      (column) => `instr(lower(${column}), ?) > 0`,
-    );
-    values.push(words, words, words, words);
+    const found = [
+      'instr(lower(t.payee), ?) > 0',
+      'instr(lower(t.note), ?) > 0',
+      `t.category_id IN (
+         SELECT c.id FROM categories c
+         LEFT JOIN categories p ON p.email = c.email AND p.id = c.parent_id
+         WHERE c.email = ? AND (instr(lower(c.name), ?) > 0 OR instr(lower(p.name), ?) > 0)
+       )`,
+    ];
+    values.push(words, words, email, words, words);
     const cents = searchAmount(query.q);
     if (cents != null) {
       found.push('t.amount_cents = ?');
@@ -444,9 +447,6 @@ export async function searchTransactions(
     dayValues.push(query.to);
   }
 
-  const from = `FROM transactions t
-       LEFT JOIN categories c ON c.email = t.email AND c.id = t.category_id
-       LEFT JOIN categories p ON p.email = c.email AND p.id = c.parent_id`;
   const after = (at: Cursor) => ({ sql: AFTER('t.'), values: at });
   const pageWhere = [...where, ...days];
   const pageValues = [...values, ...dayValues];
@@ -455,18 +455,18 @@ export async function searchTransactions(
     pageWhere.push(past.sql);
     pageValues.push(...past.values);
   }
-  const page = db
-    .prepare(
-      `SELECT ${transactionColumns('t')} ${from}
+  const page = db.prepare(
+    `SELECT ${transactionColumns('t')} FROM transactions t
        WHERE ${pageWhere.join(' AND ')}
        ORDER BY ${NEWEST_FIRST('t.')}
        LIMIT ?`,
-    )
-    .bind(...pageValues, limit + 1);
+  );
+  if (params.get('rowsOnly') === '1') return pageOf(page, pageValues, limit);
+
   const askElsewhere = cursor == null && days.length > 0;
   const elsewhere = db
     .prepare(
-      `SELECT COUNT(*) AS n ${from}
+      `SELECT COUNT(*) AS n FROM transactions t
        WHERE ${where.join(' AND ')} AND NOT (${days.join(' AND ') || '1'})`,
     )
     .bind(...values, ...dayValues);
@@ -474,7 +474,7 @@ export async function searchTransactions(
   const first = cursor == null;
   const any = db.prepare('SELECT 1 AS n FROM transactions WHERE email = ? LIMIT 1').bind(email);
   const [found, ...more] = await db.batch<TransactionRow | { n: number }>([
-    page,
+    page.bind(...pageValues, limit + 1),
     ...(first ? [any] : []),
     ...(askElsewhere ? [elsewhere] : []),
   ]);
@@ -501,7 +501,7 @@ export async function searchTransactions(
                   THEN t.amount_cents END), 0) AS daySpentCents,
                 COALESCE(SUM(CASE WHEN t.date = ? AND t.kind = 'income'
                   THEN t.amount_cents END), 0) AS dayReceivedCents
-         ${from}
+         FROM transactions t
          WHERE ${[...where, ...days, past.sql].join(' AND ')}`,
       )
       .bind(last.date, last.date, last.date, ...values, ...dayValues, ...past.values)

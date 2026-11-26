@@ -603,7 +603,12 @@ export async function startLocalWorker(): Promise<LocalWorker> {
     const raw: LocalWorker['raw'] = (who, method, path, body, headers = {}) =>
       fetch(base + path, {
         method,
-        headers: { 'X-Dev-User': who, 'Content-Type': 'application/json', ...headers },
+        headers: {
+          'X-Dev-User': who,
+          'X-Expected-Account': who,
+          'Content-Type': 'application/json',
+          ...headers,
+        },
         // Bytes and strings go as they are; anything else as JSON
         body:
           body === undefined || typeof body === 'string' || body instanceof Uint8Array

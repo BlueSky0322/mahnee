@@ -50,23 +50,23 @@ const SHELL_FILES = '/shell-files';
  * its name, icon and launch screen, when Cloudflare Access or the connection would turn
  * the browser's request for them away. Every accent's, as the accent can change offline.
  */
-const INSTALL_FILES = [
+const DEFAULT_INSTALL_FILES = [
   '/manifest.webmanifest',
   '/icon-192.png',
   '/icon-512.png',
   '/icon-maskable-512.png',
   '/apple-touch-icon.png',
-  ...['green', 'plum', 'rust', 'graphite'].flatMap((accent) => [
-    `/manifest-${accent}.webmanifest`,
-    `/icons/${accent}/icon-192.png`,
-    `/icons/${accent}/icon-512.png`,
-    `/icons/${accent}/icon-maskable-512.png`,
-    `/icons/${accent}/apple-touch-icon.png`,
-  ]),
-  '/icon.svg',
-  '/favicon-16.png',
-  '/favicon-32.png',
 ];
+const ACCENT_INSTALL_FILES = ['green', 'plum', 'rust', 'graphite'].map((accent) => [
+  `/manifest-${accent}.webmanifest`,
+  `/icons/${accent}/icon-192.png`,
+  `/icons/${accent}/icon-512.png`,
+  `/icons/${accent}/icon-maskable-512.png`,
+  `/icons/${accent}/apple-touch-icon.png`,
+]);
+const TAB_ICONS = ['/icon.svg', '/favicon-16.png', '/favicon-32.png'];
+const INSTALL_GROUPS = [DEFAULT_INSTALL_FILES, ...ACCENT_INSTALL_FILES];
+const INSTALL_FILES = [...INSTALL_GROUPS.flat(), ...TAB_ICONS];
 /** How long a page may take to come before the kept one is shown instead */
 const PAGE_WAIT_MS = 3000;
 
@@ -298,24 +298,19 @@ async function secureShell(response) {
     throw new Error('The page and the list of its files are from different versions');
   }
   const files = list ?? page;
-  await Promise.all(
-    files.map(async (file) => {
-      if (!(await assets.match(file))) await assets.put(file, await fetchFile(file));
-    }),
-  );
+  const keep = (paths) =>
+    Promise.all(
+      paths.map(async (file) => {
+        if (!(await assets.match(file))) await assets.put(file, await fetchFile(file));
+      }),
+    );
+  await keep(page);
+  await keep(files.filter((file) => !page.includes(file)));
 
   // What the page kept until now needs, for tabs still open on it
   let previous = keptHtml == null ? [] : filesOf(keptHtml);
   if (record != null) previous = sameFiles(record.page, page) ? record.previous : record.files;
   await shell.put('/', response);
-  // Fetched while signed in, as the page just was; one that can't be kept now is next time
-  await Promise.all(
-    INSTALL_FILES.map((file) =>
-      fetchFile(file)
-        .then((res) => shell.put(file, res))
-        .catch(() => undefined),
-    ),
-  );
   await shell.put(
     SHELL_FILES,
     new Response(JSON.stringify({ page, files, previous }), {
@@ -339,13 +334,14 @@ function keepShell(response) {
   return done;
 }
 
+function keepCurrentPage() {
+  return fetch('/')
+    .then((res) => (isPage(res) ? keepShell(res) : undefined))
+    .catch(() => undefined);
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    fetch('/')
-      .then((res) => (isPage(res) ? keepShell(res) : undefined))
-      .catch(() => undefined)
-      .then(() => self.skipWaiting()),
-  );
+  event.waitUntil(keepCurrentPage().then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -361,6 +357,49 @@ self.addEventListener('activate', (event) => {
       )
       .then(() => self.clients.claim()),
   );
+});
+
+/** The app has painted and knows its current accent. Keep its install files first. */
+let activeManifest = null;
+let keepingIcons = null;
+let iconsRequested = false;
+async function keepInstallFiles() {
+  const shell = await caches.open(SHELL);
+  if (!(await shell.match('/'))) await keepCurrentPage();
+  const remaining = new Set([TAB_ICONS, ...INSTALL_GROUPS]);
+  while (remaining.size > 0) {
+    const priority = INSTALL_GROUPS.find(([manifest]) => manifest === activeManifest);
+    const group = remaining.has(priority) ? priority : remaining.values().next().value;
+    remaining.delete(group);
+    // Each successful file is usable immediately, even if the network drops halfway.
+    const saved = await Promise.all(
+      group.map(async (file) => {
+        if (await shell.match(file)) return true;
+        try {
+          await shell.put(file, await fetchFile(file));
+          return true;
+        } catch {
+          return false;
+        }
+      }),
+    );
+    if (!saved.some(Boolean)) return;
+  }
+}
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type !== 'keep-install-icons') return;
+  const { manifest } = event.data;
+  if (!INSTALL_GROUPS.some(([file]) => file === manifest)) return;
+  activeManifest = manifest;
+  iconsRequested = true;
+  keepingIcons ??= (async () => {
+    while (iconsRequested) {
+      iconsRequested = false;
+      await keepInstallFiles();
+    }
+  })().finally(() => (keepingIcons = null));
+  event.waitUntil(keepingIcons);
 });
 
 async function cacheFirst(cacheName, request, accept) {

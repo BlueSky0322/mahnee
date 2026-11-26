@@ -4,7 +4,7 @@ import type { Account, Category, Transaction } from '@shared/api';
 import type { SearchQuery } from '@shared/search';
 import { holdsFrom } from '../../ledger/history';
 import { RECENT_ENTRIES } from '../../ledger/ledger';
-import { useRecent } from '../../ledger/useLedger';
+import { useHomeRows } from '../../ledger/useLedger';
 import { isOffline } from '../../offline/network';
 import { useCurrency } from '../../profile/ProfileContext';
 import { dayHeading, monthHeading } from '../../utils/date-input';
@@ -53,7 +53,7 @@ export default function RecentEntries({
     to: isCurrent ? null : lastDay,
     kinds: null,
   };
-  const found = useRecent(query);
+  const found = useHomeRows(query, { latest: true });
   const rows = found.transactions;
   const name = monthHeading(month, { short: true });
   const title = isCurrent ? 'Recent activity' : `Latest in ${name}`;

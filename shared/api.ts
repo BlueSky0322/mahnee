@@ -827,10 +827,11 @@ export const MAX_CHANGES_BYTES = 48 * 1024;
 export const CLIENT_ID_HEADER = 'X-Client-Id';
 
 /**
- * Whose a write is: the account it was made as, which the server checks against the one
- * signed in now before changing anything. Never chooses who's signed in.
+ * The account the app expects to read or write, checked against the authenticated account.
  */
 export const EXPECTED_ACCOUNT_HEADER = 'X-Expected-Account';
+/** The authenticated owner of a read, including reads started before the app knew who signed in. */
+export const RESPONSE_ACCOUNT_HEADER = 'X-Account';
 
 /**
  * On a read of balances or months' totals (GET /api/accounts, /api/summary and

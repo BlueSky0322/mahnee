@@ -1,3 +1,4 @@
+import { jpeg } from './picture-fixture';
 // The API end to end, against the real Worker and a fresh local database: who's signed
 // in, their profile and settings, exchange rates, their accounts and categories and the
 // changes saved to them, and the safeguards every write passes.
@@ -66,19 +67,13 @@ function webp(side: number, length = 600, seed = 1) {
   ascii(0, 'RIFF');
   ascii(8, 'WEBP');
   ascii(12, 'VP8 ');
+  bytes.set([0x9d, 0x01, 0x2a], 23);
   bytes[26] = side & 0xff;
   bytes[27] = (side >> 8) & 0x3f;
   bytes[28] = side & 0xff;
   bytes[29] = (side >> 8) & 0x3f;
   return bytes;
 }
-
-/** A JPEG's first bytes, padded */
-const jpeg = (length = 400, seed = 2) => {
-  const bytes = new Uint8Array(length).fill(seed);
-  bytes.set([0xff, 0xd8, 0xff, 0xe0]);
-  return bytes;
-};
 
 describe('the profile picture', () => {
   const upload = (who: string, bytes: Uint8Array | string, type = 'image/webp') =>
@@ -122,6 +117,21 @@ describe('the profile picture', () => {
     expect(replaced.headers.get('Content-Type')).toBe('image/jpeg');
   });
 
+  it.each([
+    [
+      'image/png',
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mP4//8/AAX+Av4zEpUUAAAAAElFTkSuQmCC',
+    ],
+    ['image/webp', 'UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA='],
+  ])('keeps a small %s with readable dimensions', async (type, encoded) => {
+    const who = person('pic');
+    const image = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
+    expect((await upload(who, image, type)).status).toBe(200);
+    const picture = await getPicture(who);
+    expect(picture.headers.get('Content-Type')).toBe(type);
+    expect(new Uint8Array(await picture.arrayBuffer())).toEqual(image);
+  });
+
   it("never shows one account's picture to another, nor lets another change it", async () => {
     const who = person('pic');
     const other = person('other');
@@ -145,6 +155,8 @@ describe('the profile picture', () => {
     ['text that is not a picture', () => 'not a picture at all', 415],
     ['a GIF', () => new TextEncoder().encode('GIF89a' + 'x'.repeat(100)), 415],
     ['nothing', () => new Uint8Array(), 400],
+    ['a picture with unreadable dimensions', () => jpeg().subarray(0, 8), 415],
+    ['a picture with an empty side', () => webp(0), 415],
     ['a picture over 64 KB', () => webp(256, 64 * 1024 + 1), 413],
     ['a picture over 512 pixels on a side', () => webp(1024), 413],
   ])('refuses %s and keeps the picture there was', async (_what, body, status) => {
@@ -777,9 +789,36 @@ describe('saying whose a write is', () => {
     expect((await api.call(me, 'GET', '/api/me')).data.displayName).toBe('Mei');
   });
 
-  it('still saves a write that says nothing, from apps from before it, while that is allowed', async () => {
-    const me = person('me');
-    expect((await api.call(me, 'PATCH', '/api/me', { displayName: 'Mei' })).status).toBe(200);
+  it('keeps an older client’s change unsaved until it can name the account', async () => {
+    const who = person('me');
+    const response = await fetch(api.base + '/api/me', {
+      method: 'PATCH',
+      headers: { 'X-Dev-User': who, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Mei' }),
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: 'client_update_required' });
+    expect((await api.call(who, 'GET', '/api/me')).data.displayName).toBeNull();
+  });
+
+  it('identifies the signed-in viewer and keeps their JSON and refusals out of HTTP caches', async () => {
+    const who = person('me');
+    const expected = { 'X-Expected-Account': person('previous') };
+    const discovery = await api.raw(who, 'GET', '/api/me', undefined, expected);
+    expect(discovery.status).toBe(200);
+    expect(discovery.headers.get('X-Account')).toBe(who);
+    expect(discovery.headers.get('Cache-Control')).toBe('private, no-store');
+
+    for (const path of ['/api/accounts', '/api/export']) {
+      const refused = await api.raw(who, 'GET', path, undefined, expected);
+      expect(refused.status).toBe(409);
+      expect(await refused.json()).toMatchObject({ code: 'account_mismatch' });
+      expect(refused.headers.get('Cache-Control')).toBe('private, no-store');
+      const own = await api.raw(who, 'GET', path, undefined, { 'X-Expected-Account': who });
+      expect(own.status).toBe(200);
+      expect(own.headers.get('X-Account')).toBe(who);
+      await own.arrayBuffer();
+    }
   });
 });
 
@@ -1161,30 +1200,47 @@ describe('accounts', () => {
     expect(await list(other)).toEqual([expect.objectContaining({ name: 'Theirs' })]);
   });
 
-  it('lets go of receipts older than 90 days when it saves the next change', async () => {
+  it('uses one rate source through a save when the preference changes mid-request', async () => {
+    const me = person('rates');
+    const saveBalances = (...names: string[]) =>
+      api.call(me, 'POST', '/api/changes', {
+        changes: names.map((name) => add(rowId(), name, 'cash', 100)),
+        ids: names.map(rowId),
+        currencies: names.map(() => 'HKD'),
+      });
+    api.rates.set('HKD', 'MYR', 0.6, 'wise');
+    api.rates.set('HKD', 'MYR', 0.5, 'frankfurter');
+    const held = api.rates.hold('HKD', 'MYR');
+    const firstSave = saveBalances('Wallet', 'Spare');
+    try {
+      await held.reached;
+      expect(
+        (await api.call(me, 'PATCH', '/api/me', { settings: { ratePreference: 'ecb' } })).status,
+      ).toBe(200);
+    } finally {
+      held.release();
+    }
+    expect((await firstSave).status).toBe(200);
+    expect((await saveBalances('Later')).status).toBe(200);
+    expect((await list(me)).map((account) => account.openingCents)).toEqual([60, 60, 50]);
+  });
+
+  it('keeps a late replay from overwriting a newer opening balance', async () => {
     const me = person('me');
-    const [old, recent] = [rowId(), rowId()];
-    await send(me, [add(rowId(), 'Wallet')], [old]);
-    await send(me, [add(rowId(), 'Bank')], [recent]);
-    const day = 24 * 60 * 60 * 1000;
+    const [account, changeId] = [rowId(), rowId()];
+    await send(me, [add(account, 'Wallet')]);
+    const earlier = { op: 'updateAccount', id: account, openingCents: 800 };
+    expect((await send(me, [earlier], [changeId])).status).toBe(200);
     await api.sql(
       'UPDATE change_receipts SET saved_at = ? WHERE email = ? AND change_id = ?',
-      Date.now() - 91 * day,
+      Date.UTC(2000, 0, 1),
       me,
-      old,
+      changeId,
     );
-    await api.sql(
-      'UPDATE change_receipts SET saved_at = ? WHERE email = ? AND change_id = ?',
-      Date.now() - 89 * day,
-      me,
-      recent,
-    );
-    await send(me, [add(rowId(), 'Card', 'card')]);
-    const kept = (await api.sql(
-      'SELECT change_id AS id FROM change_receipts WHERE email = ? ORDER BY saved_at',
-      me,
-    )) as { id: string }[];
-    expect(kept.map((r) => r.id)).toEqual([recent, expect.any(String)]);
+    await send(me, [{ ...earlier, openingCents: 1200 }]);
+
+    expect((await send(me, [earlier], [changeId])).status).toBe(200);
+    expect((await list(me))[0]).toMatchObject({ openingCents: 1200, balanceCents: 1200 });
   });
 });
 
@@ -3196,12 +3252,26 @@ describe('transactions', () => {
       food,
       salary,
     );
+    // One incoming transfer, and one legacy transfer with the same account on both
+    // sides. Each occupies one of the wallet's 99,999 places.
+    await api.sql(
+      `UPDATE transactions SET kind = 'transfer', category_id = NULL, to_account_id = ?2,
+         account_id = CASE WHEN id = printf('%016x', 1) THEN ?3 ELSE ?2 END
+       WHERE email = ?1 AND id IN (printf('%016x', 1), printf('%016x', 2))`,
+      me,
+      wallet,
+      bank,
+    );
     const full = {
       status: 409,
       data: { error: 'An account can hold up to 100,000 transactions' },
     };
     expect(await send(me, [add(rowId(), wallet, 1), add(rowId(), wallet, 1)])).toEqual(full);
-    expect((await send(me, [add(rowId(), wallet, 1)])).status).toBe(200);
+    const lastPlace = await Promise.all([
+      send(me, [add(rowId(), wallet, 1)]),
+      send(me, [move(rowId(), bank, wallet, 1)]),
+    ]);
+    expect(lastPlace.map((r) => r.status).sort()).toEqual([200, 409]);
     expect(await send(me, [add(rowId(), wallet, 1)])).toEqual(full);
     expect(await send(me, [{ op: 'updateTransaction', id: moving, accountId: wallet }])).toEqual(
       full,
@@ -4122,6 +4192,21 @@ describe('transactions', () => {
         expect(seen).toEqual((all.data.transactions as { id: string }[]).map((x) => x.id));
         expect(sum).toEqual(whole);
       }
+    });
+
+    it('pages through a date range with just the entries and cursor for Home', async () => {
+      const { me, t } = await withHistory();
+      const range = 'rowsOnly=1&from=2025-09-04&to=2025-09-07&limit=2';
+      const first = await search(me, range);
+      expect(first.data).toEqual({
+        transactions: [t[6], t[5]].map((id) => expect.objectContaining({ id })),
+        nextBefore: expect.any(String),
+      });
+      const next = await search(me, `${range}&before=${first.data.nextBefore}`);
+      expect(next.data).toEqual({
+        transactions: [t[4], t[3]].map((id) => expect.objectContaining({ id })),
+        nextBefore: null,
+      });
     });
 
     it("never counts someone else's, even on the same days", async () => {

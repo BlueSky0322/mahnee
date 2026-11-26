@@ -10,6 +10,7 @@ import {
   fakeCaches,
   fetchThroughWorker,
   install,
+  keepInstallIcons,
   keptPaths,
   keptText,
   openPage,
@@ -285,12 +286,56 @@ describe('keeping what installing the app reads', () => {
     Object.fromEntries(
       files.map((f) => [f, { status: 200, body: `file ${f}`, contentType: 'image/png' }]),
     );
+  const keepAll = async (caches: ReturnType<typeof fakeCaches>, files: string[]) => {
+    const site = deployed(version(1), serving(files));
+    await visit(caches, site);
+    await keepInstallIcons('/manifest.webmanifest', site, caches).done;
+  };
 
   test('keeps each of them with the page, as the manifest and the page name them', async () => {
     const caches = fakeCaches();
     const files = installFiles();
-    await visit(caches, deployed(version(1), serving(files)));
+    await keepAll(caches, files);
     expect(keptPaths(caches, SHELL)).toEqual(['/', '/shell-files', ...files].sort());
+  });
+
+  test('keeps the active accent before starting other icons and resumes a partial download', async () => {
+    const caches = fakeCaches();
+    const files = serving(installFiles());
+    const { manifest, appleTouchIcon } = installFilesIn('plum');
+    const opening = await visit(caches, deployed(version(1), files));
+    expect(
+      opening.fetch.mock.calls.some(([request]) => JSON.stringify(request).includes('/icons/')),
+    ).toBe(false);
+
+    let finish!: (answer: Answer) => void;
+    const stopped = new Promise<Answer>((resolve) => (finish = resolve));
+    let requested!: () => void;
+    const check = new Promise<void>((resolve) => (requested = resolve));
+    const site = deployed(version(1), files);
+    const first = keepInstallIcons(
+      manifest,
+      (path) => {
+        if (path !== appleTouchIcon) return site(path);
+        requested();
+        return stopped;
+      },
+      caches,
+    );
+    await check;
+    expect(
+      first.fetch.mock.calls
+        .map(([path]) => path)
+        .every((path) => path === manifest || path.startsWith('/icons/plum/')),
+    ).toBe(true);
+    finish({ networkError: true });
+    await first.done;
+
+    const retry = keepInstallIcons(manifest, site, caches);
+    await retry.done;
+    expect(retry.fetch.mock.calls).toEqual([[appleTouchIcon]]);
+    const { response } = await fetchThroughWorker(appleTouchIcon, { networkError: true }, caches);
+    expect(await response?.text()).toBe(`file ${appleTouchIcon}`);
   });
 
   test.each<[string, Answer]>([
@@ -302,7 +347,7 @@ describe('keeping what installing the app reads', () => {
     ['the server fails', { status: 503 }],
   ])('when %s, the manifest comes from the kept copy', async (_when, answer) => {
     const caches = fakeCaches();
-    await visit(caches, deployed(version(1), serving(installFiles())));
+    await keepAll(caches, installFiles());
     const { response } = await fetchThroughWorker('/manifest.webmanifest', answer, caches);
     expect(await response?.text()).toBe('file /manifest.webmanifest');
   });
@@ -311,7 +356,7 @@ describe('keeping what installing the app reads', () => {
     "with no connection, %s's manifest and iPhone icon come from the kept copies",
     async (accent) => {
       const caches = fakeCaches();
-      await visit(caches, deployed(version(1), serving(installFiles())));
+      await keepAll(caches, installFiles());
       const { manifest, appleTouchIcon } = installFilesIn(accent);
       for (const file of [manifest, appleTouchIcon]) {
         const { response } = await fetchThroughWorker(file, { networkError: true }, caches);

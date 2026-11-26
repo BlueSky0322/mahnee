@@ -3,6 +3,7 @@ import {
   EXPECTED_ACCOUNT_HEADER,
   PENDING_CHANGES_HEADER,
   PICTURE_PATH,
+  RESPONSE_ACCOUNT_HEADER,
 } from '@shared/api';
 import type {
   ApiErrorBody,
@@ -24,6 +25,13 @@ import type {
 } from '@shared/api';
 import type { PushKey, PushSubscriptionBody } from '@shared/push';
 import { newId } from './utils/id';
+import {
+  accountCheckRequired,
+  deviceAccount,
+  logoutIntent,
+  requireAccountCheck,
+  sessionEpoch,
+} from './offline/device-session';
 
 /** The signed-in account, as this device holds it */
 export type Profile = ApiProfile & {
@@ -62,16 +70,26 @@ export class NetworkError extends Error {}
 /** This tab, sent with every request */
 export const CLIENT_ID = newId();
 
-/**
- * Sends a request to the API with what every request carries, answering with the response
- * once it's known to be a success; anything else is thrown as an ApiError or NetworkError
- */
-async function send(
+const changedAccount = () =>
+  new ApiError(409, 'Signed in as someone else.', null, 'account_mismatch');
+
+/** Check the owner again after reading the body, which can finish well after a switch. */
+async function send<T>(
+  read: (response: Response) => Promise<T>,
   method: string,
   path: string,
   body?: unknown,
   { headers, ...init }: RequestInit & { headers?: Record<string, string> } = {},
-): Promise<Response> {
+): Promise<T> {
+  const discovery = method === 'GET' && path === '/api/me';
+  const releasingPush = method === 'DELETE' && path === '/api/push/subscription';
+  const previous = deviceAccount();
+  const epoch = sessionEpoch();
+  const expected = writingAs ?? previous;
+  const locked = () => !releasingPush && Boolean(logoutIntent());
+  if (locked()) throw new ApiError(401, 'Signed out');
+  if (!discovery && writingAs != null && previous != null && writingAs !== previous)
+    throw changedAccount();
   let res: Response;
   try {
     res = await fetch(path, {
@@ -79,8 +97,7 @@ async function send(
       headers: {
         [CLIENT_ID_HEADER]: CLIENT_ID,
         ...(body !== undefined && { 'Content-Type': 'application/json' }),
-        // Reads don't need it: /api/me is how the page learns who's signed in
-        ...(method !== 'GET' && writingAs != null && { [EXPECTED_ACCOUNT_HEADER]: writingAs }),
+        ...(!discovery && expected != null && { [EXPECTED_ACCOUNT_HEADER]: expected }),
         ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -89,39 +106,97 @@ async function send(
   } catch (err) {
     throw new NetworkError(`${method} ${path} got no answer (${String(err)})`);
   }
-  // Sent to the sign-in page: the session has run out
   if (res.redirected) throw new ApiError(401, `${method} ${path} was sent to sign in`);
   if (!res.ok) {
     const answer = (await res.json().catch(() => null)) as Partial<ApiErrorBody> | null;
-    const error = answer?.error ?? null;
+    if (
+      method === 'GET' &&
+      expected != null &&
+      expected === (deviceAccount() ?? writingAs) &&
+      answer?.code === 'account_mismatch'
+    ) {
+      requireAccountCheck();
+    }
     throw new ApiError(
       res.status,
-      error ?? `${method} ${path} failed`,
-      error,
+      answer?.error ?? `${method} ${path} failed`,
+      answer?.error ?? null,
       answer?.code ?? null,
     );
   }
-  return res;
+  const value = await read(res);
+  const viewer = res.headers.get(RESPONSE_ACCOUNT_HEADER);
+  // The first ledger read can start alongside the first profile read, before we know the owner.
+  if (!discovery && expected == null && viewer != null && writingAs == null) {
+    const me = await (discovering ?? getMe());
+    if (viewer !== me.email) throw changedAccount();
+  }
+  if (locked()) throw new ApiError(401, 'Signed out');
+  const current = deviceAccount();
+  if (
+    !discovery &&
+    (accountCheckRequired() || (expected != null && epoch != null && sessionEpoch() !== epoch))
+  )
+    throw changedAccount();
+  if (discovery) {
+    if (current !== previous && current !== (value as Profile).email) throw changedAccount();
+  } else {
+    const owner = expected ?? viewer;
+    if (
+      owner != null &&
+      ((viewer != null && viewer !== owner) ||
+        (writingAs != null && writingAs !== owner) ||
+        (current !== previous && current !== owner))
+    )
+      throw changedAccount();
+  }
+  return value;
 }
 
 /** Names the changes still waiting that may be saved already, for a read to answer which are */
 const naming = (pending: string[]) =>
   pending.length > 0 ? { headers: { [PENDING_CHANGES_HEADER]: pending.join(',') } } : {};
 
-async function request<T>(...args: Parameters<typeof send>): Promise<T> {
-  const res = await send(...args);
-  const data = (await res.json().catch(() => null)) as unknown;
-  // Answered by something other than the API (a proxy, say): worth trying again, like a 5xx
-  if (data == null) throw new ApiError(502, `${args[0]} ${args[1]} didn't answer with JSON`);
-  return data as T;
+function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  init?: RequestInit & { headers?: Record<string, string> },
+): Promise<T> {
+  return send(
+    async (res) => {
+      const data = (await res.json().catch(() => null)) as unknown;
+      if (data == null) throw new ApiError(502, `${method} ${path} didn't answer with JSON`);
+      return data as T;
+    },
+    method,
+    path,
+    body,
+    init,
+  );
+}
+
+let discovering: Promise<Profile> | undefined;
+function getMe(): Promise<Profile> {
+  return (discovering ??= request<Profile>('GET', '/api/me').finally(() => {
+    discovering = undefined;
+  }));
 }
 
 /** An export's days as the address asks for them, nothing for everything */
 const rangeQuery = (range: ExportRange | null) =>
   range == null ? '' : `?${new URLSearchParams({ from: range.from, to: range.to }).toString()}`;
 
+function searchPath(search: string, before: string | null, limit: number, rowsOnly = false) {
+  const query = new URLSearchParams(search);
+  if (before != null) query.set('before', before);
+  query.set('limit', String(limit));
+  if (rowsOnly) query.set('rowsOnly', '1');
+  return `/api/search?${query.toString()}`;
+}
+
 export const api = {
-  getMe: () => request<Profile>('GET', '/api/me'),
+  getMe,
   /** The person's imports not undone, newest first */
   getImports: () => request<RecentImports>('GET', '/api/imports'),
   updateMe: (patch: ProfilePatch) => request<Profile>('PATCH', '/api/me', patch),
@@ -161,12 +236,11 @@ export const api = {
    * A page of what a search finds (`search`: its address, as shared/search.ts writes it),
    * newest first, with what matches beyond it; `before` is the page before's nextBefore
    */
-  search: (search: string, before: string | null, limit: number) => {
-    const query = new URLSearchParams(search);
-    if (before != null) query.set('before', before);
-    query.set('limit', String(limit));
-    return request<SearchPage>('GET', `/api/search?${query.toString()}`);
-  },
+  search: (search: string, before: string | null, limit: number) =>
+    request<SearchPage>('GET', searchPath(search, before, limit)),
+  /** The same ordered rows and cursor, without Activity totals. */
+  searchRows: (search: string, before: string | null, limit: number) =>
+    request<TransactionPage>('GET', searchPath(search, before, limit, true)),
   /** How many transactions the export file holds, over which days; `range` for some dates */
   getExportSummary: (range: ExportRange | null = null) =>
     request<ExportSummary>('GET', `/api/export/summary${rangeQuery(range)}`),
@@ -174,18 +248,22 @@ export const api = {
    * The export file: every transaction, or those of `range`, as CSV. A download cut off
    * part way fails here rather than giving part of the file.
    */
-  getExport: async (range: ExportRange | null = null) => {
-    const res = await send('GET', `/api/export${rangeQuery(range)}`);
-    // Answered by something other than the API (a proxy, say): not the file
-    if (!res.headers.get('Content-Type')?.startsWith('text/csv')) {
-      throw new ApiError(502, "GET /api/export didn't answer with the file");
-    }
-    try {
-      return await res.blob();
-    } catch (err) {
-      throw new NetworkError(`GET /api/export was cut off (${String(err)})`);
-    }
-  },
+  getExport: (range: ExportRange | null = null) =>
+    send(
+      async (res) => {
+        // Answered by something other than the API (a proxy, say): not the file
+        if (!res.headers.get('Content-Type')?.startsWith('text/csv')) {
+          throw new ApiError(502, "GET /api/export didn't answer with the file");
+        }
+        try {
+          return await res.blob();
+        } catch (err) {
+          throw new NetworkError(`GET /api/export was cut off (${String(err)})`);
+        }
+      },
+      'GET',
+      `/api/export${rangeQuery(range)}`,
+    ),
   /**
    * What was spent and received in a month (2026-11), in total and by category, and which
    * of the `pending` change ids (at most MAX_CHANGES) it counts already
@@ -239,6 +317,11 @@ export const api = {
   subscribePush: (subscription: PushSubscriptionBody) =>
     request<Ok>('PUT', '/api/push/subscription', subscription),
   /** No more reminders to this device, as signing out does */
-  unsubscribePush: (endpoint: string) =>
-    request<Ok>('DELETE', '/api/push/subscription', { endpoint }),
+  unsubscribePush: (endpoint: string, email?: string | null) =>
+    request<Ok>(
+      'DELETE',
+      '/api/push/subscription',
+      { endpoint },
+      email ? { headers: { [EXPECTED_ACCOUNT_HEADER]: email } } : undefined,
+    ),
 };

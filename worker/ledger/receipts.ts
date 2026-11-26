@@ -2,11 +2,6 @@
 // change: a change sent again (its answer lost on the way back) counts once, and the
 // same id sent with a different change is refused.
 
-/** A receipt is kept this long: well past how long a change waits on a device */
-export const RECEIPT_DAYS = 90;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /** A change as sent, as SHA-256 hex */
 export async function changeFingerprint(change: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(change));
@@ -43,25 +38,19 @@ export const savedIdsStatement = (db: D1Database, email: string, ids: string[]) 
     )
     .bind(email, JSON.stringify(ids));
 
-/** Receipts for the changes saved now, and this person's ones older than RECEIPT_DAYS let go */
+/** Devices can retry after any length of time offline, so a saved change keeps its receipt. */
 export function receiptStatements(
   db: D1Database,
   email: string,
   receipts: { id: string; fingerprint: string }[],
   now = Date.now(),
 ): D1PreparedStatement[] {
-  if (receipts.length === 0) return [];
-  return [
-    ...receipts.map((r) =>
-      db
-        .prepare(
-          `INSERT INTO change_receipts (email, change_id, fingerprint, saved_at)
-           VALUES (?, ?, ?, ?)`,
-        )
-        .bind(email, r.id, r.fingerprint, now),
-    ),
+  return receipts.map((r) =>
     db
-      .prepare('DELETE FROM change_receipts WHERE email = ? AND saved_at < ?')
-      .bind(email, now - RECEIPT_DAYS * DAY_MS),
-  ];
+      .prepare(
+        `INSERT INTO change_receipts (email, change_id, fingerprint, saved_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .bind(email, r.id, r.fingerprint, now),
+  );
 }

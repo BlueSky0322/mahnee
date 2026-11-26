@@ -17,12 +17,15 @@ import type { SearchQuery } from '@shared/search';
 import { matchesSearch, readSearch, searchParams } from '@shared/search';
 import { api } from '../api';
 import {
+  cacheUser,
   listCacheIds,
   onCacheCleared,
   onCacheUserKnown,
   readCache,
+  readCacheAs,
   readCacheEntry,
   removeCacheEntry,
+  updateCacheAs,
   whenCacheUserKnown,
   writeCache,
 } from '../offline/cache';
@@ -158,16 +161,53 @@ const trendCacheKey = (month: string) => `${TREND_CACHE}${month}`;
  * summed in, so a copy kept before the home currency changed (here or elsewhere) is never
  * drawn as the new one's. A copy from before this was kept says none.
  */
-type KeptTotals<T> = T & { keptIn?: string };
+type Totals = MonthSummary | MonthTrend;
+type KeptTotals<T> = T & {
+  keptIn?: string;
+  saveRevision?: string;
+  serverCopy?: boolean;
+  readOrder?: number;
+};
 
-/** Keeps totals on the device with the currency they're in, when it's known */
-function keepTotals<T extends object>(key: string, totals: T, currency = homeCurrency()) {
-  if (currency == null) return;
-  void writeCache(key, { ...totals, keptIn: currency });
+let totalsGeneration = 0;
+let forgettingTotals: number | null = null;
+
+// Orders reads across the device's tabs. A newer unanswered request leaves the saved copy alone.
+function reserveTotalsRead(email: string): Promise<number | undefined> {
+  let order: number | undefined;
+  return updateCacheAs<number>(email, 'totals-read-order', (previous) => {
+    order = (previous ?? 0) + 1;
+    return order;
+  }).then((written) => (written ? order : undefined));
+}
+
+/** Keeps the updated totals and marks them for other tabs with older reads still in flight. */
+function keepSavedTotals<T extends Totals>(key: string, totals: T, ids: string[]) {
+  const email = cacheUser();
+  const keptIn = homeCurrency();
+  if (email == null || keptIn == null || forgettingTotals != null) return;
+  const generation = totalsGeneration;
+  const saveRevision = ids.at(-1);
+  void updateCacheAs<KeptTotals<T>>(email, key, (previous) => {
+    if (generation !== totalsGeneration || forgettingTotals != null || homeCurrency() !== keptIn) {
+      return undefined;
+    }
+    const counted = new Set(previous?.alreadySaved);
+    if (previous?.serverCopy && previous.keptIn === keptIn && ids.every((id) => counted.has(id))) {
+      return { ...previous, saveRevision };
+    }
+    return { ...totals, keptIn, saveRevision, readOrder: previous?.readOrder };
+  });
 }
 
 /** Totals as kept, without what they were kept with */
-const keptValue = <T extends object>({ keptIn: _in, ...totals }: KeptTotals<T>) => totals as T;
+const keptValue = <T extends object>({
+  keptIn: _in,
+  saveRevision: _revision,
+  serverCopy: _server,
+  readOrder: _order,
+  ...totals
+}: KeptTotals<T>) => totals as T;
 
 /**
  * Whether totals kept in `keptIn` are in the currency amounts are in now; `strict` asks it
@@ -261,7 +301,7 @@ function shownTransaction(id: string): Transaction | undefined {
  * copy that already has them). The last few are enough; a list fetched over longer is
  * fetched again once nothing is left to send.
  */
-let savedLog: { n: number; changes: LedgerChange[] }[] = [];
+let savedLog: { n: number; changes: LedgerChange[]; ids: string[] }[] = [];
 const SAVED_LOG_LENGTH = 50;
 
 /** `changes` but for those whose ids (`ids`, in step) a copy holds already */
@@ -343,14 +383,14 @@ const queue = createSaveQueue({
       const next = applyToSummary(summary, counted, savedTransaction);
       queryClient.setQueryData(key, next);
       // And the copy kept on the device, so the next start's totals aren't short of it
-      keepTotals(summaryCacheKey(key[1] as string), next);
+      keepSavedTotals(summaryCacheKey(key[1] as string), next, ids);
     }
     for (const [key, trend] of queryClient.getQueriesData<MonthTrend>({ queryKey: TREND_KEY })) {
       if (trend == null) continue;
       const counted = notHeld(changes, ids, new Set(trend.alreadySaved));
       const next = applyToTrend(trend, counted, savedTransaction);
       queryClient.setQueryData(key, next);
-      keepTotals(trendCacheKey(key[1] as string), next);
+      keepSavedTotals(trendCacheKey(key[1] as string), next, ids);
     }
     // Saved, so part of every list as the server has it
     for (const [key, data] of listsInCache()) {
@@ -367,7 +407,7 @@ const queue = createSaveQueue({
         (old) => old && applyToImports(old, changes),
       );
     }
-    savedLog = [...savedLog, { n: savedCount, changes }].slice(-SAVED_LOG_LENGTH);
+    savedLog = [...savedLog, { n: savedCount, changes, ids }].slice(-SAVED_LOG_LENGTH);
     // And to the history kept on the device for offline
     recordSaved(changes);
     // Last, so the totals and lists above took each one as it was before
@@ -406,6 +446,8 @@ onCacheUserKnown((email) => void queue.pickUp(email));
 // (what's kept on the device stays its owner's). What the server last sent stays, since
 // the server only ever sends the signed-in person's own.
 onCacheCleared(() => {
+  totalsGeneration++;
+  forgettingTotals = null;
   queue.forget();
   recentlySaved.clear();
   ledgerFetched = false;
@@ -506,13 +548,26 @@ function refreshKeptSummaries() {
  * copies are gone.
  */
 export async function forgetMonthTotals(): Promise<void> {
-  for (const prefix of [SUMMARY_CACHE, TREND_CACHE]) {
-    for (const id of await listCacheIds(prefix)) {
-      if ((await readCacheEntry(`${prefix}${id}`)) != null) {
-        await removeCacheEntry(`${prefix}${id}`);
+  const generation = ++totalsGeneration;
+  const email = cacheUser();
+  const current = () => generation === totalsGeneration && email === cacheUser();
+  forgettingTotals = generation;
+  void queryClient.cancelQueries({ queryKey: SUMMARY_KEY });
+  void queryClient.cancelQueries({ queryKey: TREND_KEY });
+  try {
+    if (email != null) {
+      for (const prefix of [SUMMARY_CACHE, TREND_CACHE]) {
+        for (const id of await listCacheIds(prefix)) {
+          if (!current()) return;
+          const key = `${prefix}${id}`;
+          if ((await readCacheAs(email, key)) != null && current()) await removeCacheEntry(key);
+        }
       }
     }
+  } finally {
+    if (forgettingTotals === generation) forgettingTotals = null;
   }
+  if (!current()) return;
   for (const what of [...fromDevice.keys()]) {
     if (what.startsWith('summary:')) shownFresh(what);
   }
@@ -813,30 +868,148 @@ export function shownPages(
 }
 
 /**
- * A month's totals from the server; offline, the copy kept on this device. One fetched
- * while a batch was saved may be from before it, and summing it in again could count it
- * twice, so what's shown stays until the totals fetched once nothing is left to send.
+ * Fetches totals without letting an older answer undo an acknowledged save on the
+ * screen or the device. The disk revision also protects an acknowledgment in another tab.
  */
-export async function fetchSummary(month: string): Promise<MonthSummary> {
-  // The server is asked which of what's waiting on the device it counts already
-  const named = await idsToName();
-  const savedBefore = savedCount;
-  let summary: MonthSummary;
-  try {
-    summary = await api.getSummary(month, named);
-  } catch (err) {
-    if (!isOfflineFailure(err)) throw err;
-    if (homeCurrency() == null) await profileShown();
-    const kept = await readCacheEntry<KeptTotals<MonthSummary>>(summaryCacheKey(month));
-    if (kept == null || !inCurrencyNow(kept.value.keptIn, false)) throw err;
-    shownFromDevice(`summary:${month}`, kept.at);
-    return keptValue(kept.value);
+async function fetchTotals<T extends Totals>(
+  key: readonly [string, string],
+  diskKey: string,
+  load: (named: string[]) => Promise<T>,
+  age: (keptAt?: number | null) => void,
+  signal?: AbortSignal,
+): Promise<T> {
+  for (let named = await idsToName(); ; named = await idsToName()) {
+    signal?.throwIfAborted();
+    const generation = totalsGeneration;
+    const email = cacheUser();
+    const requestedCurrency = homeCurrency();
+    const sameOwner = () => generation === totalsGeneration && email === cacheUser();
+    const checkOwner = () => {
+      if (!sameOwner()) throw new DOMException('Totals changed while loading', 'AbortError');
+    };
+    const savedBefore = savedCount;
+    const disk =
+      email == null
+        ? undefined
+        : Promise.all([readCacheAs<KeptTotals<T>>(email, diskKey), reserveTotalsRead(email)]).catch(
+            () => null,
+          );
+    let totals: T;
+    try {
+      // Start the device read first. Storage never holds up showing the network answer.
+      totals = await Promise.resolve().then(() => load(named));
+    } catch (err) {
+      signal?.throwIfAborted();
+      if (!isOfflineFailure(err)) throw err;
+      if (homeCurrency() == null) await profileShown();
+      if (email != null) checkOwner();
+      const offlineEmail = cacheUser();
+      const offlineGeneration = totalsGeneration;
+      if (offlineEmail == null || forgettingTotals != null) throw err;
+      const kept = await readCacheEntry<KeptTotals<T>>(diskKey);
+      signal?.throwIfAborted();
+      if (offlineEmail !== cacheUser() || offlineGeneration !== totalsGeneration) throw err;
+      if (kept == null || !inCurrencyNow(kept.value.keptIn, false)) throw err;
+      age(kept.at);
+      return keptValue(kept.value);
+    }
+    if (email == null) {
+      // A slow profile can finish after idsToName has timed out. Read again for the known owner.
+      await profileShown();
+      signal?.throwIfAborted();
+      if (cacheUser() == null) throw new Error('The owner of the totals is still unknown');
+      continue;
+    }
+    checkOwner();
+    const keptIn = homeCurrency();
+    if (requestedCurrency != null && requestedCurrency !== keptIn) {
+      signal?.throwIfAborted();
+      continue;
+    }
+    let countedSave: string | undefined;
+    if (savedBefore !== savedCount) {
+      const crossed = savedLog.filter((save) => save.n > savedBefore);
+      const counted = new Set(totals.alreadySaved);
+      // Receipt-bearing reads can carry the settled amount instead of our FX estimate.
+      if (
+        crossed.length === savedCount - savedBefore &&
+        crossed.every((save) => save.ids.every((id) => counted.has(id)))
+      ) {
+        countedSave = crossed.at(-1)?.ids.at(-1);
+      }
+      if (countedSave == null) {
+        signal?.throwIfAborted();
+        const shown = queryClient.getQueryData<T>(key);
+        if (shown != null) return shown;
+        // A first read crossed a save: ask again for a base that can safely be shown.
+        continue;
+      }
+    }
+    if (countedSave == null) signal?.throwIfAborted();
+    if (disk != null && keptIn != null && forgettingTotals == null) {
+      const query = queryClient.getQueryCache().find<T>({ queryKey: key });
+      const updates = query?.state.dataUpdateCount;
+      const currentContext = () =>
+        sameOwner() && forgettingTotals == null && homeCurrency() === keptIn;
+      void disk.then(async (read) => {
+        if (read == null) return;
+        const [before, readOrder] = read;
+        if (readOrder == null) return;
+        const found: { newer?: { value: KeptTotals<T>; at: number | null } } = {};
+        await updateCacheAs<KeptTotals<T>>(email, diskKey, (previous, at) => {
+          if (!currentContext()) return undefined;
+          const saveRevision = previous?.saveRevision;
+          const currentRead = !signal?.aborted && before?.saveRevision === saveRevision;
+          // A canceled read may still settle a projected amount, until a server copy replaces it.
+          const settlesSave =
+            countedSave != null && countedSave === saveRevision && !previous?.serverCopy;
+          if ((currentRead || settlesSave) && (previous?.readOrder ?? 0) <= readOrder) {
+            return { ...totals, keptIn, saveRevision, serverCopy: true, readOrder };
+          }
+          if (
+            previous?.keptIn === keptIn &&
+            saveRevision != null &&
+            saveRevision !== before?.saveRevision
+          ) {
+            found.newer = { value: previous, at };
+          }
+          return undefined;
+        });
+        // Update just the active query that showed this answer, without racing its next fetch.
+        if (
+          found.newer != null &&
+          query != null &&
+          updates != null &&
+          query === queryClient.getQueryCache().find({ queryKey: key }) &&
+          query.getObserversCount() > 0 &&
+          query.state.dataUpdateCount === updates + 1 &&
+          signal != null &&
+          !signal.aborted &&
+          currentContext()
+        ) {
+          queryClient.setQueryData(key, keptValue(found.newer.value), { updatedAt: 0 });
+          age(found.newer.at);
+        }
+      });
+    }
+    if (!signal?.aborted) age();
+    return totals;
   }
-  keepTotals(summaryCacheKey(month), summary);
-  const shown = queryClient.getQueryData<MonthSummary>(summaryKey(month));
-  if (savedCount !== savedBefore && shown != null) return shown;
-  shownFresh(`summary:${month}`);
-  return summary;
+}
+
+/** A month's totals from the server, or the copy on this device when offline. */
+export function fetchSummary(month: string, signal?: AbortSignal): Promise<MonthSummary> {
+  const age = (keptAt?: number | null) =>
+    keptAt === undefined
+      ? shownFresh(`summary:${month}`)
+      : shownFromDevice(`summary:${month}`, keptAt);
+  return fetchTotals(
+    summaryKey(month),
+    summaryCacheKey(month),
+    (named) => api.getSummary(month, named),
+    age,
+    signal,
+  );
 }
 
 /**
@@ -849,30 +1022,19 @@ export function shownSummary(summary: MonthSummary, pending: Queued[]) {
   return applyToSummary(summary, waiting, savedTransaction);
 }
 
-/**
- * The 12 months' totals ending at `month` from the server; offline, the copy kept on this
- * device. Like a month's totals, one fetched while a batch was saved leaves what's shown
- * until the totals fetched once nothing is left to send.
- */
-export async function fetchTrend(month: string): Promise<MonthTrend> {
-  const named = await idsToName();
-  const savedBefore = savedCount;
-  let trend: MonthTrend;
-  try {
-    trend = await api.getTrend(month, named);
-  } catch (err) {
-    if (!isOfflineFailure(err)) throw err;
-    if (homeCurrency() == null) await profileShown();
-    const kept = await readCache<KeptTotals<MonthTrend>>(trendCacheKey(month));
-    if (kept == null || !inCurrencyNow(kept.keptIn, false)) throw err;
-    trendsFromDevice.add(month);
-    return keptValue(kept);
-  }
-  keepTotals(trendCacheKey(month), trend);
-  const shown = queryClient.getQueryData<MonthTrend>(trendKey(month));
-  if (savedCount !== savedBefore && shown != null) return shown;
-  trendsFromDevice.delete(month);
-  return trend;
+/** The 12 months ending at `month`, from the server or this device. */
+export function fetchTrend(month: string, signal?: AbortSignal): Promise<MonthTrend> {
+  const age = (keptAt?: number | null) => {
+    if (keptAt === undefined) trendsFromDevice.delete(month);
+    else trendsFromDevice.add(month);
+  };
+  return fetchTotals(
+    trendKey(month),
+    trendCacheKey(month),
+    (named) => api.getTrend(month, named),
+    age,
+    signal,
+  );
 }
 
 /**
@@ -892,11 +1054,14 @@ export function shownTrend(trend: MonthTrend, pending: Queued[]) {
  */
 export function showKeptSummary(month: string) {
   const key = summaryKey(month);
+  const generation = totalsGeneration;
+  if (forgettingTotals != null) return;
   if (queryClient.getQueryData(key) !== undefined) return;
   // Read once the profile says what currency amounts are in
   void (homeCurrency() == null ? profileShown() : Promise.resolve())
     .then(() => readCacheEntry<KeptTotals<MonthSummary>>(summaryCacheKey(month)))
     .then((kept) => {
+      if (generation !== totalsGeneration || forgettingTotals != null) return;
       if (kept == null || queryClient.getQueryData(key) !== undefined) return;
       if (queryClient.getQueryState(key)?.dataUpdatedAt) return;
       // Only in the currency amounts are in now, as the profile says
@@ -909,11 +1074,14 @@ export function showKeptSummary(month: string) {
 /** The same for the 12 months' totals ending at `month` */
 export function showKeptTrend(month: string) {
   const key = trendKey(month);
+  const generation = totalsGeneration;
+  if (forgettingTotals != null) return;
   if (queryClient.getQueryData(key) !== undefined) return;
   // Read once the profile says what currency amounts are in
   void (homeCurrency() == null ? profileShown() : Promise.resolve())
     .then(() => readCacheEntry<KeptTotals<MonthTrend>>(trendCacheKey(month)))
     .then((kept) => {
+      if (generation !== totalsGeneration || forgettingTotals != null) return;
       if (kept == null || queryClient.getQueryData(key) !== undefined) return;
       if (queryClient.getQueryState(key)?.dataUpdatedAt) return;
       if (!inCurrencyNow(kept.value.keptIn, true)) return;

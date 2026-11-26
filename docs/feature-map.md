@@ -96,12 +96,12 @@ the profile, keeps a device copy, and owns every change through
 `useProfile().change(show, save)` (the picture through `changePicture`, which shows a
 chosen photo from the device until the server has kept it), which shows the change at once and undoes it if
 `save` fails (the caller says what went wrong). `rememberSettings` does the same for a
-preference and explains a failure itself. The name and preferences (`update`, so
-`rememberSettings` too) are kept on the device first, for the account they're made as
-([profile/unsent.ts](../web/src/profile/unsent.ts), `profile-outbox:<email>`, one merged
-patch): without a connection, or signed out, they stay shown and wait, through the app
-being closed, and are sent on the `online` event or once `/api/me` answers; any other
-failure undoes them as before. The picture and the home currency still need a connection.
+preference and explains a failure itself. The name and preferences (`update`, including `rememberSettings`) can wait on this
+device in one patch per account ([profile/unsent.ts](../web/src/profile/unsent.ts),
+`profile-outbox:<email>`). Offline edits join that patch before the app reports success.
+Online edits send directly when nothing is waiting. The open app sends pending changes
+on the `online` event or once `/api/me` answers. A failed device write leaves earlier
+edits intact and reports which save failed. The picture and the home currency still need a connection.
 
 **Parts.**
 
@@ -190,10 +190,11 @@ failure undoes them as before. The picture and the home currency still need a co
   opened offline. A field changed again while one was on its way stays to send. A waiting
   patch is kept for its own account when someone else signs in here (`UNSENT_PREFIXES`)
   and dropped on signing out, which asks first, naming the settings ("Your change to Start
-  with hasn't been saved yet. Signing out removes it from this device."). Each change to it
-  reads and writes it under a lock per person (`mahnee-profile-outbox:<email>`), so quick
-  changes never lose one another; a save on its way when the connection drops is kept
-  under any change made since, never over it. A waiting patch the server refuses is sent again a field
+  with hasn't been saved yet. Signing out removes it from this device."). Each edit merges with the account’s pending fields in one IndexedDB transaction across
+  tabs. A failed read leaves the existing patch intact. A reply clears only the revisions
+  it acknowledged. Edits during reconnect join the pending patch, and the sender checks
+  again before stopping. Tabs with Web Locks take turns sending for the same account.
+  A save on its way when the connection drops is kept under later edits. A waiting patch the server refuses is sent again a field
   at a time, so only the field it won't take is let go (and said). Sending it twice changes
   nothing, so it carries no ids. The service worker doesn't send it: the app does when next
   open.
@@ -432,7 +433,9 @@ same way, so it never holds changes back. A 408 is tried again too, and after
 connection, not a refusal); a 413 with the server's reason is one change over the size it takes, refused. The server refuses a batch whole
 (any other 4xx, with its reason), so a
 refused batch of several groups is halved, and halved again, until the group it refuses
-is found. That group, every later change naming something it adds (an entry on an
+is found. The page and the service worker also narrow a batch when its dated exchange
+rates take more lookups than one request allows. Independent saves go through in order.
+If one group alone exceeds that limit, Review keeps the group and explains why. That group, every later change naming something it adds (an entry on an
 account it creates, an import's entries), and every later change to the same thing (the
 same entry, account, category, scheduled item or import, or a budget for the same
 category, so a newer edit never overtakes it when it's tried again) are marked refused in the outbox with the
@@ -856,8 +859,9 @@ amounts are in now (changed on another device) is never drawn; one from before `
 drawn only offline. They're kept
 as the server summed them, with each saved batch counted in (before the lists take it,
 so an edited transaction is taken out as it was), and the changes still to send counted
-on top as they're shown (`shownSummary`). Once nothing is left to send they're fetched
-again. [ledger/summary.ts](../web/src/ledger/summary.ts) (`applyToSummary`) does the
+on top as they're shown (`shownSummary`). A read overtaken by an acknowledged save
+leaves the newer totals on the device, including for a restart offline. Once nothing
+is left to send they're fetched again. [ledger/summary.ts](../web/src/ledger/summary.ts) (`applyToSummary`) does the
 counting the way the server sums; [ledger/derive.ts](../web/src/ledger/derive.ts)
 (`rollUp`) puts subcategories inside their top-level category for showing. Screens read
 through `useMonthSummary(month)` in [ledger/useLedger.ts](../web/src/ledger/useLedger.ts).
@@ -2133,7 +2137,8 @@ deleted entries back as they were typed. Travel sense is
   "Conversion pending: converted at the rate of Nov 12 once online", and until saved the
   entry shows "−THB 120.00" with "conversion pending" (its `original.pending`, the device's
   alone) and counts as 0 in every total. The server converts it on saving at the entry's
-  own day's rate, as any typed entry. A repeating one still needs a rate, and so does any
+  own day's rate, including when an earlier change in that request created the entry or
+  moved it to a different day. A repeating one still needs a rate, and so does any
   entry online: a rate that can't be had with a connection still reads "Needs a rate for
   JPY". Edited offline (amount, day), it stays pending on its new day (`sendEdit`); deleted,
   Undo puts it back pending. Activity and an account's page say "Leaves out 1 entry waiting

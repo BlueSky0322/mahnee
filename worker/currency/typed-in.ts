@@ -49,8 +49,8 @@ export async function typedIn(
     fetchRate: FetchRate;
     /** The person's today, for amounts that aren't an entry's */
     today: string;
-    /** A saved entry's day, for one changed without saying it */
-    dayOf: (id: string) => Promise<string | null>;
+    /** The entry's day after earlier changes in this batch */
+    dayOf: (id: string) => string | undefined;
   },
 ): Promise<{ change: unknown; typed: Typed[] }> {
   if (!isObject(change)) return { change, typed: [] };
@@ -118,7 +118,7 @@ export async function typedIn(
     }
     case 'updateTransaction': {
       if (!isCents(change.amountCents)) break;
-      const day = typeof change.date === 'string' ? change.date : await dayOf(id(change.id));
+      const day = typeof change.date === 'string' ? change.date : dayOf(id(change.id));
       return {
         change: await convert(
           change,

@@ -452,6 +452,11 @@ const answers: [string, Answer, 'sent' | 'retry' | 'refused'][] = [
   ['413, a page from in between', { status: 413, body: '<html>Too large</html>' }, 'retry'],
   // The server's own: one change over the size it takes, held with why
   ['413', { status: 413, body: '{"error":"Too large"}' }, 'refused'],
+  [
+    '422, the rate lookup limit for one request',
+    { status: 422, body: '{"error":"Save in smaller groups.","code":"rate_lookup_limit"}' },
+    'refused',
+  ],
   ['425', { status: 425, body: '{"error":"Too early"}' }, 'retry'],
   ['400', { status: 400, body: '{"error":"Invalid change"}' }, 'refused'],
   ['403', { status: 403, body: '{"error":"Not allowed"}' }, 'refused'],

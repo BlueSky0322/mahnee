@@ -77,7 +77,7 @@ import { changeFingerprint, receiptStatements, savedReceipts } from './receipts'
 import { DEFAULT_SETTINGS } from '../../shared/api';
 import { convertSignedCents, isEntryCurrency } from '../../shared/rates';
 import type { Rate } from '../currency/exchange-rates';
-import { NoRate, RatesUnavailable } from '../currency/exchange-rates';
+import { LookupsSpent, NoRate, RatesUnavailable } from '../currency/exchange-rates';
 import { type Typed, TypedTooLarge, typedIn, typedStatements } from '../currency/typed-in';
 
 /** A change that can't be saved, with the status and reason the API answers with */
@@ -123,6 +123,7 @@ interface TransactionState {
   accountId: string;
   toAccountId: string | null;
   categoryId: string | null;
+  date: string;
 }
 
 /** What a check needs to know of a saved repeating item */
@@ -681,7 +682,10 @@ function changeStatements(
       if ('amountCents' in change) set('amount_cents', readAmount(change.amountCents));
       if ('payee' in change) set('payee', readText(change.payee, MAX_PAYEE, 'payee'));
       if ('note' in change) set('note', readText(change.note, MAX_NOTE, 'note'));
-      if ('date' in change) set('date', readDay(change.date, now));
+      if ('date' in change) {
+        saved.date = readDay(change.date, now);
+        set('date', saved.date);
+      }
       if ('time' in change) set('time', readTime(change.time));
       // Confirmed, or given what the bill came to: nothing left to check
       if ('toCheck' in change || 'amountCents' in change) set('to_check', 0);
@@ -1110,7 +1114,7 @@ function addTransaction(
   const note = readText(t.note, MAX_NOTE, 'note');
   const date = readDay(t.date, now);
   const time = 'time' in t ? readTime(t.time) : null;
-  const saved = { kind, accountId, toAccountId, categoryId };
+  const saved = { kind, accountId, toAccountId, categoryId, date };
   for (const side of sidesOf(saved)) countOn(model, side, 1);
   model.transactions.set(t.id, saved);
   // ?1 the person, ?2 the account it's from, ?3 the one it goes to
@@ -1502,7 +1506,7 @@ export async function applyChanges(
       : db
           .prepare(
             `SELECT id, kind, account_id AS accountId, to_account_id AS toAccountId,
-                    category_id AS categoryId
+                    category_id AS categoryId, date
              FROM transactions
              WHERE email = ? AND id IN (SELECT value FROM json_each(?))`,
           )
@@ -1599,14 +1603,17 @@ export async function applyChanges(
         ({ change, typed } = await typedIn(change, typedCurrency, home.currency, {
           fetchRate,
           today: model.today,
-          dayOf: (id) =>
-            db
-              .prepare('SELECT date FROM transactions WHERE email = ? AND id = ?')
-              .bind(email, id)
-              .first<string>('date'),
+          dayOf: (id) => model.transactions.get(id)?.date,
         }));
       } catch (err) {
         // No service has a rate for it: refused, to review. One that's down: tried again.
+        if (err instanceof LookupsSpent) {
+          return fail(
+            'Too many exchange rates for one save. Save these entries in smaller groups.',
+            422,
+            'rate_lookup_limit',
+          );
+        }
         if (err instanceof NoRate) return fail(err.message, 400);
         if (err instanceof RatesUnavailable) return fail(err.message, 503);
         if (err instanceof TypedTooLarge) return fail(err.message, 400);

@@ -1,11 +1,10 @@
 import { Button } from '@mantine/core';
 import { useMoney } from '../../hooks/useMoney';
-import { BackIcon, ForwardIcon, PlanIcon, PlusIcon } from '../ui/icons';
+import { PlanIcon, PlusIcon } from '../ui/icons';
 import type { CSSProperties, ReactNode } from 'react';
 import { useId, useState } from 'react';
 import type { Category, Ledger, MonthSummary } from '@shared/api';
 import { categoriesOrDefaults } from '@shared/categories';
-import { FIRST_DAY } from '@shared/ledger';
 import { useIsDesktop } from '../../hooks/useBreakpoints';
 import { isAll, navigate } from '../../hooks/useRoute';
 import type { BudgetLine } from '../../ledger/budgets';
@@ -17,13 +16,14 @@ import ScheduleSheet, { type Opened } from './ScheduleSheet';
 import ScheduledView from './ScheduledView';
 import { useMonthSummary, useWholeLedger } from '../../ledger/useLedger';
 import { categoryColour } from '../../utils/category-colour';
-import { addMonths, monthHeading, monthLabel } from '../../utils/date-input';
+import { monthHeading, monthLabel } from '../../utils/date-input';
 import PageLink from '../home/PageLink';
 import { incomeLine } from '../home/home-text';
 import { recurringName } from '../home/recurring-text';
 import Skeleton, { Loading } from '../ui/Skeleton';
+import MonthNavigation from '../ui/MonthNavigation';
 import BudgetBar from './BudgetBar';
-import CategoryView from './CategoryView';
+import CategoryView, { PlanReadError } from './CategoryView';
 import classes from './Plan.module.css';
 import TotalView from './TotalView';
 import { planAddress } from './plan-address';
@@ -31,9 +31,6 @@ import { type PlanMonth, planMonth } from './plan-month';
 import { useMonths } from '../../ledger/month-start';
 import { budgetWords, deskSubtitle, phoneSubtitle, shareLabel } from './plan-text';
 import ConversionPending from '../common/ConversionPending';
-
-/** The earliest month a transaction can be in */
-const FIRST_MONTH = FIRST_DAY.slice(0, 7);
 
 // Plan (?plan): the month's budgets with a marker for how much of it has gone, where the spending
 // went with each category's share, and what came in by category. On a phone each category opens a
@@ -154,31 +151,18 @@ function Header({
       }),
     );
   const arrows = half === 'budgets' && (
-    <div className={classes.monthNav}>
-      <button
-        type="button"
-        className={classes.iconButton}
-        aria-label="Previous month"
-        disabled={shown.month <= FIRST_MONTH}
-        onClick={() => step(addMonths(shown.month, -1))}
-      >
-        <BackIcon size={20} />
-      </button>
+    <MonthNavigation
+      month={shown.month}
+      nextDisabled={shown.isCurrent}
+      onStep={step}
+      isDesktop={isDesktop}
+    >
       <span className={classes.monthName}>
         {isDesktop
           ? `${monthHeading(shown.month)}${shown.isCurrent ? ` · day ${shown.at.day} of ${shown.at.days}` : ''}`
           : monthLabel(shown.month)}
       </span>
-      <button
-        type="button"
-        className={classes.iconButton}
-        aria-label="Next month"
-        disabled={shown.isCurrent}
-        onClick={() => step(addMonths(shown.month, 1))}
-      >
-        <ForwardIcon size={20} />
-      </button>
-    </div>
+    </MonthNavigation>
   );
   const halves = (
     <nav
@@ -266,15 +250,10 @@ function Budgets({
   if (summary == null || ledger == null) {
     if (failed) {
       return (
-        <div className={`${classes.card} ${classes.failed}`}>
-          <p className={classes.soft}>Couldn&apos;t load this month.</p>
-          <Button
-            variant="default"
-            onClick={retry}
-          >
-            Try again
-          </Button>
-        </div>
+        <PlanReadError
+          retry={retry}
+          card
+        />
       );
     }
     return (
@@ -509,7 +488,7 @@ function PhoneBudgets({ data, shown }: { data: Month; shown: PlanMonth }) {
 
 /** Where the month's spending went: its total, a share bar and a row for each category */
 function WhereItWent({ data, shown }: { data: Month; shown: PlanMonth }) {
-  const { money, amount, currency } = useMoney();
+  const { money } = useMoney();
   const titleId = useId();
   const total = data.summary.spentCents;
   const name = monthHeading(shown.month, { short: true });
@@ -556,44 +535,12 @@ function WhereItWent({ data, shown }: { data: Month; shown: PlanMonth }) {
         )}
       </div>
       {total > 0 && (
-        <ul className={classes.rows}>
-          {data.rows.map((row) => {
-            const known = data.categories.some((c) => c.id === row.id && c.parentId == null);
-            const content = (
-              <>
-                <span
-                  className={classes.dot}
-                  style={{ '--dot': categoryColour(data.categories, row.id) } as CSSProperties}
-                  aria-hidden
-                />
-                <span className={classes.rowMain}>
-                  <span className={classes.rowTitle}>{row.name}</span>
-                  <span className={classes.rowSub}>{phoneSubtitle(row, total, currency)}</span>
-                </span>
-                <span className={`${classes.num} ${classes.rowAmount}`}>{amount(row.cents)}</span>
-              </>
-            );
-            return (
-              <li key={row.id}>
-                {known ? (
-                  <PageLink
-                    href={planAddress({
-                      month: shown.isCurrent ? null : shown.month,
-                      category: row.id,
-                    })}
-                    // A page of its own under Plan: Back returns
-                    push
-                    className={classes.row}
-                  >
-                    {content}
-                  </PageLink>
-                ) : (
-                  <div className={classes.row}>{content}</div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        <BreakdownRows
+          rows={data.rows}
+          categories={data.categories}
+          total={total}
+          month={shown.isCurrent ? null : shown.month}
+        />
       )}
     </section>
   );
@@ -618,7 +565,7 @@ function Income({
   /** Nothing this month at all: drawn a little closer */
   quiet?: boolean;
 }) {
-  const { money, amount, currency } = useMoney();
+  const { money } = useMoney();
   const titleId = useId();
   const rows = rollUpEntries(data.summary.incomeByCategory, data.categories);
   const pay = nextPay(data.ledger);
@@ -658,51 +605,76 @@ function Income({
       <span className={`${classes.num} ${classes.headFigure}`}>{money(received)}</span>
       {!isDesktop && line != null && <p className={classes.soft}>{line}</p>}
       {rows.length > 0 && (
-        <ul
-          aria-label="Income by category"
-          className={`${classes.rows} ${classes.incomeRows}`}
-        >
-          {rows.map((row) => {
-            const known = data.categories.some((c) => c.id === row.id && c.parentId == null);
-            const content = (
-              <>
-                <span
-                  className={classes.dot}
-                  style={{ '--dot': categoryColour(data.categories, row.id) } as CSSProperties}
-                  aria-hidden
-                />
-                <span className={classes.rowMain}>
-                  <span className={classes.rowTitle}>{row.name}</span>
-                  <span className={classes.rowSub}>{phoneSubtitle(row, received, currency)}</span>
-                </span>
-                <span className={`${classes.num} ${classes.rowAmount}`}>{amount(row.cents)}</span>
-              </>
-            );
-            return (
-              <li key={row.id}>
-                {known ? (
-                  <PageLink
-                    href={planAddress({
-                      month: shown.isCurrent ? null : shown.month,
-                      category: row.id,
-                    })}
-                    // A page of its own on a phone, so Back returns; beside the table on a
-                    // computer, in this page's place
-                    push={!isDesktop}
-                    aria-current={isDesktop && row.id === open ? 'true' : undefined}
-                    className={classes.row}
-                  >
-                    {content}
-                  </PageLink>
-                ) : (
-                  <div className={classes.row}>{content}</div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        <BreakdownRows
+          rows={rows}
+          categories={data.categories}
+          total={received}
+          month={shown.isCurrent ? null : shown.month}
+          open={isDesktop ? open : undefined}
+          income
+        />
       )}
     </section>
+  );
+}
+
+/** Category rows for spending and income. A desktop pane replaces the current address. */
+function BreakdownRows({
+  rows,
+  categories,
+  total,
+  month,
+  open,
+  income = false,
+}: {
+  rows: CategorySpending[];
+  categories: Category[];
+  total: number;
+  month: string | null;
+  /** undefined opens a separate page. null keeps a pane available with no selection. */
+  open?: string | null;
+  income?: boolean;
+}) {
+  const { amount, currency } = useMoney();
+  return (
+    <ul
+      aria-label={income ? 'Income by category' : undefined}
+      className={income ? `${classes.rows} ${classes.incomeRows}` : classes.rows}
+    >
+      {rows.map((row) => {
+        const known = categories.some((c) => c.id === row.id && c.parentId == null);
+        const content = (
+          <>
+            <span
+              className={classes.dot}
+              style={{ '--dot': categoryColour(categories, row.id) } as CSSProperties}
+              aria-hidden
+            />
+            <span className={classes.rowMain}>
+              <span className={classes.rowTitle}>{row.name}</span>
+              <span className={classes.rowSub}>{phoneSubtitle(row, total, currency)}</span>
+            </span>
+            <span className={`${classes.num} ${classes.rowAmount}`}>{amount(row.cents)}</span>
+          </>
+        );
+        return (
+          <li key={row.id}>
+            {known ? (
+              <PageLink
+                href={planAddress({ month, category: row.id })}
+                push={open === undefined}
+                aria-current={row.id === open ? 'true' : undefined}
+                className={classes.row}
+              >
+                {content}
+              </PageLink>
+            ) : (
+              <div className={classes.row}>{content}</div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

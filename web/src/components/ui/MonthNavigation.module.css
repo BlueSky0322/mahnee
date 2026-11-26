@@ -1,0 +1,26 @@
+.nav {
+  display: flex;
+  align-items: center;
+}
+
+.nav[data-desktop] {
+  gap: 4px;
+}
+
+.nav > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.nav > button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}

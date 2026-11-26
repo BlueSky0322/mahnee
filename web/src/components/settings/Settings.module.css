@@ -153,6 +153,26 @@
   background: color-mix(in srgb, var(--surface), var(--ink) 4%);
 }
 
+.row.valueHolder {
+  padding: 0;
+  flex-wrap: wrap;
+}
+
+.valueButton {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .icon {
   display: flex;
   flex: none;

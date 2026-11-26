@@ -12,9 +12,9 @@ import { settingValue } from './settings-text';
 import { SectionHeader } from './SettingsPage';
 import { useSettingInView } from './setting-in-view';
 import { NewTag } from '../ui/Badge';
-import { ForwardIcon, DownIcon } from '../ui/icons';
+import { DownIcon } from '../ui/icons';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
-import { OnOff, SettingRow, SettingsLoading } from './setting-parts';
+import { OnOff, SettingRow, SettingValueButton, SettingsLoading } from './setting-parts';
 import classes from './Settings.module.css';
 import own from './BudgetsPage.module.css';
 
@@ -126,27 +126,15 @@ export default function BudgetsPage() {
         </SettingRow>
 
         {!isDesktop && (
-          <div
-            className={`${rowClass(time.key)} ${own.holder}`}
-            data-setting={time.key}
-            tabIndex={-1}
-          >
-            <button
-              type="button"
-              className={own.rowButton}
-              onClick={() => setPicking('time')}
-            >
-              <span className={classes.rowText}>
-                <span className={classes.settingName}>{time.name}</span>{' '}
-                <span className={classes.detail}>{time.line}</span>
-              </span>{' '}
-              <span className={classes.value}>{timeValue}</span>
-              <ForwardIcon
-                size={16}
-                className={classes.caret}
-              />
-            </button>
-          </div>
+          <SettingValueButton
+            settingKey={time.key}
+            rowClass={rowClass(time.key)}
+            name={time.name}
+            titleClass={classes.settingName}
+            line={time.line}
+            value={timeValue}
+            onClick={() => setPicking('time')}
+          />
         )}
 
         {isDesktop ? (
@@ -169,29 +157,19 @@ export default function BudgetsPage() {
             </Button>
           </SettingRow>
         ) : (
-          <div
-            className={`${rowClass(lead.key)} ${own.holder}`}
-            data-setting={lead.key}
-            tabIndex={-1}
-          >
-            <button
-              type="button"
-              className={own.rowButton}
-              onClick={() => setPicking('lead')}
-            >
-              <span className={classes.rowText}>
-                <span className={classes.settingName}>
-                  {lead.name} <NewTag />
-                </span>{' '}
-                <span className={classes.detail}>{lead.line}</span>
-              </span>{' '}
-              <span className={classes.value}>{leadValue}</span>
-              <ForwardIcon
-                size={16}
-                className={classes.caret}
-              />
-            </button>
-          </div>
+          <SettingValueButton
+            settingKey={lead.key}
+            rowClass={rowClass(lead.key)}
+            name={
+              <>
+                {lead.name} <NewTag />
+              </>
+            }
+            titleClass={classes.settingName}
+            line={lead.line}
+            value={leadValue}
+            onClick={() => setPicking('lead')}
+          />
         )}
 
         {anyOn && profile != null && (

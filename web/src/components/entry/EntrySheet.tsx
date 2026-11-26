@@ -21,6 +21,7 @@ import { sendEdit, sendsAmount, useEntryCurrency } from '../common/entry-currenc
 import { rateLine } from '../common/typed-amount';
 import { showUndo } from '../common/undo-toast';
 import Picker from '../ui/Picker';
+import FormActions from '../ui/FormActions';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { amountText, readAmount, transactionSummary } from './entry-text';
 import classes from './Entry.module.css';
@@ -404,7 +405,7 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
           />
         </>
       )}
-      <div className={classes.actions}>
+      <FormActions>
         <Button
           variant="subtle"
           className="sf-danger"
@@ -413,13 +414,7 @@ function Fields({ open, onDone }: { open: OpenEntry; onDone: () => void }) {
         >
           Delete
         </Button>
-        <Button
-          type="submit"
-          className={classes.save}
-        >
-          Save
-        </Button>
-      </div>
+      </FormActions>
     </form>
   );
 }

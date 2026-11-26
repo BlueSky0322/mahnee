@@ -1,5 +1,5 @@
 import { Button, Menu, Popover } from '@mantine/core';
-import { DownIcon, ForwardIcon } from '../ui/icons';
+import { DownIcon } from '../ui/icons';
 import { useContext, useId, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Category, Recurring, Settings } from '@shared/api';
@@ -18,7 +18,7 @@ import CurrencyRow from './CurrencyRow';
 import OtherCurrencies from './OtherCurrencies';
 import { ordinal } from './settings-text';
 import { useSettingInView } from './setting-in-view';
-import { SettingsLoading } from './setting-parts';
+import { Choice, SettingValueButton, SettingsLoading } from './setting-parts';
 import { SectionHeader } from './SettingsPage';
 import classes from './Settings.module.css';
 import money from './MoneyPage.module.css';
@@ -229,29 +229,19 @@ function MoneyCard({ settings, pays }: { settings: Settings; pays: Recurring[] }
             </Popover>
           </div>
         ) : (
-          <div
-            className={`${rowClass(month.key)} ${money.rowHolder}`}
-            data-setting={month.key}
-            tabIndex={-1}
-          >
-            <button
-              type="button"
-              className={money.rowButton}
-              onClick={() => setDraft(saved)}
-            >
-              <span className={classes.rowText}>
-                <span className={`${classes.label} ${money.named}`}>
-                  {month.name} <span className={money.new}>New</span>
-                </span>
-                <span className={classes.detail}>{month.line}</span>
-              </span>
-              <span className={classes.value}>{monthValue}</span>
-              <ForwardIcon
-                size={16}
-                className={classes.caret}
-              />
-            </button>
-          </div>
+          <SettingValueButton
+            settingKey={month.key}
+            rowClass={rowClass(month.key)}
+            name={
+              <>
+                {month.name} <span className={money.new}>New</span>
+              </>
+            }
+            titleClass={`${classes.label} ${money.named}`}
+            line={month.line}
+            value={monthValue}
+            onClick={() => setDraft(saved)}
+          />
         )}
 
         <div
@@ -265,14 +255,16 @@ function MoneyCard({ settings, pays }: { settings: Settings; pays: Recurring[] }
             </div>
             <div className={classes.detail}>{week.line}</div>
           </div>
-          <Segmented
-            name={week.name}
+          <Choice
+            label={week.name}
+            className={money.segmented}
+            reselect
             options={[
-              ['monday', 'Monday'],
-              ['sunday', 'Sunday'],
+              { value: 'monday', label: 'Monday' },
+              { value: 'sunday', label: 'Sunday' },
             ]}
             value={settings.weekStart}
-            onPick={(weekStart) => rememberSettings({ weekStart })}
+            onChange={(weekStart) => rememberSettings({ weekStart })}
           />
         </div>
       </section>
@@ -350,14 +342,16 @@ function MonthSheet({
 
   return (
     <div className={money.sheet}>
-      <Segmented
-        name="How the month starts"
+      <Choice
+        label="How the month starts"
+        className={money.segmented}
+        reselect
         options={[
-          ['date', 'A date'],
-          ['payday', 'Payday'],
+          { value: 'date', label: 'A date' },
+          { value: 'payday', label: 'Payday' },
         ]}
         value={draft.mode}
-        onPick={(mode) => onChange({ ...draft, mode })}
+        onChange={(mode) => onChange({ ...draft, mode })}
       />
       {draft.mode === 'date' ? (
         <div
@@ -443,41 +437,6 @@ function MonthSheet({
       ) : (
         header != null && createPortal(doneButton, header)
       )}
-    </div>
-  );
-}
-
-/** Two or more choices side by side, one picked */
-function Segmented<T extends string>({
-  name,
-  options,
-  value,
-  onPick,
-}: {
-  name: string;
-  options: [T, string][];
-  value: T;
-  onPick: (value: T) => void;
-}) {
-  return (
-    <div
-      className={money.segmented}
-      role="radiogroup"
-      aria-label={name}
-    >
-      {options.map(([option, label]) => (
-        <button
-          key={option}
-          type="button"
-          role="radio"
-          aria-checked={value === option}
-          className={money.segment}
-          data-on={value === option || undefined}
-          onClick={() => onPick(option)}
-        >
-          {label}
-        </button>
-      ))}
     </div>
   );
 }

@@ -1,9 +1,8 @@
 import { Button } from '@mantine/core';
-import { BackIcon, ForwardIcon, SearchIcon, TidyIcon } from '../ui/icons';
+import { SearchIcon, TidyIcon } from '../ui/icons';
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { Account, Category, Ledger, MonthSummary, WeekStart } from '@shared/api';
 import { OTHER_EXPENSE_ID, categoriesOrDefaults } from '@shared/categories';
-import { FIRST_DAY } from '@shared/ledger';
 import { periodDay } from '@shared/period';
 import { useIsDesktop, useIsMobile } from '../../hooks/useBreakpoints';
 import { ALL_EXPENSES, ALL_INCOME, navigate } from '../../hooks/useRoute';
@@ -17,6 +16,7 @@ import { balanceText } from '../accounts/account-text';
 import Freshness from '../common/Freshness';
 import YouLink from '../common/YouLink';
 import Skeleton, { Loading } from '../ui/Skeleton';
+import MonthNavigation from '../ui/MonthNavigation';
 import type { ComingUpCheck, ComingUpRow } from './ComingUp';
 import AtAGlance from './AtAGlance';
 import ComingUp from './ComingUp';
@@ -43,8 +43,6 @@ import RecentEntries from './RecentEntries';
 import { recurringName } from './recurring-text';
 import ConversionPending from '../common/ConversionPending';
 
-/** The earliest month a transaction can be in */
-const FIRST_MONTH = FIRST_DAY.slice(0, 7);
 /** How many scheduled items Coming up lists */
 const COMING_UP = 3;
 
@@ -443,27 +441,15 @@ function Header({
   const current = thisOne.month;
   const step = (to: string) => navigate(homeAddress(to, current));
   const arrows = (
-    <div className={classes.monthNav}>
-      <button
-        type="button"
-        className={classes.iconButton}
-        aria-label="Previous month"
-        disabled={month <= FIRST_MONTH}
-        onClick={() => step(addMonths(month, -1))}
-      >
-        <BackIcon size={20} />
-      </button>
+    <MonthNavigation
+      className={classes.monthNav}
+      month={month}
+      nextDisabled={month >= current}
+      onStep={step}
+      isDesktop={isDesktop}
+    >
       <h1 className={classes.title}>{monthHeading(month, { short: !isDesktop })}</h1>
-      <button
-        type="button"
-        className={classes.iconButton}
-        aria-label="Next month"
-        disabled={month >= current}
-        onClick={() => step(addMonths(month, 1))}
-      >
-        <ForwardIcon size={20} />
-      </button>
-    </div>
+    </MonthNavigation>
   );
   if (isDesktop) {
     return (

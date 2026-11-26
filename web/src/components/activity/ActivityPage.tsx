@@ -345,7 +345,10 @@ export default function ActivityPage({ query }: { query: string }) {
     },
     { tablets: true },
   );
-  /** Done: through Back where selecting holds a step in the history, so none is left behind */
+  /**
+   * Done: through Back where selecting holds a step in the history, so none is left behind;
+   * straight off while its step isn't the one showing (still waiting on another's Back)
+   */
   const stopSelecting = () => {
     if (selectingLayer.back()) return;
     clearTicked();

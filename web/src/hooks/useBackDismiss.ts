@@ -1,10 +1,16 @@
 import { useEffect, useRef } from 'react';
 import { useIsDesktop, useIsMobile } from './useBreakpoints';
+import { ROUTE_CHANGE, nameVisit, visitOf } from './useRoute';
 
 // On phones, Back (the Android gesture, the iOS edge swipe) closes whatever is open on
 // top before it leaves the page: each sheet, menu or dialog adds a history entry when it
 // opens and closes when that entry is left. Closing one any other way takes its entry
 // back off, so Back never steps through layers that are already gone.
+//
+// Those entries stand over the page's own, and belong to its visit. The page's address
+// changed in its own place while one is on top (a filter picked from a sheet) is the
+// page's: the layer's entry keeps being the layer's, and the entries under it take that
+// address as Back reaches them, so Back never shows the address from before.
 
 interface Layer {
   id: number;
@@ -26,12 +32,35 @@ let waiting: number[] = [];
 const closing = new Set<number>();
 
 const push = (id: number) => {
-  window.history.pushState({ [LAYER_KEY]: id }, '');
+  window.history.pushState({ [LAYER_KEY]: id, visit: nameVisit() }, '');
   entries.push(id);
 };
 
 const layerOf = (state: unknown) =>
   typeof state === 'object' && state != null ? (state as Record<string, unknown>)[LAYER_KEY] : null;
+
+/** The page's address, set in its own place while a layer's entry was showing, and its visit */
+let carried: { visit: string; search: string } | null = null;
+
+/** A layer's entry showing as the page's address changes in its place: the page's now */
+function onRouteChange() {
+  const state: unknown = window.history.state;
+  const layer = layerOf(state);
+  const visit = visitOf(state);
+  if (typeof layer !== 'number' || !entries.includes(layer) || visit == null) return;
+  carried = { visit, search: window.location.search };
+}
+
+/** Back landed in the visit whose address was carried: the entry showing takes that address */
+function carryDown() {
+  const state: unknown = window.history.state;
+  if (carried == null || visitOf(state) !== carried.visit) return;
+  if (window.location.search !== carried.search) {
+    window.history.replaceState(state, '', `${window.location.pathname}${carried.search}`);
+  }
+  // Down to the page's own entry: nothing is left to carry
+  if (layerOf(state) == null) carried = null;
+}
 
 function goBack(steps: number) {
   selfBack++;
@@ -46,6 +75,7 @@ export const backLanded = () =>
   selfBack === 0 ? Promise.resolve() : new Promise<void>((resolve) => onLanded.push(resolve));
 
 function onPopState() {
+  carryDown();
   if (selfBack > 0) {
     selfBack--;
     if (selfBack === 0) {
@@ -85,7 +115,11 @@ function popClosed() {
   return steps;
 }
 
-if (typeof window !== 'undefined') window.addEventListener('popstate', onPopState);
+// Before any page reads the address it lands on (useRoute listens once it's drawn)
+if (typeof window !== 'undefined') {
+  window.addEventListener('popstate', onPopState);
+  window.addEventListener(ROUTE_CHANGE, onRouteChange);
+}
 
 /**
  * Lets Back close this layer while `opened` (phones only, or tablets too with

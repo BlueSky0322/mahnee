@@ -12,6 +12,10 @@ For agents:
 - Never invent references, versions or dates.
 -->
 
+## 2026-11-26
+
+- Fixed: on a phone or tablet, Back after picking one of Activity's filters leaves Activity as it does on a computer, never bringing back the filter before, and Done or Back after changing a filter while selecting leaves no step behind [#77]
+
 ## 2026-11-25
 
 - Added: drag over Activity's rows to select them on a computer (Shift-click, Ctrl- or Cmd-click and Shift with the arrows too, Esc to clear), or hold one on a phone; what's selected shows its expenses, income and net, transfers left out and said so [#76]
@@ -201,3 +205,4 @@ For agents:
 [#73]: https://github.com/BlueSky0322/mahnee/pull/73
 [#74]: https://github.com/BlueSky0322/mahnee/pull/74
 [#76]: https://github.com/BlueSky0322/mahnee/pull/76
+[#77]: https://github.com/BlueSky0322/mahnee/pull/77

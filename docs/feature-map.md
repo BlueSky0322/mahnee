@@ -2443,7 +2443,8 @@ income"); `&scheduled` only entries from Scheduled; `&day=` one day (Home's cale
 and to, and those over all months. A part that makes no sense (a day that isn't one, a
 kind not known, an account or category the person doesn't have) is dropped, and the
 address is put right in place; each filter is written back in that order, only when not
-at its default.
+at its default. A filter changed takes Activity's place in history on every screen, so
+Back leaves Activity rather than stepping through the filters.
 
 A page named first wins over the parameters after it: `?activity&account=<id>` is
 Activity, and `account` is its filter. Older addresses are replaced in place, keeping the
@@ -2481,7 +2482,12 @@ may use either name for anything else (Activity's filters included).
 - [hooks/useBreakpoints.ts](../web/src/hooks/useBreakpoints.ts): `useIsMobile` (under
   768px) and `useIsDesktop` (1024px and up).
 - [hooks/useBackDismiss.ts](../web/src/hooks/useBackDismiss.ts): Back closes the top
-  sheet on phones.
+  sheet on phones (and selecting on tablets too). Each sheet's step stands over its page's
+  and shares its `visit`. A page's address changed in its own place while a sheet's step is
+  showing (Activity's filter picked from a sheet) is the page's: that step stays the
+  sheet's, and the steps under it take the new address as Back reaches them, so Back after
+  picking a filter leaves Activity and never brings back the filter before
+  ([filter-back.test.tsx](../web/src/components/activity/filter-back.test.tsx)).
 
 **Parts.**
 

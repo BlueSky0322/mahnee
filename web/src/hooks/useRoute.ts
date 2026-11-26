@@ -135,7 +135,8 @@ export const isAll = (category: string): category is typeof ALL_EXPENSES | typeo
 const readCategory = (category: string | null) =>
   category != null && (isAll(category) || isRowId(category)) ? category : null;
 
-const ROUTE_CHANGE = 'routechange';
+/** Sent each time navigate() changes the address */
+export const ROUTE_CHANGE = 'routechange';
 /** Marks this tab as started, so a reload isn't taken for a fresh start */
 export const SESSION_KEY = 'mahnee:session';
 
@@ -253,8 +254,13 @@ export function navigate(search: string, { replace = false, force = false, back 
   // A page opened from another remembers which, so going "up" can be Back; each visit has
   // its own name, kept when a page takes its place
   const from = replace ? cameFrom() : window.location.search;
-  if (replace) window.history.replaceState({ from, visit: visitOf() ?? newVisit() }, '', url);
-  else window.history.pushState({ from, visit: newVisit() }, '', url);
+  // In this page's place, what else the history keeps for it stays: over an open sheet's
+  // step, that step stays the sheet's (hooks/useBackDismiss.ts carries the address down)
+  if (replace) {
+    const state: unknown = window.history.state;
+    const kept = typeof state === 'object' && state != null ? state : {};
+    window.history.replaceState({ ...kept, from, visit: visitOf() ?? newVisit() }, '', url);
+  } else window.history.pushState({ from, visit: newVisit() }, '', url);
   window.dispatchEvent(new Event(ROUTE_CHANGE));
 }
 
@@ -300,9 +306,8 @@ export function nameVisit(): string {
   return visit;
 }
 
-/** The visit showing's name, if it has one */
-const visitOf = (): string | null => {
-  const state: unknown = window.history.state;
+/** The name of the visit showing, or of the one `state` is from, if it has one */
+export const visitOf = (state: unknown = window.history.state): string | null => {
   const visit =
     typeof state === 'object' && state != null ? (state as { visit?: unknown }).visit : null;
   return typeof visit === 'string' ? visit : null;

@@ -620,6 +620,9 @@ describe('the first day', () => {
     await reloadApp(server, '/', { size });
     await screen.findByRole('region', { name: 'Day by day' });
     expect(screen.queryByRole('region', { name: 'Getting started' })).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).not.toContain(
+      '/api/summary?month=2026-10',
+    );
   });
 });
 

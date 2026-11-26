@@ -5,7 +5,7 @@ import type { Account, Category, MonthSummary, Transaction, WeekStart } from '@s
 import type { SearchQuery } from '@shared/search';
 import { glanceDays, againstMedian, biggestSpend, byDay, spentSoFar } from '../../ledger/glance';
 import { holdsFrom } from '../../ledger/history';
-import { useSearch } from '../../ledger/useLedger';
+import { useHomeRows } from '../../ledger/useLedger';
 import { isOffline } from '../../offline/network';
 import { useCurrency } from '../../profile/ProfileContext';
 import { dayHeading, monthHeading } from '../../utils/date-input';
@@ -75,7 +75,7 @@ export default function AtAGlance({
     to: day,
     kinds: null,
   };
-  const found = useSearch(query);
+  const found = useHomeRows(query);
   const { transactions, hasMore, loadingMore, loadMore } = found;
   // The week's biggest needs every entry of it: read on until all are in
   const readOn = hasMore && !loadingMore && (transactions?.length ?? 0) < MAX_READ;
@@ -333,7 +333,7 @@ function Recent({
 }: {
   label: string;
   seeAll: string;
-  found: ReturnType<typeof useSearch>;
+  found: ReturnType<typeof useHomeRows>;
   offlineFailed: boolean;
   /** What the device holds of these days, offline, when it isn't all of them */
   partial: string | null;

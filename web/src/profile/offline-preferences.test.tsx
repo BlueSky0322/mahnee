@@ -253,8 +253,9 @@ describe('signing out with settings changed offline', () => {
     await user.click(
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Sign out anyway' }),
     );
-    await waitFor(() => expect(sentTo).toEqual(['/cdn-cgi/access/logout']));
-    expect(await keptPatch()).toBeUndefined();
+    expect(await screen.findByText("You're signed out")).toBeTruthy();
+    expect(sentTo).toEqual([]);
+    await waitFor(async () => expect(await keptPatch()).toBeUndefined());
   });
 
   test('asks, once it knows, when Sign out is pressed before the device has been read', async () => {

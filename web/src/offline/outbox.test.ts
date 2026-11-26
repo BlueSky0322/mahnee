@@ -279,8 +279,11 @@ describe('work not yet sent', () => {
     await writeOutbox('ryan@example.com', queued(1));
     await signOut();
     expect(await get(outboxKey('ryan@example.com'))).toBeUndefined();
-    await setCacheUser('ann@example.com');
-    expect(await readOutbox('ann@example.com')).toEqual(queued(1));
+    expect(await get(outboxKey('ann@example.com'))).toEqual({
+      email: 'ann@example.com',
+      value: queued(1),
+    });
+    expect(await readOutbox('ann@example.com')).toEqual([]);
     vi.unstubAllGlobals();
     await clearCache();
   });

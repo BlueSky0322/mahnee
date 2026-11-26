@@ -127,6 +127,7 @@ export default function ImportPage() {
   const account = listed.find((a) => a.id === accountId) ?? null;
 
   const [file, setFile] = useState<LoadedFile | null>(null);
+  const selectedFile = useRef<File | null>(null);
   const [fileProblem, setFileProblem] = useState<string | null>(null);
   const [twoColumns, setTwoColumns] = useState(false);
   const [picked, setPicked] = useState<Picked>(NOTHING_PICKED);
@@ -198,16 +199,25 @@ export default function ImportPage() {
   }
 
   async function chooseFile(picked: File | null | undefined) {
+    selectedFile.current = picked ?? null;
     startOver();
     setFile(null);
     setFileProblem(null);
     if (picked == null) return;
+    if (picked.size > 16 * 1024 * 1024) {
+      setFileProblem(
+        'Choose a CSV up to 16 MiB. You can split a larger file and import each part.',
+      );
+      return;
+    }
     const name = picked.name.trim().slice(0, MAX_FILE_NAME) || 'file.csv';
     let table: string[][];
     try {
-      table = parseCsv(new TextDecoder().decode(await picked.arrayBuffer()));
+      const bytes = await picked.arrayBuffer();
+      if (selectedFile.current !== picked) return;
+      table = parseCsv(new TextDecoder().decode(bytes));
     } catch {
-      setFileProblem("Couldn't read that file.");
+      if (selectedFile.current === picked) setFileProblem("Couldn't read that file.");
       return;
     }
     const rows = table.length - 1;

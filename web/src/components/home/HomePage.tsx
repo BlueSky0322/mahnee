@@ -146,8 +146,6 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
     lastDay,
     at: periodDay(firstDay, lastDay, isCurrent ? today : lastDay),
   };
-  // Last month, for Getting started's "Bring in past months"
-  const { summary: lastMonth, failed: lastMonthFailed } = useMonthSummary(addMonths(current, -1));
   const { data: ledger } = useWholeLedger();
   const { profile } = useProfile();
   const weekStart: WeekStart = profile?.settings.weekStart ?? 'monday';
@@ -162,6 +160,10 @@ function Glance({ month, isDesktop }: { month: string; isDesktop: boolean }) {
   const email = profile?.email ?? null;
   const [hiddenNow, setHiddenNow] = useState<string | null>(null);
   const hidden = email == null || hiddenNow === email || isStartedHidden(email);
+  // Only the current, visible Getting started checklist needs the previous month.
+  const { summary: lastMonth, failed: lastMonthFailed } = useMonthSummary(addMonths(current, -1), {
+    enabled: isCurrent && !hidden,
+  });
 
   const categories = useMemo(() => categoriesOrDefaults(ledger?.categories ?? []), [ledger]);
   const lines = summary == null ? null : budgetLines(summary, categories);

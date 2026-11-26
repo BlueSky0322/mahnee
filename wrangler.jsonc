@@ -11,6 +11,7 @@
   // workers.dev address). The API refuses every request unless both are set. Locally,
   // .dev.vars blanks them and sets DEV_USER_EMAIL.
   "vars": {
+    "REQUIRE_EXPECTED_ACCOUNT": "true",
     "ACCESS_TEAM_DOMAIN": "ryanng-0611.cloudflareaccess.com",
     "ACCESS_AUD": "18cc5a8ad6ad6b831b40ab4a17ab3a1e152251f8a556ce570ff110edcc59aa26",
     // Reminders (worker/push/): the public key devices subscribe with (an uncompressed
@@ -30,7 +31,7 @@
   // wherever they are; reminders share it (worker/push/reminders.ts). A deploy sets it up.
   "triggers": { "crons": ["*/15 * * * *"] },
   // Logs and traces in the dashboard, for a tenth of requests
-  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+  "observability": { "enabled": true, "head_sampling_rate": 0.1, "redact_query_string": true },
   // Caps how many changes each account can make a minute (reads are not counted). It
   // counts per Cloudflare location, so it is a budget, not an exact global quota.
   "ratelimits": [

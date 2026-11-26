@@ -397,7 +397,8 @@ sends them in order, one request at a time, in batches of at most `MAX_CHANGES` 
 - API: [worker/routes/ledger.ts](../worker/routes/ledger.ts) serves `GET /api/accounts`
   (the `Ledger`: accounts and categories, and `alreadySaved` when the read names changes
   in `X-Pending-Changes`) and `POST /api/changes`;
-  [worker/ledger/read.ts](../worker/ledger/read.ts) lists the accounts with balances,
+  [worker/ledger/read.ts](../worker/ledger/read.ts) sums outgoing entries and incoming transfers
+  through their account indexes to list each account with its balance,
   [changes.ts](../worker/ledger/changes.ts) checks and saves a batch, and
   [receipts.ts](../worker/ledger/receipts.ts) keeps one receipt per change id.
 - Shared: `Account`, `Ledger`, `LedgerChange`, `ChangesBody` and the batch limits in
@@ -462,8 +463,7 @@ worker's background sync sends the outbox (see Offline start).
 - A batch is checked in order against the person's accounts and categories with the
   batch's earlier changes, and saved all or nothing in one D1 batch with its receipts.
 - A change id saved before with the same change is answered as saved and not applied
-  again; with a different change it's refused (409). Receipts last 90 days
-  (`RECEIPT_DAYS`).
+  again; with a different change it's refused (409). Receipts persist with their account, including when a device stays offline for months.
 - At most `MAX_ACCOUNTS` accounts, archived ones included, checked again as the row is
   saved (the position is NULL past it, which the table refuses), so two batches at once
   can't pass it. Names are 1 to `MAX_ACCOUNT_NAME` characters once trimmed; an opening
@@ -889,8 +889,9 @@ read them through `useMonthTrend(month)`. The month's figures never wait on them
   [worker/ledger/trend.ts](../worker/ledger/trend.ts)): the 12 months ending there, each
   in the month's shape, in one grouped SQL sum over a fixed window. Both read the
   person's month start first (`readMonthStart` in
-  [worker/ledger/month-start.ts](../worker/ledger/month-start.ts)) and group earlier
-  months by `periodMonthSql` ([worker/ledger/period-sql.ts](../worker/ledger/period-sql.ts)).
+  [worker/ledger/month-start.ts](../worker/ledger/month-start.ts)) before grouping transactions.
+  Budget history uses [periodMonthSql](../worker/ledger/period-sql.ts). Trend binds the
+  twelve date ranges from the shared calendar so the database can seek each range.
 - Shared: `MonthSummary`, `MonthTrend` and `CategoryTotal` in
   [shared/api.ts](../shared/api.ts); the person's month in
   [shared/period.ts](../shared/period.ts); the 12 months, the average and the comparison in
@@ -1212,7 +1213,7 @@ thing it keeps, per device.
   Repeating bills and month end); "running fast" compares exact whole numbers.
 - Coming up and the calendar list only listed items on listed accounts, as the month-end
   sum counts them; transfers are in Coming up but never in the sum or the dots.
-- A computer's latest entries ask the server for 8 at most (`GET /api/search?limit=8`, a
+- A computer's latest entries ask the server for 8 at most (`GET /api/search?limit=8&rowsOnly=1`, a
   list of its own in the ledger's cache, `recentTransactionsKey`), once per month shown,
   and never more pages; changes still to send are drawn on top, as on every list, so an
   entry added shows first at once. They stay in one place in the layout, so what needs you
@@ -1471,6 +1472,8 @@ requests. The filters live in the address
   (the words and signs) and [address.ts](../web/src/components/activity/address.ts).
   "Log your first one" opens the shell's new entry
   ([shell/add-entry.ts](../web/src/components/shell/add-entry.ts)).
+- Home requests `rowsOnly=1` for its recent activity. That response contains the ordered entries
+  and next-page cursor. Activity keeps its exact counts and page subtotals.
 - API: `GET /api/search?q=&account=&category=&from=&to=&kind=&scheduled=1&before=&limit=`
   (`searchTransactions` in [worker/ledger/read.ts](../worker/ledger/read.ts): `instr(lower(...))`
   on the payee, note and both category names (no pattern, so no length limit and no
@@ -1866,7 +1869,8 @@ these dates" line) is read as transactions only: it adds no account (a line on o
 here says "<name> isn't an account here" and can't be ticked), changes no opening balance
 and sets nothing up to repeat, and the page says so. Export then import into a fresh account, then
 export again, gives the same file but for ids and the days accounts were added. A file of
-more than `MAX_IMPORT_ROWS` (5,000) rows is refused before the preview; the preview shows
+more than `MAX_IMPORT_ROWS` (5,000) rows is refused before the preview. The app checks
+a 16 MiB file limit before reading the selected file into memory; the preview shows
 100 rows at a time. After a bank file the account's page opens; after an export, Home.
 
 **Owner.** [ledger/ledger.ts](../web/src/ledger/ledger.ts): Import makes every change
@@ -2274,7 +2278,9 @@ marked with what's held with it (`heldWith`), as the app does, and the rest stil
 app code, so the names and limits it shares with `offline/cache.ts`, `offline/outbox.ts`
 and `shared/api.ts` are copied in it, each naming its twin. The build
 writes `precache.json`, every built file the app needs offline
-([web/build/precache.ts](../web/build/precache.ts)).
+([web/build/precache.ts](../web/build/precache.ts)). Settings and Import load when
+opened. Their code and styles are kept by the worker so both pages can open offline,
+even before their first visit.
 
 Opening the app: [web/index.html](../web/index.html) paints a first screen before the
 app's code loads, in the theme this device saved or the phone's own on Auto, with the
@@ -2344,10 +2350,10 @@ account's saved copy ([ProfileContext](../web/src/profile/ProfileContext.tsx)).
 - The kept page is only replaced once every file it and `precache.json` name is kept,
   so a stopped update leaves the old page whole. Built files of the newest two pages are
   kept, for a tab still open on the older one.
-- Every accent's manifest, the icons it names and its iPhone icon, and the browser tab's
-  icons, are kept beside the page and answered from there when the network fails or
-  Access answers in their place, so a page opened from the device still installs properly
-  in whichever accent is chosen (`INSTALL_FILES` in `sw.js`).
+- After the app loads, it tells the worker to keep the chosen accent's manifest and
+  icons first. The worker then keeps the other accents' files and browser tab icons.
+  If interrupted, it picks up missing files on the next online visit or reconnect.
+  The worker uses the kept files when the network fails or Access answers in their place.
 
 **Tests.** [AppLogo.test.tsx](../web/src/components/common/AppLogo.test.tsx) (the logo
 takes the accent and theme, and every copy of the mark is the same),

@@ -1,16 +1,16 @@
 import { Button } from '@mantine/core';
 import { CloudSlash } from '@phosphor-icons/react';
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import AppLogo from './components/common/AppLogo';
 import AccountsPage from './components/accounts/AccountsPage';
 import ActivityPage from './components/activity/ActivityPage';
-import ImportPage from './components/import/ImportPage';
 import HomePage from './components/home/HomePage';
 import PlanPage from './components/plan/PlanPage';
-import Settings from './components/settings/SettingsPage';
+import ErrorBoundary from './components/ui/ErrorBoundary';
 import StateCard from './components/ui/StateCard';
 import AppLayout from './components/shell/AppLayout';
-import { useRoute } from './hooks/useRoute';
+import { navigate, useRoute } from './hooks/useRoute';
+import { ImportPage, SettingsPage } from './components/shell/lazy-pages';
 import { sendWhenBack } from './ledger/ledger';
 import { signIn, useProfile } from './profile/ProfileContext';
 
@@ -58,8 +58,42 @@ function App() {
       {(route.view === 'accounts' || route.view === 'account') && (
         <AccountsPage id={route.view === 'account' ? route.id : null} />
       )}
-      {route.view === 'settings' && <Settings section={route.section} />}
-      {route.view === 'import' && <ImportPage />}
+      {(route.view === 'settings' || route.view === 'import') && (
+        <ErrorBoundary
+          key={route.view}
+          fallback={
+            <StateCard
+              icon={
+                <CloudSlash
+                  size={36}
+                  aria-hidden
+                />
+              }
+              title="Couldn't open this page"
+              body="Reload the app to try again."
+              action={
+                <>
+                  <Button onClick={() => window.location.reload()}>Reload app</Button>
+                  <Button
+                    variant="subtle"
+                    onClick={() => navigate('')}
+                  >
+                    Go to Home
+                  </Button>
+                </>
+              }
+            />
+          }
+        >
+          <Suspense
+            fallback={
+              <p role="status">Loading {route.view === 'settings' ? 'Settings' : 'Import'}…</p>
+            }
+          >
+            {route.view === 'settings' ? <SettingsPage section={route.section} /> : <ImportPage />}
+          </Suspense>
+        </ErrorBoundary>
+      )}
     </AppLayout>
   );
 }

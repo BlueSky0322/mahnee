@@ -35,10 +35,12 @@ import type {
   ScheduledInMonth,
   SearchPage,
   Transaction,
+  TransactionPage,
 } from '@shared/api';
 import {
   DEFAULT_SETTINGS,
   EXPECTED_ACCOUNT_HEADER,
+  RESPONSE_ACCOUNT_HEADER,
   MAX_CHANGES,
   MAX_FILE_NAME,
   MAX_PICTURE_BYTES,
@@ -133,6 +135,16 @@ import { Root } from '../Root';
 import { queryClient } from '../query-client';
 import { clearCache } from '../offline/cache';
 import { backLanded } from '../hooks/useBackDismiss';
+
+// Keep each renderApp's routes and providers in its own module graph. The harness
+// resets modules to simulate a fresh page, while tests can still use the first renderApp.
+vi.mock('../components/shell/lazy-pages', async () => {
+  const [{ default: SettingsPage }, { default: ImportPage }] = await Promise.all([
+    import('../components/settings/SettingsPage'),
+    import('../components/import/ImportPage'),
+  ]);
+  return { SettingsPage, ImportPage };
+});
 
 // The whole app renders in each test, which takes a while when every test file runs at
 // once: wait longer than the default second for things to appear
@@ -361,8 +373,12 @@ let unanswered = 0;
 function serve(server: FakeServer) {
   const answer = answerNow(server);
   const respond = (input: RequestInfo | URL, init?: RequestInit) => {
-    const response = answer(input, init);
+    const viewer = server.me.email;
     const method = init?.method ?? 'GET';
+    const response = answer(input, init).then((res) => {
+      if (method === 'GET' && res.ok) res.headers.set(RESPONSE_ACCOUNT_HEADER, viewer);
+      return res;
+    });
     const path = new URL(input instanceof Request ? input.url : input, 'http://app').pathname;
     const at = server.held.findIndex((h) => h.method === method && h.path === path);
     if (at < 0) return response;
@@ -381,15 +397,17 @@ function serve(server: FakeServer) {
   };
 }
 
+const realSetTimeout = setTimeout;
+
 /**
  * Waits until the app has nothing under way: no request unanswered, nothing loading or
  * saving, for a few turns in a row (work often waits on the device's storage between
  * requests). Gives up after a few seconds, for an answer a test never releases.
  */
 export async function settle() {
-  if (vi.isFakeTimers()) return;
-  const giveUpAt = Date.now() + 3000;
-  for (let quiet = 0; quiet < 5 && Date.now() < giveUpAt; ) {
+  if (vi.isFakeTimers() && setTimeout !== realSetTimeout) return;
+  const giveUpAt = vi.getRealSystemTime() + 3000;
+  for (let quiet = 0; quiet < 5 && vi.getRealSystemTime() < giveUpAt; ) {
     await new Promise((resolve) => setTimeout(resolve, 0));
     const busy = unanswered > 0 || queryClient.isFetching() > 0 || queryClient.isMutating() > 0;
     quiet = busy ? 0 : quiet + 1;
@@ -404,13 +422,18 @@ function answerNow(server: FakeServer) {
     const path = url.pathname;
 
     if (server.health === 'unreachable') return Promise.reject(new TypeError('Failed to fetch'));
+    if (path === '/cdn-cgi/access/logout') return json({ ok: true });
     if (server.health === 'signedOut') return json({ error: 'Signed out' }, 401);
     if (server.health === 'down') return json({ error: 'Internal error' }, 500);
     // A write made as someone else than who's signed in now changes nothing
     const expected = (init?.headers as Record<string, string> | undefined)?.[
       EXPECTED_ACCOUNT_HEADER
     ];
-    if (method !== 'GET' && expected != null && expected !== server.me.email) {
+    if (
+      !(method === 'GET' && path === '/api/me') &&
+      expected != null &&
+      expected !== server.me.email
+    ) {
       return json({ error: 'Signed in as someone else.', code: 'account_mismatch' }, 409);
     }
     if (server.pathsDown.has(path)) return json({ error: 'Internal error' }, 500);
@@ -950,7 +973,7 @@ function listTransactions(
 function searchTransactions(
   server: FakeServer,
   params: URLSearchParams,
-): SearchPage | [number, string] {
+): SearchPage | TransactionPage | [number, string] {
   const query = readSearch(params);
   if ('error' in query) return [400, query.error];
   const limit = Number(params.get('limit') ?? 50);
@@ -972,6 +995,11 @@ function searchTransactions(
   const after = before == null ? all : all.filter((t) => isOlderThan(t, before));
   const transactions = after.slice(0, limit);
   const last = after.length > limit ? transactions[transactions.length - 1] : null;
+  const page = {
+    transactions: transactions.map(answered),
+    nextBefore: last != null ? nextCursor(server, last) : null,
+  };
+  if (params.get('rowsOnly') === '1') return page;
   const sum = (rows: Transaction[]) => ({
     entries: rows.length,
     spentCents: rows.reduce((n, t) => n + (t.kind === 'expense' ? t.amountCents : 0), 0),
@@ -986,8 +1014,7 @@ function searchTransactions(
         !matchesSearch(t, query, categories),
     ).length;
   return {
-    transactions: transactions.map(answered),
-    nextBefore: last != null ? nextCursor(server, last) : null,
+    ...page,
     rest: sum(beyond),
     restOfLastDay:
       last == null ? null : { date: last.date, ...sum(beyond.filter((t) => t.date === last.date)) },
@@ -1966,6 +1993,8 @@ export async function reloadApp(
 ) {
   cleanup();
   await settle();
+  // Vitest's module reset keeps evaluated mocks. The new app supplies a fresh route graph.
+  vi.doUnmock('../components/shell/lazy-pages');
   vi.resetModules();
   const page = await import('./app');
   // The page opened here is closed with the test, like the first

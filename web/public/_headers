@@ -2,7 +2,7 @@
 # needs no camera, microphone or location, and nothing may embed it.
 /*
   X-Frame-Options: DENY
-  Content-Security-Policy: frame-ancestors 'none'
+  Content-Security-Policy: frame-ancestors 'none'; base-uri 'none'; object-src 'none'; script-src 'self' 'sha256-z/XTLAMxfKenQUlF1K2fG6aPkBw/anPjNM8uK/knxaQ='
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()

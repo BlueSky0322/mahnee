@@ -180,8 +180,9 @@ hack-proof, and the limits below are real.
   included (`shared/recurring.ts`), each amount within `MAX_TRANSACTION_CENTS`; logging one
   saves its transaction and its next due date together, and only from the occurrence it
   names, so it is never recorded twice.
-  Each carries the app's id, kept as a receipt for 90 days, so a change sent again is
-  never applied twice.
+  Each carries an id saved atomically with the change. The receipt persists so a device
+  offline for months can retry once it reconnects. Receipts already deleted under the old
+  90-day policy cannot establish whether those older changes were applied.
 - Exporting (`/api/export`) reads the person's transactions a page at a time and sends
   each as it's read, so the Worker never holds the whole history at once; a person has
   at most `MAX_ACCOUNTS` x `MAX_TRANSACTIONS_PER_ACCOUNT` of them, and at most
@@ -205,7 +206,11 @@ hack-proof, and the limits below are real.
   out clears it, and so does another account signing in, except that account's unsaved
   changes: those stay on the device, under its email, unread and unsent until it signs
   in here again. Signing out asks first when changes are waiting, then drops the leaving
-  account's own.
+  account's own. It closes previously displayed reminders when the browser supports it.
+  Explicit sign-out locks this browser across open tabs and survives an offline restart.
+  The app completes outstanding cleanup and Access logout when it reconnects. Unlocking
+  requires the person's Sign in action. Private responses are checked against the
+  page's viewer before they can enter its account-scoped cache.
 - The place a fresh start opens on (Look and start's "Open the app on": Home, Activity or
   Plan) is kept in `localStorage` with the account's email (`mahnee:startScreen`), used only
   while that account is the one last signed in here, and cleared on signing out or when
@@ -265,6 +270,9 @@ hack-proof, and the limits below are real.
   file. Undo deletes its entries for good, scoped by the person's email and the import's id.
 - A file of some dates holds only those days' transactions and says so; the "Last
   downloaded" day is kept on the device per email, nothing more.
+- Responses containing authenticated JSON use `Cache-Control: private, no-store`. The app's
+  owner-scoped offline store supplies these reads when disconnected. Worker observability
+  strips URL query strings before recording logs and traces, including free-text searches.
 - Errors are logged by name and message only, never with what a person typed.
 
 ## Secrets and where they live
@@ -335,6 +343,9 @@ These are kept in Cloudflare and GitHub, not here; check them from time to time:
   `oidc_fields` should show `picture`). Access then puts it in the token's `custom`
   claims, read on the next sign-in. Without it, everyone starts with the initial and can
   choose a photo.
-- `REQUIRE_EXPECTED_ACCOUNT=true` on the Worker, once installed apps send the header, so
-  writes from apps too old to say whose they are are refused.
-- GitHub: only trusted people can push to `main`, since a push deploys.
+- The production Wrangler configuration requires the expected account on writes. Older
+  installed versions retain their pending changes for an update.
+- In GitHub Settings → Rules → Rulesets, import the [production branch rules](../.github/rulesets/main.json)
+  and check enforcement is **Active**. They require a pull request and successful build and
+  conventions checks. The repository has one writer, so it requires no second reviewer.
+  Only the restore-point, migration and deploy steps receive Cloudflare credentials.

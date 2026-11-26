@@ -872,6 +872,20 @@ describe('the limit', () => {
       ].join('\n'),
     );
 
+  test('a file over 16 MiB can be replaced without reading it into memory', async () => {
+    renderApp(withAccounts(), '/', { size: 'phone' });
+    const user = await openImport();
+    const large = new File([new Uint8Array(16 * 1024 * 1024 + 1)], 'statement.csv', {
+      type: 'text/csv',
+    });
+    const read = vi.spyOn(large, 'arrayBuffer').mockRejectedValue(new Error('unread'));
+    await pickFile(user, large);
+    expect(await screen.findByText(/up to 16 MiB/)).toBeTruthy();
+    expect(read).not.toHaveBeenCalled();
+    await pickFile(user, rows(1), 'Maybank');
+    expect(await screen.findByLabelText('Date')).toBeTruthy();
+  });
+
   test.each(SIZES)('refuses more than 5,000 rows before the preview (%s)', async (size) => {
     renderApp(withAccounts(), '/', { size });
     const user = await openImport();
@@ -898,6 +912,10 @@ describe('the limit', () => {
 
     // RM 1,000 less 5,000 x RM 1, shown at once and once saved
     expect((await screen.findAllByText('−RM 4,000.00')).length).toBeGreaterThan(0);
+    const entries = within(await screen.findByRole('region', { name: 'Transactions' }));
+    expect(entries.getAllByRole('listitem')).toHaveLength(50);
+    await user.click(entries.getByRole('button', { name: 'Show 50 more' }));
+    expect(entries.getAllByRole('listitem')).toHaveLength(100);
     await waitFor(() => expect(server.transactions).toHaveLength(5_000), { timeout: 45_000 });
     expect(new Set(server.transactions.map((t) => t.payee)).size).toBe(5_000);
     // Nothing is left waiting on the device: the export says so, counted by the server
@@ -916,6 +934,36 @@ describe('the limit', () => {
     // Over the 30 s every test gets: the app draws and saves 5,000 entries, which takes
     // 20 to 30 s alone, and the outbox waits its 3 s before sending a lost batch again
   }, 90_000);
+
+  test('pages saved entries ahead of an older import while it waits to sync', async () => {
+    const server = withAccounts();
+    for (let i = 0; i < 60; i++) {
+      saved(server, { date: '2026-05-12', payee: `Saved shop ${i}` });
+    }
+    server.pathsDown.add('/api/changes');
+    renderApp(server, '/', { size: 'phone' });
+    const user = await openImport();
+    await pickFile(
+      user,
+      csv('Date,Description,Amount\n2026-06-01,Newer import,-1.00\n2026-04-01,Older import,-2.00'),
+      'Maybank',
+    );
+    await mapColumns(user, { Date: 'Date', Amount: 'Amount', Payee: 'Description' });
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+    await user.click(await screen.findByRole('button', { name: 'Add 2 transactions' }));
+
+    const entries = within(await screen.findByRole('region', { name: 'Transactions' }));
+    const shown = () => entries.getAllByRole('listitem').map((row) => row.textContent);
+    expect(shown()).toHaveLength(50);
+    expect(shown()[0]).toContain('Newer import');
+    expect(entries.queryByText('Older import')).toBeNull();
+    await user.click(entries.getByRole('button', { name: 'Show 50 more' }));
+    await entries.findByText('Older import');
+    expect(shown()).toHaveLength(62);
+    expect(shown().at(-2)).toContain('Saved shop 0');
+    expect(shown().at(-1)).toContain('Older import');
+    expect(server.transactions).toHaveLength(60);
+  });
 
   test('imports offline, knows what it has imported, and saves it once back', async () => {
     const server = withAccounts();

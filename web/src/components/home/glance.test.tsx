@@ -211,6 +211,13 @@ describe('a phone’s Home at a glance', () => {
       { day: 'Mon, Nov 16', rows: ['top-up Transfer · Maybank to Cash RM 500.00'] },
       { day: 'Sun, Nov 15', rows: ['Sunday market Food −RM 41.00'] },
     ]);
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([url]) => typeof url === 'string' && url.startsWith('/api/search?')),
+    ).toEqual([
+      [expect.stringContaining('rowsOnly=1'), expect.objectContaining({ method: 'GET' })],
+    ]);
 
     // The detailed Home's parts stay there
     expect(screen.queryByRole('region', { name: 'Expected at month end' })).toBeNull();

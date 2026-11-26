@@ -359,18 +359,21 @@ describe('when the device can’t keep it', () => {
       if (name === 'mahnee-history') throw new DOMException('Quota exceeded', 'QuotaExceededError');
       return real(name, version);
     });
-    onTestFinished(() => blocked.mockRestore());
-    await download();
+    try {
+      await download();
 
-    await coldStartOffline(server, SEPTEMBER_PATH);
-    expect(
-      await screen.findByRole('heading', { name: 'Connect to search' }, { timeout: 6000 }),
-    ).toBeTruthy();
-    expect(
-      await screen.findByText(
-        "This device couldn't keep your entries, so searching needs a connection.",
-      ),
-    ).toBeTruthy();
+      await coldStartOffline(server, SEPTEMBER_PATH);
+      expect(
+        await screen.findByRole('heading', { name: 'Connect to search' }, { timeout: 6000 }),
+      ).toBeTruthy();
+      expect(
+        await screen.findByText(
+          "This device couldn't keep your entries, so searching needs a connection.",
+        ),
+      ).toBeTruthy();
+    } finally {
+      blocked.mockRestore();
+    }
   });
 });
 
@@ -389,23 +392,23 @@ describe('kept up to date', () => {
         (u) => u.pathname === '/api/transactions' && u.searchParams.get('limit') === '50',
       ).length;
 
-    // Each account, once, the first time after it's held whole
+    // The initial backfill already checked the top of each account.
     await download();
-    expect(looks()).toBe(2);
+    expect(looks()).toBe(0);
     // Again a minute later (the ledger fetched after a save, say): nothing more asked
     vi.setSystemTime(new Date(2026, 10, 20, 10, 1, 0));
     await download();
-    expect(looks()).toBe(2);
+    expect(looks()).toBe(0);
     // Past two minutes it looks again, and finds what was added elsewhere
     seed(server, { date: '2026-11-11', amountCents: 450, payee: 'New stall', createdAt: 9e9 });
     vi.setSystemTime(new Date(2026, 10, 20, 10, 3, 0));
     await download();
-    expect(looks()).toBe(4);
+    expect(looks()).toBe(2);
     // The device's clock put back a minute, to before the last look: it looks again, rather
     // than waiting for the clock to catch up
     vi.setSystemTime(new Date(2026, 10, 20, 10, 2, 0));
     await download();
-    expect(looks()).toBe(6);
+    expect(looks()).toBe(4);
     await coldStartOffline(server, '/?activity&q=new%20stall');
     await waitFor(() => expect(registerTitles()).toEqual(['New stall']), { timeout: 6000 });
   });
@@ -568,6 +571,7 @@ describe('out of space', () => {
     });
     onTestFinished(() => full.mockRestore());
     seed(server, { date: '2026-11-18', amountCents: 300, payee: 'New one' });
+    vi.setSystemTime(new Date(2026, 10, 20, 10, 3, 0));
     await download();
     const message =
       'This device is out of space for your history, so offline it shows what it has kept.';

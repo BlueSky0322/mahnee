@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type {
   Account,
   Category,
@@ -13,7 +13,7 @@ import type {
 import type { SearchQuery } from '@shared/search';
 import type { CategoryTree } from './category-tree';
 import type { OnDevice, PageOnDevice } from './history';
-import { historyUnavailable, subscribeHistory } from './history';
+import { ACCOUNT_PAGE, historyUnavailable, subscribeHistory } from './history';
 import { categoryTree } from './category-tree';
 import type { Found as SearchFound } from './search-totals';
 import { searchTotals } from './search-totals';
@@ -30,7 +30,7 @@ import {
   fetchTrend,
   fetchTransactionPage,
   searchTransactionsKey,
-  recentTransactionsKey,
+  homeTransactionsKey,
   RECENT_ENTRIES,
   pendingChanges,
   pendingWithIds,
@@ -185,14 +185,21 @@ export function useAccountTransactions(accountId: string): Transactions {
   const key = accountTransactionsKey(accountId);
   // Worked out again whenever what's still to send changes
   const pending = useSyncExternalStore(subscribeUnsaved, pendingChanges);
+  const [requested, setRequested] = useState({ accountId, rows: ACCOUNT_PAGE });
+  const rows = requested.accountId === accountId ? requested.rows : ACCOUNT_PAGE;
   const select = useCallback(
-    (data: { pages: PageOnDevice[]; pageParams: (string | null)[] }) => ({
-      transactions: shownPages(accountTransactionsKey(accountId), data, pending),
-      onDevice: onDeviceOf(data.pages),
-    }),
-    [accountId, pending],
+    (data: { pages: PageOnDevice[]; pageParams: (string | null)[] }) => {
+      const all = shownPages(accountTransactionsKey(accountId), data, pending);
+      // Pending entries are already on this device. Page them just like saved entries.
+      return {
+        transactions: all.slice(0, Math.max(rows, data.pages.length * ACCOUNT_PAGE)),
+        available: all.length,
+        onDevice: onDeviceOf(data.pages),
+      };
+    },
+    [accountId, pending, rows],
   );
-  const { data, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } =
+  const { data, isError, refetch, hasNextPage, fetchNextPage, isFetching, isFetchingNextPage } =
     useInfiniteQuery({
       queryKey: key,
       queryFn: ({ pageParam }) => fetchTransactionPage(key, pageParam),
@@ -202,12 +209,34 @@ export function useAccountTransactions(accountId: string): Transactions {
       // Asked for offline too, so the first page kept on the device shows
       networkMode: 'offlineFirst',
     });
+  const available = data?.available;
+  useEffect(() => {
+    if (
+      rows > ACCOUNT_PAGE &&
+      available != null &&
+      rows > available &&
+      hasNextPage &&
+      !isFetching &&
+      !isError
+    ) {
+      void loadNext(fetchNextPage, refetch);
+    }
+  }, [available, rows, hasNextPage, isFetching, isError, fetchNextPage, refetch]);
   return {
     transactions: data?.transactions ?? null,
     failed: isError && data == null,
     retry: () => void refetch(),
-    hasMore: hasNextPage,
-    loadMore: () => void loadNext(fetchNextPage, refetch),
+    hasMore: hasNextPage || (data != null && data.transactions.length < data.available),
+    loadMore: () => {
+      setRequested({ accountId, rows: (data?.transactions.length ?? 0) + ACCOUNT_PAGE });
+      if (
+        isError &&
+        hasNextPage &&
+        data != null &&
+        data.transactions.length + ACCOUNT_PAGE > data.available
+      )
+        void loadNext(fetchNextPage, refetch);
+    },
     loadingMore: isFetchingNextPage,
     onDevice: data?.onDevice ?? null,
   };
@@ -280,50 +309,38 @@ export function useSearch(query: SearchQuery, { enabled = true } = {}): Found {
   };
 }
 
-export interface Recent {
-  /**
-   * The newest RECENT_ENTRIES the search finds, newest first, changes still to send on top;
-   * null until loaded
-   */
-  transactions: Transaction[] | null;
-  failed: boolean;
-  retry: () => void;
-  /** Read from the history on this device (offline), and how much it holds; null from the server */
-  onDevice: OnDevice | null;
-}
-
-/**
- * The newest few entries a search finds (a computer's Home), asking the server for no
- * more than that: one entry added or changed here moves them at once, as on every list
- */
-export function useRecent(query: SearchQuery): Recent {
-  const key = recentTransactionsKey(query);
+/** Home's transaction rows. Desktop shows one short page, while the phone may page through a week. */
+export function useHomeRows(query: SearchQuery, { latest = false } = {}): Transactions {
+  const key = homeTransactionsKey(query, latest);
   const pending = useSyncExternalStore(subscribeUnsaved, pendingChanges);
+  const mode = key[1];
   const value = key[2];
   const select = useCallback(
-    (data: { pages: PageOnDevice[]; pageParams: (string | null)[] }) => ({
-      transactions: shownPages(['transactions', 'recent', value], data, pending).slice(
-        0,
-        RECENT_ENTRIES,
-      ),
-      onDevice: onDeviceOf(data.pages),
-    }),
-    [value, pending],
+    (data: { pages: PageOnDevice[]; pageParams: (string | null)[] }) => {
+      const transactions = shownPages(['transactions', mode, value], data, pending);
+      return {
+        transactions: latest ? transactions.slice(0, RECENT_ENTRIES) : transactions,
+        onDevice: onDeviceOf(data.pages),
+      };
+    },
+    [mode, value, pending, latest],
   );
-  const { data, isError, refetch } = useInfiniteQuery({
-    queryKey: key,
-    queryFn: ({ pageParam }) => fetchTransactionPage(key, pageParam),
-    initialPageParam: null as string | null,
-    // One page is all it ever shows
-    getNextPageParam: () => null,
-    select,
-    // Asked for offline too, so what the history on this device holds shows
-    networkMode: 'offlineFirst',
-  });
+  const { data, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: key,
+      queryFn: ({ pageParam }) => fetchTransactionPage(key, pageParam),
+      initialPageParam: null as string | null,
+      getNextPageParam: (last) => (latest ? null : last.nextBefore),
+      select,
+      networkMode: 'offlineFirst',
+    });
   return {
     transactions: data?.transactions ?? null,
     failed: isError && data == null,
     retry: () => void refetch(),
+    hasMore: hasNextPage,
+    loadMore: () => void loadNext(fetchNextPage, refetch),
+    loadingMore: isFetchingNextPage,
     onDevice: data?.onDevice ?? null,
   };
 }
@@ -336,14 +353,17 @@ export interface Summary {
 }
 
 /** What was spent and received in a month (2026-11), in total and by category */
-export function useMonthSummary(month: string): Summary {
+export function useMonthSummary(month: string, { enabled = true } = {}): Summary {
   // The copy kept on the device draws at once, while the server's is fetched
-  useEffect(() => showKeptSummary(month), [month]);
+  useEffect(() => {
+    if (enabled) showKeptSummary(month);
+  }, [enabled, month]);
   const pending = useSyncExternalStore(subscribeUnsaved, pendingWithIds);
   const select = useCallback((data: MonthSummary) => shownSummary(data, pending), [pending]);
   const { data, isError, refetch } = useQuery({
     queryKey: summaryKey(month),
     queryFn: ({ signal }) => fetchSummary(month, signal),
+    enabled,
     select,
     // Asked for offline too, so the copy kept on the device shows
     networkMode: 'offlineFirst',

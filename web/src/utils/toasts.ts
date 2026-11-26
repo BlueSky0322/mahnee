@@ -9,7 +9,8 @@ import { useSyncExternalStore } from 'react';
 // At most MAX_SHOWN show at once, the newest nearest the foot. An older one past that
 // waits out of sight, its seconds stopped, and shows again once a newer one goes, so no
 // Undo is lost before it has had its time. The same counted message again (two deletes
-// in a row) adds up in the one showing ("Deleted 2 entries"), whose Undo takes back both.
+// in a row) adds up in the one showing ("Deleted 2 entries"), whose Undo takes back both,
+// up to its stated maximum; past that it starts a message of its own.
 
 /** How many messages show at once */
 export const MAX_SHOWN = 2;
@@ -30,6 +31,8 @@ export interface Counted {
   count: number;
   /** What the message says for `count` */
   say: (count: number) => string;
+  /** The most one message adds up to, so its Undo stays within what one change may hold */
+  max?: number;
 }
 
 export interface ToastInput {
@@ -58,9 +61,11 @@ interface Kept extends Toast {
   /** When its seconds started running, while they are */
   since: number | null;
   timer: ReturnType<typeof setTimeout> | null;
-  /** Held while the pointer is over it or the keyboard in it */
-  held: boolean;
+  /** Why its seconds are stopped: the pointer over it, the keyboard in it, a swipe */
+  held: Set<HoldReason>;
 }
+
+export type HoldReason = 'hover' | 'focus' | 'swipe';
 
 let kept: Kept[] = [];
 let nextId = 1;
@@ -72,7 +77,7 @@ const isShown = (t: Kept) => kept.indexOf(t) >= kept.length - MAX_SHOWN;
 /** Runs the seconds of the messages showing and not held; stops the others' */
 function retime() {
   for (const t of kept) {
-    const running = isShown(t) && !t.held;
+    const running = isShown(t) && t.held.size === 0;
     if (running && t.timer == null) {
       t.since = Date.now();
       t.timer = setTimeout(() => hideToast(t.id), t.left);
@@ -110,7 +115,15 @@ export function showToast({
   let undo = action ?? null;
   let said = message;
   let total = counted ?? null;
-  const same = counted == null ? null : kept.find((t) => t.counted?.key === counted.key);
+  // The newest of its kind, while adding to it stays within its maximum
+  const like =
+    counted == null ? null : [...kept].reverse().find((t) => t.counted?.key === counted.key);
+  const same =
+    like != null &&
+    counted != null &&
+    like.counted!.count + counted.count <= (counted.max ?? Number.POSITIVE_INFINITY)
+      ? like
+      : null;
   if (same != null && counted != null) {
     // Adds up with the one like it: one message, and its Undo takes back both, the newest
     // first. It shows as the newest, with its full seconds again.
@@ -141,7 +154,7 @@ export function showToast({
     left: autoClose,
     since: null,
     timer: null,
-    held: false,
+    held: new Set(),
   };
   // Pressing the action puts the message away, once
   if (undo != null) {
@@ -172,11 +185,15 @@ export function hideToast(id: number) {
 /** The newest message showing, for Esc to put away */
 export const newestToast = (): number | null => kept.at(-1)?.id ?? null;
 
-/** Stops a message's seconds while the pointer is over it or the keyboard in it */
-export function holdToast(id: number, held: boolean) {
+/**
+ * Stops a message's seconds for `reason` (the pointer over it, the keyboard in it, a
+ * swipe), or lets them run once no reason is left
+ */
+export function holdToast(id: number, reason: HoldReason, held: boolean) {
   const t = kept.find((k) => k.id === id);
-  if (t == null || t.held === held) return;
-  t.held = held;
+  if (t == null || t.held.has(reason) === held) return;
+  if (held) t.held.add(reason);
+  else t.held.delete(reason);
   changed();
 }
 
@@ -191,6 +208,9 @@ const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 };
+
+/** The messages showing now, oldest first */
+export const toastsNow = (): readonly Toast[] => shown;
 
 /** The messages showing, oldest first */
 export const useToasts = () =>

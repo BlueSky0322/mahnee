@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type React from 'react';
-import { useBottomClearance } from '../../utils/bottom-bars';
+import { useBottomPlace } from '../../utils/bottom-bars';
 import { dialogOpen, inField } from '../../utils/fields';
 import type { Toast } from '../../utils/toasts';
 import { hideToast, holdToast, newestToast, useToasts } from '../../utils/toasts';
@@ -40,7 +40,7 @@ const reducedMotion = () =>
 
 export default function Toasts() {
   const toasts = useToasts();
-  const clearance = useBottomClearance();
+  const { clearance, height } = useBottomPlace();
 
   // Esc puts away the newest message, or the one the keyboard is in, before the page's keys
   // (useShortcuts) see it
@@ -63,7 +63,7 @@ export default function Toasts() {
 
   if (toasts.length === 0) return null;
   // Too little room over a tall sheet: at the top of the screen instead
-  const atTop = clearance > 0 && clearance > window.innerHeight - ROOM_PX;
+  const atTop = clearance > 0 && clearance > height - ROOM_PX;
   const place: React.CSSProperties = atTop
     ? { top: GAP_PX, bottom: 'auto' }
     : clearance > 0
@@ -96,8 +96,10 @@ function ToastCard({ toast }: { toast: Toast }) {
     at: number;
     axis: 'x' | 'y' | null;
   } | null>(null);
-  // Set once a press became a swipe, so its release isn't also a press of Undo
+  // Set once a press became a swipe, so its release isn't also a press of Undo; only until
+  // that release's click has gone by, so a key pressed later on Undo still works
   const swiped = useRef(false);
+  const afterSwipe = () => window.setTimeout(() => (swiped.current = false), 0);
 
   const draw = (transform: string, opacity: number, ms: number) => {
     const el = card.current;
@@ -130,7 +132,7 @@ function ToastCard({ toast }: { toast: Toast }) {
       swiped.current = true;
       // The rest of the swipe is the message's, wherever the finger goes
       card.current?.setPointerCapture?.(e.pointerId);
-      holdToast(toast.id, true);
+      holdToast(toast.id, 'swipe', true);
     }
     if (now.axis === 'x') draw(`translateX(${dx}px)`, 1 - Math.min(0.6, Math.abs(dx) / 300), 0);
     else draw(`translateY(${Math.max(0, dy)}px)`, 1 - Math.min(0.6, Math.max(0, dy) / 150), 0);
@@ -140,6 +142,7 @@ function ToastCard({ toast }: { toast: Toast }) {
     const now = drag.current;
     drag.current = null;
     if (now == null || now.pointer !== e.pointerId || now.axis == null) return;
+    afterSwipe();
     const dx = e.clientX - now.x;
     const dy = e.clientY - now.y;
     const width = card.current?.offsetWidth ?? 0;
@@ -159,14 +162,15 @@ function ToastCard({ toast }: { toast: Toast }) {
       window.setTimeout(() => hideToast(toast.id), FLY_MS);
     } else {
       draw('', 1, reducedMotion() ? 0 : FLY_MS);
-      holdToast(toast.id, false);
+      holdToast(toast.id, 'swipe', false);
     }
   };
 
   const onPointerCancel = () => {
     if (drag.current?.axis != null) {
       draw('', 1, reducedMotion() ? 0 : FLY_MS);
-      holdToast(toast.id, false);
+      holdToast(toast.id, 'swipe', false);
+      afterSwipe();
     }
     drag.current = null;
   };
@@ -190,12 +194,13 @@ function ToastCard({ toast }: { toast: Toast }) {
         e.stopPropagation();
       }}
       // Its seconds stop while the pointer is over it or the keyboard in it
-      onPointerEnter={(e) => e.pointerType === 'mouse' && holdToast(toast.id, true)}
-      onPointerLeave={(e) => e.pointerType === 'mouse' && holdToast(toast.id, false)}
-      onFocus={() => holdToast(toast.id, true)}
+      onPointerEnter={(e) => e.pointerType === 'mouse' && holdToast(toast.id, 'hover', true)}
+      onPointerLeave={(e) => e.pointerType === 'mouse' && holdToast(toast.id, 'hover', false)}
+      onFocus={() => holdToast(toast.id, 'focus', true)}
       onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget)) holdToast(toast.id, false);
+        if (!e.currentTarget.contains(e.relatedTarget)) holdToast(toast.id, 'focus', false);
       }}
+      onKeyDown={() => (swiped.current = false)}
     >
       {toast.tone !== 'plain' && (
         <AlertIcon

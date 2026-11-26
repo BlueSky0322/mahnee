@@ -6,13 +6,21 @@ import type { Transaction } from '@shared/api';
 import { DEFAULT_CATEGORIES } from '@shared/categories';
 import type { FakeServer } from '../../testing/app';
 import { navigate } from '../../hooks/useRoute';
-import { fakeServer, goToPlace, renderApp, settle, setupAppTests } from '../../testing/app';
+import {
+  fakeServer,
+  goToPlace,
+  renderApp,
+  resizeScreen,
+  settle,
+  setupAppTests,
+} from '../../testing/app';
+import { pick } from '../../testing/pick';
 
 // The app's messages (toasts): "Deleted 1 entry" with Undo, a refusal, a note that
 // something was done. Each can be put away before it goes by itself: its Dismiss button,
 // a swipe sideways or down, or Esc. Putting away an Undo leaves the change made, as
 // letting it go does. The same message again adds up in the one already showing, never
-// two copies, and at most two show at once. They sit above whatever is fixed at the foot
+// two copies (deletes; moves each keep their own), and at most two show at once. They sit above whatever is fixed at the foot
 // of the screen (the tab bar, a phone's selection bar). Every figure and name here is
 // this file's own.
 
@@ -20,7 +28,9 @@ setupAppTests();
 
 const WALLET = 'a'.repeat(16);
 const categoryId = (name: string) => DEFAULT_CATEGORIES.find((c) => c.name === name)!.id;
-const [OTHER, FOOD] = ['Other', 'Food'].map(categoryId);
+const [OTHER, FOOD, TRANSPORT, GROCERIES] = ['Other', 'Food', 'Transport', 'Groceries'].map(
+  categoryId,
+);
 
 beforeEach(() => {
   // Tuesday 10 November 2026, in the device's own time
@@ -125,6 +135,37 @@ function swipe(el: HTMLElement, dx: number, dy = 0) {
 const release = (el: HTMLElement, dx: number, dy = 0) =>
   fireEvent.pointerUp(el, { ...finger, clientX: 100 + dx, clientY: 700 + dy });
 
+/** Ticks what's given and asks to change their category: a refusal, for spending with income */
+async function refuse(user: User) {
+  await user.click(tick('refund'));
+  await user.click(tick('tram'));
+  await user.click(screen.getByRole('button', { name: 'Change category' }));
+  await user.click(tick('refund'));
+  await user.click(tick('tram'));
+}
+
+/** Moves what's ticked to `to` through Change category */
+async function moveTicked(user: User, count: number, to: string) {
+  await user.click(screen.getByRole('button', { name: 'Change category' }));
+  const sheet = within(await screen.findByRole('dialog'));
+  await user.click(
+    within(sheet.getByRole('radiogroup', { name: 'Move to' })).getByRole('radio', { name: to }),
+  );
+  await user.click(sheet.getByRole('button', { name: `Move ${count} to ${to}` }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+}
+
+/** The browser asks for less motion */
+function lessMotion() {
+  const real = window.matchMedia.bind(window);
+  const spy = vi
+    .spyOn(window, 'matchMedia')
+    .mockImplementation((query: string) =>
+      query.includes('prefers-reduced-motion') ? { ...real(query), matches: true } : real(query),
+    );
+  onTestFinished(() => spy.mockRestore());
+}
+
 /** Seconds of the message's clock, skipped */
 function skippableClock() {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
@@ -184,11 +225,6 @@ describe('putting a message away', () => {
     await act(() => new Promise((resolve) => setTimeout(resolve, 250)));
     release(toast, 24);
     expect(toast.style.transform).toMatch(/^(translate(3d|X)?\(0(px)?[,)].*|)$/);
-    await act(() => vi.advanceTimersByTimeAsync(400));
-    expect(toasts()).toHaveLength(1);
-    // Moving up isn't a swipe away
-    swipe(toast, 0, -120);
-    release(toast, 0, -120);
     await act(() => vi.advanceTimersByTimeAsync(400));
     expect(toasts()).toHaveLength(1);
 
@@ -297,6 +333,159 @@ describe('the same message again', () => {
   });
 });
 
+describe('more ways in and out', () => {
+  test('an Undo goes by itself after 6 seconds, a refusal after 4', async () => {
+    skippableClock();
+    const server = withSpending();
+    withRefund(server);
+    const user = await openActivity(server, 'desktop');
+    await deleteOne(user, 'kiosk');
+    await screen.findByText('Deleted 1 entry');
+    await refuse(user);
+    await screen.findByText(/Pick only spending/);
+    await act(() => vi.advanceTimersByTimeAsync(3_900));
+    expect(toasts()).toHaveLength(2);
+    await act(() => vi.advanceTimersByTimeAsync(300));
+    await waitFor(() => expect(screen.queryByText(/Pick only spending/)).toBeNull());
+    expect(screen.getByText('Deleted 1 entry')).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(1_900));
+    await waitFor(() => expect(toasts()).toEqual([]));
+  });
+
+  test('a message waiting out of sight keeps its seconds until it shows again', async () => {
+    skippableClock();
+    const server = withSpending();
+    withRefund(server);
+    const user = await openActivity(server, 'desktop');
+    await deleteOne(user, 'kiosk');
+    await screen.findByText('Deleted 1 entry');
+    await act(() => vi.advanceTimersByTimeAsync(3_000));
+    // Two refusals push it out of sight, 3 of its 6 seconds left
+    await refuse(user);
+    await refuse(user);
+    await waitFor(() => expect(screen.queryByText('Deleted 1 entry')).toBeNull());
+    await act(() => vi.advanceTimersByTimeAsync(4_100));
+    // The refusals have gone; it's back with the 3 seconds it had
+    expect(await screen.findByText('Deleted 1 entry')).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(2_500));
+    expect(screen.getByText('Deleted 1 entry')).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(700));
+    await waitFor(() => expect(toasts()).toEqual([]));
+  });
+
+  test('the keyboard in it keeps it, after the pointer has left', async () => {
+    skippableClock();
+    const server = withSpending();
+    const user = await openActivity(server, 'desktop');
+    await deleteOne(user, 'kiosk');
+    const toast = await screen.findByRole('alert');
+    const mouse = { pointerType: 'mouse' };
+    fireEvent.pointerEnter(toast, mouse);
+    act(() => within(toast).getByRole('button', { name: 'Undo' }).focus());
+    fireEvent.pointerLeave(toast, mouse);
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(screen.getByText('Deleted 1 entry')).toBeTruthy();
+    // Once the keyboard leaves too, its seconds run
+    act(() => within(toast).getByRole('button', { name: 'Undo' }).blur());
+    await act(() => vi.advanceTimersByTimeAsync(6_100));
+    await waitFor(() => expect(toasts()).toEqual([]));
+    expect(server.transactions).toHaveLength(2);
+  });
+
+  test('after a swipe that went back, Enter on Undo still undoes', async () => {
+    const server = withSpending();
+    const user = await openActivity(server, 'phone');
+    await deleteOne(user, 'tram');
+    const toast = await screen.findByRole('alert');
+    await waitFor(() => expect(server.transactions).toHaveLength(2));
+    swipe(toast, 24);
+    // Held a moment, so it's no flick
+    await act(() => new Promise((resolve) => setTimeout(resolve, 250)));
+    release(toast, 24);
+    expect(toasts()).toHaveLength(1);
+    act(() => within(toast).getByRole('button', { name: 'Undo' }).focus());
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(server.transactions).toHaveLength(3));
+  });
+
+  test('moving up is not a swipe away', async () => {
+    skippableClock();
+    const server = withSpending();
+    const user = await openActivity(server, 'phone');
+    await deleteOne(user, 'tram');
+    const toast = await screen.findByRole('alert');
+    swipe(toast, 0, -120);
+    expect(toast.style.transform).toBe('');
+    release(toast, 0, -120);
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(toasts()).toHaveLength(1);
+  });
+
+  test('with less motion asked for, a swipe puts it away at once, with no flight', async () => {
+    const server = withSpending();
+    const user = await openActivity(server, 'phone');
+    lessMotion();
+    await deleteOne(user, 'tram');
+    const toast = await screen.findByRole('alert');
+    swipe(toast, 160);
+    release(toast, 160);
+    expect(toasts()).toEqual([]);
+  });
+
+  test('with a dialog open, Esc closes the dialog and leaves the message', async () => {
+    const server = withSpending();
+    const user = await openActivity(server, 'desktop');
+    await deleteOne(user, 'tram');
+    await screen.findByRole('alert');
+    await user.click(tick('bakery'));
+    await user.click(screen.getByRole('button', { name: 'Change category' }));
+    await screen.findByRole('dialog');
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(toasts()).toHaveLength(1);
+  });
+
+  test("in the editor's Note, Esc is the field's own", async () => {
+    const server = withSpending();
+    const user = await openActivity(server, 'desktop');
+    await deleteOne(user, 'tram');
+    await screen.findByRole('alert');
+    await user.click(screen.getByRole('cell', { name: 'kiosk' }));
+    const pane = within(await screen.findByRole('complementary', { name: /^kiosk, / }));
+    await user.click(pane.getByLabelText('Note'));
+    await user.keyboard('{Escape}');
+    expect(toasts()).toHaveLength(1);
+  });
+});
+
+describe('moves', () => {
+  test('two moves to the same category keep their own Undo, so one never undoes an edit between them', async () => {
+    const server = withSpending();
+    const user = await openActivity(server, 'desktop');
+    const kiosk = () => server.transactions.find((t) => t.note === 'kiosk')!;
+    await user.click(tick('kiosk'));
+    await moveTicked(user, 1, 'Transport');
+    await waitFor(() => expect(kiosk().categoryId).toBe(TRANSPORT));
+    // Changed in the editor in between
+    await user.click(screen.getByRole('cell', { name: 'kiosk' }));
+    const pane = within(await screen.findByRole('complementary', { name: /^kiosk, / }));
+    await pick(user, pane.getByLabelText('Category'), 'Groceries');
+    await user.click(pane.getByRole('button', { name: /^Save/ }));
+    await waitFor(() => expect(kiosk().categoryId).toBe(GROCERIES));
+    await user.click(tick('kiosk'));
+    await moveTicked(user, 1, 'Transport');
+    await waitFor(() => expect(kiosk().categoryId).toBe(TRANSPORT));
+
+    const moved = toasts().filter((t) => t.textContent?.includes('Moved 1 to Transport'));
+    expect(moved).toHaveLength(2);
+    await user.click(within(moved[1]).getByRole('button', { name: 'Undo' }));
+    // Back where the edit put it, not where it was before the first move
+    await waitFor(() => expect(kiosk().categoryId).toBe(GROCERIES));
+    await settle();
+    expect(kiosk().categoryId).toBe(GROCERIES);
+  });
+});
+
 /** Says where elements are drawn, as a browser would: each `height` px tall at the foot */
 function atFoot(...bars: [match: (el: Element) => boolean, height: number][]) {
   // eslint-disable-next-line @typescript-eslint/unbound-method -- called with its element below
@@ -358,6 +547,23 @@ describe('never over the controls', () => {
     expect(screen.getByRole('navigation', { name: 'Main' })).toBeTruthy();
     await waitFor(() => expect(toastsBottom()).toBeLessThan(150));
     expect(toastsBottom()).toBeGreaterThanOrEqual(84 + 8);
+  });
+
+  test('with too little room over what is at the foot, they show at the top instead', async () => {
+    atFoot([(el) => el.getAttribute('aria-label') === 'Selected', 600]);
+    const server = withSpending();
+    const user = await openActivity(server, 'phone');
+    await user.click(tick('kiosk'));
+    await moveTicked(user, 1, 'Food');
+    await screen.findByText('Moved 1 to Food');
+    const stack = () => toasts()[0].parentElement!;
+    // 844px tall: 244px left over the bar, enough
+    await waitFor(() => expect(stack().style.bottom).toBe('612px'));
+    expect(stack().dataset.at).toBe('bottom');
+    // A shorter screen, the bar as tall: 67px left, so the top
+    resizeScreen('short-phone');
+    await waitFor(() => expect(stack().dataset.at).toBe('top'));
+    expect(stack().style.top).toBe('12px');
   });
 });
 

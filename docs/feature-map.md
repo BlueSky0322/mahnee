@@ -402,8 +402,12 @@ sends them in order, one request at a time, in batches of at most `MAX_CHANGES` 
   page's own Esc (Activity letting go of its ticks). Putting an Undo away never undoes: the
   change stands, as when it times out. At most 2 show; an older one waits out of sight with
   its seconds stopped and shows again when a newer one goes, so no Undo is lost early. A
-  message passed `counted` adds up with the same one still showing ("Deleted 2 entries"),
-  its Undo running both, the newest first. They sit above whatever is fixed at the foot
+  message passed `counted` adds up with the newest like it still showing ("Deleted 2
+  entries"), its Undo running both, the newest first, up to its `max` (500 for deletes,
+  `MAX_BULK_TRANSACTIONS`), past which it starts a message of its own. Hover, the keyboard
+  in it and a swipe each stop its seconds, which run again only once none is left. Only
+  changes whose Undos can't undo something made between them add up: deletes do, moves
+  don't (an edit between two moves would be lost). They sit above whatever is fixed at the foot
   (the tab bar, a phone's selection bar, the offline and new-version notices, Import's Add
   bar, a phone's sheet), each measured as drawn through `useBottomBar` in
   [utils/bottom-bars.ts](../web/src/utils/bottom-bars.ts); with too little room over a tall
@@ -1427,8 +1431,8 @@ person's month, from their month start day) move the budget, and none already in
 a budget is a month's, so an October entry moved to Food changes October's Food, not the
 one shown. Spending or income
 alone, no transfers. Delete N takes them out at once, with Undo; deletes in a row add up
-in one "Deleted N entries" whose Undo adds back all of them, and moves to the same category
-add up likewise. A phone or tablet selecting stops selecting once a delete has taken out
+in one "Deleted N entries" (up to 500) whose Undo adds back all of them; each move keeps its
+own Undo. A phone or tablet selecting stops selecting once a delete has taken out
 what was ticked, through the same Back as Done, so no step is left behind. More than 500 ticked is
 refused with a message. With nothing yet (the first page of a search says whether the person
 has any entry at all, `anywhere`: a transfer alone shows the filters, with nothing matching)

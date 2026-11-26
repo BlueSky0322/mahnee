@@ -447,10 +447,22 @@ describe('deleting several', () => {
       await user.click(screen.getByRole('button', { name: 'Delete 2' }));
       await waitFor(() => expect(screen.queryAllByText(/bus fare/)).toEqual([]));
       expect(findTick('first other')).toBeNull();
-      expect(screen.getAllByText(/lunch/).length).toBeGreaterThan(0);
-      // A phone stops selecting once what was ticked is gone
-      if (size === 'phone') expect(screen.getByRole('button', { name: 'Select' })).toBeTruthy();
-      else expect(findTick('second other')).not.toBeNull();
+      if (size === 'phone') {
+        // A phone stops selecting once what was ticked is gone; the rest still show, and
+        // selecting again starts with none of them ticked
+        expect(
+          screen.queryByRole('button', { name: /^Stall, Other · Wallet, −1\.00$/ }),
+        ).toBeNull();
+        expect(
+          screen.getByRole('button', { name: /^Stall, Other · Wallet, −2\.00$/ }),
+        ).toBeTruthy();
+        await user.click(screen.getByRole('button', { name: 'Select' }));
+        expect(tick('second other')).toHaveProperty('checked', false);
+        await user.click(screen.getByRole('button', { name: 'Done' }));
+        await screen.findByRole('button', { name: 'Select' });
+      } else {
+        expect(tick('second other')).toHaveProperty('checked', false);
+      }
       answer.release();
       await waitFor(() => expect(server.transactions).toHaveLength(3));
       expect(sentChanges().map(sorted)).toEqual([

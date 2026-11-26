@@ -411,11 +411,13 @@ export default function ActivityPage({ query }: { query: string }) {
     if (selecting) stopSelecting();
     else clearTicked();
     // Undo adds each again, with its own id; deletes in a row add up in one message, whose
-    // Undo adds back all of them (each a different entry, so the order doesn't matter)
+    // Undo adds back all of them (each a different entry, so the order doesn't matter), up
+    // to as many as one change may take out
     showUndo(`Deleted ${entriesText(gone.length)}`, () => addAgain(...gone), {
       key: 'deleted-entries',
       count: gone.length,
       say: (n) => `Deleted ${entriesText(n)}`,
+      max: MAX_BULK_TRANSACTIONS,
     });
   };
 

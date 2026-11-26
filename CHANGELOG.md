@@ -14,7 +14,7 @@ For agents:
 
 ## 2026-11-26
 
-- Fixed: messages such as Undo can be put away with their X, a swipe or Esc (the change stays made), deletes in a row show one "Deleted 2 entries" whose Undo brings back both, at most two show, and they sit above the tab bar and the selection bar; deleting what was ticked on a phone stops selecting [#?]
+- Added: swipe, close or press Esc to put a message away; repeated deletes share one Undo [#?]
 - Fixed: backdated offline edits use the entry’s exchange rate, long queues of foreign expenses sync on reconnect, and saved totals and pending settings survive an offline restart [#80]
 - Fixed: on a phone or tablet, Back after picking one of Activity's filters leaves Activity as it does on a computer, never bringing back the filter before, and Done or Back after changing a filter while selecting leaves no step behind [#77]
 

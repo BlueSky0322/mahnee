@@ -12,12 +12,23 @@ import {
 } from 'react';
 import type { Profile } from '../api';
 import { ApiError, api } from '../api';
+import {
+  accountCheckRequired,
+  accountChecked,
+  cleanedDevice,
+  cleanupOwner,
+  deviceAccount,
+  finishRemoteLogout,
+  lockDevice,
+  logoutIntent,
+  prepareSignIn,
+  watchDeviceSession,
+} from '../offline/device-session';
 import { ME_KEY, queryClient } from '../query-client';
 import { isOffline, isOfflineFailure } from '../offline/network';
-import { editOutbox, isRetryable } from '../offline/outbox';
+import { isRetryable } from '../offline/outbox';
 import {
   canWait,
-  dropUnsent,
   eachField,
   keepUnsent,
   keepUnsentUnder,
@@ -33,8 +44,8 @@ import {
   openedSignedOut,
   readCache,
   setCacheUser,
+  sessionBlocked,
   signInAddress,
-  writeCache,
   writeCacheAs,
 } from '../offline/cache';
 import { isAccent } from '@shared/accents';
@@ -237,32 +248,64 @@ const isSignInAnswer = (err: unknown) => err instanceof ApiError && err.status =
  * worker lets Access answer rather than showing its kept copy.
  */
 export function signIn() {
-  window.location.href = signInAddress();
+  const go = () => {
+    window.location.href = signInAddress();
+  };
+  if (!logoutIntent()) return go();
+  void completeDeviceCleanup()
+    .then(prepareSignIn)
+    .then(go)
+    .catch((err) => showError(err, 'Connect to finish signing out, then sign in again.'));
 }
 
-/**
- * Stops reminders coming to this device, forgets what this device kept for the account,
- * changes waiting to be sent included, then signs out of Cloudflare Access. Changes the
- * server refused stay, theirs alone, to review when they sign in again; others' unsent
- * changes, kept from before this account signed in here, stay theirs.
- */
+let cleaning: Promise<void> | undefined;
+function completeDeviceCleanup() {
+  const intent = logoutIntent();
+  if (!intent?.startsWith('clearing:')) return Promise.resolve();
+  return (cleaning ??= clearCache(() => true, cleanupOwner(intent))
+    .then(() => cleanedDevice(intent))
+    .finally(() => {
+      cleaning = undefined;
+    }));
+}
+
 export async function signOut() {
-  await letGoHere();
-  const leaving = cacheUser();
-  // Of their own, only changes the server refused stay, for them to review when they sign
-  // in again; what's still waiting to be sent goes. If the device can't be written, it all
-  // stays, still theirs alone.
-  if (leaving != null) {
-    await dropUnsent(leaving).catch(() => undefined);
-    await editOutbox(leaving, (kept) => kept.filter((q) => q.refused != null)).catch(
-      () => undefined,
-    );
+  const leaving = cacheUser() ?? deviceAccount() ?? null;
+  lockDevice(leaving);
+  // Start unsubscribing while this page can still name the account on its write.
+  try {
+    await Promise.all([letGoHere(leaving), completeDeviceCleanup()]);
+  } catch (err) {
+    showError(err, 'Could not finish clearing this device. Cleanup will be retried.');
+    return;
   }
-  await clearCache(() => true);
-  window.location.href = '/cdn-cgi/access/logout';
+  if (!isOffline()) window.location.href = '/cdn-cgi/access/logout';
 }
 
 export function ProfileProvider({ children }: { children: ReactNode }) {
+  const blocked = useSyncExternalStore(watchDeviceSession, sessionBlocked);
+  const [staleTab, setStaleTab] = useState(false);
+  const restarting = useRef(false);
+  const initialDeviceOwner = useRef(deviceAccount());
+  const reloadWithOwner = useCallback(() => {
+    if (restarting.current || logoutIntent()) return;
+    restarting.current = true;
+    window.location.reload();
+  }, []);
+  useEffect(() => {
+    if (!blocked || !logoutIntent()) return;
+    queryClient.clear();
+    const finish = () => {
+      if (!isOffline())
+        void completeDeviceCleanup()
+          .then(finishRemoteLogout)
+          .catch(() => undefined);
+    };
+    // The initiating page owns its cleanup until the logout navigation; a later launch retries it.
+    if (cacheUser() == null) finish();
+    window.addEventListener('online', finish);
+    return () => window.removeEventListener('online', finish);
+  }, [blocked]);
   const fromDevice = useRef(false);
   // Sends what was changed here without a connection (set below, once update's parts are)
   const sendUnsent = useRef<() => Promise<void>>(async () => {});
@@ -333,11 +376,18 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           }, DEVICE_START_WAIT_MS)
         : undefined;
       try {
-        const me = await api.getMe();
+        const checking = accountCheckRequired();
+        let me = await api.getMe();
         answered = true;
         clearTimeout(timer);
         // Copies are kept per account; know whose before showing any
         await setCacheUser(me.email);
+        // A profile requested before a confirmed mismatch may still describe the old session.
+        if (!checking && accountCheckRequired()) {
+          me = await api.getMe();
+          await setCacheUser(me.email);
+        }
+        accountChecked();
         // Reminders for whoever subscribed this device before stop coming here
         void releaseForOthers(me.email);
         const shown = assumed.current;
@@ -346,8 +396,8 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         setSignInToSync(false);
         // Someone else's saved copies were shown meanwhile, and are gone from this device
         // now: start afresh as the person signed in
-        if (shown != null && shown !== me.email) window.location.reload();
-        void writeCache(ME_CACHE_KEY, me);
+        if (shown != null && shown !== me.email) reloadWithOwner();
+        void writeCacheAs(me.email, ME_CACHE_KEY, me);
         // What was changed here without a connection goes back over the server's older
         // copy once this answer is shown, and is sent
         setTimeout(() => void sendUnsent.current(), 0);
@@ -371,16 +421,55 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         throw err;
       }
     },
+    enabled: !logoutIntent() && (!blocked || accountCheckRequired()) && !staleTab,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     retry: false,
     // Runs offline too, so the saved profile is used rather than waiting for a connection
     networkMode: 'always',
   });
-  const profile = data ?? null;
+  useEffect(() => {
+    let rechecking = false;
+    const mismatch = () => {
+      if (rechecking || logoutIntent()) return;
+      rechecking = true;
+      setStaleTab(true);
+      // Reuse discovery already in flight. It clears the previous owner's storage before navigating.
+      void refetch({ cancelRefetch: false }).then((result) => {
+        rechecking = false;
+        if (result.isSuccess && !accountCheckRequired()) reloadWithOwner();
+      });
+    };
+    const checkDevice = () => {
+      const owner = deviceAccount();
+      if (logoutIntent() || accountCheckRequired() || !owner) return;
+      // Another tab has already finished establishing the new owner, even if this tab
+      // was suspended or failed its first read while sign-in was completing there.
+      if (
+        (cacheUser() && sessionBlocked()) ||
+        (error && !cacheUser() && owner !== initialDeviceOwner.current)
+      ) {
+        setStaleTab(true);
+        reloadWithOwner();
+      }
+    };
+    const changed = () => {
+      if (accountCheckRequired()) mismatch();
+      else checkDevice();
+    };
+    const stop = watchDeviceSession(changed);
+    window.addEventListener('online', changed);
+    checkDevice();
+    return () => {
+      stop();
+      window.removeEventListener('online', changed);
+    };
+  }, [error, refetch, reloadWithOwner]);
+  const profile = blocked || staleTab ? null : data ?? null;
   // Signing in happens in front of the app (Cloudflare Access), so a 401 means it ran out.
   // Opened from the device because Access asked, the server can't be asked at all.
-  const signedOut = error != null && (isSignInAnswer(error) || openedSignedOut());
+  const signedOut =
+    blocked || staleTab || (error != null && (isSignInAnswer(error) || openedSignedOut()));
   const unreachable = error != null && !signedOut;
   const retry = useCallback(() => void refetch(), [refetch]);
 
@@ -388,6 +477,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   // was changed meanwhile), else send what was changed meanwhile
   useEffect(() => {
     const refresh = () => {
+      if (sessionBlocked()) return;
       if (fromDevice.current) void queryClient.invalidateQueries({ queryKey: ME_KEY });
       else void sendUnsent.current();
     };
@@ -656,7 +746,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           showProgress(me.conversion);
           if (sameButProgress(me, profileRef.current)) return;
           replace(me);
-          void writeCache(ME_CACHE_KEY, me);
+          void writeCacheAs(me.email, ME_CACHE_KEY, me);
         })
         .catch(() => {})
         .finally(() => {

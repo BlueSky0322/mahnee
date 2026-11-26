@@ -190,6 +190,7 @@ describe('a computer’s Home lists the latest entries', () => {
     expect(recentReads()).toHaveLength(1);
     // Every kind, transfers too
     expect(recentReads()[0][0]).not.toContain('kind=');
+    expect(recentReads()[0][0]).toContain('rowsOnly=1');
   });
 
   test('amounts are coloured as Activity colours them', async () => {
@@ -290,6 +291,11 @@ describe('a computer’s Home lists the latest entries', () => {
     await waitFor(() => expect(screen.queryByText(/waiting/)).toBeNull());
     expect((await rowNames(region))[0]).toMatch(/, Today, −RM 12\.34$/);
     expect(await rowNames(region)).toHaveLength(8);
+    await waitFor(() => expect(recentReads()).toHaveLength(2));
+    const summaryReads = (month: string) =>
+      vi.mocked(fetch).mock.calls.filter(([url]) => url === `/api/summary?month=${month}`);
+    await waitFor(() => expect(summaryReads('2026-11')).toHaveLength(2));
+    expect(summaryReads('2026-10')).toHaveLength(1);
   });
 
   test('offline, entries waiting to save and for a rate show as they do elsewhere', async () => {

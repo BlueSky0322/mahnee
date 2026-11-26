@@ -59,17 +59,27 @@ function jpegSize(b: Uint8Array): [number, number] | null {
 /** A picture's width and height from its header, or null when they can't be read */
 function imageSize(b: Uint8Array, type: string): [number, number] | null {
   if (type === 'image/jpeg') return jpegSize(b);
-  if (type === 'image/png') return b.length >= 24 ? [u32be(b, 16), u32be(b, 20)] : null;
-  if (b.length < 30) return null;
+  if (type === 'image/png') {
+    if (
+      b.length < 33 ||
+      u32be(b, 4) !== 0x0d0a1a0a ||
+      u32be(b, 8) !== 13 ||
+      String.fromCharCode(...b.slice(12, 16)) !== 'IHDR'
+    )
+      return null;
+    return [u32be(b, 16), u32be(b, 20)];
+  }
   const chunk = String.fromCharCode(...b.slice(12, 16));
-  if (chunk === 'VP8 ') return [u16le(b, 26) & 0x3fff, u16le(b, 28) & 0x3fff];
-  if (chunk === 'VP8L') {
+  if (chunk === 'VP8 ' && b.length >= 30 && u24le(b, 23) === 0x2a019d) {
+    return [u16le(b, 26) & 0x3fff, u16le(b, 28) & 0x3fff];
+  }
+  if (chunk === 'VP8L' && b.length >= 25 && b[20] === 0x2f) {
     return [
       1 + (((b[22] & 0x3f) << 8) | b[21]),
       1 + (((b[24] & 0x0f) << 10) | (b[23] << 2) | ((b[22] & 0xc0) >> 6)),
     ];
   }
-  if (chunk === 'VP8X') return [1 + u24le(b, 24), 1 + u24le(b, 27)];
+  if (chunk === 'VP8X' && b.length >= 30) return [1 + u24le(b, 24), 1 + u24le(b, 27)];
   return null;
 }
 
@@ -84,9 +94,11 @@ function checkPicture(bytes: Uint8Array): Picture | Response {
   if (bytes.length > MAX_PICTURE_BYTES) return fail('That picture is too large', 413);
   const contentType = detectType(bytes);
   if (contentType == null) return fail('Only JPEG, PNG and WebP pictures', 415);
-  // Without a size to read, browsers couldn't show it either: only a size too large is refused
   const size = imageSize(bytes, contentType);
-  if (size != null && (size[0] > MAX_PICTURE_SIDE || size[1] > MAX_PICTURE_SIDE)) {
+  if (size == null || size[0] === 0 || size[1] === 0) {
+    return fail("Couldn't read the picture dimensions.", 415);
+  }
+  if (size[0] > MAX_PICTURE_SIDE || size[1] > MAX_PICTURE_SIDE) {
     return fail(`Pictures can be up to ${MAX_PICTURE_SIDE} pixels on a side`, 413);
   }
   return { bytes, contentType };

@@ -46,12 +46,20 @@ const isApple = () =>
 
 /** The service worker's registration, which holds the push subscription; null without one */
 async function registration() {
-  if (!hasPush()) return null;
+  if (typeof navigator === 'undefined' || !navigator.serviceWorker?.getRegistration) return null;
   return (await navigator.serviceWorker.getRegistration().catch(() => undefined)) ?? null;
 }
 
 const currentSubscription = async () =>
-  (await (await registration())?.pushManager.getSubscription().catch(() => null)) ?? null;
+  (await (await registration())?.pushManager?.getSubscription().catch(() => null)) ?? null;
+
+/** Remove reminders already visible on this device, even after its subscription expired. */
+async function releaseReminders() {
+  const reg = await registration();
+  const shown = await reg?.getNotifications?.().catch(() => []);
+  for (const reminder of shown ?? []) quietly(() => reminder.close());
+  return (await reg?.pushManager?.getSubscription().catch(() => null)) ?? null;
+}
 
 /** The subscription as the server takes it */
 const bodyOf = (sub: PushSubscription) => {
@@ -121,12 +129,12 @@ export async function turnOnHere(email: string): Promise<DeviceState> {
  * moment at most; offline, its push service says it's gone at the next reminder) and the
  * browser drops the subscription
  */
-export async function letGoHere(): Promise<void> {
-  const sub = await currentSubscription();
+export async function letGoHere(email?: string | null): Promise<void> {
   setOwner(null);
+  const sub = await releaseReminders();
   if (sub == null) return;
   await Promise.race([
-    api.unsubscribePush(sub.endpoint).catch(() => undefined),
+    api.unsubscribePush(sub.endpoint, email).catch(() => undefined),
     new Promise((resolve) => setTimeout(resolve, LET_GO_WAIT_MS)),
   ]);
   await sub.unsubscribe().catch(() => false);
@@ -141,7 +149,7 @@ export async function releaseForOthers(email: string): Promise<void> {
   const was = owner();
   if (was == null || was === email) return;
   setOwner(null);
-  const sub = await currentSubscription();
+  const sub = await releaseReminders();
   await sub?.unsubscribe().catch(() => false);
 }
 

@@ -413,8 +413,9 @@ describe('signing out', () => {
 
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
     await user.click(within(await dialog()).getByRole('button', { name: 'Sign out anyway' }));
-    await waitFor(() => expect(sentTo).toEqual(['/cdn-cgi/access/logout']));
-    expect(await get(outboxKey(RYAN))).toBeUndefined();
+    expect(await screen.findByText("You're signed out")).toBeTruthy();
+    expect(sentTo).toEqual([]);
+    await waitFor(async () => expect(await get(outboxKey(RYAN))).toBeUndefined());
   });
 
   test('keeps a change the server refused for when they sign in again', async () => {
@@ -446,7 +447,23 @@ describe('signing out', () => {
     await waitFor(() => expect(sentTo).toEqual(['/cdn-cgi/access/logout']));
     vi.unstubAllGlobals();
 
-    // Signed in again: still there to review
+    // Reopening while Access still accepts the previous cookie stays signed out.
+    await reloadApp(server, '/?accounts');
+    expect(await screen.findByText("You're signed out")).toBeTruthy();
+    expect(screen.queryByText("1 change couldn't be saved.")).toBeNull();
+    const signingIn = watchLeaving();
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(signingIn).toHaveLength(1));
+    const returned = new URL(signingIn[0], window.location.origin);
+    expect(returned.pathname).toBe('/');
+    expect([...returned.searchParams]).toEqual([
+      ['accounts', ''],
+      ['sign-in', ''],
+    ]);
+    vi.unstubAllGlobals();
+    // Access returned the marked app document, as handled in main.tsx.
+    window.history.replaceState(null, '', signingIn[0]);
+    (await import('./cache')).dropSignInMark();
     await reloadApp(server, '/?accounts');
     expect(await screen.findByText("1 change couldn't be saved.")).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Review' }));

@@ -11,7 +11,7 @@ import { MAX_TRANSACTIONS_PER_ACCOUNT, isOnAccount } from '@shared/ledger';
 import type { SearchQuery } from '@shared/search';
 import { categoriesIn, matchesSearch, searchParams } from '@shared/search';
 import { ApiError, CLIENT_ID, NetworkError, api } from '../api';
-import { cacheUser, onCacheCleared } from '../offline/cache';
+import { cacheUser, onCacheCleared, sessionBlocked } from '../offline/cache';
 import type { Coverage, Narrowed } from '../offline/history-store';
 import {
   HistoryForgotten,
@@ -68,7 +68,7 @@ const TOP_UP_PAGE = 50;
 /** An account holds at most MAX_TRANSACTIONS_PER_ACCOUNT, so at most this many pages */
 const MAX_PAGES = Math.ceil(MAX_TRANSACTIONS_PER_ACCOUNT / PAGE) + 1;
 /** An account's page holds this many unless asked (worker/ledger/read.ts PAGE_SIZE) */
-const ACCOUNT_PAGE = 50;
+export const ACCOUNT_PAGE = 50;
 /**
  * How long after a look for an account's new entries another is skipped: the ledger is
  * fetched again after every save from here (which the history follows already), and each
@@ -110,7 +110,7 @@ export type PageOnDevice<P extends TransactionPage = TransactionPage> = P & {
 // before is never written after
 let generation = 0;
 const stillMineFor = (email: string, at: number) => () =>
-  at === generation && cacheUser() === email;
+  at === generation && cacheUser() === email && !sessionBlocked();
 
 /** The device couldn't read the history since this page opened (or was emptied) */
 let unreadable = false;
@@ -166,7 +166,7 @@ onCacheCleared(() => {
   savedLog = [];
   lastSearch = null;
   lookedAt.clear();
-  void forgetHistory().catch(() => undefined);
+  return forgetHistory();
 });
 
 /** A page of one account's, with what was saved since it was asked for on top */
@@ -303,6 +303,7 @@ async function downloadPage(coverage: Coverage, stillMine: () => boolean): Promi
       askedAt,
     ),
   );
+  if (before == null && stillMine()) lookedAt.set(`${email}:${accountId}`, askedAt);
   return after;
 }
 
@@ -499,7 +500,7 @@ let lastSearch: { key: string; writes: number; found: Transaction[] } | null = n
 
 /**
  * A page of what a search finds, from the device, as the server would answer it (newest
- * first, `limit` at a time from `before`, with what matches beyond); null when the
+ * first, `limit` at a time from `before`, optionally with what matches beyond); null when the
  * device holds nothing of the accounts concerned, or can't be read
  */
 export async function localSearchPage(
@@ -509,9 +510,11 @@ export async function localSearchPage(
   currency: string | null,
   before: string | null,
   limit: number,
-): Promise<PageOnDevice<SearchPage> | null> {
+  rowsOnly = false,
+): Promise<PageOnDevice<SearchPage> | PageOnDevice | null> {
   const email = cacheUser();
   if (email == null || unreadable) return null;
+  const stillMine = stillMineFor(email, generation);
   try {
     const concerned = query.account != null ? [query.account] : accountIds;
     const onDevice = await onDeviceFor(email, concerned, currency);
@@ -526,12 +529,19 @@ export async function localSearchPage(
       all = lastSearch.found;
     } else {
       all = await read(query);
+      if (!stillMine()) return null;
       lastSearch = { key, writes, found: all };
     }
     const found = after(all, before);
     const page = found.slice(0, limit);
+    const last = found.length > limit ? page.at(-1)! : null;
+    const rows = {
+      transactions: page,
+      nextBefore: last == null ? null : cursorOf(last),
+      onDevice,
+    };
+    if (rowsOnly) return stillMine() ? rows : null;
     const beyond = found.slice(limit);
-    const last = beyond.length > 0 ? page.at(-1)! : null;
     const first = before == null;
     // How many match on other days: said only where nothing is found here, so read only then
     let elsewhere: number | undefined;
@@ -543,9 +553,10 @@ export async function localSearchPage(
               (t) => !matchesSearch(t, query, categories),
             ).length;
     }
+    const anywhere = first ? !onDevice.complete || (await holdsAny(email)) : undefined;
+    if (!stillMine()) return null;
     return {
-      transactions: page,
-      nextBefore: last == null ? null : cursorOf(last),
+      ...rows,
       rest: sum(beyond),
       restOfLastDay:
         last == null
@@ -553,11 +564,10 @@ export async function localSearchPage(
           : { date: last.date, ...sum(beyond.filter((t) => t.date === last.date)) },
       ...(elsewhere != null && { elsewhere }),
       // A download not done may hold none yet: never said to be nothing at all
-      ...(first && { anywhere: !onDevice.complete || (await holdsAny(email)) }),
-      onDevice,
+      ...(anywhere != null && { anywhere }),
     };
   } catch (err) {
-    storageFailed(err);
+    if (stillMine()) storageFailed(err);
     return null;
   }
 }
@@ -574,10 +584,12 @@ export async function localAccountPage(
 ): Promise<PageOnDevice | null> {
   const email = cacheUser();
   if (email == null || unreadable) return null;
+  const stillMine = stillMineFor(email, generation);
   try {
     const onDevice = await onDeviceFor(email, [accountId], currency);
     if (onDevice == null) return null;
     const found = await accountEntries(email, accountId, before, ACCOUNT_PAGE + 1);
+    if (!stillMine()) return null;
     const page = found.slice(0, ACCOUNT_PAGE);
     return {
       transactions: page,
@@ -585,7 +597,7 @@ export async function localAccountPage(
       onDevice,
     };
   } catch (err) {
-    storageFailed(err);
+    if (stillMine()) storageFailed(err);
     return null;
   }
 }
@@ -597,13 +609,14 @@ export async function localAccountPage(
 export async function localSince(accountId: string, fromDay: string, currency: string | null) {
   const email = cacheUser();
   if (email == null || unreadable) return null;
+  const stillMine = stillMineFor(email, generation);
   try {
     const onDevice = await onDeviceFor(email, [accountId], currency);
     if (onDevice == null) return null;
     const rows = await readEntries(email, { by: 'account', accountId });
-    return { transactions: rows.filter((t) => t.date >= fromDay), onDevice };
+    return stillMine() ? { transactions: rows.filter((t) => t.date >= fromDay), onDevice } : null;
   } catch (err) {
-    storageFailed(err);
+    if (stillMine()) storageFailed(err);
     return null;
   }
 }

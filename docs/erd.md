@@ -379,7 +379,8 @@ erDiagram
 - **`change_receipts`**: one per change the app saved through `POST /api/changes`, by
   the id the app gave it, with the change's fingerprint, saved in the same batch as the
   change. A change sent again counts once; the same id with a different change is
-  refused. Each person's receipts older than 90 days are let go when they next save.
+  refused. Receipts stay with their account so a device can retry an acknowledged change after
+  months offline. Receipts removed before the retention policy changed cannot be recovered.
 
 ## Conventions
 

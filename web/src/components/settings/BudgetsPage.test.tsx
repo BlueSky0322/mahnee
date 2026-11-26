@@ -354,6 +354,11 @@ test('an iPhone asks for the app on the Home Screen first', async () => {
 
 test('signing out lets this device go, on the server and in the browser', async () => {
   const browser = stubPush({ permission: 'granted', subscribed: true });
+  const registration = await navigator.serviceWorker.getRegistration();
+  const closeReminder = vi.fn();
+  Object.assign(registration!, {
+    getNotifications: () => Promise.resolve([{ close: closeReminder }]),
+  });
   const server = withWallet();
   server.pushSubscriptions.push({
     email: 'ryan@example.com',
@@ -381,4 +386,5 @@ test('signing out lets this device go, on the server and in the browser', async 
   vi.unstubAllGlobals();
   expect(server.pushSubscriptions).toEqual([]);
   expect(browser.subscription).toBeNull();
+  expect(closeReminder).toHaveBeenCalledOnce();
 });

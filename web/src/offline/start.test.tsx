@@ -161,6 +161,71 @@ describe('starting with the server out of reach', () => {
     }
   });
 
+  test.each(['storage', 'pageshow'] as const)(
+    'a previous account tab hides its profile and discards an outstanding export on %s',
+    async (event) => {
+      const server = fakeServer();
+      renderApp(server, '/?settings');
+      await screen.findByText('Ryan');
+      const exporting = holdNext(server, 'GET', '/api/export');
+      const { api } = await import('../api');
+      const download = api.getExport();
+      const settled = expect(download).rejects.toMatchObject({ code: 'account_mismatch' });
+      const real = window.location;
+      const reload = vi.fn();
+      vi.stubGlobal(
+        'location',
+        new Proxy({}, { get: (_, key) => (key === 'reload' ? reload : Reflect.get(real, key)) }),
+      );
+      // Shared storage changes in the other tab. A suspended tab may only see pageshow.
+      localStorage.setItem(LAST_EMAIL_KEY, 'ann@example.com');
+      act(() => {
+        window.dispatchEvent(
+          event === 'storage' ? new StorageEvent(event, { key: LAST_EMAIL_KEY }) : new Event(event),
+        );
+      });
+      exporting.release();
+      await settled;
+      expect(await screen.findByText("You're signed out")).toBeTruthy();
+      expect(screen.queryByText('Ryan')).toBeNull();
+      expect(reload).toHaveBeenCalled();
+    },
+  );
+
+  test('a confirmed switch keeps the old profile hidden through an offline restart until the new owner is known', async () => {
+    const server = fakeServer();
+    await keptFromLastTime(server);
+    const done = openedFromDevice();
+    const held = slow(server);
+    try {
+      renderApp(server, '/?settings');
+      await screen.findByText(RYAN);
+      server.me = { ...server.me, email: 'ann@example.com', displayName: 'Ann' };
+      server.pathsDown.add('/api/me');
+      const { api } = await import('../api');
+      await act(async () => {
+        await expect(api.getExport()).rejects.toMatchObject({ code: 'account_mismatch' });
+      });
+      await screen.findByText("You're signed out");
+      server.health = 'unreachable';
+      held[0].release();
+      await reloadApp(server, '/?settings');
+      await screen.findByText("You're signed out");
+      expect(screen.queryByText(RYAN)).toBeNull();
+
+      server.health = 'up';
+      server.pathsDown.delete('/api/me');
+      await reloadApp(server, '/?settings');
+      await screen.findByText('Ann');
+      server.health = 'unreachable';
+      await reloadApp(server, '/?settings');
+      await screen.findByText('ann@example.com');
+      expect(screen.queryByText(RYAN)).toBeNull();
+    } finally {
+      finish(held, done);
+    }
+  });
+
   test('someone else signed in meanwhile: what Ryan kept goes, and the app starts afresh', async () => {
     const server = fakeServer();
     await keptFromLastTime(server);
@@ -183,7 +248,9 @@ describe('starting with the server out of reach', () => {
       renderApp(server, '/?settings');
       await askedWhoIsSignedIn();
       await moveOn(DEVICE_START_WAIT_MS);
-      await screen.findAllByText('Kept Ryan');
+      // A private read has already reported that its viewer changed, before /me returns.
+      await screen.findByText("You're signed out");
+      expect(screen.queryByText('Kept Ryan')).toBeNull();
 
       me.release();
       await vi.waitFor(() => expect(reload).toHaveBeenCalled());

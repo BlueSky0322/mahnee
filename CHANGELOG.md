@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-26
 
+- Fixed: signing out locks the browser’s other tabs and survives an offline restart. Home loads recent activity faster, and groups of offline expenses sync with fewer database calls [#81]
 - Fixed: backdated offline edits use the entry’s exchange rate, long queues of foreign expenses sync on reconnect, and saved totals and pending settings survive an offline restart [#80]
 - Fixed: on a phone or tablet, Back after picking one of Activity's filters leaves Activity as it does on a computer, never bringing back the filter before, and Done or Back after changing a filter while selecting leaves no step behind [#77]
 
@@ -208,3 +209,4 @@ For agents:
 [#76]: https://github.com/BlueSky0322/mahnee/pull/76
 [#77]: https://github.com/BlueSky0322/mahnee/pull/77
 [#80]: https://github.com/BlueSky0322/mahnee/pull/80
+[#81]: https://github.com/BlueSky0322/mahnee/pull/81

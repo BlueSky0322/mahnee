@@ -10,7 +10,11 @@ import type { ApiErrorBody, ErrorCode, Ok } from '../shared/api';
 export const json = <T = never>(body: NoInfer<T>, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'private, no-store',
+    },
   });
 
 export const ok = () => json<Ok>({ ok: true });

@@ -204,6 +204,22 @@ export async function install(site: Site, caches: ReturnType<typeof fakeCaches>)
   return { fetch };
 }
 
+/** The app signals its chosen install manifest once the page has loaded or reconnects. */
+export function keepInstallIcons(
+  manifest: string,
+  site: Site,
+  caches: ReturnType<typeof fakeCaches>,
+) {
+  const fetch = vi.fn(async (request: string) => siteResponse(await site(request)));
+  const handlers = load({ fetch, caches });
+  let done: Promise<unknown> = Promise.resolve();
+  handlers.message({
+    data: { type: 'keep-install-icons', manifest },
+    waitUntil: (work: Promise<unknown>) => (done = work),
+  });
+  return { fetch, done };
+}
+
 /**
  * The page asks for `path` (on the app's own address, or a full address elsewhere)
  * through the service worker, which reaches the network (answering with `answer`) or

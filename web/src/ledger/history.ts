@@ -1,4 +1,4 @@
-import { notifications } from '@mantine/notifications';
+import { showToast } from '../utils/toasts';
 import type {
   Category,
   LedgerChange,
@@ -132,7 +132,7 @@ function storageFailed(err: unknown) {
     if (unwritable) return;
     unwritable = true;
     // Once a page: what's held still reads
-    notifications.show({ color: 'yellow', message: OUT_OF_SPACE });
+    showToast({ tone: 'warning', message: OUT_OF_SPACE });
     return;
   }
   if (unreadable) return;

@@ -393,7 +393,25 @@ sends them in order, one request at a time, in batches of at most `MAX_CHANGES` 
   Activity draws it. The old list under Home's (then Plan's) month is gone; Accounts is the
   one list of balances. Undo is
   [components/common/undo-toast.tsx](../web/src/components/common/undo-toast.tsx), the
-  design's toast (ink, an underlined Undo, no close button, gone after 6 seconds).
+  design's toast (ink, an underlined Undo, gone after 6 seconds). Every message (Undo,
+  refusals, notes) goes through [utils/toasts.ts](../web/src/utils/toasts.ts) and is drawn
+  by [components/ui/Toasts.tsx](../web/src/components/ui/Toasts.tsx): each has Dismiss (an
+  X, 44px), goes with a swipe sideways or down past a threshold (it follows the finger,
+  snaps back short of it, flies out past it, or just goes with reduced motion), and Esc puts
+  away the newest when no dialog is open and the keyboard isn't in a field, before the
+  page's own Esc (Activity letting go of its ticks). Putting an Undo away never undoes: the
+  change stands, as when it times out. At most 2 show; an older one waits out of sight with
+  its seconds stopped and shows again when a newer one goes, so no Undo is lost early. A
+  message passed `counted` adds up with the newest like it still showing ("Deleted 2
+  entries"), its Undo running both, the newest first, up to its `max` (500 for deletes,
+  `MAX_BULK_TRANSACTIONS`), past which it starts a message of its own. Hover, the keyboard
+  in it and a swipe each stop its seconds, which run again only once none is left. Only
+  changes whose Undos can't undo something made between them add up: deletes do, moves
+  don't (an edit between two moves would be lost). They sit above whatever is fixed at the foot
+  (the tab bar, a phone's selection bar, the offline and new-version notices, Import's Add
+  bar, a phone's sheet), each measured as drawn through `useBottomBar` in
+  [utils/bottom-bars.ts](../web/src/utils/bottom-bars.ts); with too little room over a tall
+  sheet they go to the top. Tests: [toasts.test.tsx](../web/src/components/common/toasts.test.tsx).
 - API: [worker/routes/ledger.ts](../worker/routes/ledger.ts) serves `GET /api/accounts`
   (the `Ledger`: accounts and categories, and `alreadySaved` when the read names changes
   in `X-Pending-Changes`) and `POST /api/changes`;
@@ -1413,7 +1431,10 @@ budget"), then "Move 3 to Food". Only the entries dated in the budget month Home
 person's month, from their month start day) move the budget, and none already in it:
 a budget is a month's, so an October entry moved to Food changes October's Food, not the
 one shown. Spending or income
-alone, no transfers. Delete N takes them out at once, with Undo. More than 500 ticked is
+alone, no transfers. Delete N takes them out at once, with Undo; deletes in a row add up
+in one "Deleted N entries" (up to 500) whose Undo adds back all of them; each move keeps its
+own Undo. A phone or tablet selecting stops selecting once a delete has taken out
+what was ticked, through the same Back as Done, so no step is left behind. More than 500 ticked is
 refused with a message. With nothing yet (the first page of a search says whether the person
 has any entry at all, `anywhere`: a transfer alone shows the filters, with nothing matching)
 it says "No transactions yet" with Log your first

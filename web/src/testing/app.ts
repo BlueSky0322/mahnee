@@ -8,7 +8,7 @@ import './labels';
 import type { BoundFunctions, queries } from '@testing-library/react';
 import { act, cleanup, configure, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { notifications } from '@mantine/notifications';
+import { clearToasts } from '../utils/toasts';
 import { onlineManager } from '@tanstack/react-query';
 import { createElement } from 'react';
 import { afterEach, beforeEach, expect, onTestFinished, vi } from 'vitest';
@@ -2013,7 +2013,7 @@ export async function closeApp() {
   await settle();
   queryClient.clear();
   // Messages still showing (an Undo) are kept outside the page; none is left for the next test
-  notifications.clean();
+  clearToasts();
   // The device's cache, and whose it is, start empty for the next test
   await clearCache();
 }

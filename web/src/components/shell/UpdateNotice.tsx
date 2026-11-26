@@ -3,6 +3,7 @@ import { ArrowClockwise } from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 import classes from './UpdateNotice.module.css';
 import { isOffline } from '../../offline/network';
+import { useBottomBar } from '../../utils/bottom-bars';
 
 // A new version of the app was deployed while this one is open: offer to reload. The
 // page names its built script by content hash, so a different name on the server's
@@ -25,6 +26,8 @@ async function latestScript(): Promise<string | null> {
 const UpdateNotice = () => {
   const [ready, setReady] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  // Messages show above it
+  const bar = useBottomBar<HTMLDivElement>();
 
   useEffect(() => {
     const running = runningScript();
@@ -55,6 +58,7 @@ const UpdateNotice = () => {
   if (!ready || dismissed) return null;
   return (
     <div
+      ref={bar}
       className={classes.notice}
       role="status"
     >

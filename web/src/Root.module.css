@@ -1,8 +1,0 @@
-/*
- * Notifications (an Undo, say) rise above the offline and new-version notices, and above
- * the tab bar while one shows (--tabbar-h), so neither hides them. Mantine places them with
- * zero-specificity rules, which this class overrides.
- */
-.notifications[data-position^='bottom'] {
-  bottom: calc(68px + max(var(--tabbar-h), var(--sf-safe-bottom)));
-}

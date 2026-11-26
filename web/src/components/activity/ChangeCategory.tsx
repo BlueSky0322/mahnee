@@ -174,6 +174,8 @@ function Moving({
     }
     change({ op: 'recategoriseTransactions', ids, categoryId: to });
     onMoved();
+    // Each move keeps its own Undo: one adding up with another could undo a change made
+    // between them (an entry edited to another category, then moved again)
     showUndo(`Moved ${ids.length} to ${short}`, () =>
       change(
         ...[...from].map(

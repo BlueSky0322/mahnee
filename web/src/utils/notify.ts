@@ -1,5 +1,5 @@
-import { notifications } from '@mantine/notifications';
 import { ApiError } from '../api';
+import { showToast } from './toasts';
 
 // Saying that something went wrong, the same way everywhere
 
@@ -11,12 +11,12 @@ export class UserError extends Error {}
  * browser error) `fallback`, since those messages aren't written for people
  */
 export const showError = (err: unknown, fallback: string) =>
-  notifications.show({
-    color: 'red',
+  showToast({
+    tone: 'error',
     message:
       (err instanceof ApiError ? err.explanation : err instanceof UserError ? err.message : null) ??
       fallback,
   });
 
 /** Why something can't be done, as worked out here */
-export const showRefusal = (message: string) => notifications.show({ color: 'red', message });
+export const showRefusal = (message: string) => showToast({ tone: 'error', message });

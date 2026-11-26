@@ -1,6 +1,6 @@
 import { useThisMonth } from '../../ledger/month-start';
 import { Button, Text, TextInput } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
+import { showToast } from '../../utils/toasts';
 import { ForwardIcon } from '../ui/icons';
 import { useRef, useState } from 'react';
 import { MAX_DISPLAY_NAME } from '@shared/api';
@@ -204,7 +204,7 @@ function ChangeName({ opened, onClose }: { opened: boolean; onClose: () => void 
     close();
     // Shown at once; a refusal puts the name back and says so
     update({ displayName: name === '' ? null : name }).catch(() =>
-      notifications.show({ color: 'red', message: "Couldn't save your name. Try again." }),
+      showToast({ tone: 'error', message: "Couldn't save your name. Try again." }),
     );
   };
 
@@ -264,7 +264,7 @@ function ChangePicture({ opened, onClose }: { opened: boolean; onClose: () => vo
   const goBackTo = (choice: 'google' | 'initial') => {
     onClose();
     changePicture(choice).catch(() =>
-      notifications.show({ color: 'red', message: "Couldn't change your picture. Try again." }),
+      showToast({ tone: 'error', message: "Couldn't change your picture. Try again." }),
     );
   };
 

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { createContext, useContext, useState } from 'react';
 import { DialogHeaderSlot } from './dialog-header';
 import { useBackDismiss } from '../../hooks/useBackDismiss';
+import { useBottomBar } from '../../utils/bottom-bars';
 import { useIsMobile } from '../../hooks/useBreakpoints';
 import classes from './ResponsiveDialog.module.css';
 import { CloseIcon } from './icons';
@@ -77,6 +78,8 @@ const ResponsiveDialog = ({
   useBackDismiss(opened, onBack ?? onClose);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const root = useReturnFocus(opened);
+  // A phone's sheet is at the foot of the screen: messages show above it
+  const sheet = useBottomBar<HTMLDivElement>();
 
   if (isMobile) {
     return (
@@ -103,7 +106,10 @@ const ResponsiveDialog = ({
           backgroundOpacity={0.38}
           color="#0f1012"
         />
-        <Drawer.Content bg={grouped ? 'var(--ground)' : undefined}>
+        <Drawer.Content
+          ref={sheet}
+          bg={grouped ? 'var(--ground)' : undefined}
+        >
           {grouped ? (
             <Drawer.Body>
               <Shape.Provider value="sheet">{children}</Shape.Provider>

@@ -1,5 +1,6 @@
 import { Button, Modal, SegmentedControl } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
+import { useBottomBar } from '../../utils/bottom-bars';
+import { showToast } from '../../utils/toasts';
 import { FileArrowUp } from '@phosphor-icons/react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { Account, Category, LedgerChange } from '@shared/api';
@@ -117,6 +118,8 @@ const countOf = (transactions: number, repeating: number | null) =>
       }`;
 
 export default function ImportPage() {
+  // Add, held at the foot of a phone's screen: messages show above it
+  const importBar = useBottomBar<HTMLDivElement>();
   const { profile } = useProfile();
   const email = profile?.email ?? null;
   const { accounts, failed: accountsFailed } = useAccounts();
@@ -369,7 +372,7 @@ export default function ImportPage() {
   function importNow() {
     if (plan == null || choices == null || !canImport || file == null) return;
     change(...recorded(importChanges(plan, choices)));
-    if (tickedRows > 0) notifications.show({ message: `Imported ${toImport}` });
+    if (tickedRows > 0) showToast({ message: `Imported ${toImport}` });
     if (plan.source === 'bank' && account != null) {
       navigate(`?account=${account.id}`, { replace: true });
     } else goUp('?settings=data');
@@ -876,7 +879,10 @@ export default function ImportPage() {
       {lines}
 
       {addButton != null && (
-        <div className={classes.importBar}>
+        <div
+          ref={importBar}
+          className={classes.importBar}
+        >
           {plan?.problem != null && <p className={classes.problem}>{plan.problem}</p>}
           {addButton}
         </div>

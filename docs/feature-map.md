@@ -1458,6 +1458,8 @@ requests. The filters live in the address
   [select-gestures.ts](../web/src/components/activity/select-gestures.ts) (the drag, the
   long press, ranges),
   [Filters.tsx](../web/src/components/activity/Filters.tsx) (the chips and their lists),
+  [FilterChoices.tsx](../web/src/components/ui/FilterChoices.tsx) (the radio choices and
+  custom date form shared with the account register),
   [ChangeCategory.tsx](../web/src/components/activity/ChangeCategory.tsx),
   [EntryEditor.tsx](../web/src/components/activity/EntryEditor.tsx) (one entry, in the pane
   or the phone's sheet: amount, which way, category or To, account, day, payee, note;

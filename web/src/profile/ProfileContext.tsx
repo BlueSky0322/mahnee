@@ -21,9 +21,8 @@ import {
   eachField,
   keepUnsent,
   keepUnsentUnder,
-  readUnsent,
+  readPending,
   settleUnsent,
-  unsentNow,
   withPatch,
 } from './unsent';
 import {
@@ -214,6 +213,22 @@ export const nameFor = (email: string, displayName?: string | null) =>
  */
 const keepCopy = (profile: Profile) => void writeCacheAs(profile.email, ME_CACHE_KEY, profile);
 
+const profileSends = new Map<string, Promise<unknown>>();
+
+/** Serialize profile sends in this tab, or across tabs when Web Locks are available. */
+function withProfileSendLock<T>(email: string, send: () => Promise<T>): Promise<T> {
+  if (navigator.locks != null) {
+    return navigator.locks.request(`mahnee-profile-send:${email}`, send) as Promise<T>;
+  }
+  const next = (profileSends.get(email) ?? Promise.resolve()).then(send, send);
+  profileSends.set(email, next);
+  const done = () => {
+    if (profileSends.get(email) === next) profileSends.delete(email);
+  };
+  void next.then(done, done);
+  return next;
+}
+
 /** Cloudflare Access sent the request to sign in: the session ran out */
 const isSignInAnswer = (err: unknown) => err instanceof ApiError && err.status === 401;
 
@@ -238,7 +253,7 @@ export async function signOut() {
   // in again; what's still waiting to be sent goes. If the device can't be written, it all
   // stays, still theirs alone.
   if (leaving != null) {
-    await dropUnsent(leaving);
+    await dropUnsent(leaving).catch(() => undefined);
     await editOutbox(leaving, (kept) => kept.filter((q) => q.refused != null)).catch(
       () => undefined,
     );
@@ -254,6 +269,14 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const [signInToSync, setSignInToSync] = useState(false);
   // Whose saved copies were shown while the server couldn't say who's signed in
   const assumed = useRef<string | null>(null);
+  const pendingReadFailed = useRef(false);
+  const knownPending = useRef<string | null>(null);
+
+  const readWaiting = useCallback(async (email: string) => {
+    const pending = await readPending(email);
+    knownPending.current = pending == null ? null : email;
+    return pending;
+  }, []);
 
   /** The last account's saved profile, its saved copies now readable, or nothing */
   const savedProfile = useCallback(async () => {
@@ -262,6 +285,17 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     assumed.current = email;
     const saved = await readCache<Profile>(ME_CACHE_KEY);
     if (saved == null) return undefined;
+    let pending: ProfilePatch | null = null;
+    try {
+      pending = (await readWaiting(email))?.patch ?? null;
+      pendingReadFailed.current = false;
+    } catch (err) {
+      if (!pendingReadFailed.current && cacheUser() === email) {
+        pendingReadFailed.current = true;
+        showError(err, 'Could not read pending settings');
+      }
+    }
+    if (cacheUser() !== email) return undefined;
     // Kept before some settings (or the picture) existed: those have their defaults. What
     // was changed here and not sent yet goes on top.
     return withPatch(
@@ -272,9 +306,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         settings: { ...DEFAULT_SETTINGS, ...saved.settings },
         conversion: saved.conversion ?? null,
       },
-      await readUnsent(email),
+      pending,
     );
-  }, []);
+  }, [readWaiting]);
 
   // Loaded once: after that, this device's changes are the latest, and a refetch
   // landing mid-change would undo one
@@ -289,11 +323,13 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       const timer = startedFromDevice
         ? setTimeout(() => {
             if (queryClient.getQueryData(ME_KEY) != null) return;
-            void savedProfile().then((saved) => {
-              if (saved == null || answered) return;
-              fromDevice.current = true;
-              queryClient.setQueryData(ME_KEY, saved);
-            });
+            void savedProfile()
+              .then((saved) => {
+                if (saved == null || answered) return;
+                fromDevice.current = true;
+                queryClient.setQueryData(ME_KEY, saved);
+              })
+              .catch(() => undefined);
           }, DEVICE_START_WAIT_MS)
         : undefined;
       try {
@@ -404,6 +440,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   // Each change shows straight away. The server's reply only replaces what's on screen
   // if no newer change has been made since, so quick changes never jump back.
   const latest = useRef(0);
+  const sending = useRef(false);
   const change = useCallback(
     async (show: (profile: Profile) => Profile, save: () => Promise<Saved>) => {
       const current = profileRef.current;
@@ -444,72 +481,113 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       const { email } = current;
       const id = ++latest.current;
       replace(withPatch(current, patch));
-      // Kept on the device before it's sent while the browser says there's no connection;
-      // online it's sent straight away, and kept only if that finds no connection
-      const offline = isOffline();
-      const kept = offline && (await keepUnsent(email, patch));
+      async function queueIfWaiting() {
+        if (!isOffline()) {
+          // Online saves can still work without storage. A known waiting edit must keep
+          // its place even if the device can't be read again just now.
+          const pending = await readWaiting(email).then(
+            (waiting) => waiting != null,
+            () => knownPending.current === email,
+          );
+          if (!pending) return false;
+        }
+        await keepUnsent(email, patch);
+        knownPending.current = email;
+        if (!isOffline()) void sendUnsent.current();
+        return true;
+      }
+
+      let saved: Profile | null;
       try {
-        const saved = await api.updateMe(patch);
-        if (kept) await settleUnsent(email, patch);
-        keepCopy(saved);
-        if (id === latest.current) replace(withPatch(saved, unsentNow(email)));
+        if (await queueIfWaiting()) return;
+        saved = await withProfileSendLock(email, async () => {
+          if (cacheUser() !== email || (await queueIfWaiting())) return null;
+          try {
+            return await api.updateMe(patch);
+          } catch (err) {
+            if (!isOfflineFailure(err) && !isSignInAnswer(err)) throw err;
+            const keep = id === latest.current ? keepUnsent : keepUnsentUnder;
+            await keep(email, patch);
+            knownPending.current = email;
+            return null;
+          }
+        });
       } catch (err) {
-        const waiting = isOfflineFailure(err) || isSignInAnswer(err);
-        // A change made since (kept offline, say) is newer: this one goes under it
-        const keep = id === latest.current ? keepUnsent : keepUnsentUnder;
-        if (waiting && (kept || (await keep(email, patch)))) return;
-        if (kept) await settleUnsent(email, patch);
-        if (id === latest.current) replace(current);
+        if (id === latest.current && profileRef.current?.email === email) replace(current);
         throw err;
       }
+      if (saved == null) return;
+
+      keepCopy(saved);
+      try {
+        const left = (await readWaiting(email))?.patch ?? null;
+        if (id === latest.current && profileRef.current?.email === email) {
+          replace(withPatch(saved, left));
+        }
+      } catch (err) {
+        if (cacheUser() === email) showError(err, 'Could not check pending settings');
+      }
     },
-    [change, replace],
+    [change, readWaiting, replace],
   );
 
   // Sends what was changed here and waits, once there's a connection: taken off the device
   // once saved, and shown as the server has it with anything changed since on top. One the
   // server refuses is let go, the server's profile shown, and said; anything else keeps it
   // for next time.
-  const sending = useRef(false);
+  const sendAgain = useRef(false);
   sendUnsent.current = async () => {
     const email = cacheUser();
-    if (email == null || sending.current) return;
-    const unsent = await readUnsent(email);
-    if (unsent == null) return;
+    if (email == null) return;
+    sendAgain.current = true;
+    if (sending.current) return;
     sending.current = true;
-    // Shown at once over whatever copy is showing, before the server has it: the copy as
-    // last set, not as last drawn, since the server's answer may not be drawn yet
-    const shown = queryClient.getQueryData<Profile>(ME_KEY);
-    if (shown?.email === email) replace(withPatch(shown, unsent));
-    const asked = latest.current;
-    /** Sends a patch: whether to carry on (saved or refused), false to keep the rest waiting */
-    const send = async (patch: ProfilePatch, alone: boolean): Promise<boolean> => {
-      try {
-        const saved = await api.updateMe(patch);
-        await settleUnsent(email, patch);
-        keepCopy(saved);
-        if (
-          asked === latest.current &&
-          queryClient.getQueryData<Profile>(ME_KEY)?.email === email
-        ) {
-          replace(withPatch(saved, await readUnsent(email)));
-        }
-        return true;
-      } catch (err) {
-        if (isRetryable(err)) return false;
-        // Refused: one field at a time, so only what the server won't take is let go
-        if (!alone) {
-          for (const one of eachField(patch)) if (!(await send(one, true))) return false;
-          return true;
-        }
-        await settleUnsent(email, patch);
-        showError(err, 'Could not save your settings');
-        void queryClient.invalidateQueries({ queryKey: ME_KEY });
-        return true;
-      }
-    };
     try {
-      await send(unsent, eachField(unsent).length === 1);
+      while (sendAgain.current && cacheUser() === email && !isOffline()) {
+        sendAgain.current = false;
+        await withProfileSendLock(email, async () => {
+          while (cacheUser() === email && !isOffline()) {
+            const asked = latest.current;
+            const unsent = await readWaiting(email);
+            if (unsent == null) return;
+            // Put the waiting patch back over the server's older answer before sending.
+            const shown = queryClient.getQueryData<Profile>(ME_KEY);
+            if (asked === latest.current && shown?.email === email) {
+              replace(withPatch(shown, unsent.patch));
+            }
+            const send = async (patch: ProfilePatch, alone: boolean): Promise<boolean> => {
+              if (cacheUser() !== email) return false;
+              let saved: Profile;
+              try {
+                saved = await api.updateMe(patch);
+              } catch (err) {
+                if (isRetryable(err)) return false;
+                // Refused: one field at a time, so only what the server won't take is let go.
+                if (!alone) {
+                  for (const one of eachField(patch)) if (!(await send(one, true))) return false;
+                  return true;
+                }
+                await settleUnsent(email, unsent, patch);
+                showError(err, 'Could not save your settings');
+                void queryClient.invalidateQueries({ queryKey: ME_KEY });
+                return true;
+              }
+              keepCopy(saved);
+              const left = await settleUnsent(email, unsent, patch);
+              if (
+                asked === latest.current &&
+                queryClient.getQueryData<Profile>(ME_KEY)?.email === email
+              ) {
+                replace(withPatch(saved, left));
+              }
+              return true;
+            };
+            if (!(await send(unsent.patch, eachField(unsent.patch).length === 1))) return;
+          }
+        });
+      }
+    } catch (err) {
+      if (cacheUser() === email) showError(err, 'Could not check pending settings');
     } finally {
       sending.current = false;
     }

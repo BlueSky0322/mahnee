@@ -871,10 +871,15 @@ export interface ApiErrorBody {
 }
 
 /**
+ * rate_lookup_limit: send fewer changes together to fit the request's exchange-rate allowance.
  * account_mismatch: the write was made for another account than the one signed in now,
  * so it's kept (not sent again) until that account is back. client_update_required: an
  * app too old to say whose a write is; kept until it updates. converting: the person's
  * amounts are being converted into a new home currency (503), so the write is kept and sent
  * again once that's done.
  */
-export type ErrorCode = 'account_mismatch' | 'client_update_required' | 'converting';
+export type ErrorCode =
+  | 'account_mismatch'
+  | 'client_update_required'
+  | 'converting'
+  | 'rate_lookup_limit';

@@ -56,7 +56,7 @@ export class NoRate extends RatesUnavailable {
 
 /**
  * The services were asked as often as one conversion step or request may (RateLookups):
- * the rest wait for the next step, or the change is tried again
+ * a conversion continues in its next step, and a ledger request needs fewer changes
  */
 export class LookupsSpent extends RatesUnavailable {}
 

@@ -214,6 +214,34 @@ describe('an entry typed in another currency', () => {
     expect(ledger.data.accounts[0].balanceCents).toBe(100_000 - 1_530);
   });
 
+  it.each(['add', 'date change'])(
+    'uses the day from a queued %s when the following edit only changes the amount',
+    async (first) => {
+      const { who, wallet } = await withWallet('queued');
+      const [oldDay, day] = [freshDay(), freshDay()];
+      api.rates.set('THB', 'MYR', 0.25);
+      api.rates.setOn(oldDay, 'THB', 'MYR', 0.2);
+      api.rates.setOn(day, 'THB', 'MYR', 0.125);
+      const entry = spend(wallet, 4_000, first === 'add' ? day : oldDay);
+      const id = entry.transaction.id;
+      if (first === 'date change') expect((await send(who, [entry], ['THB'])).status).toBe(200);
+      const batch = {
+        changes: [
+          first === 'add' ? entry : { op: 'updateTransaction', id, date: day },
+          { op: 'updateTransaction', id, amountCents: 8_000 },
+        ],
+        ids: [rowId(), rowId()],
+        currencies: ['THB', 'THB'],
+      };
+      expect((await api.call(who, 'POST', '/api/changes', batch)).status).toBe(200);
+      // The device sends the same batch again after losing the acknowledgement.
+      expect((await api.call(who, 'POST', '/api/changes', batch)).status).toBe(200);
+      expect(await entries(who, wallet)).toMatchObject([
+        { id, date: day, amountCents: 1_000, original: { day, rate: 0.125, cents: 8_000 } },
+      ]);
+    },
+  );
+
   it('changes amount and currency when edited, and lets go of them typed in the home currency', async () => {
     const { who, wallet } = await withWallet('edit');
     const [day, later] = [freshDay(), freshDay()];
@@ -286,6 +314,37 @@ describe('an entry typed in another currency', () => {
         day: days[0],
       })),
     );
+  });
+
+  it('asks for smaller saves when 37 distinct dates exceed one request’s rate budget', async () => {
+    const { who, wallet } = await withWallet('backlog');
+    const changes = Array.from({ length: 37 }, () => {
+      const day = freshDay();
+      api.rates.setOn(day, 'CAD', 'MYR', 3);
+      return spend(wallet, 100, day);
+    });
+    const ids = changes.map(() => rowId());
+    const request = (start: number, end: number) =>
+      api.call(who, 'POST', '/api/changes', {
+        changes: changes.slice(start, end),
+        ids: ids.slice(start, end),
+        currencies: Array(end - start).fill('CAD'),
+      });
+
+    const full = await request(0, changes.length);
+    expect(full).toMatchObject({
+      status: 422,
+      data: { code: 'rate_lookup_limit', error: expect.stringMatching(/smaller/i) },
+    });
+    expect(await entries(who, wallet)).toEqual([]);
+
+    for (let start = 0; start < changes.length; start += 6) {
+      expect((await request(start, Math.min(start + 6, changes.length))).status).toBe(200);
+    }
+    // All receipts exist: replaying the entire original request needs no rates.
+    expect((await request(0, changes.length)).status).toBe(200);
+    const { data } = await api.call(who, 'GET', '/api/accounts');
+    expect(data.accounts[0].balanceCents).toBe(100_000 - 37 * 300);
   });
 
   it('is refused in a currency the app can’t convert, and nothing is saved', async () => {

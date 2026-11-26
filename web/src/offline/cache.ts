@@ -1,4 +1,4 @@
-import { clear, del, delMany, get, getMany, keys, set } from 'idb-keyval';
+import { clear, del, delMany, get, getMany, keys, set, update } from 'idb-keyval';
 import { writeAs } from '../api';
 import { quietly } from '../utils/quietly';
 
@@ -139,6 +139,25 @@ export async function readCacheAs<T>(email: string, key: string): Promise<T | un
 export async function writeCacheAs<T>(email: string, key: string, value: T): Promise<boolean> {
   if (user !== email) return false;
   return succeeds(() => set(key, { email, value } satisfies Entry<T>));
+}
+
+/** Updates a device copy in one transaction. Returning undefined leaves the copy as it was. */
+export async function updateCacheAs<T>(
+  email: string,
+  key: string,
+  updater: (value: T | undefined, at: number | null) => T | undefined,
+): Promise<boolean> {
+  if (user !== email) return false;
+  try {
+    await update<Entry<T> | undefined>(key, (entry) => {
+      if (user !== email || (entry != null && entry.email !== email)) return entry;
+      const value = updater(entry?.value, entry?.at ?? null);
+      return value === undefined ? entry : { email, value, at: Date.now() };
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Resolves with whether it was removed */

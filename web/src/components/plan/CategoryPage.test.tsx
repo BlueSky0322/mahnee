@@ -372,6 +372,7 @@ describe('a category over 12 months', () => {
     renderApp(server, `/?plan&category=${FOOD}`, { size: 'desktop' });
     const user = userEvent.setup();
     expect(await screen.findByRole('complementary', { name: 'Food' })).toBeTruthy();
+    await waitFor(() => expect(server.held).toHaveLength(0));
     await user.click(screen.getByRole('button', { name: 'Previous month' }));
     // The category stays open on the earlier month
     await waitFor(() =>
@@ -385,7 +386,6 @@ describe('a category over 12 months', () => {
     );
     november.release();
     // November's answer arriving late changes nothing shown for October
-    await waitFor(() => expect(server.held).toHaveLength(0));
     await pause(50);
     food = await screen.findByRole('complementary', { name: 'Food' });
     const october = readYear(within(food).getByRole('region', { name: /^Food, last 12 months/ }));

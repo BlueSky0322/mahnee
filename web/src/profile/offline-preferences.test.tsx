@@ -117,6 +117,54 @@ const RYAN = 'ryan@example.com';
 const keptPatch = async () =>
   (await get<{ email: string; value: unknown }>(`${PROFILE_OUTBOX_PREFIX}${RYAN}`))?.value;
 
+function failPendingRead() {
+  const key = `${PROFILE_OUTBOX_PREFIX}${RYAN}`;
+  const read = Object.getOwnPropertyDescriptor(IDBObjectStore.prototype, 'get')!
+    .value as IDBObjectStore['get'];
+  const broken = vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (
+    this: IDBObjectStore,
+    requested,
+  ) {
+    if (requested === key) throw new DOMException('Storage read failed', 'UnknownError');
+    return read.call(this, requested);
+  });
+  onTestFinished(() => broken.mockRestore());
+  return () => broken.mockRestore();
+}
+
+test('opens the cached app when pending settings cannot be read', async () => {
+  const server = fakeServer();
+  renderApp(server, '/?settings=adding', { size: 'phone' });
+  await adding();
+  await settle();
+  const waiting = { settings: { startWith: 'category' } };
+  await set(`${PROFILE_OUTBOX_PREFIX}${RYAN}`, { email: RYAN, value: waiting });
+  goOffline(server);
+  const restoreRead = failPendingRead();
+  await reloadApp(server, '/?settings=adding', { size: 'phone' });
+  expect(await screen.findByText('Could not read pending settings')).toBeTruthy();
+  expect(await startWith()).toEqual([
+    ['Amount', 'true'],
+    ['Category', 'false'],
+  ]);
+  restoreRead();
+  expect(await keptPatch()).toEqual(waiting);
+});
+
+test('a preference can save online when storage is unavailable and there is no known waiting edit', async () => {
+  const server = fakeServer();
+  renderApp(server, '/?settings=adding', { size: 'phone' });
+  const page = await adding();
+  await settle();
+  const restoreRead = failPendingRead();
+
+  await userEvent.setup().click(page.getByRole('radio', { name: 'Category' }));
+  await waitFor(() => expect(server.me.settings.startWith).toBe('category'));
+  expect(await startWith()).toEqual(ON_CATEGORY);
+  restoreRead();
+  expect(await keptPatch()).toBeUndefined();
+});
+
 test('two quick changes of different settings offline both survive a restart', async () => {
   const server = fakeServer();
   renderApp(server, '/?settings=look', { size: 'phone' });
@@ -270,6 +318,53 @@ test('a save still on its way when the connection drops never wins over a newer 
 
   back();
   await waitFor(() => expect(server.me.settings.startWith).toBe('amount'), { timeout: 5000 });
+  expect(await startWith()).toEqual([
+    ['Amount', 'true'],
+    ['Category', 'false'],
+  ]);
+});
+
+test('an online edit waits behind the older offline edit already being sent', async () => {
+  const server = fakeServer();
+  renderApp(server, '/?settings=adding', { size: 'phone' });
+  const user = userEvent.setup();
+  const page = await adding();
+  const back = goOffline(server);
+  await user.click(page.getByRole('radio', { name: 'Category' }));
+  await waitFor(async () =>
+    expect(await keptPatch()).toEqual({ settings: { startWith: 'category' } }),
+  );
+
+  const answer = vi.mocked(fetch).getMockImplementation()!;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  onTestFinished(release);
+  let sent = false;
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    if (
+      !sent &&
+      input === '/api/me' &&
+      init?.method === 'PATCH' &&
+      typeof init.body === 'string' &&
+      init.body.includes('startWith')
+    ) {
+      sent = true;
+      await held;
+    }
+    return answer(input, init);
+  });
+
+  back();
+  await waitFor(() => expect(sent).toBe(true));
+  await user.click(page.getByRole('radio', { name: 'Amount' }));
+  await waitFor(async () =>
+    expect(await keptPatch()).toEqual({ settings: { startWith: 'amount' } }),
+  );
+  release();
+  await waitFor(async () => expect(await keptPatch()).toBeUndefined());
+  expect(server.me.settings.startWith).toBe('amount');
   expect(await startWith()).toEqual([
     ['Amount', 'true'],
     ['Category', 'false'],

@@ -479,6 +479,7 @@ describe('all spending and all income over 12 months', () => {
     renderApp(server, '/?plan&category=expenses', { size: 'desktop' });
     const user = userEvent.setup();
     expect(await screen.findByRole('complementary', { name: 'All expenses' })).toBeTruthy();
+    await waitFor(() => expect(server.held).toHaveLength(0));
     await user.click(screen.getByRole('button', { name: 'Previous month' }));
     await waitFor(() =>
       expect(window.location.search).toBe('?plan&month=2026-10&category=expenses'),
@@ -499,7 +500,6 @@ describe('all spending and all income over 12 months', () => {
     await waitFor(async () => expect((await year()).months).toEqual(october));
     november.release();
     // November's answer arriving late changes nothing shown for October
-    await waitFor(() => expect(server.held).toHaveLength(0));
     await pause(50);
     expect(await year()).toEqual({ months: october, shown: ['Oct 2026, RM 20.00'] });
 

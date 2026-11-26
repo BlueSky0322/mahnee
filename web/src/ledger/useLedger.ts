@@ -343,7 +343,7 @@ export function useMonthSummary(month: string): Summary {
   const select = useCallback((data: MonthSummary) => shownSummary(data, pending), [pending]);
   const { data, isError, refetch } = useQuery({
     queryKey: summaryKey(month),
-    queryFn: () => fetchSummary(month),
+    queryFn: ({ signal }) => fetchSummary(month, signal),
     select,
     // Asked for offline too, so the copy kept on the device shows
     networkMode: 'offlineFirst',
@@ -368,7 +368,7 @@ export function useMonthTrend(month: string): Trend {
   const select = useCallback((data: MonthTrend) => shownTrend(data, pending), [pending]);
   const { data, isError, refetch } = useQuery({
     queryKey: trendKey(month),
-    queryFn: () => fetchTrend(month),
+    queryFn: ({ signal }) => fetchTrend(month, signal),
     select,
     // Asked for offline too, so the copy kept on the device shows
     networkMode: 'offlineFirst',

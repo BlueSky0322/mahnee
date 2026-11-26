@@ -1,6 +1,5 @@
-import { Button, Input, SegmentedControl, TextInput } from '@mantine/core';
+import { Input, SegmentedControl, TextInput } from '@mantine/core';
 import { useCurrency } from '../../profile/ProfileContext';
-import { Archive } from '@phosphor-icons/react';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
 import type { Account, LedgerChange } from '@shared/api';
@@ -11,6 +10,7 @@ import { newId } from '../../utils/id';
 import { currencySymbol } from '../../utils/money';
 import { showRefusal } from '../../utils/notify';
 import { showUndo } from '../common/undo-toast';
+import FormActions, { ArchiveButton } from '../ui/FormActions';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import KindIcon from './KindIcon';
 import { KIND_AS, KIND_LABELS, balanceText, openingText, readOpening } from './account-text';
@@ -214,25 +214,9 @@ function Fields({
           {preview}
         </p>
       )}
-      <div className={classes.actions}>
-        {/* An archived one comes back with Unarchive on its page */}
-        {account != null && !account.archived && (
-          <Button
-            variant="subtle"
-            color="gray"
-            leftSection={<Archive size={16} />}
-            onClick={archive}
-          >
-            Archive
-          </Button>
-        )}
-        <Button
-          type="submit"
-          className={classes.save}
-        >
-          {account == null ? 'Add account' : 'Save'}
-        </Button>
-      </div>
+      <FormActions submitLabel={account == null ? 'Add account' : 'Save'}>
+        {account != null && !account.archived && <ArchiveButton onClick={archive} />}
+      </FormActions>
     </form>
   );
 }

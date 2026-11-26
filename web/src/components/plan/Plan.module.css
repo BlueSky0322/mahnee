@@ -107,15 +107,6 @@
   font-size: 26px;
 }
 
-.monthNav {
-  display: flex;
-  align-items: center;
-}
-
-.desktop .monthNav {
-  gap: 4px;
-}
-
 /* Scheduled with nothing in it: the month, quietly */
 .monthQuiet {
   color: var(--ink-2);
@@ -126,24 +117,6 @@
 .monthName {
   font-size: 15px;
   font-weight: 500;
-}
-
-.iconButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.iconButton:disabled {
-  opacity: 0.3;
-  cursor: default;
 }
 
 .halves {

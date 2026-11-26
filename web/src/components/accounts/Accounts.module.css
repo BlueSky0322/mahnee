@@ -22,14 +22,3 @@
   color: var(--ink-2);
   font-size: 14px;
 }
-
-.actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.save {
-  margin-left: auto;
-}

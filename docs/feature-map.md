@@ -123,8 +123,8 @@ failure undoes them as before. The picture and the home currency still need a co
   [LookPage.tsx](../web/src/components/settings/LookPage.tsx),
   [BudgetsPage.tsx](../web/src/components/settings/BudgetsPage.tsx) (with the reminder
   rows, see Reminders) and
-  [setting-parts.tsx](../web/src/components/settings/setting-parts.tsx) (a setting's row,
-  a segmented choice, a switch); [theme/appearance.ts](../web/src/theme/appearance.ts)
+  [setting-parts.tsx](../web/src/components/settings/setting-parts.tsx) (setting rows,
+  including mobile value buttons, segmented choices and switches); [theme/appearance.ts](../web/src/theme/appearance.ts)
   marks the accent and the colour of spending on the page (`data-accent`,
   `data-expenses`) and gives Mantine the accent.
 - API: [worker/accounts/auth.ts](../worker/accounts/auth.ts) checks the Access token (or
@@ -2512,8 +2512,9 @@ may use either name for anything else (Activity's filters included).
   buttons, fields, segmented controls and sheets restyled there and in
   [theme/theme.ts](../web/src/theme/theme.ts). The parts screens are built from are in
   `components/ui/`: `Chip`, `Bar` (a budget bar with a today marker), `Badge`, `CountBadge`
-  and `NewTag`, `Tile`, `ListRow` and `IconButton`. The first screen and the iPhone launch
-  images use the same grounds ([web/build/launch-images.ts](../web/build/launch-images.ts),
+  and `NewTag`, and `Tile`. Home and Plan share the [month navigation](../web/src/components/ui/MonthNavigation.tsx).
+  The account, category and entry forms use [FormActions](../web/src/components/ui/FormActions.tsx)
+  for their action buttons. The first screen and the iPhone launch images use the same grounds ([web/build/launch-images.ts](../web/build/launch-images.ts),
   `index.html`).
 
 **Invariants.**

@@ -11,8 +11,9 @@ import { currencySign } from '../../utils/currencies';
 import { showError } from '../../utils/notify';
 import CurrencyList from '../common/CurrencyList';
 import { convertedPercent, convertingText } from '../common/freshness-text';
-import { DownIcon, ForwardIcon } from '../ui/icons';
+import { DownIcon } from '../ui/icons';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
+import { SettingValueButton } from './setting-parts';
 import classes from './Settings.module.css';
 import money from './MoneyPage.module.css';
 
@@ -195,30 +196,17 @@ export default function CurrencyRow({
 
   return (
     <>
-      <div
-        className={`${rowClass} ${money.rowHolder}`}
-        data-setting={settingKey}
-        tabIndex={-1}
-      >
-        <button
-          type="button"
-          className={money.rowButton}
-          disabled={locked}
-          onClick={() => setOpen(true)}
-        >
-          <span className={classes.rowText}>
-            <span className={classes.label}>{name}</span>
-            <span className={classes.detail}>{line}</span>
-            {statusLine}
-          </span>
-          <span className={classes.value}>{value}</span>
-          <ForwardIcon
-            size={16}
-            className={classes.caret}
-          />
-        </button>
-        {retry}
-      </div>
+      <SettingValueButton
+        settingKey={settingKey}
+        rowClass={`${rowClass} ${money.rowHolder}`}
+        name={name}
+        line={line}
+        value={value}
+        disabled={locked}
+        onClick={() => setOpen(true)}
+        status={statusLine}
+        after={retry}
+      />
       <ResponsiveDialog
         opened={open}
         onClose={() => setOpen(false)}

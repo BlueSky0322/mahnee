@@ -33,15 +33,7 @@
   margin-left: -8px;
 }
 
-.actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.save {
-  margin-left: auto;
+.form button[type='submit'] {
   min-width: 120px;
 }
 

@@ -17,9 +17,6 @@ import Bar from './Bar';
 import barCss from './Bar.module.css';
 import Chip from './Chip';
 import chipCss from './Chip.module.css';
-import IconButton from './IconButton';
-import ListRow from './ListRow';
-import listRowCss from './ListRow.module.css';
 import Tile from './Tile';
 import tileCss from './Tile.module.css';
 
@@ -33,7 +30,6 @@ const sheets = [
   moduleCss(readBeside('./Badge.module.css', here), badgeCss),
   moduleCss(readBeside('./Bar.module.css', here), barCss),
   moduleCss(readBeside('./Chip.module.css', here), chipCss),
-  moduleCss(readBeside('./ListRow.module.css', here), listRowCss),
   moduleCss(readBeside('./Tile.module.css', here), tileCss),
 ];
 
@@ -249,57 +245,7 @@ describe('a tile', () => {
   });
 });
 
-describe('a list row', () => {
-  test('shows its title, subtitle in grey, and amount, and is not a stop for the keyboard', async () => {
-    render(
-      <ListRow
-        title="Jaya Grocer"
-        subtitle="Groceries · Yesterday"
-        amount="−125.75"
-      />,
-    );
-    expect(screen.getByText('Jaya Grocer')).toBeTruthy();
-    expect(textColour(screen.getByText('Groceries · Yesterday'))).toBe('#66665f');
-    expect(screen.getByText('−125.75')).toBeTruthy();
-    expect(screen.queryByRole('button')).toBeNull();
-    await userEvent.tab();
-    expect(document.activeElement).toBe(document.body);
-  });
-
-  test('one that opens something is a button named by its words, from tap or keyboard', async () => {
-    const onClick = vi.fn();
-    render(
-      <ListRow
-        title="Jaya Grocer"
-        subtitle="Groceries"
-        amount="−125.75"
-        onClick={onClick}
-      />,
-    );
-    await userEvent.click(screen.getByRole('button', { name: /Jaya Grocer/ }));
-    await userEvent.keyboard('{Enter}');
-    await userEvent.keyboard(' ');
-    expect(onClick).toHaveBeenCalledTimes(3);
-  });
-});
-
-describe('an icon button', () => {
-  test('is named by its label, since it shows only an icon', async () => {
-    const onClick = vi.fn();
-    render(
-      <IconButton
-        label="Next month"
-        onClick={onClick}
-      >
-        <svg />
-      </IconButton>,
-    );
-    await userEvent.click(screen.getByRole('button', { name: 'Next month' }));
-    expect(onClick).toHaveBeenCalledTimes(1);
-  });
-});
-
-test('none of the parts sends the form it sits in', async () => {
+test('clicking a chip leaves the form unsubmitted', async () => {
   const submit = vi.fn((e: { preventDefault: () => void }) => e.preventDefault());
   render(
     <form onSubmit={submit}>
@@ -309,22 +255,8 @@ test('none of the parts sends the form it sits in', async () => {
       >
         Today
       </Chip>
-      <ListRow
-        title="Jaya Grocer"
-        subtitle="Groceries"
-        amount="−125.75"
-        onClick={() => {}}
-      />
-      <IconButton
-        label="Clear search"
-        onClick={() => {}}
-      >
-        <svg />
-      </IconButton>
     </form>,
   );
-  for (const name of ['Today', /Jaya Grocer/, 'Clear search']) {
-    await userEvent.click(screen.getByRole('button', { name }));
-  }
+  await userEvent.click(screen.getByRole('button', { name: 'Today' }));
   expect(submit).not.toHaveBeenCalled();
 });

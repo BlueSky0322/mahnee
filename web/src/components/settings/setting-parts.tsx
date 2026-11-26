@@ -1,6 +1,7 @@
 import { Switch } from '@mantine/core';
 import type { ReactNode } from 'react';
 import { NewTag } from '../ui/Badge';
+import { ForwardIcon } from '../ui/icons';
 import { LoadingRows } from '../ui/Skeleton';
 import classes from './Settings.module.css';
 
@@ -55,23 +56,78 @@ export function SettingRow({
   );
 }
 
+/** A setting whose whole row opens a picker. Keep retry actions outside its button. */
+export function SettingValueButton({
+  settingKey,
+  rowClass,
+  name,
+  line,
+  value,
+  titleClass = classes.label,
+  disabled,
+  onClick,
+  status,
+  after,
+}: {
+  settingKey: string;
+  rowClass: string;
+  name: ReactNode;
+  line: string;
+  value: string;
+  titleClass?: string;
+  disabled?: boolean;
+  onClick: () => void;
+  status?: ReactNode;
+  after?: ReactNode;
+}) {
+  return (
+    <div
+      className={`${rowClass} ${classes.valueHolder}`}
+      data-setting={settingKey}
+      tabIndex={-1}
+    >
+      <button
+        type="button"
+        className={classes.valueButton}
+        disabled={disabled}
+        onClick={onClick}
+      >
+        <span className={classes.rowText}>
+          <span className={titleClass}>{name}</span> <span className={classes.detail}>{line}</span>
+          {status}
+        </span>{' '}
+        <span className={classes.value}>{value}</span>
+        <ForwardIcon
+          size={16}
+          className={classes.caret}
+        />
+      </button>
+      {after}
+    </div>
+  );
+}
+
 /** One of a few, as a segmented control: a radio group of buttons */
 export function Choice<T extends string>({
   label,
   options,
   value,
   onChange,
+  className,
+  reselect = false,
 }: {
   label: string;
   options: readonly { value: T; label: string }[];
   value: T;
   onChange: (value: T) => void;
+  className?: string;
+  reselect?: boolean;
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className={classes.choice}
+      className={className == null ? classes.choice : `${classes.choice} ${className}`}
       style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
     >
       {options.map((o) => (
@@ -82,7 +138,7 @@ export function Choice<T extends string>({
           aria-checked={o.value === value}
           className={o.value === value ? classes.choiceOn : undefined}
           onClick={() => {
-            if (o.value !== value) onChange(o.value);
+            if (reselect || o.value !== value) onChange(o.value);
           }}
         >
           {o.label}

@@ -1,4 +1,3 @@
-import { Button } from '@mantine/core';
 import { useMoney } from '../../hooks/useMoney';
 import { useId } from 'react';
 import type { MonthTrend } from '@shared/api';
@@ -9,9 +8,8 @@ import { monthHeading } from '../../utils/date-input';
 import Skeleton, { Loading } from '../ui/Skeleton';
 import classes from './Plan.module.css';
 import type { MonthAmount } from './CategoryView';
-import { Shell, UsualLine, YearBars } from './CategoryView';
+import { PlanReadError, Shell, UsualLine, YearChart } from './CategoryView';
 import type { PlanMonth } from './plan-month';
-import { yearComparison } from './plan-text';
 import BackButton from '../ui/BackButton';
 
 /** Every expense, or all income, in each of the 12 months ending at the month shown */
@@ -74,15 +72,7 @@ export default function TotalView({
         {header}
         {title}
         {failed ? (
-          <div className={classes.failed}>
-            <p className={classes.soft}>Couldn&apos;t load this month.</p>
-            <Button
-              variant="default"
-              onClick={retry}
-            >
-              Try again
-            </Button>
-          </div>
+          <PlanReadError retry={retry} />
         ) : (
           <Loading label="Loading this month">
             <Skeleton
@@ -98,7 +88,6 @@ export default function TotalView({
   const cents = income ? summary.incomeCents : summary.spentCents;
   const year = trend.trend == null ? null : yearOf(trend.trend, income);
   const usual = year == null ? null : againstAverage(year.map((m) => m.cents));
-  const comparison = year == null ? null : yearComparison(year);
   const monthName = monthHeading(shown.month, { short: true });
   const colour = income ? 'var(--pos)' : 'var(--accent)';
 
@@ -129,38 +118,13 @@ export default function TotalView({
         </>
       )}
 
-      <section
-        aria-label={`${name}, last 12 months${comparison != null ? `, ${comparison}` : ''}`}
-        className={isPage ? `${classes.card} ${classes.year}` : classes.yearPane}
-      >
-        {year == null ? (
-          trend.failed ? (
-            <div className={classes.failed}>
-              <p className={classes.soft}>Couldn&apos;t load the last 12 months.</p>
-              <Button
-                variant="default"
-                size="xs"
-                onClick={trend.retry}
-              >
-                Try again
-              </Button>
-            </div>
-          ) : (
-            <Loading label="Loading the last 12 months">
-              <Skeleton
-                width="100%"
-                height={150}
-              />
-            </Loading>
-          )
-        ) : (
-          <YearBars
-            months={year}
-            colour={colour}
-            labelled={isPage}
-          />
-        )}
-      </section>
+      <YearChart
+        name={name}
+        months={year}
+        colour={colour}
+        isPage={isPage}
+        trend={trend}
+      />
     </Shell>
   );
 }

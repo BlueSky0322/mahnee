@@ -83,13 +83,7 @@
 }
 
 .monthNav {
-  display: flex;
-  align-items: center;
   margin-left: -12px;
-}
-
-.desktop .monthNav {
-  gap: 4px;
 }
 
 .title {
@@ -113,24 +107,6 @@
 /* A computer's search is drawn 340px wide, narrower only when the room is */
 .desktop .headerEnd {
   flex: 0 1 340px;
-}
-
-.iconButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.iconButton:disabled {
-  opacity: 0.3;
-  cursor: default;
 }
 
 .search {

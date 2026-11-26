@@ -11,6 +11,7 @@ import type { BudgetLine } from '../../ledger/budgets';
 import { budgetLines } from '../../ledger/budgets';
 import { change } from '../../ledger/ledger';
 import { rollUp, rollUpEntries } from '../../ledger/derive';
+import type { Trend } from '../../ledger/useLedger';
 import { useMonthSummary, useMonthTrend, useWholeLedger } from '../../ledger/useLedger';
 import { useProfile, useCurrency } from '../../profile/ProfileContext';
 import { categoryColour } from '../../utils/category-colour';
@@ -98,15 +99,7 @@ export default function CategoryView({
       >
         {header}
         {couldnt || (ledger == null && ledgerFailed) ? (
-          <div className={classes.failed}>
-            <p className={classes.soft}>Couldn&apos;t load this month.</p>
-            <Button
-              variant="default"
-              onClick={retry}
-            >
-              Try again
-            </Button>
-          </div>
+          <PlanReadError retry={retry} />
         ) : (
           <Loading label="Loading this category">
             <Skeleton
@@ -148,7 +141,6 @@ export default function CategoryView({
   const entries = spending?.entries ?? 0;
   const year = trend.trend == null ? null : yearOf(trend.trend, categories, category);
   const usual = year == null ? null : againstAverage(year.map((m) => m.cents));
-  const comparison = year == null ? null : yearComparison(year);
   const monthName = monthHeading(shown.month, { short: true });
   const line: BudgetLine | undefined = budgetLines(summary, categories).find((l) => l.id === id);
   const budget = summary.budgets?.find((b) => b.categoryId === id) ?? null;
@@ -281,38 +273,13 @@ export default function CategoryView({
         </>
       )}
 
-      <section
-        aria-label={`${category.name}, last 12 months${comparison != null ? `, ${comparison}` : ''}`}
-        className={isPage ? `${classes.card} ${classes.year}` : classes.yearPane}
-      >
-        {year == null ? (
-          trend.failed ? (
-            <div className={classes.failed}>
-              <p className={classes.soft}>Couldn&apos;t load the last 12 months.</p>
-              <Button
-                variant="default"
-                size="xs"
-                onClick={trend.retry}
-              >
-                Try again
-              </Button>
-            </div>
-          ) : (
-            <Loading label="Loading the last 12 months">
-              <Skeleton
-                width="100%"
-                height={150}
-              />
-            </Loading>
-          )
-        ) : (
-          <YearBars
-            months={year}
-            colour={categoryColour(categories, id)}
-            labelled={isPage}
-          />
-        )}
-      </section>
+      <YearChart
+        name={category.name}
+        months={year}
+        colour={categoryColour(categories, id)}
+        isPage={isPage}
+        trend={trend}
+      />
 
       {inside}
 
@@ -376,11 +343,80 @@ export function Shell({
   );
 }
 
+/** A Plan read failed, with retry scoped to the missing period. */
+export function PlanReadError({
+  retry,
+  year = false,
+  card = false,
+}: {
+  retry: () => void;
+  year?: boolean;
+  card?: boolean;
+}) {
+  return (
+    <div className={card ? `${classes.card} ${classes.failed}` : classes.failed}>
+      <p
+        className={classes.soft}
+      >{`Couldn't load ${year ? 'the last 12 months' : 'this month'}.`}</p>
+      <Button
+        variant="default"
+        size={year ? 'xs' : undefined}
+        onClick={retry}
+      >
+        Try again
+      </Button>
+    </div>
+  );
+}
+
+/** The same year chart on a category and an income or expense total. */
+export function YearChart({
+  name,
+  months,
+  colour,
+  isPage,
+  trend,
+}: {
+  name: string;
+  months: MonthAmount[] | null;
+  colour: string;
+  isPage: boolean;
+  trend: Pick<Trend, 'failed' | 'retry'>;
+}) {
+  const comparison = months == null ? null : yearComparison(months);
+  return (
+    <section
+      aria-label={`${name}, last 12 months${comparison != null ? `, ${comparison}` : ''}`}
+      className={isPage ? `${classes.card} ${classes.year}` : classes.yearPane}
+    >
+      {months != null ? (
+        <YearBars
+          months={months}
+          colour={colour}
+          labelled={isPage}
+        />
+      ) : trend.failed ? (
+        <PlanReadError
+          retry={trend.retry}
+          year
+        />
+      ) : (
+        <Loading label="Loading the last 12 months">
+          <Skeleton
+            width="100%"
+            height={150}
+          />
+        </Loading>
+      )}
+    </section>
+  );
+}
+
 /**
  * The 12 months as bars, oldest first, each read out with its month and amount, the month
  * shown picked out in the category's colour; the average of the 11 before as a line
  */
-export function YearBars({
+function YearBars({
   months,
   colour,
   labelled,

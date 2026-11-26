@@ -1,5 +1,4 @@
-import { Button, Switch, TextInput } from '@mantine/core';
-import { Archive, ArrowCounterClockwise } from '@phosphor-icons/react';
+import { Switch, TextInput } from '@mantine/core';
 import type { FormEvent } from 'react';
 import { useId, useState } from 'react';
 import type { Category, LedgerChange, MonthBudget } from '@shared/api';
@@ -20,6 +19,7 @@ import { newId } from '../../utils/id';
 import { showRefusal } from '../../utils/notify';
 import { showUndo } from '../common/undo-toast';
 import Picker from '../ui/Picker';
+import FormActions, { ArchiveButton } from '../ui/FormActions';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 import { KIND_LABELS, budgetText, readBudget } from './category-text';
 import classes from './Categories.module.css';
@@ -271,34 +271,14 @@ function Fields({
           </p>
         </>
       )}
-      <div className={classes.actions}>
-        {category != null &&
-          (category.archived ? (
-            <Button
-              variant="subtle"
-              color="gray"
-              leftSection={<ArrowCounterClockwise size={16} />}
-              onClick={() => archive(false)}
-            >
-              Bring back
-            </Button>
-          ) : (
-            <Button
-              variant="subtle"
-              color="gray"
-              leftSection={<Archive size={16} />}
-              onClick={() => archive(true)}
-            >
-              Archive
-            </Button>
-          ))}
-        <Button
-          type="submit"
-          className={classes.save}
-        >
-          {category == null ? 'Add category' : 'Save'}
-        </Button>
-      </div>
+      <FormActions submitLabel={category == null ? 'Add category' : 'Save'}>
+        {category != null && (
+          <ArchiveButton
+            archived={category.archived}
+            onClick={() => archive(!category.archived)}
+          />
+        )}
+      </FormActions>
     </form>
   );
 }

@@ -15,6 +15,10 @@ hack-proof, and the limits below are real.
   `workers.dev` address with the same policy as Splitfoolish ("Anyone with an email"),
   so one email is one person in both apps; per-version preview
   addresses are turned off (`preview_urls`), since Access doesn't cover them.
+- **MCP connections.** The Worker checks Access on `/api/mcp` and passes the verified
+  email to read-only ledger tools. If configured, `ACCESS_MCP_AUD` sets the required
+  audience on that endpoint. Other routes always require `ACCESS_AUD`. The client receives
+  private tool results, so connect a client you trust. [MCP connection and deployment](mcp.md).
 - **Whose data it is.** Anyone with an email can sign in, and each account sees only its
   own data: every row belongs to the signed-in account, and every query is scoped by its
   email. Money accounts, categories and transactions are keyed by email and id together,

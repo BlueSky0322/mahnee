@@ -553,8 +553,8 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin || url.pathname.startsWith('/cdn-cgi/')) return;
 
   if (event.request.mode === 'navigate') {
-    // Going to sign in: Access answers, never the kept page
-    if (url.searchParams.has(SIGN_IN_PARAM)) return;
+    // The API and sign-in are never served as the kept app page.
+    if (url.pathname.startsWith('/api/') || url.searchParams.has(SIGN_IN_PARAM)) return;
     event.respondWith(page(event));
   } else if (INSTALL_FILES.includes(url.pathname)) {
     event.respondWith(installFile(event));

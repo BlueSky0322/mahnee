@@ -112,6 +112,15 @@ describe('opening the app', () => {
     expect(text).toBe(fromDevice(version(1).html));
   });
 
+  test.each(['/api/mcp', '/api/me'])(
+    'opening %s offline leaves the request to the browser',
+    async (path) => {
+      const caches = fakeCaches();
+      await visit(caches, deployed(version(1)));
+      expect(() => openPage(path, offline, caches)).toThrow(`left ${path} to the browser`);
+    },
+  );
+
   test.each<[string, Answer]>([
     ['500', { status: 500, body: 'Internal error', contentType: 'text/plain' }],
     [

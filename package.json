@@ -20,14 +20,17 @@
     "db:migrate:local": "wrangler d1 migrations apply mahnee-db --local"
   },
   "dependencies": {
+    "@cfworker/json-schema": "4.1.1",
     "@mantine/core": "^7.9.2",
     "@mantine/hooks": "^7.9.2",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@phosphor-icons/react": "^2.1.7",
     "@tanstack/react-query": "^5.104.2",
     "hono": "^4.13.22",
     "idb-keyval": "^6.3.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261123.1",

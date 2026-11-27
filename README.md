@@ -9,7 +9,7 @@ imports a bank's CSV file or its own export. It
 installs as an app on phones and computers, opens offline, and keeps changes made
 offline on the device until they're saved.
 
-[Connect an MCP client](docs/mcp.md) to read your saved finances.
+[Connect an MCP client](docs/mcp.md) to read your saved finances or enable separate access for adding expenses.
 
 ## Layout
 

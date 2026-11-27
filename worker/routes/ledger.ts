@@ -4,19 +4,11 @@
 // saving the app's changes to them
 
 import { Hono } from 'hono';
-import type {
-  ChangesBody,
-  ExportSummary,
-  Ledger,
-  RatePreference,
-  RecentImports,
-} from '../../shared/api';
+import type { ChangesBody, ExportSummary, Ledger, RecentImports } from '../../shared/api';
 import { MAX_CHANGES, PENDING_CHANGES_HEADER, readPendingIds } from '../../shared/api';
 import type { AppEnv } from '../app';
 import { fail, json, readJson } from '../http';
-import { getRatePreference } from '../accounts/profiles';
-import { RateLookups, getRateOn } from '../currency/exchange-rates';
-import { applyChanges } from '../ledger/changes';
+import { saveLedgerChanges } from '../ledger/changes';
 import { exportTransactions, readExportRange, readExportSummary } from '../ledger/export';
 import { readImports } from '../ledger/imports';
 import { readPayeeCategories } from '../ledger/payees';
@@ -81,17 +73,7 @@ ledger.get('/payee-categories', (c) =>
 ledger.post('/changes', async (c) => {
   const body = await readJson<ChangesBody>(c.req.raw);
   if (body instanceof Response) return body;
-  // A change typed in a home currency since left is converted at its day's rate, from
-  // where the person prefers rates fetched, each day asked for once in the request
-  const lookups = new RateLookups();
-  let preference: Promise<RatePreference> | undefined;
-  return applyChanges(c.env.DB, c.var.email, body, {
-    fetchRate: async (from, to, day) =>
-      getRateOn(c.env, from, to, Date.parse(`${day}T12:00:00Z`), {
-        prefer: await (preference ??= getRatePreference(c.env.DB, c.var.email)),
-        lookups,
-      }),
-  });
+  return saveLedgerChanges(c.env, c.var.email, body);
 });
 
 export default ledger;

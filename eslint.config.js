@@ -103,7 +103,7 @@ export default tseslint.config(
 
   // The service worker and other plain JavaScript: no type information
   {
-    files: ['**/*.js'],
+    files: ['**/*.{js,mjs}'],
     ...tseslint.configs.disableTypeChecked,
   },
   {

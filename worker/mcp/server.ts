@@ -1,8 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker';
-import type { Env } from '../app';
+import type { McpEnv } from '../app';
 import { isCrossSite, readBody } from '../http';
+import { registerExpenseTool } from './record-expense';
 import { registerLedgerTools } from './tools';
 
 const MAX_REQUEST_BYTES = 64 * 1024;
@@ -17,7 +18,12 @@ function rpcError(status: number, code: number, message: string, headers?: Heade
 }
 
 /** One stateless JSON-RPC exchange, scoped to the account established by the router. */
-export async function handleMcp(req: Request, env: Env, email: string): Promise<Response> {
+export async function handleMcp(
+  req: Request,
+  env: McpEnv,
+  email: string,
+  mode: 'read' | 'write' = 'read',
+): Promise<Response> {
   const url = new URL(req.url);
   const origin = req.headers.get('Origin');
   if ((origin !== null && origin !== url.origin) || isCrossSite(req, url)) {
@@ -46,7 +52,9 @@ export async function handleMcp(req: Request, env: Env, email: string): Promise<
       // The SDK's default schema validator requires runtime code generation.
       { jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
     );
-    registerLedgerTools(server, env.DB, email);
+    const writable = mode === 'write';
+    registerLedgerTools(server, env.DB, email, writable);
+    if (writable) registerExpenseTool(server, env, email);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

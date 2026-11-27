@@ -15,6 +15,7 @@ import {
   type Category,
   type ChangesBody,
   type LedgerChange,
+  type RatePreference,
   MAX_CHANGES,
   MAX_FILE_NAME,
   isRowId,
@@ -69,15 +70,21 @@ import {
   whyNotOnAccount,
 } from '../../shared/ledger';
 import { BUDGET_RANGE, fitsBudgetCents, isBudgetMonth, whyNoBudget } from '../../shared/budgets';
-import { ensureProfileStatement } from '../accounts/profiles';
+import { ensureProfileStatement, getRatePreference } from '../accounts/profiles';
 import { type Unchecked, fail, ok } from '../http';
 import { listCategories } from './read';
 import { readMonthStart } from './month-start';
 import { changeFingerprint, receiptStatements, savedReceipts } from './receipts';
 import { DEFAULT_SETTINGS } from '../../shared/api';
 import { convertSignedCents, isEntryCurrency } from '../../shared/rates';
-import type { Rate } from '../currency/exchange-rates';
-import { LookupsSpent, NoRate, RatesUnavailable } from '../currency/exchange-rates';
+import type { Rate, RatesEnv } from '../currency/exchange-rates';
+import {
+  LookupsSpent,
+  NoRate,
+  RateLookups,
+  RatesUnavailable,
+  getRateOn,
+} from '../currency/exchange-rates';
 import { type Typed, TypedTooLarge, typedIn, typedStatements } from '../currency/typed-in';
 
 /** A change that can't be saved, with the status and reason the API answers with */
@@ -1397,6 +1404,25 @@ const converting = (to: string) =>
 /** Whether D1 refused a write for breaking a constraint */
 const isConstraintError = (err: unknown) => String(err).includes('CONSTRAINT');
 
+/** Book foreign amounts at the day's rate from the person's preferred source. */
+export function saveLedgerChanges(
+  env: RatesEnv & { DB: D1Database },
+  email: string,
+  body: Unchecked<ChangesBody>,
+  receiptSource?: 'record_expense',
+) {
+  const lookups = new RateLookups();
+  let preference: Promise<RatePreference> | undefined;
+  return applyChanges(env.DB, email, body, {
+    receiptSource,
+    fetchRate: async (from, to, day) =>
+      getRateOn(env, from, to, Date.parse(`${day}T12:00:00Z`), {
+        prefer: await (preference ??= getRatePreference(env.DB, email)),
+        lookups,
+      }),
+  });
+}
+
 /** POST /api/changes: saves a batch all or nothing, answering Ok or why it was refused */
 export async function applyChanges(
   db: D1Database,
@@ -1406,7 +1432,10 @@ export async function applyChanges(
     now = Date.now(),
     posting = false,
     fetchRate,
+    receiptSource,
   }: {
+    /** Connected-client receipts also bind the typed currency. Existing app receipts hash the change alone. */
+    receiptSource?: 'record_expense';
     /** When it's saved as of: the nightly job's scheduled time */
     now?: number;
     /** Saved by the nightly job */
@@ -1438,7 +1467,11 @@ export async function applyChanges(
   }
 
   // Changes saved before, their answer lost: counted once, and not applied again
-  const prints = await Promise.all(changes.map((c: unknown) => changeFingerprint(c)));
+  const prints = await Promise.all(
+    changes.map((change: unknown, i: number) =>
+      changeFingerprint(receiptSource ? [receiptSource, currencies?.[i], change] : change),
+    ),
+  );
   const saved = await savedReceipts(db, email, changeIds);
   const fresh: number[] = [];
   for (let i = 0; i < changes.length; i++) {
@@ -1447,6 +1480,15 @@ export async function applyChanges(
     else if (before !== prints[i]) return fail('That change was saved differently before', 409);
   }
   if (fresh.length === 0) return ok();
+
+  // Another copy can commit between reading receipts and either validating or writing its rows.
+  async function concurrentReceipt(): Promise<Response | null> {
+    const receipts = await savedReceipts(db, email, changeIds);
+    if (fresh.every((i) => receipts.get(changeIds[i]) === prints[i])) return ok();
+    if (fresh.some((i) => receipts.has(changeIds[i]) && receipts.get(changeIds[i]) !== prints[i]))
+      return fail('That change was saved differently before', 409);
+    return null;
+  }
 
   // While the person's amounts convert into a new home currency, nothing changes: the app
   // keeps the changes and sends them again (a 503)
@@ -1622,7 +1664,13 @@ export async function applyChanges(
     try {
       statements.push(...changeStatements(db, email, model, change, now));
     } catch (err) {
-      if (err instanceof Refused) return fail(err.message, err.status);
+      if (err instanceof Refused) {
+        if (err.status === 409) {
+          const receipt = await concurrentReceipt();
+          if (receipt) return receipt;
+        }
+        return fail(err.message, err.status);
+      }
       throw err;
     }
     statements.push(...typedStatements(db, email, typed));
@@ -1664,15 +1712,14 @@ export async function applyChanges(
     ]);
   } catch (err) {
     if (!isConstraintError(err)) throw err;
+    const receipt = await concurrentReceipt();
+    if (receipt) return receipt;
     // The currency changed meanwhile: kept and sent again, as above
     const after = await readHome(db, email);
     if (after.converting != null) return converting(after.converting);
     if (after.currency !== home.currency) {
       return fail('The currency changed meanwhile. Try again.', 503);
     }
-    // The same changes sent twice at once: the other request saved them
-    const now = await savedReceipts(db, email, changeIds);
-    if (fresh.every((i) => now.get(changeIds[i]) === prints[i])) return ok();
     // Another batch landed between reading and saving: an account, category or
     // transaction added with the same id, the last one a limit allows, or a move that
     // would go two deep

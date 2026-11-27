@@ -13,8 +13,13 @@ export interface AuthEnv {
   ACCESS_AUD?: string;
   /** The separate Access application for MCP, when configured. */
   ACCESS_MCP_AUD?: string;
+  /** A distinct Access application required for MCP mutations. */
+  ACCESS_MCP_WRITE_AUD?: string;
   DEV_USER_EMAIL?: string;
+  DEV_MCP_WRITES?: string;
 }
+
+export type AccessService = 'app' | 'mcp' | 'mcp-write';
 
 interface AccessJwk extends JsonWebKey {
   kid: string;
@@ -192,23 +197,40 @@ const readCookie = (req: Request, name: string) =>
 export const getUserEmail = async (req: Request, env: AuthEnv) =>
   (await getSignIn(req, env))?.email ?? null;
 
+function audienceFor(env: AuthEnv, service: AccessService) {
+  if (service === 'mcp-write') {
+    const audience = env.ACCESS_MCP_WRITE_AUD;
+    if (audience === env.ACCESS_AUD || audience === env.ACCESS_MCP_AUD) return undefined;
+    return audience;
+  }
+  return service === 'mcp' && env.ACCESS_MCP_AUD ? env.ACCESS_MCP_AUD : env.ACCESS_AUD;
+}
+
+export async function getAccessSignIn(
+  req: Request,
+  teamDomain: string,
+  audience: string,
+): Promise<SignIn | null> {
+  const token = req.headers.get('Cf-Access-Jwt-Assertion') ?? readCookie(req, 'CF_Authorization');
+  return token ? verifyAccessJwt(token, teamDomain, audience) : null;
+}
+
 /** Who's signed in, with their Google picture's address, or null. Fails closed as above. */
 export async function getSignIn(
   req: Request,
   env: AuthEnv,
-  service: 'app' | 'mcp' = 'app',
+  service: AccessService = 'app',
 ): Promise<SignIn | null> {
   if (env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD) {
-    const token = req.headers.get('Cf-Access-Jwt-Assertion') ?? readCookie(req, 'CF_Authorization');
-    if (!token) return null;
-    const audience = service === 'mcp' && env.ACCESS_MCP_AUD ? env.ACCESS_MCP_AUD : env.ACCESS_AUD;
-    return verifyAccessJwt(token, env.ACCESS_TEAM_DOMAIN, audience);
+    const audience = audienceFor(env, service);
+    return audience ? getAccessSignIn(req, env.ACCESS_TEAM_DOMAIN, audience) : null;
   }
 
   // Any Access setting means this is a deployment and requires the full configuration.
-  if (env.ACCESS_TEAM_DOMAIN || env.ACCESS_AUD || env.ACCESS_MCP_AUD) return null;
+  if (env.ACCESS_TEAM_DOMAIN || env.ACCESS_AUD || env.ACCESS_MCP_AUD || env.ACCESS_MCP_WRITE_AUD)
+    return null;
 
-  if (env.DEV_USER_EMAIL) {
+  if (env.DEV_USER_EMAIL && (service !== 'mcp-write' || env.DEV_MCP_WRITES === 'true')) {
     return {
       email: (req.headers.get('X-Dev-User') ?? env.DEV_USER_EMAIL).toLowerCase(),
       picture: req.headers.get('X-Dev-Picture') || null,

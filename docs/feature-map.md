@@ -20,7 +20,7 @@ in [AGENTS.md](../AGENTS.md).
 | [Budgets](#budgets)                                             | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Search and changing many](#search-and-changing-many)           | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Repeating bills and month end](#repeating-bills-and-month-end) | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
-| [MCP reads](#mcp-reads)                                         | (none; reads from a client)  | `mcp/`, `ledger/`              |
+| [MCP](#mcp)                                                     | (none; external client)      | `mcp/`, `ledger/`              |
 | [Export](#export)                                               | (none; read when asked)      | `ledger/`, `routes/ledger.ts`  |
 | [Import](#import)                                               | `ledger/ledger.ts`           | `ledger/`, `routes/ledger.ts`  |
 | [Exchange rates](#exchange-rates)                               | `hooks/useRate.ts`           | `currency/`, `routes/rates.ts` |
@@ -1764,16 +1764,22 @@ weekly, offline and refused, stop with Undo, the next 30 days),
 for items that ask first, the total on Home, set up from a transaction, the person's own
 day), and the repeating cases in [worker/test/api.test.ts](../worker/test/api.test.ts).
 
-## MCP reads
+## MCP
 
 **Entry point.** `/api/mcp` accepts one stateless Streamable HTTP request from an
 authenticated MCP client. The Worker checks Access before passing the verified email
-to the tool handlers in [worker/mcp/](../worker/mcp/server.ts).
+to the tool handlers in [worker/mcp/](../worker/mcp/server.ts). The dedicated hosted
+Worker serves `/api/mcp` and `/api/mcp/write` on its own `workers.dev` hostname.
 
-**Data.** Tools list money accounts and categories, search saved transactions, and
+**Data.** Reader tools list money accounts and categories, search saved transactions, and
 read a month's totals. They use the ledger's account-scoped reads, with a bounded
 transaction page and no mutation path. They cannot see changes pending on a device.
-The [MCP guide](mcp.md) explains the tool inputs, client setup and separate Access audience.
+The optional writer at `/api/mcp/write` can also add expenses to that email's ledger.
+Its Access audience is distinct from the browser and reader audiences. The account
+list reports `signedInAs`, and each expense request must match it with `expectedAccount`.
+Expense writes share the ledger's validation and receipts. A retry of a saved request
+returns the same transaction id without creating a second expense.
+The [MCP guide](mcp.md) explains the tool inputs, client setup and Access policies.
 
 **Tests.** [worker/test/mcp.test.ts](../worker/test/mcp.test.ts) connects the MCP SDK
 client to a local Worker. [worker/accounts/auth.test.ts](../worker/accounts/auth.test.ts)

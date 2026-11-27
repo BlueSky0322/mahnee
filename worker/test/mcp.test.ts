@@ -6,16 +6,17 @@ import { startLocalWorker, type LocalWorker } from './local-worker';
 
 let api: LocalWorker;
 beforeAll(async () => {
-  api = await startLocalWorker();
+  api = await startLocalWorker({ mcpWrites: true });
 }, 180_000);
 afterAll(() => api?.stop(), 30_000);
 
-async function connect(email: string) {
+async function connect(email: string, path = '/api/mcp', send = fetch) {
   const client = new Client({ name: 'mahnee-test', version: '1' });
   onTestFinished(() => client.close());
   // A remote client uses the signed-in identity and has no browser account header.
   await client.connect(
-    new StreamableHTTPClientTransport(new URL('/api/mcp', api.base), {
+    new StreamableHTTPClientTransport(new URL(path, api.base), {
+      fetch: send,
       requestInit: { headers: { 'X-Dev-User': email } },
     }),
   );
@@ -185,4 +186,133 @@ it('keeps tool responses out of caches and refuses a request from a different br
   expect(firstParty.headers.get('cache-control')).toContain('no-store');
   const elsewhere = await request('https://other.example.test');
   expect(elsewhere.status).toBe(403);
+});
+
+const expense = (expectedAccount: string) => ({
+  expectedAccount,
+  requestId: rowId(501),
+  accountId: wallet,
+  categoryId: food,
+  date: '2026-10-13',
+  amountCents: 735,
+  currency: 'MYR',
+  payee: 'Market',
+});
+
+it('records an expense once when a writer loses the reply and retries the same request', async () => {
+  const owner = 'repeat-expense@example.test';
+  await seed(owner, [account(wallet, 'Wallet', 4000)]);
+  let dropReply = false;
+  const writer = await connect(owner, '/api/mcp/write', async (input, init) => {
+    const response = await fetch(input, init);
+    if (dropReply && init?.method === 'POST') {
+      dropReply = false;
+      await response.arrayBuffer();
+      throw new TypeError('Expense reply lost');
+    }
+    return response;
+  });
+  const identity = await writer.callTool({ name: 'list_accounts' });
+  expect(identity.structuredContent).toMatchObject({
+    signedInAs: owner,
+    accounts: [{ id: wallet, balanceCents: 4000 }],
+  });
+  const args = expense((identity.structuredContent as { signedInAs: string }).signedInAs);
+  const record = { name: 'record_expense', arguments: args };
+  const reader = await connect(owner);
+  expect((await reader.callTool(record)).isError).toBe(true);
+  const history = () => api.call(owner, 'GET', '/api/search?rowsOnly=1');
+  expect((await history()).data.transactions).toEqual([]);
+
+  dropReply = true;
+  await expect(writer.callTool(record)).rejects.toThrow('Expense reply lost');
+  const saved = {
+    id: args.requestId,
+    kind: 'expense',
+    amountCents: 735,
+    date: args.date,
+    payee: 'Market',
+  };
+  expect((await history()).data.transactions).toMatchObject([saved]);
+
+  const retry = await writer.callTool(record);
+  expect(retry.structuredContent).toEqual({ transactionId: args.requestId });
+  for (const change of [{ amountCents: 736 }, { currency: 'USD' }]) {
+    const conflicting = await writer.callTool({
+      ...record,
+      arguments: { ...args, ...change },
+    });
+    expect(conflicting.isError).toBe(true);
+    expect(conflicting.content).toMatchObject([
+      { type: 'text', text: expect.stringMatching(/request id.*already used/i) },
+    ]);
+  }
+  expect((await history()).data.transactions).toMatchObject([saved]);
+  const balances = await reader.callTool({ name: 'list_accounts' });
+  expect(balances.structuredContent).toMatchObject({
+    accounts: [{ id: wallet, balanceCents: 3265 }],
+  });
+});
+
+it('books a foreign-currency expense once when identical writer requests overlap', async () => {
+  const owner = 'overlapping-expense@example.test';
+  await seed(owner, [account(wallet, 'Wallet', 4000)]);
+  const args = { ...expense(owner), currency: 'THB', amountCents: 2000 };
+  const record = { name: 'record_expense', arguments: args };
+  api.rates.setOn(args.date, 'THB', 'MYR', 0.25);
+  const quote = api.rates.hold('THB', 'MYR');
+  let waitingForSecondPost = false;
+  try {
+    const writer = await connect(owner, '/api/mcp/write', (input, init) => {
+      const response = fetch(input, init);
+      if (waitingForSecondPost && init?.method === 'POST') quote.release();
+      return response;
+    });
+    const first = writer.callTool(record);
+    await quote.reached;
+    waitingForSecondPost = true;
+    const outcomes = await Promise.all([first, writer.callTool(record)]);
+    expect(outcomes.map((result) => result.structuredContent)).toEqual([
+      { transactionId: args.requestId },
+      { transactionId: args.requestId },
+    ]);
+  } finally {
+    quote.release();
+  }
+  const after = await api.call(owner, 'GET', '/api/search?rowsOnly=1');
+  expect(after.data.transactions).toMatchObject([
+    { id: args.requestId, amountCents: 500, original: { currency: 'THB', cents: 2000 } },
+  ]);
+});
+
+it('refuses an unexpected signer, unavailable accounts and invalid amounts or currencies without charging either ledger', async () => {
+  const owner = 'verify-expense@example.test';
+  const neighbor = 'other-expense@example.test';
+  await seed(owner, [
+    account(wallet, 'Open wallet', 4000),
+    account(savings, 'Old wallet', 0),
+    { op: 'archiveAccount', id: savings, archived: true },
+  ]);
+  const foreign = rowId(3);
+  await seed(neighbor, [account(foreign, 'Travel purse', 1500)]);
+  const writer = await connect(owner, '/api/mcp/write');
+  const refusals = [
+    [{ expectedAccount: neighbor }, /signed.in account changed/i],
+    [{ accountId: foreign }, /account not found/i],
+    [{ accountId: savings }, /archived/i],
+    [{ amountCents: 0 }, /amountCents/i],
+    [{ currency: 'ZZZ' }, /currency/i],
+  ] as const;
+  for (const [i, [change, reason]] of refusals.entries()) {
+    const result = await writer.callTool({
+      name: 'record_expense',
+      arguments: { ...expense(owner), requestId: rowId(600 + i), ...change },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatchObject([{ type: 'text', text: expect.stringMatching(reason) }]);
+  }
+  for (const email of [owner, neighbor]) {
+    const after = await api.call(email, 'GET', '/api/search?rowsOnly=1');
+    expect(after.data.transactions).toEqual([]);
+  }
 });

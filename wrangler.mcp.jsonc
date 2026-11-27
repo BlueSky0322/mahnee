@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mahnee-mcp",
+  "main": "worker/mcp/index.ts",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "placement": { "mode": "smart" },
+  "vars": {
+    "MAHNEE_MCP_MANAGED": "BlueSky0322/mahnee:mcp-v1",
+    "ACCESS_TEAM_DOMAIN": "ryanng-0611.cloudflareaccess.com",
+    // Used only to reject the web application's audience.
+    "ACCESS_AUD": "18cc5a8ad6ad6b831b40ab4a17ab3a1e152251f8a556ce570ff110edcc59aa26",
+  },
+  // Set ACCESS_MCP_AUD and ACCESS_MCP_WRITE_AUD at deployment. Each endpoint
+  // stays closed until it has its own dedicated Access application audience.
+  "observability": { "enabled": true, "head_sampling_rate": 0.1, "redact_query_string": true },
+  "ratelimits": [
+    { "name": "API_LIMITER", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mahnee-db",
+      "database_id": "8c1cd6a9-1db0-4a18-aabb-31339f5e7757",
+      "migrations_dir": "migrations",
+    },
+  ],
+}

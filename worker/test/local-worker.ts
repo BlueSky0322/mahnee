@@ -468,7 +468,7 @@ async function startFakeRates(): Promise<
   };
 }
 
-export async function startLocalWorker(): Promise<LocalWorker> {
+export async function startLocalWorker({ mcpWrites = false } = {}): Promise<LocalWorker> {
   // Undone in reverse order, so the Worker has exited before its database is deleted
   const cleanups: (() => unknown)[] = [];
   let stopping: Promise<void> | null = null;
@@ -537,6 +537,12 @@ export async function startLocalWorker(): Promise<LocalWorker> {
           'ACCESS_TEAM_DOMAIN:',
           '--var',
           'ACCESS_AUD:',
+          '--var',
+          'ACCESS_MCP_AUD:',
+          '--var',
+          'ACCESS_MCP_WRITE_AUD:',
+          '--var',
+          `DEV_MCP_WRITES:${mcpWrites}`,
           '--var',
           'DEV_USER_EMAIL:nobody@example.com',
           '--var',

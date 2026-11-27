@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { provisionMcp } from './mcp-access.mjs';
+import { checkMcpWorker, provisionMcp } from './mcp-access.mjs';
 
 const account = 'a'.repeat(32);
 const browser = {
@@ -52,9 +52,33 @@ function fixture() {
     apps,
     reads,
     writes,
+    checkWorker: () => checkMcpWorker({ account, token: 'fixture', fetch }),
     run: () => provisionMcp({ account, token: 'fixture', browserAudience: browser.aud, fetch }),
   };
 }
+
+it.each([false, true])(
+  'checks Worker ownership without Access permissions (exists: %s)',
+  async (exists) => {
+    const cf = fixture();
+    for (const path of cf.reads.keys()) {
+      if (path.startsWith('/access/')) cf.reads.delete(path);
+    }
+    if (exists) {
+      cf.reads.set('/workers/scripts', [{ id: 'mahnee-mcp' }]);
+      cf.reads.set('/workers/scripts/mahnee-mcp/settings', {
+        bindings: [
+          { name: 'MAHNEE_MCP_MANAGED', type: 'plain_text', text: 'BlueSky0322/mahnee:mcp-v1' },
+        ],
+      });
+    }
+    expect(await cf.checkWorker()).toEqual({
+      MCP_HOST: 'mahnee-mcp.example.workers.dev',
+      MCP_WORKER_EXISTS: exists,
+    });
+    expect(cf.writes).toEqual([]);
+  },
+);
 
 it('attaches the browser policy IDs to both roles in application precedence order and reuses them on retry', async () => {
   const cf = fixture();
@@ -81,7 +105,7 @@ it('leaves an existing Worker with a different ownership marker untouched', asyn
   cf.reads.set('/workers/scripts/mahnee-mcp/settings', {
     bindings: [{ name: 'MAHNEE_MCP_MANAGED', type: 'plain_text', text: 'different-owner' }],
   });
-  await expect(cf.run()).rejects.toThrow(/Worker name is already in use/);
+  await expect(cf.checkWorker()).rejects.toThrow(/Worker name is already in use/);
   expect(cf.writes).toEqual([]);
 });
 

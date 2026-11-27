@@ -143,6 +143,13 @@ run on `main`. To retry, run **Deploy MCP** manually on `main`. It uses the
 existing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` Actions secrets. The
 token needs **Workers Scripts Write** and **Access: Apps and Policies Read/Write**
 in the deployment account, in addition to the existing release permissions.
+On the first run, the workflow creates the hostname with both endpoints locked.
+It enables them after verifying their Access applications. A later retry keeps
+the existing Worker in place while it checks Access.
+
+Foreign expenses use Frankfurter unless the dedicated Worker also has the optional
+`WISE_TOKEN` secret. With that secret set, it can use Wise according to the user's
+rate preference just like the web Worker.
 
 The two MCP URLs use separate Cloudflare Access applications. Both reference the
 browser app's reusable policies in the same order, so a change to a shared rule

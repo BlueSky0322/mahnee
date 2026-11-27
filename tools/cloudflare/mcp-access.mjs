@@ -45,6 +45,10 @@ function pickOwn(object, keys) {
 }
 
 function client(account, token, fetch) {
+  if (!accountId.test(account ?? '') || typeof token !== 'string' || !token) {
+    abort('Missing or invalid Cloudflare deployment credentials.');
+  }
+
   async function request(operation, path, method = 'GET', body) {
     let response;
     try {
@@ -172,20 +176,9 @@ function safeSource(policy) {
   }
 }
 
-export async function provisionMcp({ account, token, browserAudience, fetch }) {
-  if (
-    !accountId.test(account ?? '') ||
-    typeof token !== 'string' ||
-    !token ||
-    !audienceTag.test(browserAudience ?? '')
-  ) {
-    abort('Missing or invalid Cloudflare deployment credentials or browser audience.');
-  }
-  const cf = client(account, token, fetch);
-  const appPath = '/access/apps';
-  const [{ result: subdomain }, apps, { result: scripts }] = await Promise.all([
+async function workerTarget(cf) {
+  const [{ result: subdomain }, { result: scripts }] = await Promise.all([
     cf.request('Read the account Workers subdomain', '/workers/subdomain'),
-    cf.list('List Access applications', appPath),
     cf.request('Check the intended Worker name', '/workers/scripts'),
   ]);
   if (!workerSubdomain.test(subdomain?.subdomain ?? '')) {
@@ -195,7 +188,8 @@ export async function provisionMcp({ account, token, browserAudience, fetch }) {
   if (!Array.isArray(scripts) || scripts.some((script) => typeof script?.id !== 'string')) {
     abort('Cloudflare did not return a verifiable list of Worker names.');
   }
-  if (scripts.some((script) => script.id === workerName)) {
+  const exists = scripts.some((script) => script.id === workerName);
+  if (exists) {
     const { result } = await cf.request(
       'Verify ownership of the existing MCP Worker',
       `/workers/scripts/${workerName}/settings`,
@@ -205,6 +199,22 @@ export async function provisionMcp({ account, token, browserAudience, fetch }) {
       abort('The intended MCP Worker name is already in use without the Mahnee ownership marker.');
     }
   }
+
+  return { host, exists };
+}
+
+export async function checkMcpWorker({ account, token, fetch }) {
+  const { host, exists } = await workerTarget(client(account, token, fetch));
+  return { MCP_HOST: host, MCP_WORKER_EXISTS: exists };
+}
+
+export async function provisionMcp({ account, token, browserAudience, fetch }) {
+  if (!audienceTag.test(browserAudience ?? ''))
+    abort('Missing or invalid browser Access audience.');
+  const cf = client(account, token, fetch);
+  const { host } = await workerTarget(cf);
+  const appPath = '/access/apps';
+  const apps = await cf.list('List Access applications', appPath);
 
   const idFor = (app) => {
     const id = app.id;
@@ -353,6 +363,12 @@ export async function provisionMcp({ account, token, browserAudience, fetch }) {
   return { MCP_READ_AUD: read.aud, MCP_WRITE_AUD: write.aud, MCP_HOST: host };
 }
 
+async function provisionFromConfig(input) {
+  const config = await readFile(new URL('../../wrangler.jsonc', import.meta.url), 'utf8');
+  const browserAudience = config.match(/^\s*"ACCESS_AUD"\s*:\s*"([a-f\d]{64})"/im)?.[1];
+  return provisionMcp({ ...input, browserAudience });
+}
+
 async function main() {
   const {
     CLOUDFLARE_ACCOUNT_ID: account,
@@ -360,9 +376,12 @@ async function main() {
     GITHUB_OUTPUT: output,
   } = process.env;
   if (!output) abort('GITHUB_OUTPUT is required in the trusted deployment job.');
-  const config = await readFile(new URL('../../wrangler.jsonc', import.meta.url), 'utf8');
-  const browserAudience = config.match(/^\s*"ACCESS_AUD"\s*:\s*"([a-f\d]{64})"/im)?.[1];
-  const values = await provisionMcp({ account, token, browserAudience, fetch });
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && args[0] !== '--check-worker')) {
+    abort('Usage: node tools/cloudflare/mcp-access.mjs [--check-worker]');
+  }
+  const input = { account, token, fetch };
+  const values = args.length === 1 ? await checkMcpWorker(input) : await provisionFromConfig(input);
   await appendFile(
     output,
     Object.entries(values)

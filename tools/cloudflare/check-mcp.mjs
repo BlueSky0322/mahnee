@@ -29,6 +29,10 @@ async function check(path) {
     }),
   });
   await response.body?.cancel();
+  if (path === '/api/mcp/write') {
+    if (response.status !== 410) throw new Error(`Retired writer returned HTTP ${response.status}`);
+    return;
+  }
   if (
     response.status !== 401 ||
     !/^Bearer\b/i.test(response.headers.get('WWW-Authenticate') ?? '')
@@ -36,15 +40,27 @@ async function check(path) {
     throw new Error(`${path} did not return an OAuth challenge (HTTP ${response.status})`);
   }
   const { resourceMetadataUrl } = extractWWWAuthenticateParams(response);
-  const { authorizationServerMetadata } = await discoverOAuthServerInfo(url, {
-    resourceMetadataUrl,
-    fetchFn: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10000) }),
-  });
+  const { authorizationServerMetadata: issuer, resourceMetadata } = await discoverOAuthServerInfo(
+    url,
+    {
+      resourceMetadataUrl,
+      fetchFn: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10000) }),
+    },
+  );
+  const scopes = resourceMetadata?.scopes_supported ?? [];
   if (
-    !authorizationServerMetadata?.authorization_endpoint ||
-    !authorizationServerMetadata.token_endpoint
+    resourceMetadata?.resource !== url.href ||
+    issuer?.issuer !== url.origin ||
+    issuer.authorization_endpoint !== `${url.origin}/oauth/authorize` ||
+    issuer.token_endpoint !== `${url.origin}/oauth/token` ||
+    issuer.registration_endpoint !== `${url.origin}/oauth/register` ||
+    !issuer.revocation_endpoint ||
+    !issuer.code_challenge_methods_supported?.includes('S256') ||
+    !['ledger:read', 'ledger:write'].every((scope) => scopes.includes(scope))
   ) {
-    throw new Error(`OAuth discovery failed for ${path}`);
+    throw new Error(
+      'OAuth discovery must advertise the dedicated issuer and both ledger permissions.',
+    );
   }
   console.log(`Verified OAuth discovery at ${url.href}`);
 }

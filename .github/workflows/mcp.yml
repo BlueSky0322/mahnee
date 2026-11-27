@@ -34,32 +34,37 @@ jobs:
           node-version: '22'
           cache: yarn
       - run: yarn install --frozen-lockfile
-      - name: Check the dedicated Worker name
-        id: worker
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node tools/cloudflare/mcp-access.mjs --check-worker
-      - name: Create the new hostname with both endpoints locked
-        if: steps.worker.outputs.MCP_WORKER_EXISTS == 'false'
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: yarn wrangler deploy --config wrangler.mcp.jsonc
-      - name: Provision Access applications
+      - name: Prepare OAuth storage and human consent
         id: access
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node tools/cloudflare/mcp-access.mjs
-      - name: Deploy dedicated Worker
+      - name: Deploy native OAuth Worker before changing edge protection
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          READ_AUD: ${{ steps.access.outputs.MCP_READ_AUD }}
-          WRITE_AUD: ${{ steps.access.outputs.MCP_WRITE_AUD }}
-        run: yarn wrangler deploy --config wrangler.mcp.jsonc --var "ACCESS_MCP_AUD:$READ_AUD" --var "ACCESS_MCP_WRITE_AUD:$WRITE_AUD"
-      - name: Check public OAuth discovery for both connections
+          MCP_HOST: ${{ steps.access.outputs.MCP_HOST }}
+          ACCESS_CONSENT_AUD: ${{ steps.access.outputs.ACCESS_CONSENT_AUD }}
+          MCP_KV_ID: ${{ steps.access.outputs.MCP_KV_ID }}
+        run: |
+          config=$(mktemp "$PWD/.wrangler.mcp.XXXXXX.json")
+          trap 'rm -f "$config"' EXIT
+          node --input-type=module - "$config" <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const config = JSON.parse(readFileSync('wrangler.mcp.jsonc', 'utf8'));
+          config.vars.MCP_ORIGIN = 'https://' + process.env.MCP_HOST;
+          config.vars.ACCESS_CONSENT_AUD = process.env.ACCESS_CONSENT_AUD;
+          config.kv_namespaces = [{binding: 'OAUTH_KV', id: process.env.MCP_KV_ID}];
+          writeFileSync(process.argv[2], JSON.stringify(config));
+          JS
+          yarn wrangler deploy --config "$config"
+      - name: Retire verified legacy Access applications
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node tools/cloudflare/mcp-access.mjs --activate
+      - name: Check public native OAuth discovery
         env:
           MCP_HOST: ${{ steps.access.outputs.MCP_HOST }}
         run: node tools/cloudflare/check-mcp.mjs

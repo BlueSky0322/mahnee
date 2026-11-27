@@ -2,8 +2,4 @@
 # so the API treats every request as this user (or the X-Dev-User header).
 ACCESS_TEAM_DOMAIN=""
 ACCESS_AUD=""
-ACCESS_MCP_AUD=""
-ACCESS_MCP_WRITE_AUD=""
 DEV_USER_EMAIL="you@example.com"
-# Set true to let MCP write to the local development database.
-DEV_MCP_WRITES="false"

@@ -124,6 +124,8 @@ export interface LocalWorker {
   google: FakeGoogle;
   /** Where it's listening, e.g. http://127.0.0.1:1234 */
   base: string;
+  /** The dedicated OAuth Worker when requested, sharing this run’s D1 ledger. */
+  mcpBase?: string;
   /**
    * Runs one statement on the Worker's database itself, for a state the API can't make
    * on cue (two rows changed in the same millisecond); answers its rows
@@ -468,7 +470,7 @@ async function startFakeRates(): Promise<
   };
 }
 
-export async function startLocalWorker({ mcpWrites = false } = {}): Promise<LocalWorker> {
+export async function startLocalWorker({ mcp = false } = {}): Promise<LocalWorker> {
   // Undone in reverse order, so the Worker has exited before its database is deleted
   const cleanups: (() => unknown)[] = [];
   let stopping: Promise<void> | null = null;
@@ -518,93 +520,93 @@ export async function startLocalWorker({ mcpWrites = false } = {}): Promise<Loca
     const vapid = await newVapidKeys();
     // A port picked free a moment ago can be taken by the time workerd binds it: the
     // other Worker-backed test file starts at the same moment. Then once more, on others.
-    let port = 0;
-    let inspectorPort = 0;
-    const launch = () =>
-      start(
-        [
-          'wrangler',
-          'dev',
-          '--ip',
-          '127.0.0.1',
-          '--port',
-          String(port),
-          '--inspector-port',
-          String(inspectorPort),
-          '--persist-to',
-          persist,
-          '--var',
+    async function listen(dedicatedMcp: boolean): Promise<string> {
+      for (let attempt = 1; ; attempt++) {
+        const port = await freePort();
+        let inspectorPort = await freePort();
+        while (inspectorPort === port) inspectorPort = await freePort();
+        const base = `http://127.0.0.1:${port}`;
+        const bindings = [
           'ACCESS_TEAM_DOMAIN:',
-          '--var',
           'ACCESS_AUD:',
-          '--var',
+          'ACCESS_CONSENT_AUD:',
           'ACCESS_MCP_AUD:',
-          '--var',
           'ACCESS_MCP_WRITE_AUD:',
-          '--var',
-          `DEV_MCP_WRITES:${mcpWrites}`,
-          '--var',
           'DEV_USER_EMAIL:nobody@example.com',
-          '--var',
           `WISE_BASE:${rates.base}`,
-          '--var',
           `FRANKFURTER_BASE:${rates.base}`,
-          '--var',
           'WISE_TOKEN:test-token',
-          '--var',
-          `VAPID_PUBLIC_KEY:${vapid.publicKey}`,
-          '--var',
-          `VAPID_PRIVATE_KEY:${vapid.privateJwk}`,
-          '--var',
-          `PUSH_TEST_ORIGIN:${push.base}`,
-          // A conversion step that failed is tried again after a second, not minutes
-          '--var',
-          'CONVERT_RETRY_DELAY_S:1',
-          // The stand-in services gain rates as tests go, so no range of them is kept
-          '--var',
+          // Tests can add rates in any order within the same dates.
           'RATES_KEEP_RANGES:no',
-          '--var',
-          `GOOGLE_PICTURE_BASE:${rates.google.base}`,
-          '--log-level',
-          'warn',
-        ],
-        env,
-      );
-    let base = '';
-    for (let attempt = 1; ; attempt++) {
-      [port, inspectorPort] = [await freePort(), await freePort()];
-      const worker = launch();
-      cleanups.push(() => stopGroup(worker.child));
-      let exitCode: number | null | undefined;
-      void worker.exited.then((code) => (exitCode = code));
-
-      // Ready once it answers a request that reaches this run's fake rate services, so a
-      // Worker from another run that got the same port is never mistaken for this one
-      base = `http://127.0.0.1:${port}`;
-      const started = Date.now();
-      let answered = false;
-      let ready = false;
-      while (!ready) {
-        try {
-          const res = await fetch(`${base}/api/rates?from=${PROBE_PAIR[0]}&to=${PROBE_PAIR[1]}`, {
-            signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-          });
-          await res.arrayBuffer();
-          answered = true;
-        } catch {
-          // Not listening yet, or too slow to answer: asked again
+          ...(dedicatedMcp
+            ? [`MCP_ORIGIN:${base}`]
+            : [
+                `VAPID_PUBLIC_KEY:${vapid.publicKey}`,
+                `VAPID_PRIVATE_KEY:${vapid.privateJwk}`,
+                `PUSH_TEST_ORIGIN:${push.base}`,
+                `GOOGLE_PICTURE_BASE:${rates.google.base}`,
+                'CONVERT_RETRY_DELAY_S:1',
+              ]),
+        ];
+        const worker = start(
+          [
+            'wrangler',
+            'dev',
+            '--local',
+            ...(dedicatedMcp ? ['--config', 'wrangler.mcp.jsonc'] : []),
+            '--ip',
+            '127.0.0.1',
+            '--port',
+            String(port),
+            '--inspector-port',
+            String(inspectorPort),
+            '--persist-to',
+            persist,
+            ...bindings.flatMap((v) => ['--var', v]),
+            '--log-level',
+            'warn',
+          ],
+          env,
+        );
+        cleanups.push(() => stopGroup(worker.child));
+        let exitCode: number | null | undefined;
+        void worker.exited.then((code) => (exitCode = code));
+        const started = Date.now();
+        let answered = false;
+        const probe = dedicatedMcp
+          ? '/.well-known/oauth-authorization-server'
+          : `/api/rates?from=${PROBE_PAIR[0]}&to=${PROBE_PAIR[1]}`;
+        while (true) {
+          try {
+            const res = await fetch(base + probe, {
+              signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+            });
+            answered = true;
+            if (dedicatedMcp) {
+              if (res.ok && (await res.json()).issuer === base) return base;
+            } else {
+              await res.arrayBuffer();
+              if (rates.heardProbe()) return base;
+            }
+          } catch {
+            // Asked again while the Worker starts.
+          }
+          if (exitCode !== undefined || Date.now() - started > READY_TIMEOUT_MS) {
+            if (
+              exitCode !== undefined &&
+              worker.output.text.includes('Address already in use') &&
+              attempt < BIND_ATTEMPTS
+            )
+              break;
+            const why = answered ? 'its port answers, but not from this run' : "it didn't start";
+            throw new Error(`wrangler dev on port ${port}: ${why}\n${worker.output.text}`);
+          }
+          await sleep(250);
         }
-        if (rates.heardProbe()) ready = true;
-        else if (exitCode !== undefined || Date.now() - started > READY_TIMEOUT_MS) {
-          const taken =
-            exitCode !== undefined && worker.output.text.includes('Address already in use');
-          if (taken && attempt < BIND_ATTEMPTS) break;
-          const why = answered ? 'its port answers, but not from this run' : "it didn't start";
-          throw new Error(`wrangler dev on port ${port}: ${why}\n${worker.output.text}`);
-        } else await sleep(250);
       }
-      if (ready) break;
     }
+    const base = await listen(false);
+    const mcpBase = mcp ? await listen(true) : undefined;
 
     const raw: LocalWorker['raw'] = (who, method, path, body, headers = {}) =>
       fetch(base + path, {
@@ -642,6 +644,7 @@ export async function startLocalWorker({ mcpWrites = false } = {}): Promise<Loca
       vapidPublicKey: vapid.publicKey,
       google: rates.google,
       base,
+      mcpBase,
       raw,
       sql,
       call: async (who, method, path, body, headers) => {

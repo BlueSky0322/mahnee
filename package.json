@@ -16,6 +16,7 @@
     "typecheck": "tsc -p web && tsc -p worker && tsc -p worker/test && tsc -p shared && tsc -p .",
     "deploy": "yarn build && wrangler deploy",
     "dev:worker": "yarn build && wrangler dev",
+    "dev:mcp": "wrangler dev --config wrangler.mcp.jsonc --local --ip 127.0.0.1 --port 8788 --var MCP_ORIGIN:http://127.0.0.1:8788 --var ACCESS_TEAM_DOMAIN: --var ACCESS_CONSENT_AUD:",
     "db:migrate": "wrangler d1 migrations apply mahnee-db --remote",
     "db:migrate:local": "wrangler d1 migrations apply mahnee-db --local"
   },

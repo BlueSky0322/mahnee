@@ -6,7 +6,7 @@ hack-proof, and the limits below are real.
 
 ## Who can do what
 
-- **Signing in.** Cloudflare Access sits in front of the whole app. The Worker checks the
+- **Signing in.** Cloudflare Access protects the browser app. The Worker checks the
   Access token on every request against `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD`
   (`worker/accounts/auth.ts`). With only one of the two set it refuses everyone. The
   developer stand-in (`DEV_USER_EMAIL`, `X-Dev-User`) works only with both unset, so
@@ -15,15 +15,14 @@ hack-proof, and the limits below are real.
   `workers.dev` address with the same policy as Splitfoolish ("Anyone with an email"),
   so one email is one person in both apps; per-version preview
   addresses are turned off (`preview_urls`), since Access doesn't cover them.
-- **MCP connections.** The Worker checks Access on `/api/mcp` and passes the verified
-  email to read-only ledger tools. If configured, `ACCESS_MCP_AUD` sets the required
-  audience on that endpoint. The optional `/api/mcp/write` endpoint requires its own
-  distinct `ACCESS_MCP_WRITE_AUD` and a separate Access policy for writers. The submitted
-  `expectedAccount` must match the verified email. The browser app and its APIs use
-  `ACCESS_AUD`. The dedicated hosted MCP Worker uses its own `workers.dev` hostname and
-  serves only the two MCP routes. The client receives private tool results, so connect
-  a client you trust.
-  [MCP connection and deployment](mcp.md).
+- **MCP connections.** Each client uses the dedicated OAuth server. Cloudflare Access
+  verifies the person's identity on the consent and Connected apps pages. The client
+  exchanges an authorization code using PKCE (S256) and presents its OAuth access token
+  to the ledger endpoint. The Worker derives the ledger owner and permitted tools from
+  that grant. Read access covers saved balances, transactions, payees and notes. Write
+  access lets the client record an expense when its `expectedAccount` matches the
+  grant's owner. Read starts checked and adding expenses requires an explicit selection.
+  The owner can revoke each grant separately in Connected apps. [MCP connection guide](mcp.md).
 - **Whose data it is.** Anyone with an email can sign in, and each account sees only its
   own data: every row belongs to the signed-in account, and every query is scoped by its
   email. Money accounts, categories and transactions are keyed by email and id together,

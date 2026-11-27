@@ -260,6 +260,7 @@ describe('My account', () => {
     expect(window.location.search).toBe('?settings=account');
     const profile = screen.getByRole('region', { name: 'Profile' });
     expect(text(profile)).toBe('R Ryan ryan@example.com Change name Change picture');
+    expect(screen.queryByRole('link', { name: 'Manage connections' })).toBeNull();
 
     await user.click(within(profile).getByRole('button', { name: 'Change name' }));
     const dialog = within(await screen.findByRole('dialog', { name: 'Change name' }));

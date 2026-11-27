@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-27
 
+- Changed: **Breaking:** reconnect MCP clients at `/api/mcp` and choose read or expense-writing permission during sign-in [#85]
 - Changed: settings save quietly a moment after you stop changing them, as one save, and a small message says when they're saved, kept offline, or couldn't be saved (with Retry) [#86]
 - Added: authorize an MCP client to record expenses, with a separate write connection and safe retries [#84]
 - Added: connect an MCP client to read balances, search transactions, and see spending by category for your budget month [#83]
@@ -220,4 +221,5 @@ For agents:
 [#82]: https://github.com/BlueSky0322/mahnee/pull/82
 [#83]: https://github.com/BlueSky0322/mahnee/pull/83
 [#84]: https://github.com/BlueSky0322/mahnee/pull/84
+[#85]: https://github.com/BlueSky0322/mahnee/pull/85
 [#81]: https://github.com/BlueSky0322/mahnee/pull/81

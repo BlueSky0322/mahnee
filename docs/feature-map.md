@@ -1766,24 +1766,24 @@ day), and the repeating cases in [worker/test/api.test.ts](../worker/test/api.te
 
 ## MCP
 
-**Entry point.** `/api/mcp` accepts one stateless Streamable HTTP request from an
-authenticated MCP client. The Worker checks Access before passing the verified email
-to the tool handlers in [worker/mcp/](../worker/mcp/server.ts). The dedicated hosted
-Worker serves `/api/mcp` and `/api/mcp/write` on its own `workers.dev` hostname.
+The dedicated Worker at `mahnee-mcp.shitty-app.workers.dev` accepts Streamable HTTP
+requests at `/api/mcp`. Cloudflare Access identifies the person on the consent page.
+Mahnee's OAuth grant binds the resulting client connection to that ledger and to the
+permissions the person selected. Each request registers only the granted tools.
+[Worker entry point](../worker/mcp/index.ts) · [Tool registration](../worker/mcp/server.ts).
 
-**Data.** Reader tools list money accounts and categories, search saved transactions, and
-read a month's totals. They use the ledger's account-scoped reads, with a bounded
-transaction page and no mutation path. They cannot see changes pending on a device.
-The optional writer at `/api/mcp/write` can also add expenses to that email's ledger.
-Its Access audience is distinct from the browser and reader audiences. The account
-list reports `signedInAs`, and each expense request must match it with `expectedAccount`.
-Expense writes share the ledger's validation and receipts. A retry of a saved request
-returns the same transaction id without creating a second expense.
-The [MCP guide](mcp.md) explains the tool inputs, client setup and Access policies.
+- `ledger:read` lists accounts and categories, pages through saved transactions, and
+  summarizes a personal financial month. Device changes appear after the outbox syncs.
+  [Read tools](../worker/mcp/tools.ts).
+- `ledger:write` records one expense against existing account and category IDs. It
+  checks the expected owner and uses the app's expense validation, exchange rates and
+  durable receipt. Retrying the same inputs and request ID returns the original
+  transaction ID. [Expense tool](../worker/mcp/record-expense.ts).
+- Connected apps at `/oauth/authorize/connections` lets the signed-in person inspect
+  each grant's permissions and disconnect it. On the hosted app, Settings → My account
+  opens Connected apps. [Connection and deployment guide](mcp.md).
 
-**Tests.** [worker/test/mcp.test.ts](../worker/test/mcp.test.ts) connects the MCP SDK
-client to a local Worker. [worker/accounts/auth.test.ts](../worker/accounts/auth.test.ts)
-checks which Access audience each route may accept.
+The Worker integration tests exercise the SDK and local D1. [MCP tests](../worker/test/mcp.test.ts).
 
 ## Export
 

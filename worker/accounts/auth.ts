@@ -11,15 +11,8 @@
 export interface AuthEnv {
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
-  /** The separate Access application for MCP, when configured. */
-  ACCESS_MCP_AUD?: string;
-  /** A distinct Access application required for MCP mutations. */
-  ACCESS_MCP_WRITE_AUD?: string;
   DEV_USER_EMAIL?: string;
-  DEV_MCP_WRITES?: string;
 }
-
-export type AccessService = 'app' | 'mcp' | 'mcp-write';
 
 interface AccessJwk extends JsonWebKey {
   kid: string;
@@ -197,15 +190,6 @@ const readCookie = (req: Request, name: string) =>
 export const getUserEmail = async (req: Request, env: AuthEnv) =>
   (await getSignIn(req, env))?.email ?? null;
 
-function audienceFor(env: AuthEnv, service: AccessService) {
-  if (service === 'mcp-write') {
-    const audience = env.ACCESS_MCP_WRITE_AUD;
-    if (audience === env.ACCESS_AUD || audience === env.ACCESS_MCP_AUD) return undefined;
-    return audience;
-  }
-  return service === 'mcp' && env.ACCESS_MCP_AUD ? env.ACCESS_MCP_AUD : env.ACCESS_AUD;
-}
-
 export async function getAccessSignIn(
   req: Request,
   teamDomain: string,
@@ -216,21 +200,13 @@ export async function getAccessSignIn(
 }
 
 /** Who's signed in, with their Google picture's address, or null. Fails closed as above. */
-export async function getSignIn(
-  req: Request,
-  env: AuthEnv,
-  service: AccessService = 'app',
-): Promise<SignIn | null> {
+export async function getSignIn(req: Request, env: AuthEnv): Promise<SignIn | null> {
   if (env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD) {
-    const audience = audienceFor(env, service);
-    return audience ? getAccessSignIn(req, env.ACCESS_TEAM_DOMAIN, audience) : null;
+    return getAccessSignIn(req, env.ACCESS_TEAM_DOMAIN, env.ACCESS_AUD);
   }
 
-  // Any Access setting means this is a deployment and requires the full configuration.
-  if (env.ACCESS_TEAM_DOMAIN || env.ACCESS_AUD || env.ACCESS_MCP_AUD || env.ACCESS_MCP_WRITE_AUD)
-    return null;
-
-  if (env.DEV_USER_EMAIL && (service !== 'mcp-write' || env.DEV_MCP_WRITES === 'true')) {
+  if (env.ACCESS_TEAM_DOMAIN || env.ACCESS_AUD) return null;
+  if (env.DEV_USER_EMAIL) {
     return {
       email: (req.headers.get('X-Dev-User') ?? env.DEV_USER_EMAIL).toLowerCase(),
       picture: req.headers.get('X-Dev-Picture') || null,

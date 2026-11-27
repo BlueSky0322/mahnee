@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, onTestFinished, test, vi } from 'vitest';
 import { getSignIn, getUserEmail } from './auth';
+import { consentEmail } from '../mcp/consent-account';
 import worker from '../index';
-import mcpWorker from '../mcp/index';
 import type { Env } from '../app';
 
 const TEAM = 'mahnee.cloudflareaccess.com';
@@ -248,123 +248,36 @@ describe("the team's signing keys", () => {
   });
 });
 
-function entryRequest(url: string, token?: string, extraHeaders?: Record<string, string>) {
-  const headers = {
-    ...extraHeaders,
-    ...(token && { 'Cf-Access-Jwt-Assertion': token }),
-    'Content-Type': 'application/json',
-    'Accept': 'application/json, text/event-stream',
-  };
-  const initialize = {
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'initialize',
-    params: {
-      protocolVersion: '2025-11-25',
-      capabilities: {},
-      clientInfo: { name: 'test', version: '1' },
-    },
-  };
-  return new Request<unknown, IncomingRequestCfProperties>(url, {
-    headers,
-    ...(new URL(url).pathname.startsWith('/api/mcp') && {
-      method: 'POST',
-      body: JSON.stringify(initialize),
-    }),
-  });
-}
-
-async function entryStatus(path: string, bindings: Partial<Env>, token?: string) {
-  const response = await worker.fetch(
-    entryRequest(`https://mahnee.example${path}`, token),
-    { REQUIRE_EXPECTED_ACCOUNT: 'true', ...bindings } as Env,
-    {} as ExecutionContext,
-  );
-  return response.status;
-}
-
-async function dedicatedStatus(path: string, bindings: Partial<Env>, token?: string) {
-  const request = entryRequest(`https://mahnee-mcp.example${path}`, token, {
-    'X-Dev-User': 'local@example.com',
-  });
-  return (await mcpWorker.fetch(request, bindings as Env)).status;
-}
-
-describe('the dedicated MCP Worker', () => {
-  const dedicated = { ...env, ACCESS_MCP_AUD: 'mcp-read', ACCESS_MCP_WRITE_AUD: 'mcp-write' };
-
-  test.each([
-    ['/api/mcp', 'ACCESS_MCP_AUD', 'ACCESS_MCP_WRITE_AUD'],
-    ['/api/mcp/write', 'ACCESS_MCP_WRITE_AUD', 'ACCESS_MCP_AUD'],
-  ] as const)('%s accepts only its own dedicated audience', async (path, own, other) => {
-    const ownToken = await sign({ ...validClaims(), aud: [dedicated[own]] });
-    expect(await dedicatedStatus(path, dedicated, ownToken)).toBe(200);
-    for (const audience of [AUD, dedicated[other]]) {
-      const token = await sign({ ...validClaims(), aud: [audience] });
-      expect(await dedicatedStatus(path, dedicated, token), audience).toBe(401);
-    }
-    for (const misconfigured of [
-      { ...dedicated, [own]: '' },
-      { ...dedicated, ACCESS_AUD: dedicated[own] },
-      { ...dedicated, [other]: dedicated[own] },
-    ]) {
-      expect(await dedicatedStatus(path, misconfigured, ownToken)).toBe(401);
-    }
-    expect(
-      await dedicatedStatus(path, { DEV_USER_EMAIL: 'local@example.com', DEV_MCP_WRITES: 'true' }),
-    ).toBe(401);
-  });
-
-  test('keeps ordinary application routes off the dedicated origin', async () => {
-    const token = await sign(validClaims());
-    expect(await dedicatedStatus('/api/me', dedicated, token)).toBe(404);
-  });
-});
-
-test('the Worker accepts web, read, and write credentials only at their own entry points', async () => {
-  const readAudience = 'mcp-read-audience';
-  const writeAudience = 'mcp-write-audience';
-  const bindings = { ...env, ACCESS_MCP_AUD: readAudience, ACCESS_MCP_WRITE_AUD: writeAudience };
-  const endpoints = ['/api/push', '/api/mcp', '/api/mcp/write'];
-  for (const [index, aud] of [AUD, readAudience, writeAudience].entries()) {
-    const token = await sign({ ...validClaims(), aud: [aud] });
-    for (const [endpoint, path] of endpoints.entries()) {
-      expect(await entryStatus(path, bindings, token), `${aud} at ${path}`).toBe(
-        index === endpoint ? 200 : 401,
-      );
-    }
-  }
-
-  // Ordinary Access login for reads still works when a dedicated read audience is absent.
-  expect(await entryStatus('/api/mcp', env, await sign(validClaims()))).toBe(200);
-});
-
-test('a missing or reused write audience keeps writes off', async () => {
-  const readAudience = 'mcp-read-audience';
-  for (const writeAudience of [undefined, AUD, readAudience]) {
-    const token = await sign({ ...validClaims(), aud: [writeAudience ?? AUD] });
-    expect(
-      await entryStatus(
-        '/api/mcp/write',
-        {
-          ...env,
-          ACCESS_MCP_AUD: readAudience,
-          ACCESS_MCP_WRITE_AUD: writeAudience,
-        },
-        token,
-      ),
-    ).toBe(401);
+test('old MCP addresses on the web Worker tell signed-in clients to reconnect', async () => {
+  const token = await sign(validClaims());
+  for (const path of ['/api/mcp', '/api/mcp/write']) {
+    const response = await worker.fetch(
+      new Request(`https://mahnee.example${path}`, {
+        method: 'POST',
+        headers: { 'Cf-Access-Jwt-Assertion': token },
+      }),
+      env as Env,
+      {} as ExecutionContext,
+    );
+    expect(response.status).toBe(410);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining('Reconnect') });
   }
 });
 
-test('local MCP writes require the dev account, explicit opt-in, and no Access settings', async () => {
-  const local = { DEV_USER_EMAIL: 'local@example.com', DEV_MCP_WRITES: 'true' };
-  expect(await entryStatus('/api/mcp/write', local)).toBe(200);
-  expect(await entryStatus('/api/mcp/write', { DEV_USER_EMAIL: local.DEV_USER_EMAIL })).toBe(401);
-  expect(await entryStatus('/api/mcp/write', { DEV_MCP_WRITES: 'true' })).toBe(401);
-  expect(await entryStatus('/api/mcp/write', { ...local, ACCESS_MCP_WRITE_AUD: 'mcp-write' })).toBe(
-    401,
-  );
+test('only the consent application can identify the person approving a hosted grant', async () => {
+  const consent = { ...env, ACCESS_CONSENT_AUD: 'consent-app', DEV_USER_EMAIL: 'dev@example.test' };
+  const request = (token?: string) =>
+    new Request('https://mahnee-mcp.example/oauth/authorize', {
+      headers: {
+        'X-Dev-User': 'another@example.test',
+        ...(token && { 'Cf-Access-Jwt-Assertion': token }),
+      },
+    });
+  const valid = await sign({ ...validClaims(), aud: [consent.ACCESS_CONSENT_AUD] });
+  expect(await consentEmail(request(valid), consent)).toBe('ryan@example.com');
+  expect(await consentEmail(request(await sign(validClaims())), consent)).toBeNull();
+  expect(await consentEmail(request(), consent)).toBeNull();
+  expect(await consentEmail(request(), { DEV_USER_EMAIL: 'dev@example.test' })).toBeNull();
 });
 
 describe('getUserEmail configuration', () => {
@@ -393,8 +306,6 @@ describe('getUserEmail configuration', () => {
   test.each([
     ['only the team domain is set', { ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: '' }],
     ['only the audience is set', { ACCESS_AUD: AUD }],
-    ['only the MCP audience is set', { ACCESS_MCP_AUD: 'mcp-audience-tag' }],
-    ['only the MCP write audience is set', { ACCESS_MCP_WRITE_AUD: 'mcp-write-audience' }],
   ])('refuses everyone when %s, even with a local dev user set', async (_name, partial) => {
     const halfSet = { ...partial, DEV_USER_EMAIL: 'dev@example.com' };
     expect(

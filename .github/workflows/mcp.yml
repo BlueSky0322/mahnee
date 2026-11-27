@@ -1,0 +1,53 @@
+name: Deploy MCP
+on:
+  workflow_run:
+    workflows: [Build and Deploy]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-mahnee-mcp
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+      github.event.workflow_run.head_sha == github.sha &&
+      github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - name: Check Worker name and provision Access applications
+        id: access
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node tools/cloudflare/mcp-access.mjs
+      - name: Deploy dedicated Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          READ_AUD: ${{ steps.access.outputs.MCP_READ_AUD }}
+          WRITE_AUD: ${{ steps.access.outputs.MCP_WRITE_AUD }}
+        run: yarn wrangler deploy --config wrangler.mcp.jsonc --var "ACCESS_MCP_AUD:$READ_AUD" --var "ACCESS_MCP_WRITE_AUD:$WRITE_AUD"
+      - name: Check public OAuth discovery for both connections
+        env:
+          MCP_HOST: ${{ steps.access.outputs.MCP_HOST }}
+        run: node tools/cloudflare/check-mcp.mjs

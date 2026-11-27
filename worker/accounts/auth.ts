@@ -11,6 +11,8 @@
 export interface AuthEnv {
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
+  /** The separate Access application for MCP, when configured. */
+  ACCESS_MCP_AUD?: string;
   DEV_USER_EMAIL?: string;
 }
 
@@ -191,15 +193,20 @@ export const getUserEmail = async (req: Request, env: AuthEnv) =>
   (await getSignIn(req, env))?.email ?? null;
 
 /** Who's signed in, with their Google picture's address, or null. Fails closed as above. */
-export async function getSignIn(req: Request, env: AuthEnv): Promise<SignIn | null> {
+export async function getSignIn(
+  req: Request,
+  env: AuthEnv,
+  service: 'app' | 'mcp' = 'app',
+): Promise<SignIn | null> {
   if (env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD) {
     const token = req.headers.get('Cf-Access-Jwt-Assertion') ?? readCookie(req, 'CF_Authorization');
     if (!token) return null;
-    return verifyAccessJwt(token, env.ACCESS_TEAM_DOMAIN, env.ACCESS_AUD);
+    const audience = service === 'mcp' && env.ACCESS_MCP_AUD ? env.ACCESS_MCP_AUD : env.ACCESS_AUD;
+    return verifyAccessJwt(token, env.ACCESS_TEAM_DOMAIN, audience);
   }
 
-  // Only one of the two set is a broken deploy, not a local setup: refuse everyone
-  if (env.ACCESS_TEAM_DOMAIN || env.ACCESS_AUD) return null;
+  // Any Access setting means this is a deployment and requires the full configuration.
+  if (env.ACCESS_TEAM_DOMAIN || env.ACCESS_AUD || env.ACCESS_MCP_AUD) return null;
 
   if (env.DEV_USER_EMAIL) {
     return {

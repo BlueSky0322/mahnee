@@ -247,6 +247,50 @@ describe("the team's signing keys", () => {
   });
 });
 
+test('the Worker accepts each Access audience only for its configured entry point', async () => {
+  const mcpAudience = 'mcp-audience-tag';
+  const webToken = await sign(validClaims());
+  const mcpToken = await sign({ ...validClaims(), aud: [mcpAudience] });
+  const request = (path: string, token: string, separate: boolean) => {
+    const headers = {
+      'Cf-Access-Jwt-Assertion': token,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+    };
+    const init =
+      path === '/api/mcp'
+        ? {
+            method: 'POST',
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'initialize',
+              params: {
+                protocolVersion: '2025-11-25',
+                capabilities: {},
+                clientInfo: { name: 'test', version: '1' },
+              },
+            }),
+            headers,
+          }
+        : { headers };
+    return worker.fetch(
+      new Request(`https://mahnee.example${path}`, init),
+      {
+        ...env,
+        REQUIRE_EXPECTED_ACCOUNT: 'true',
+        ...(separate && { ACCESS_MCP_AUD: mcpAudience }),
+      } as Env,
+      {} as ExecutionContext,
+    );
+  };
+  expect((await request('/api/push', webToken, true)).status).toBe(200);
+  expect((await request('/api/push', mcpToken, true)).status).toBe(401);
+  expect((await request('/api/mcp', mcpToken, true)).status).toBe(200);
+  expect((await request('/api/mcp', webToken, true)).status).toBe(401);
+  expect((await request('/api/mcp', webToken, false)).status).toBe(200);
+});
+
 describe('getUserEmail configuration', () => {
   test('verifies tokens only when both the team domain and the audience are set', async () => {
     const token = await sign(validClaims());
@@ -273,6 +317,7 @@ describe('getUserEmail configuration', () => {
   test.each([
     ['only the team domain is set', { ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: '' }],
     ['only the audience is set', { ACCESS_AUD: AUD }],
+    ['only the MCP audience is set', { ACCESS_MCP_AUD: 'mcp-audience-tag' }],
   ])('refuses everyone when %s, even with a local dev user set', async (_name, partial) => {
     const halfSet = { ...partial, DEV_USER_EMAIL: 'dev@example.com' };
     expect(

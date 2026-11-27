@@ -21,13 +21,19 @@ api.use('*', async (c, next) => {
   if (isCrossSiteWrite(c.req.raw, new URL(c.req.url))) {
     return fail('Not allowed from another site', 403);
   }
-  const signIn = await getSignIn(c.req.raw, c.env);
+  const signIn = await getSignIn(c.req.raw, c.env, c.req.path === '/api/mcp' ? 'mcp' : 'app');
   if (signIn == null) return fail('Not signed in', 401);
   c.set('email', signIn.email);
   c.set('googlePicture', signIn.picture);
   await next();
   if (c.req.method === 'GET' || c.req.method === 'HEAD')
     c.header(RESPONSE_ACCOUNT_HEADER, signIn.email);
+});
+
+// MCP reads use POST. The authenticated account owns every tool call.
+api.all('/mcp', async (c) => {
+  const { handleMcp } = await import('./mcp/server');
+  return handleMcp(c.req.raw, c.env, c.var.email);
 });
 
 // A tab may still show the previous account after the browser's session changes.

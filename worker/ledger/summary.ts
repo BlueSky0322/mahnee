@@ -34,6 +34,7 @@
 // day of its first, and each entry still to check (an item falls at most five times a
 // month, so at most five per item).
 
+import { DEFAULT_SETTINGS } from '../../shared/api';
 import type { CategoryTotal, DayTotal, MonthSummary, ScheduledInMonth } from '../../shared/api';
 import type { BudgetRow } from '../../shared/budgets';
 import { isBudgetMonth, monthBudgets } from '../../shared/budgets';
@@ -82,6 +83,64 @@ interface TidyRow {
   entries: number | null;
 }
 
+const totalsStatement = (db: D1Database, email: string, firstDay: string, lastDay: string) =>
+  db
+    .prepare(
+      `SELECT kind, category_id AS categoryId, SUM(amount_cents) AS cents,
+                COUNT(*) AS entries, CASE WHEN COUNT(*) = 1 THEN MAX(payee) END AS payee
+       FROM transactions
+       WHERE email = ? AND date BETWEEN ? AND ? AND kind IN ('expense', 'income')
+       GROUP BY kind, category_id
+       ORDER BY cents DESC, category_id`,
+    )
+    .bind(email, firstDay, lastDay);
+
+function monthTotals(results: TotalRow[]) {
+  const byKind = (kind: TotalRow['kind']): CategoryTotal[] =>
+    results
+      .filter((r) => r.kind === kind)
+      .map(({ categoryId, cents, entries, payee }) => ({
+        categoryId,
+        cents,
+        entries,
+        ...(payee != null && { payee }),
+      }));
+  const sum = (totals: CategoryTotal[]) => totals.reduce((all, t) => all + t.cents, 0);
+  const spentByCategory = byKind('expense');
+  const incomeByCategory = byKind('income');
+  const spentCents = sum(spentByCategory);
+  const incomeCents = sum(incomeByCategory);
+  return {
+    spentCents,
+    incomeCents,
+    leftCents: incomeCents - spentCents,
+    spentByCategory,
+    incomeByCategory,
+  };
+}
+
+/** A personal month's amounts together with the currency those balances currently use. */
+export async function readMonthTotals(db: D1Database, email: string, month: string) {
+  const { firstDay, lastDay } = periodOf(month, await readMonthStart(db, email));
+  // During a home currency change, the accounts keep their old unit until the amounts convert.
+  const [booked, totals] = await db.batch<TotalRow | { currency: string }>([
+    db
+      .prepare(
+        `SELECT COALESCE((SELECT currency FROM accounts WHERE email = ?1 LIMIT 1),
+                       (SELECT currency FROM user_settings WHERE email = ?1), ?2) AS currency`,
+      )
+      .bind(email, DEFAULT_SETTINGS.currency),
+    totalsStatement(db, email, firstDay, lastDay),
+  ]);
+  return {
+    month,
+    firstDay,
+    lastDay,
+    currency: (booked.results[0] as { currency: string }).currency,
+    ...monthTotals(totals.results as TotalRow[]),
+  };
+}
+
 /**
  * GET /api/summary?month=2026-11: the person's spending and income in that month, in
  * total and by category, each category under its own id (a subcategory's isn't added to
@@ -114,16 +173,7 @@ export async function readSummary(
     | SpentRow
     | { id: string }
   >([
-    db
-      .prepare(
-        `SELECT kind, category_id AS categoryId, SUM(amount_cents) AS cents,
-                COUNT(*) AS entries, CASE WHEN COUNT(*) = 1 THEN MAX(payee) END AS payee
-       FROM transactions
-       WHERE email = ? AND date BETWEEN ? AND ? AND kind IN ('expense', 'income')
-       GROUP BY kind, category_id
-       ORDER BY cents DESC, category_id`,
-      )
-      .bind(email, firstDay, lastDay),
+    totalsStatement(db, email, firstDay, lastDay),
     db
       .prepare(
         `SELECT date, SUM(amount_cents) AS cents
@@ -180,7 +230,6 @@ export async function readSummary(
     }),
   );
   const saved = pending.length > 0 ? answers[answers.length - 1] : undefined;
-  const results = totals.results as TotalRow[];
   const spentBefore = new Map(
     ((budgetSpending?.results ?? []) as SpentRow[]).map((r) => [
       `${r.month} ${r.categoryId}`,
@@ -196,30 +245,12 @@ export async function readSummary(
     (m, categoryId) => spentBefore.get(`${m} ${categoryId}`) ?? 0,
   );
 
-  const byKind = (kind: TotalRow['kind']): CategoryTotal[] =>
-    results
-      .filter((r) => r.kind === kind)
-      .map(({ categoryId, cents, entries, payee }) => ({
-        categoryId,
-        cents,
-        entries,
-        ...(payee != null && { payee }),
-      }));
   const tidyRows = tidy.results as TidyRow[];
-  const sum = (totals: CategoryTotal[]) => totals.reduce((all, t) => all + t.cents, 0);
-  const spentByCategory = byKind('expense');
-  const incomeByCategory = byKind('income');
-  const spentCents = sum(spentByCategory);
-  const incomeCents = sum(incomeByCategory);
   return json<MonthSummary>({
     month,
     firstDay,
     lastDay,
-    incomeCents,
-    spentCents,
-    leftCents: incomeCents - spentCents,
-    spentByCategory,
-    incomeByCategory,
+    ...monthTotals(totals.results as TotalRow[]),
     spentByDay: byDay.results as DayTotal[],
     tidyUp: {
       from,

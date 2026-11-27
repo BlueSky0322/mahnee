@@ -81,6 +81,13 @@ const categoriesStatement = (db: D1Database, email: string) =>
     )
     .bind(email);
 
+const toAccount = (r: AccountRow): Account => ({ ...r, archived: r.archived === 1 });
+
+export async function listAccounts(db: D1Database, email: string): Promise<Account[]> {
+  const { results } = await accountsStatement(db, email).all<AccountRow>();
+  return results.map(toAccount);
+}
+
 const toCategory = (r: CategoryRow): Category => ({ ...r, archived: r.archived === 1 });
 
 type RecurringRow = Omit<Recurring, 'archived' | 'amountVaries' | 'askFirst'> & {
@@ -132,9 +139,7 @@ export async function readLedger(
   ]);
   const repeating = recurring.results as RecurringRow[];
   return {
-    accounts: (accounts.results as AccountRow[]).map(
-      (r): Account => ({ ...r, archived: r.archived === 1 }),
-    ),
+    accounts: (accounts.results as AccountRow[]).map(toAccount),
     categories: (categories.results as CategoryRow[]).map(toCategory),
     // Only for someone who has any, so the answer is as it always was for everyone else
     ...(repeating.length > 0 && {
@@ -347,37 +352,25 @@ function readCursor(params: URLSearchParams): Cursor | null | undefined {
 }
 
 /** A page from `query`, which takes `values` and then how many (one more than `limit`) */
-async function pageOf(query: D1PreparedStatement, values: (string | number)[], limit: number) {
-  // One more than asked for says whether there's another page
-  const { results } = await query.bind(...values, limit + 1).all<TransactionRow>();
-  const transactions = results.slice(0, limit).map(toTransaction);
-  const more = results.length > limit;
-  return json<TransactionPage>({
-    transactions,
-    nextBefore: more ? cursorOf(transactions[transactions.length - 1]) : null,
-  });
+async function readPage<T extends TransactionRow>(
+  query: D1PreparedStatement,
+  values: (string | number)[],
+  limit: number,
+) {
+  const { results } = await query.bind(...values, limit + 1).all<T>();
+  return {
+    rows: results.slice(0, limit),
+    nextBefore: results.length > limit ? cursorOf(results[limit - 1]) : null,
+  };
 }
 
-/**
- * GET /api/search: a page of the person's transactions on every account, newest first,
- * found by shared/search.ts's rules (?q= words or an amount, ?account=, ?category= with its
- * subcategories, ?from= and ?to= days, ?kind=, ?scheduled=1 for entries from Scheduled), carrying on from ?before= as
- * /api/transactions does. With it, what matches beyond the page (rest, and the part of it
- * on the page's last day), and on the first page of a search for days how many match
- * outside them (elsewhere), and on every first page whether the person has any entry at all
- * (anywhere). For lists that only show entries, ?rowsOnly=1 returns the page and cursor.
- * Someone else's account or category is answered as one that doesn't exist.
- *
- * Every figure is one query built from the same conditions as the page, the person's
- * email first, so no filter can be left out of one: the page; rest and restOfLastDay
- * together in one aggregate, only when there is more; elsewhere in one aggregate, only on
- * the first page. Each sum stays exact (SearchPage in shared/api.ts).
- */
-export async function searchTransactions(
-  db: D1Database,
-  email: string,
-  params: URLSearchParams,
-): Promise<Response> {
+async function pageOf(query: D1PreparedStatement, values: (string | number)[], limit: number) {
+  const { rows, nextBefore } = await readPage<TransactionRow>(query, values, limit);
+  return json<TransactionPage>({ transactions: rows.map(toTransaction), nextBefore });
+}
+
+// Build the same owner's filters and page for every transaction search.
+async function prepareSearch(db: D1Database, email: string, params: URLSearchParams) {
   const query = readSearch(params);
   if ('error' in query) return fail(query.error, 400);
   const limit = readLimit(params);
@@ -447,20 +440,67 @@ export async function searchTransactions(
     dayValues.push(query.to);
   }
 
-  const after = (at: Cursor) => ({ sql: AFTER('t.'), values: at });
   const pageWhere = [...where, ...days];
   const pageValues = [...values, ...dayValues];
   if (cursor != null) {
-    const past = after(cursor);
-    pageWhere.push(past.sql);
-    pageValues.push(...past.values);
+    pageWhere.push(AFTER('t.'));
+    pageValues.push(...cursor);
   }
-  const page = db.prepare(
-    `SELECT ${transactionColumns('t')} FROM transactions t
+  // The booked currency changes atomically with the amounts when the home currency changes.
+  const page = (withCurrency = false) =>
+    db.prepare(
+      `SELECT ${transactionColumns('t')}${withCurrency ? ', a.currency' : ''} FROM transactions t
+       ${withCurrency ? 'JOIN accounts a ON a.email = t.email AND a.id = t.account_id' : ''}
        WHERE ${pageWhere.join(' AND ')}
        ORDER BY ${NEWEST_FIRST('t.')}
        LIMIT ?`,
+    );
+  return { where, values, days, dayValues, limit, cursor, page, pageValues };
+}
+
+/** A page of entries and the currency their amounts were booked in, read together. */
+export async function searchBookedTransactions(
+  db: D1Database,
+  email: string,
+  params: URLSearchParams,
+) {
+  const search = await prepareSearch(db, email, params);
+  if (search instanceof Response) return search;
+  const { rows, nextBefore } = await readPage<TransactionRow & { currency: string }>(
+    search.page(true),
+    search.pageValues,
+    search.limit,
   );
+  return {
+    transactions: rows.map(({ currency, ...row }) => ({ ...toTransaction(row), currency })),
+    nextBefore,
+  };
+}
+
+/**
+ * GET /api/search: a page of the person's transactions on every account, newest first,
+ * found by shared/search.ts's rules (?q= words or an amount, ?account=, ?category= with its
+ * subcategories, ?from= and ?to= days, ?kind=, ?scheduled=1 for entries from Scheduled), carrying on from ?before= as
+ * /api/transactions does. With it, what matches beyond the page (rest, and the part of it
+ * on the page's last day), and on the first page of a search for days how many match
+ * outside them (elsewhere), and on every first page whether the person has any entry at all
+ * (anywhere). For lists that only show entries, ?rowsOnly=1 returns the page and cursor.
+ * Someone else's account or category is answered as one that doesn't exist.
+ *
+ * Every figure is one query built from the same conditions as the page, the person's
+ * email first, so no filter can be left out of one: the page; rest and restOfLastDay
+ * together in one aggregate, only when there is more; elsewhere in one aggregate, only on
+ * the first page. Each sum stays exact (SearchPage in shared/api.ts).
+ */
+export async function searchTransactions(
+  db: D1Database,
+  email: string,
+  params: URLSearchParams,
+): Promise<Response> {
+  const search = await prepareSearch(db, email, params);
+  if (search instanceof Response) return search;
+  const { where, values, days, limit, cursor, pageValues } = search;
+  const page = search.page();
   if (params.get('rowsOnly') === '1') return pageOf(page, pageValues, limit);
 
   const askElsewhere = cursor == null && days.length > 0;
@@ -469,7 +509,7 @@ export async function searchTransactions(
       `SELECT COUNT(*) AS n FROM transactions t
        WHERE ${where.join(' AND ')} AND NOT (${days.join(' AND ') || '1'})`,
     )
-    .bind(...values, ...dayValues);
+    .bind(...values, ...search.dayValues);
   // On the first page, whether the person has any entry at all (Activity's "nothing yet")
   const first = cursor == null;
   const any = db.prepare('SELECT 1 AS n FROM transactions WHERE email = ? LIMIT 1').bind(email);
@@ -488,7 +528,7 @@ export async function searchTransactions(
   let rest = none;
   let restOfLastDay: SearchPage['restOfLastDay'] = null;
   if (last != null) {
-    const past = after([last.date, last.time ?? '', last.createdAt, last.id]);
+    const past: Cursor = [last.date, last.time ?? '', last.createdAt, last.id];
     const sums = await db
       .prepare(
         `SELECT COUNT(*) AS entries,
@@ -502,9 +542,9 @@ export async function searchTransactions(
                 COALESCE(SUM(CASE WHEN t.date = ? AND t.kind = 'income'
                   THEN t.amount_cents END), 0) AS dayReceivedCents
          FROM transactions t
-         WHERE ${[...where, ...days, past.sql].join(' AND ')}`,
+         WHERE ${[...where, ...days, AFTER('t.')].join(' AND ')}`,
       )
-      .bind(last.date, last.date, last.date, ...values, ...dayValues, ...past.values)
+      .bind(last.date, last.date, last.date, ...values, ...search.dayValues, ...past)
       .first<
         SearchTotals & { dayEntries: number; daySpentCents: number; dayReceivedCents: number }
       >();

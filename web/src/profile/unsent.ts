@@ -23,7 +23,7 @@ export const canWait = (patch: ProfilePatch) =>
 const isEmpty = (patch: ProfilePatch) =>
   !('displayName' in patch) && Object.keys(patch.settings ?? {}).length === 0;
 
-interface Pending {
+export interface Pending {
   patch: ProfilePatch;
   revisions: Partial<Record<string, string>>;
 }
@@ -86,13 +86,14 @@ export async function readPending(email: string): Promise<Pending | null> {
 /** What `email` changed here that the server doesn't have yet, if anything. */
 export const readUnsent = async (email: string) => (await readPending(email))?.patch ?? null;
 
-const fields = (patch: ProfilePatch) => [
+/** The fields a patch changes: `displayName`, and each setting by its name */
+export const fieldsOf = (patch: ProfilePatch) => [
   ...('displayName' in patch ? ['displayName'] : []),
   ...Object.keys(patch.settings ?? {}),
 ];
 
 /** Two changes as one, the second's fields over the first's. */
-const merged = (older: Pending, newer: Pending): Pending => ({
+export const merged = (older: Pending, newer: Pending): Pending => ({
   patch: {
     ...('displayName' in older.patch && { displayName: older.patch.displayName }),
     ...('displayName' in newer.patch && { displayName: newer.patch.displayName }),
@@ -102,7 +103,7 @@ const merged = (older: Pending, newer: Pending): Pending => ({
   },
   revisions: {
     ...older.revisions,
-    ...Object.fromEntries(fields(newer.patch).map((field) => [field, newer.revisions[field]])),
+    ...Object.fromEntries(fieldsOf(newer.patch).map((field) => [field, newer.revisions[field]])),
   },
 });
 
@@ -110,7 +111,7 @@ async function keep(email: string, patch: ProfilePatch, older: boolean) {
   const revision = newId();
   const edit = {
     patch,
-    revisions: Object.fromEntries(fields(patch).map((key) => [key, revision])),
+    revisions: Object.fromEntries(fieldsOf(patch).map((key) => [key, revision])),
   };
   await editPending(email, (before) => {
     if (before == null) return isEmpty(patch) ? null : edit;
@@ -151,7 +152,7 @@ export async function settleUnsent(email: string, sent: Pending, answered = sent
       ? null
       : {
           patch: left,
-          revisions: Object.fromEntries(fields(left).map((key) => [key, before.revisions[key]])),
+          revisions: Object.fromEntries(fieldsOf(left).map((key) => [key, before.revisions[key]])),
         };
   });
   return after?.patch ?? null;

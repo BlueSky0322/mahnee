@@ -48,3 +48,34 @@ describe('adding up', () => {
     expect(toastsNow().map((t) => t.message)).toEqual(['Deleted 500', 'Deleted 5']);
   });
 });
+
+// A message that replaces the one like it (a setting saved, then another): one message,
+// in the same place, saying the latest, with its seconds started again
+describe('replacing', () => {
+  test('the same key replaces the one showing, keeping its id; others stay', () => {
+    vi.useFakeTimers();
+    try {
+      showToast({ message: 'Deleted 1' });
+      const first = showToast({ message: 'Accent set to Plum', replaces: 'saved', polite: true });
+      vi.advanceTimersByTime(2000);
+      const second = showToast({
+        message: 'Theme set to Dark',
+        replaces: 'saved',
+        polite: true,
+        autoClose: 2500,
+      });
+      expect(second).toBe(first);
+      expect(toastsNow().map((t) => [t.message, t.polite])).toEqual([
+        ['Deleted 1', false],
+        ['Theme set to Dark', true],
+      ]);
+      // Its full seconds again, not what was left of the first
+      vi.advanceTimersByTime(2400);
+      expect(toastsNow().map((t) => t.message)).toEqual(['Theme set to Dark']);
+      vi.advanceTimersByTime(100);
+      expect(toastsNow()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

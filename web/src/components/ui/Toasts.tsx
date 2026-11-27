@@ -178,7 +178,8 @@ function ToastCard({ toast }: { toast: Toast }) {
   return (
     <div
       ref={card}
-      role="alert"
+      // A quiet note (saved) waits its turn to be read out; anything else is read at once
+      role={toast.polite ? 'status' : 'alert'}
       className={classes.toast}
       data-tone={toast.tone}
       data-toast-id={toast.id}

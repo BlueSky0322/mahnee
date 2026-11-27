@@ -7,6 +7,7 @@ import { IconContext } from '@phosphor-icons/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import App from './App';
+import { savedText } from './components/settings/settings-text';
 import Toasts from './components/ui/Toasts';
 import './index.css';
 import { ProfileProvider, readAppearance } from './profile/ProfileContext';
@@ -47,7 +48,8 @@ export function Root() {
       <StatusBar />
       <IconContext.Provider value={{ size: 20, weight: 'regular' }}>
         <QueryClientProvider client={queryClient}>
-          <ProfileProvider>
+          {/* A saved setting is said in Settings' own words */}
+          <ProfileProvider sayChanged={savedText}>
             <Toasts />
             <App />
           </ProfileProvider>

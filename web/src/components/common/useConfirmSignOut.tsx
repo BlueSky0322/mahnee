@@ -3,37 +3,13 @@ import { useRef, useState } from 'react';
 import type { ProfilePatch } from '@shared/api';
 import { deviceChangesRead, unsavedState } from '../../ledger/ledger';
 import { cacheUser } from '../../offline/cache';
-import { signOut } from '../../profile/ProfileContext';
+import { signOut, useProfile } from '../../profile/ProfileContext';
 import { readUnsent } from '../../profile/unsent';
-import { SETTINGS_INDEX } from '../settings/settings-search';
+import { SETTINGS_INDEX, SETTING_OF_FIELD } from '../settings/settings-search';
 import ResponsiveDialog from '../ui/ResponsiveDialog';
 
 /** "1 change", "3 changes" */
 const changes = (n: number) => `${n} ${n === 1 ? 'change' : 'changes'}`;
-
-/** Where each field of the profile is found in Settings, by the key it's searched by */
-const SETTING_KEYS: Record<string, string> = {
-  displayName: 'name',
-  otherCurrencies: 'otherCurrencies',
-  travelSense: 'travelSense',
-  monthStartMode: 'monthStart',
-  monthStartDay: 'monthStart',
-  monthStartPayId: 'monthStart',
-  weekStart: 'weekStart',
-  startWith: 'startWith',
-  defaultAccountId: 'account',
-  suggestAsYouType: 'suggest',
-  askForTime: 'time',
-  theme: 'theme',
-  accent: 'accent',
-  expenseColour: 'expenseColour',
-  homeDensity: 'homeShows',
-  startScreen: 'start',
-  carryOverDefault: 'carryOver',
-  dailyReminder: 'dailyReminder',
-  reminderTime: 'remindAt',
-  scheduledReminderDays: 'beforeScheduled',
-};
 
 /** The settings a waiting patch changes, as Settings names them, each once */
 function settingNames(patch: ProfilePatch | null): string[] {
@@ -43,7 +19,7 @@ function settingNames(patch: ProfilePatch | null): string[] {
     ...Object.keys(patch.settings ?? {}),
   ];
   const names = fields
-    .map((f) => SETTINGS_INDEX.find((e) => e.key === SETTING_KEYS[f])?.name)
+    .map((f) => SETTINGS_INDEX.find((e) => e.key === SETTING_OF_FIELD[f])?.name)
     .filter((n): n is string => n != null);
   return [...new Set(names)];
 }
@@ -56,8 +32,10 @@ const READ_WAIT_MS = 2000;
  * for the signed-in account has been read (its waiting and refused changes too); null if
  * that can't be known within READ_WAIT_MS
  */
-async function readWhatWaits(): Promise<string[] | null> {
+async function readWhatWaits(flushSettings: () => Promise<void>): Promise<string[] | null> {
   const read = (async () => {
+    // Settings still in their pause are sent first, so none is asked about needlessly
+    await flushSettings();
     await deviceChangesRead();
     const email = cacheUser();
     return email == null ? null : settingNames(await readUnsent(email));
@@ -85,6 +63,7 @@ const listed = (names: string[]) =>
  * knowing. `askToSignOut()` starts; render `dialog` alongside.
  */
 export function useConfirmSignOut() {
+  const { flushSettings } = useProfile();
   const [unsaved, setUnsaved] = useState(0);
   const [held, setHeld] = useState(0);
   const [settings, setSettings] = useState<string[]>([]);
@@ -97,7 +76,7 @@ export function useConfirmSignOut() {
     if (checking.current) return;
     checking.current = true;
     try {
-      const changed = await readWhatWaits();
+      const changed = await readWhatWaits(flushSettings);
       const { waiting, refused } = unsavedState();
       if (changed != null && waiting === 0 && refused === 0 && changed.length === 0) {
         return void signOut();

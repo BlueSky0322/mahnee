@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-27
 
+- Changed: settings save quietly a moment after you stop changing them, as one save, and a small message says when they're saved, kept offline, or couldn't be saved (with Retry) [#86]
 - Added: authorize an MCP client to record expenses, with a separate write connection and safe retries [#84]
 - Added: connect an MCP client to read balances, search transactions, and see spending by category for your budget month [#83]
 
@@ -145,6 +146,7 @@ For agents:
 
 - Added: working rules for branches, commits and pull requests, checked by hooks and CI [#1]
 
+[#86]: https://github.com/BlueSky0322/mahnee/pull/86
 [#1]: https://github.com/BlueSky0322/mahnee/pull/1
 [#2]: https://github.com/BlueSky0322/mahnee/pull/2
 [#3]: https://github.com/BlueSky0322/mahnee/pull/3

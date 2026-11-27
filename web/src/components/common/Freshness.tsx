@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useDataAge, useLedgerShown, useUnsaved } from '../../ledger/useLedger';
 import { isConverting } from '@shared/api';
-import { useConversionProgress, useProfile } from '../../profile/ProfileContext';
+import { useConversionProgress, useProfile, useSettingsSaving } from '../../profile/ProfileContext';
 import type { FreshnessLabel } from './freshness-text';
 import { convertedPercent, freshnessText } from './freshness-text';
 import { useSaveTiming } from './useSaveTiming';
@@ -30,7 +30,12 @@ const SaveTiming = createContext({ savingShown: false, justSaved: false });
 function useFreshnessState(month: string) {
   const shown = useLedgerShown();
   const { online } = useNetwork();
-  const { waiting, signedOut, refused } = useUnsaved();
+  const unsaved = useUnsaved();
+  const { signedOut, refused } = unsaved;
+  // Settings on their way count too, while there's a connection to send them on (offline,
+  // they're kept on the device and said so when changed)
+  const settingsSaving = useSettingsSaving();
+  const waiting = unsaved.waiting + (online ? settingsSaving : 0);
   const at = useDataAge(month);
   const { profile } = useProfile();
   const converting = profile != null && isConverting(profile) ? profile.conversion! : null;

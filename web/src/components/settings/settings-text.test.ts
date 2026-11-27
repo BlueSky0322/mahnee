@@ -10,6 +10,7 @@ import {
   importsSummary,
   lookSummary,
   moneySummary,
+  savedText,
 } from './settings-text';
 
 // What the Settings index says under each section (R-Settings), worked out from the
@@ -157,5 +158,39 @@ describe('imports', () => {
       where: 'Nov 2',
       counts: '1 added',
     });
+  });
+});
+
+// The message once a setting's save lands: what it's set to now, in the words its row uses
+describe('what a saved setting says', () => {
+  const profile = (more: Partial<Settings>, displayName: string | null = 'Ryan') => ({
+    email: 'ryan@example.com',
+    displayName,
+    settings: with_(more),
+    conversion: null,
+    picture: null,
+    googlePicture: false,
+  });
+
+  test.each<[Partial<Settings>, string]>([
+    [{ accent: 'plum' }, 'Accent set to Plum'],
+    [{ theme: 'dark' }, 'Theme set to Dark'],
+    [{ suggestAsYouType: false }, 'Suggest as you type turned off'],
+    [{ monthStartMode: 'date', monthStartDay: 25 }, 'Month starts on the 25th'],
+    [{ weekStart: 'sunday' }, 'Week starts on Sunday'],
+    [{ reminderTime: '07:30' }, 'Reminder set for 7:30 AM'],
+    [{ otherCurrencies: ['USD', 'SGD'] }, 'Other currencies set to USD, SGD'],
+  ])('%j says "%s"', (settings, said) => {
+    expect(savedText({ settings }, profile(settings))).toBe(said);
+  });
+
+  test('a name says it, and an empty one the email it goes back to', () => {
+    expect(savedText({ displayName: 'Mei' }, profile({}, 'Mei'))).toBe('Name set to Mei');
+    expect(savedText({ displayName: null }, profile({}, null))).toBe('Name set to ryan');
+  });
+
+  test('several settings say nothing of their own, for "Settings saved"', () => {
+    expect(savedText({ settings: { accent: 'plum', theme: 'dark' } }, profile({}))).toBeNull();
+    expect(savedText({ displayName: 'Mei', settings: { theme: 'dark' } }, profile({}))).toBeNull();
   });
 });

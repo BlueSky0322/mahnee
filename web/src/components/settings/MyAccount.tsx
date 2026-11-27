@@ -191,7 +191,7 @@ export default function MyAccount() {
 
 /** The name shown in Settings and the initial: empty goes back to the email's */
 function ChangeName({ opened, onClose }: { opened: boolean; onClose: () => void }) {
-  const { profile, update } = useProfile();
+  const { profile, rememberName } = useProfile();
   const [typed, setTyped] = useState<string | null>(null);
   const shown = typed ?? profile?.displayName ?? '';
 
@@ -202,10 +202,9 @@ function ChangeName({ opened, onClose }: { opened: boolean; onClose: () => void 
   const save = () => {
     const name = shown.trim();
     close();
-    // Shown at once; a refusal puts the name back and says so
-    update({ displayName: name === '' ? null : name }).catch(() =>
-      showToast({ tone: 'error', message: "Couldn't save your name. Try again." }),
-    );
+    // Shown at once and saved a moment later, with anything else changed meanwhile; a
+    // refusal puts the name back and says so
+    rememberName(name === '' ? null : name);
   };
 
   return (

@@ -88,16 +88,29 @@ computer the "Reminder time" button beside the "Daily reminder" switch), "Before
 added" (Off, or 1 to 7 days before, picked from a list), and, while any reminder is on,
 how this device stands ("Reminders on this phone" or "this computer": Allow
 notifications, "Allowed: they come here", blocked, add to the Home Screen first, or can't
-show notifications). Each control saves at once through `rememberSettings`, put back with
-a message if it can't be saved. The profile also holds a display name and where exchange
+show notifications). Each control (and Change name) shows its change at once and saves
+it through `rememberSettings` (`rememberName`), batched: see Owner. The profile also holds a display name and where exchange
 rates come from, with the person's time zone.
 
 **Owner.** [profile/ProfileContext.tsx](../web/src/profile/ProfileContext.tsx) loads
 the profile, keeps a device copy, and owns every change through
 `useProfile().change(show, save)` (the picture through `changePicture`, which shows a
 chosen photo from the device until the server has kept it), which shows the change at once and undoes it if
-`save` fails (the caller says what went wrong). `rememberSettings` does the same for a
-preference and explains a failure itself. The name and preferences (`update`, including `rememberSettings`) can wait on this
+`save` fails (the caller says what went wrong). `rememberSettings` and `rememberName`
+batch preferences and the name: each change shows at once and is kept in the profile
+outbox straight away (so closing the app loses nothing), and once nothing has changed for
+`SETTINGS_QUIET_MS` (300 ms; no control saves while typing) the batch goes as one
+`PATCH /api/me`. A field changed back to what it showed before the batch is let go unsent
+(nothing changed: no request, no message). `flushSettings` sends a batch at once: leaving
+Settings, the page hidden (`visibilitychange`, `pagehide`) and Sign out (before it reads
+what waits). Once it lands a quiet message (`role="status"`, one at a time, replacing the
+last, 2.5 s) says "Accent set to Plum" for one setting (`savedText` in
+`settings-text.ts`, passed in by `Root.tsx`) or "Settings saved"; offline, "Saved on this
+device. It will sync when you're back online." (and nothing when it later syncs); a
+failure or refusal is put back, as `update` puts one back, and said with Retry. While a
+batch waits or is on its way the sync cloud counts it (`useSettingsSaving`), so it says
+Saving and Saved for settings too. Not batched, with their own feedback: the home
+currency (conversion progress), the picture, this device's notifications, import. The name and preferences (`update`, including `rememberSettings`) can wait on this
 device in one patch per account ([profile/unsent.ts](../web/src/profile/unsent.ts),
 `profile-outbox:<email>`). Offline edits join that patch before the app reports success.
 Online edits send directly when nothing is waiting. The open app sends pending changes

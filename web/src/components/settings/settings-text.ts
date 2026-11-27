@@ -1,6 +1,15 @@
-import type { Category, ImportRecord, Settings, StartScreen, ThemeSetting } from '@shared/api';
+import type {
+  Category,
+  ImportRecord,
+  Profile,
+  ProfilePatch,
+  Settings,
+  StartScreen,
+  ThemeSetting,
+} from '@shared/api';
 import { currencySign } from '../../utils/currencies';
 import { clockText } from '../../utils/date-input';
+import { SETTINGS_INDEX, SETTING_OF_FIELD } from './settings-search';
 
 // What the Settings index says under each section (R-Settings), worked out from the
 // person's settings, categories and imports, and how a recent import reads (R-Set-Data,
@@ -156,5 +165,66 @@ export function settingValue(
         : `${settings.scheduledReminderDays} ${settings.scheduledReminderDays === 1 ? 'day' : 'days'} before`;
     default:
       return null;
+  }
+}
+
+/**
+ * What the message once a save lands says, when it changed one setting: "Accent set to
+ * Plum", "Suggest as you type turned off", "Name set to Mei". Null for several, which say
+ * "Settings saved".
+ */
+export function savedText(patch: ProfilePatch, profile: Profile): string | null {
+  const fields = [
+    ...('displayName' in patch ? ['displayName'] : []),
+    ...Object.keys(patch.settings ?? {}),
+  ];
+  const keys = [...new Set(fields.map((f) => SETTING_OF_FIELD[f] ?? f))];
+  if (keys.length !== 1) return null;
+  const [key] = keys;
+  const { settings } = profile;
+  const turned = (name: string, yes: boolean) => `${name} turned ${yes ? 'on' : 'off'}`;
+  const desktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
+  switch (key) {
+    case 'name':
+      return `Name set to ${profile.displayName?.trim() || profile.email.split('@')[0]}`;
+    case 'otherCurrencies':
+      return settings.otherCurrencies.length === 0
+        ? 'Other currencies cleared'
+        : `Other currencies set to ${settings.otherCurrencies.join(', ')}`;
+    case 'travelSense':
+      return turned('Follow where I am', settings.travelSense);
+    case 'suggest':
+      return turned('Suggest as you type', settings.suggestAsYouType);
+    case 'time':
+      return turned('Ask for a time', settings.askForTime);
+    case 'carryOver':
+      return turned('Carry over for new budgets', settings.carryOverDefault);
+    case 'dailyReminder':
+      return turned('Daily reminder', settings.dailyReminder);
+    case 'account':
+      return settings.defaultAccountId == null
+        ? 'Account to use set to Last used'
+        : 'Account to use changed';
+    case 'monthStart':
+      return `Month starts on ${settingValue(key, settings)!.replace(/^The /, 'the ')}`;
+    case 'weekStart':
+      return `Week starts on ${settingValue(key, settings)}`;
+    case 'homeShows':
+      return `Home shows ${settingValue(key, settings)!.toLowerCase()}`;
+    case 'start':
+      return `The app opens on ${settingValue(key, settings)}`;
+    case 'expenseColour':
+      return settingValue(key, settings);
+    case 'remindAt':
+      return `Reminder set for ${settingValue(key, settings)}`;
+    case 'beforeScheduled':
+      return settings.scheduledReminderDays == null
+        ? 'Heads-up before scheduled entries turned off'
+        : `Heads-up set to ${settingValue(key, settings)}`;
+    default: {
+      const name = SETTINGS_INDEX.find((s) => s.key === key)?.name;
+      const value = settingValue(key, settings, { desktop });
+      return name != null && value != null ? `${name} set to ${value}` : null;
+    }
   }
 }

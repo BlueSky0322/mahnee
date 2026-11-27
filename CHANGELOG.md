@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-27
 
+- Changed: settings save quietly a moment after you stop changing them, as one save, and a small message says when they're saved, kept offline, or couldn't be saved (with Retry) [#?]
 - Added: connect an MCP client to read balances, search transactions, and see spending by category for your budget month [#83]
 
 ## 2026-11-26

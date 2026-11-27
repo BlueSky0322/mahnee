@@ -43,6 +43,13 @@ export interface ToastInput {
   /** How long it stays, in ms */
   autoClose?: number;
   counted?: Counted;
+  /** Read out politely, when the screen reader is next quiet, rather than at once */
+  polite?: boolean;
+  /**
+   * A message with the same key still showing is replaced by this one, in the same place
+   * on the screen with its seconds started again, so repeats never stack
+   */
+  replaces?: string;
 }
 
 export interface Toast {
@@ -50,10 +57,12 @@ export interface Toast {
   message: ReactNode;
   tone: ToastTone;
   action: ToastAction | null;
+  polite: boolean;
 }
 
 interface Kept extends Toast {
   counted: Counted | null;
+  replaces: string | null;
   /** What its action does, before putting the message away */
   does: ToastAction | null;
   /** How long it has left while showing */
@@ -94,7 +103,7 @@ function changed() {
   retime();
   shown = kept
     .slice(-MAX_SHOWN)
-    .map(({ id, message, tone, action }) => ({ id, message, tone, action }));
+    .map(({ id, message, tone, action, polite }) => ({ id, message, tone, action, polite }));
   for (const listener of [...listeners]) listener();
 }
 
@@ -110,8 +119,16 @@ export function showToast({
   action,
   autoClose = DEFAULT_MS,
   counted,
+  polite = false,
+  replaces,
 }: ToastInput): number {
-  const id = nextId++;
+  // The one it replaces keeps its id, so it's the same message on the screen, saying more
+  const replaced = replaces == null ? null : kept.find((t) => t.replaces === replaces);
+  if (replaced != null) {
+    stop(replaced);
+    kept = kept.filter((t) => t !== replaced);
+  }
+  const id = replaced?.id ?? nextId++;
   let undo = action ?? null;
   let said = message;
   let total = counted ?? null;
@@ -151,6 +168,8 @@ export function showToast({
     action: null,
     does: undo,
     counted: total,
+    replaces: replaces ?? null,
+    polite,
     left: autoClose,
     since: null,
     timer: null,

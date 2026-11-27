@@ -27,6 +27,30 @@ export interface SettingEntry {
   words: string[];
 }
 
+/** Where each field of the profile is found in Settings, by the key it's searched by */
+export const SETTING_OF_FIELD: Record<string, string> = {
+  displayName: 'name',
+  otherCurrencies: 'otherCurrencies',
+  travelSense: 'travelSense',
+  monthStartMode: 'monthStart',
+  monthStartDay: 'monthStart',
+  monthStartPayId: 'monthStart',
+  weekStart: 'weekStart',
+  startWith: 'startWith',
+  defaultAccountId: 'account',
+  suggestAsYouType: 'suggest',
+  askForTime: 'time',
+  theme: 'theme',
+  accent: 'accent',
+  expenseColour: 'expenseColour',
+  homeDensity: 'homeShows',
+  startScreen: 'start',
+  carryOverDefault: 'carryOver',
+  dailyReminder: 'dailyReminder',
+  reminderTime: 'remindAt',
+  scheduledReminderDays: 'beforeScheduled',
+};
+
 /** Every setting that can be searched for, in the order of their sections and pages */
 export const SETTINGS_INDEX: SettingEntry[] = [
   {

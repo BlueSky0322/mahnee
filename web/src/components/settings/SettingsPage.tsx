@@ -69,6 +69,9 @@ const APP_SECTIONS = ['money', 'adding', 'look', 'budgets'] as const;
 
 export default function Settings({ section }: { section: SettingsSection | null }) {
   const isDesktop = useIsDesktop();
+  // Leaving Settings sends the changes still in their pause, rather than waiting it out
+  const { flushSettings } = useProfile();
+  useEffect(() => () => void flushSettings(), [flushSettings]);
   // A computer's Esc closes Settings from any section; a phone's sections go up to Settings
   useShortcuts({
     Escape: isDesktop || section == null ? closeSettings : () => goUp('?settings'),

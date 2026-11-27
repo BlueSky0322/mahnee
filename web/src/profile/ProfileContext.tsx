@@ -210,6 +210,8 @@ const subscribeProgress = (listener: () => void) => {
  * while typing, so one pause serves them all.
  */
 export const SETTINGS_QUIET_MS = 300;
+/** How long a change the server couldn't take just then waits before it's sent again */
+export const SETTINGS_RESEND_MS = 15_000;
 /** How long the message saying they were saved stays */
 const SAVED_SAY_MS = 2500;
 /** The message saying settings were saved, or weren't: one at a time, the latest replacing it */
@@ -275,6 +277,8 @@ interface Batch {
   writes: Promise<void>;
   /** The change it last made, to know whether a newer one came since */
   lastId: number;
+  /** Each field's latest change in this batch, to know whether a newer one came since */
+  edits: Map<string, number>;
   /** How many of its fields the sync cloud counts */
   counted: number;
   /** Those following it (`track`), told once it has been dealt with */
@@ -283,8 +287,31 @@ interface Batch {
 
 /** How a batch's save went: what the message says */
 type Outcome =
-  | { kind: 'saved' | 'offline' | 'signedOut' | 'said' }
-  | { kind: 'failed'; err: unknown };
+  | { kind: 'saved' | 'offline' | 'signedOut' | 'waiting' | 'said' }
+  | {
+      kind: 'failed';
+      err: unknown;
+      /** What wasn't saved, as it was sent: what Retry sends again */
+      again: ProfilePatch;
+      /** Each of those fields' latest change then, so Retry skips one changed since */
+      edits: Map<string, number>;
+    };
+
+/** Why a save didn't land, as far as what's kept on the device goes */
+type Unsaved = 'offline' | 'signedOut' | 'waiting' | 'refused';
+
+/**
+ * Without a connection, or signed in no longer, it waits; an answer that says nothing
+ * about the change (busy, unavailable, too slow, another account's) waits too, as the
+ * outbox treats it (isRetryable). Anything else is a refusal, put back: the server's own
+ * failure (500) among them, since sending it again could fail the same way for ever.
+ */
+function unsavedBy(err: unknown): Unsaved {
+  if (isOfflineFailure(err)) return 'offline';
+  if (err instanceof ApiError && err.status === 401) return 'signedOut';
+  if (isRetryable(err) && !(err instanceof ApiError && err.status === 500)) return 'waiting';
+  return 'refused';
+}
 
 /** Two profiles the same but for how far a conversion has got */
 const sameButProgress = (a: Profile, b: Profile | null) =>
@@ -890,12 +917,34 @@ export function ProfileProvider({
     (patch: ProfilePatch, track?: (saving: Promise<void>) => Promise<unknown>) => void
   >(() => {});
 
+  // Each field's latest change, counted, so a save's answer only puts back a field nothing
+  // has changed since
+  const fieldEdits = useRef(new Map<string, number>());
+  const editCount = useRef(0);
+  const nothingNewer = (edits: Map<string, number>, field: string) =>
+    fieldEdits.current.get(field) === edits.get(field);
+  // A change the server couldn't take just then is sent again after a while
+  const resendTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Saves under way, so leaving or signing out can wait for how they went
+  const flushing = useRef<Promise<void>>(Promise.resolve());
+
   /** Says how a batch's save went, in the one message for it */
   const say = useCallback((outcome: Outcome, patch: ProfilePatch) => {
-    const retry = { label: 'Retry', run: () => remember.current(patch) };
     if (outcome.kind === 'said') return;
     if (outcome.kind === 'failed') {
-      const nameOnly = fieldsOf(patch).length === 1 && 'displayName' in patch;
+      const { again, edits } = outcome;
+      const fields = fieldsOf(again);
+      // Sends again what wasn't saved, but none changed since
+      const retry = () => {
+        const still = fields.filter((f) => nothingNewer(edits, f));
+        if (still.length === 0) return;
+        const value = (f: string) =>
+          f === 'displayName'
+            ? again.displayName
+            : (again.settings as Record<string, unknown> | undefined)?.[f];
+        remember.current(patchOf(still, value));
+      };
+      const nameOnly = fields.length === 1 && 'displayName' in again;
       const fallback = nameOnly
         ? "Couldn't save your name. Try again."
         : "Couldn't save your settings.";
@@ -904,7 +953,7 @@ export function ProfileProvider({
       showToast({
         tone: 'error',
         message: explanation ?? fallback,
-        action: retry,
+        action: { label: 'Retry', run: retry },
         replaces: SAVED_TOAST,
       });
       return;
@@ -915,28 +964,53 @@ export function ProfileProvider({
         ? "Saved on this device. It will sync when you're back online."
         : outcome.kind === 'signedOut'
           ? 'Saved on this device. It will sync once you sign in again.'
-          : (shown != null ? said.current?.(patch, shown) : null) ?? 'Settings saved';
+          : outcome.kind === 'waiting'
+            ? 'Saved on this device. It will sync when the server answers.'
+            : (shown != null ? said.current?.(patch, shown) : null) ?? 'Settings saved';
     showToast({ message, polite: true, autoClose: SAVED_SAY_MS, replaces: SAVED_TOAST });
   }, []);
 
-  /** Sends a batch's changes, as update() would: straight away when nothing else waits */
+  /**
+   * Sends a batch's changes, as update() would: straight away when nothing else waits.
+   * Each field is confirmed (taken off the device) or, refused, put back on screen if it
+   * still shows what was sent and nothing has changed it since; one that can't be sent just
+   * now stays on the device. A refusal of several is tried a field at a time, so only what
+   * the server won't take is put back.
+   */
   const sendBatch = useCallback(
     async (b: Batch, patch: ProfilePatch, before: ProfilePatch): Promise<Outcome> => {
       const { email } = b;
-      // Undone, as update() undoes a save the server answered with anything else, unless a
-      // newer change has been made since
-      const undo = () => {
+      const sent = (f: string) =>
+        f === 'displayName'
+          ? patch.displayName
+          : (patch.settings as Record<string, unknown> | undefined)?.[f];
+      const was = (f: string) =>
+        f === 'displayName'
+          ? before.displayName
+          : (before.settings as Record<string, unknown> | undefined)?.[f];
+      const putBack = (fields: string[]) => {
         const now = profileRef.current;
-        if (b.lastId === latest.current && now?.email === email) replace(withPatch(now, before));
+        if (now?.email !== email) return;
+        const back = fields.filter(
+          (f) => nothingNewer(b.edits, f) && sameValue(valueOf(now, f), sent(f)),
+        );
+        if (back.length > 0) replace(withPatch(now, patchOf(back, was)));
       };
+      const failed = (err: unknown, fields: string[]): Outcome => ({
+        kind: 'failed',
+        err,
+        again: patchOf(fields, sent),
+        edits: new Map(fields.map((f) => [f, b.edits.get(f) ?? 0])),
+      });
+
       // The device couldn't keep it: sent as update() sends anything
       if (b.kept == null || b.unkept) {
         try {
           await update(patch);
           return { kind: isOffline() ? 'offline' : 'saved' };
         } catch (err) {
-          undo();
-          return { kind: 'failed', err };
+          putBack(fieldsOf(patch));
+          return failed(err, fieldsOf(patch));
         }
       }
       const kept = b.kept;
@@ -953,21 +1027,41 @@ export function ProfileProvider({
         ) {
           return null;
         }
-        let saved: Profile;
-        try {
-          saved = await api.updateMe(patch);
-        } catch (err) {
-          if (isOfflineFailure(err)) return { kind: 'offline' };
-          if (isSignInAnswer(err)) return { kind: 'signedOut' };
-          await settleUnsent(email, kept, kept.patch).catch(() => null);
-          undo();
-          return { kind: 'failed', err };
-        }
-        keepCopy(saved);
-        const left = await settleUnsent(email, kept, patch).catch(() => null);
-        if (b.lastId === latest.current && profileRef.current?.email === email) {
+        const refused: string[] = [];
+        let refusal: unknown = null;
+        let stopped: Exclude<Unsaved, 'refused'> | null = null;
+        let saved: Profile | null = null;
+        let left: ProfilePatch | null = null;
+        const send = async (part: ProfilePatch, alone: boolean): Promise<boolean> => {
+          try {
+            saved = await api.updateMe(part);
+          } catch (err) {
+            const why = unsavedBy(err);
+            if (why !== 'refused') {
+              stopped = why;
+              return false;
+            }
+            if (!alone) {
+              for (const one of eachField(part)) if (!(await send(one, true))) return false;
+              return true;
+            }
+            refusal ??= err;
+            refused.push(...fieldsOf(part));
+            left = await settleUnsent(email, kept, part).catch(() => left);
+            return true;
+          }
+          keepCopy(saved);
+          left = await settleUnsent(email, kept, part).catch(() => left);
+          return true;
+        };
+        await send(patch, fieldsOf(patch).length === 1);
+        putBack(refused);
+        // The server's copy, with what still waits on top, unless anything changed since
+        if (saved != null && b.lastId === latest.current && profileRef.current?.email === email) {
           replace(withPatch(saved, left));
         }
+        if (refused.length > 0) return failed(refusal, refused);
+        if (stopped != null) return { kind: stopped };
         return { kind: 'saved' };
       });
       if (direct != null) return direct;
@@ -978,9 +1072,9 @@ export function ProfileProvider({
       await sendUnsent.current();
       const left = await readWaiting(email).catch(() => null);
       if (ours(left).length > 0) {
-        if (isOffline() || isOfflineFailure(lastFailure.current)) return { kind: 'offline' };
-        if (isSignInAnswer(lastFailure.current)) return { kind: 'signedOut' };
-        return { kind: 'failed', err: lastFailure.current };
+        if (isOffline()) return { kind: 'offline' };
+        const why = unsavedBy(lastFailure.current);
+        return { kind: why === 'refused' ? 'waiting' : why };
       }
       // A refusal was said as it happened
       if (fieldsOf(patch).some((f) => refusedFields.current.has(f))) return { kind: 'said' };
@@ -989,33 +1083,60 @@ export function ProfileProvider({
     [readWaiting, replace, update],
   );
 
-  const flushSettings = useCallback(async () => {
+  const flushSettings = useCallback((): Promise<void> => {
     clearTimeout(quietTimer.current);
     const b = batch.current;
-    if (b == null) return;
+    // Nothing in its pause: what's already on its way, if anything
+    if (b == null) return flushing.current;
     batch.current = null;
-    try {
-      await b.writes;
-      const shown = profileRef.current;
-      if (shown?.email !== b.email) return;
-      const fields = [...b.before.keys()];
-      const changed = fields.filter(
-        (f) => b.waitedBefore.has(f) || !sameValue(valueOf(shown, f), b.before.get(f)),
-      );
-      const unchanged = fields.filter((f) => !changed.includes(f));
-      if (b.kept != null && unchanged.length > 0) {
-        const kept = b.kept;
-        const back = patchOf(unchanged, (f) => valueOf(shown, f));
-        await settleUnsent(b.email, kept, back).catch(() => null);
+    const work = (async () => {
+      let patch: ProfilePatch | null = null;
+      try {
+        await b.writes;
+        const shown = profileRef.current;
+        if (shown?.email !== b.email) return;
+        const fields = [...b.before.keys()];
+        const changed = fields.filter(
+          (f) => b.waitedBefore.has(f) || !sameValue(valueOf(shown, f), b.before.get(f)),
+        );
+        const unchanged = fields.filter((f) => !changed.includes(f));
+        if (b.kept != null && unchanged.length > 0) {
+          const kept = b.kept;
+          const back = patchOf(unchanged, (f) => valueOf(shown, f));
+          await settleUnsent(b.email, kept, back).catch(() => null);
+        }
+        if (changed.length === 0) return;
+        patch = patchOf(changed, (f) => valueOf(shown, f));
+        const before = patchOf(changed, (f) => b.before.get(f));
+        const outcome = await sendBatch(b, patch, before);
+        if (outcome.kind === 'waiting') {
+          clearTimeout(resendTimer.current);
+          resendTimer.current = setTimeout(() => void sendUnsent.current(), SETTINGS_RESEND_MS);
+        }
+        say(outcome, patch);
+      } catch (err) {
+        // Stopped part-way here (the browser refused a lock): it stays kept on the device
+        if (patch != null) {
+          const fields = fieldsOf(patch);
+          say(
+            {
+              kind: 'failed',
+              err,
+              again: patch,
+              edits: new Map(fields.map((f) => [f, b.edits.get(f) ?? 0])),
+            },
+            patch,
+          );
+        }
+      } finally {
+        countSaving(-b.counted);
+        b.counted = 0;
+        b.done.forEach((resolve) => resolve());
       }
-      if (changed.length === 0) return;
-      const patch = patchOf(changed, (f) => valueOf(shown, f));
-      const before = patchOf(changed, (f) => b.before.get(f));
-      say(await sendBatch(b, patch, before), patch);
-    } finally {
-      countSaving(-b.counted);
-      b.done.forEach((resolve) => resolve());
-    }
+    })();
+    const all = Promise.all([flushing.current, work]).then(() => undefined);
+    flushing.current = all;
+    return all;
   }, [say, sendBatch]);
 
   remember.current = (patch, track = (saving) => saving) => {
@@ -1040,6 +1161,7 @@ export function ProfileProvider({
       madeOffline: false,
       writes: Promise.resolve(),
       lastId: 0,
+      edits: new Map(),
       counted: 0,
       done: [],
     });
@@ -1049,6 +1171,10 @@ export function ProfileProvider({
     countSaving(b.before.size - b.counted);
     b.counted = b.before.size;
     b.lastId = ++latest.current;
+    for (const f of fields) {
+      fieldEdits.current.set(f, ++editCount.current);
+      b.edits.set(f, editCount.current);
+    }
     replace(withPatch(current, patch));
     b.writes = b.writes.then(async () => {
       try {
@@ -1096,6 +1222,16 @@ export function ProfileProvider({
       document.removeEventListener('visibilitychange', hidden);
       window.removeEventListener('pagehide', leaving);
       clearTimeout(quietTimer.current);
+      clearTimeout(resendTimer.current);
+      // Closed mid-pause: what's kept on the device is sent at the next start, and the
+      // sync cloud stops counting it
+      const b = batch.current;
+      if (b != null) {
+        batch.current = null;
+        countSaving(-b.counted);
+        b.counted = 0;
+        b.done.forEach((resolve) => resolve());
+      }
     };
   }, [flushSettings]);
 

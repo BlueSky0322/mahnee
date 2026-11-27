@@ -3,8 +3,8 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest';
 import type { ProfilePatch } from '@shared/api';
-import { SETTINGS_QUIET_MS } from '../../profile/ProfileContext';
-import type { FakeServer } from '../../testing/app';
+import { SETTINGS_QUIET_MS, SETTINGS_RESEND_MS } from '../../profile/ProfileContext';
+import type { FakeServer, Within } from '../../testing/app';
 import { fakeServer, holdNext, renderApp, settle, setupAppTests } from '../../testing/app';
 
 // Settings save quietly in the background: each change shows at once, and once the person
@@ -308,6 +308,222 @@ test("Sign out sends settings still in their pause first, and needn't ask", asyn
   const user = userEvent.setup();
   await user.click(page.getByRole('radio', { name: 'Plum' }));
   await user.click(screen.getByRole('button', { name: 'Sign out' }));
+  await waitFor(() => expect(sentTo).toEqual(['/cdn-cgi/access/logout']));
+  expect(server.me.settings.accent).toBe('plum');
+  expect(screen.queryByRole('dialog', { name: 'Sign out anyway?' })).toBeNull();
+});
+
+// What the server answers when a save fails, and what's on screen after: a refusal takes
+// back only what was refused and not changed since; an answer that says nothing about the
+// change (busy, unavailable, too slow) keeps it waiting here and sends it again.
+
+const BANK = 'b'.repeat(16);
+
+/** Adding entries with two accounts in use, once drawn */
+async function openAdding(server: FakeServer) {
+  for (const [id, name, position] of [
+    ['a'.repeat(16), 'Wallet', 0],
+    [BANK, 'Bank', 1],
+  ] as const) {
+    server.accounts.push({
+      id,
+      name,
+      kind: 'cash',
+      currency: 'MYR',
+      openingCents: 10_000,
+      position,
+      archived: false,
+    });
+  }
+  renderApp(server, '/?settings=adding', { size: 'desktop' });
+  await screen.findByRole('heading', { name: 'Adding entries', level: 1 });
+  return within(await screen.findByRole('region', { name: 'Adding entries' }));
+}
+
+const accentShown = (page: Within) =>
+  page
+    .getAllByRole('radio')
+    .filter((r) =>
+      ['Cobalt', 'Green', 'Plum', 'Rust', 'Graphite'].includes(r.getAttribute('aria-label') ?? ''),
+    )
+    .find((r) => r.getAttribute('aria-checked') === 'true')
+    ?.getAttribute('aria-label');
+
+describe('when a save fails', () => {
+  test('a refused change goes back even when another setting changed while it was sent', async () => {
+    const server = fakeServer();
+    const page = await openLook(server, 'desktop');
+    await settle();
+    server.failNext.profile = { status: 400, error: 'That accent is not available.' };
+    const held = holdNext(server, 'PATCH', '/api/me');
+    // The other setting's save waits too, so its answer can't put the accent right instead
+    const heldTheme = holdNext(server, 'PATCH', '/api/me');
+    const { user, quiet } = stopClock();
+    await user.click(page.getByRole('radio', { name: 'Plum' }));
+    await quiet();
+    await waitFor(() => expect(saves()).toHaveLength(1));
+    // Another setting, while the accent is on its way
+    await userEvent.setup().click(page.getByRole('radio', { name: 'Dark' }));
+    held.release();
+    await waitFor(() =>
+      expect(toasts()).toContainEqual({ role: 'alert', text: 'That accent is not available.' }),
+    );
+    await waitFor(() => expect(accentShown(page)).toBe('Cobalt'));
+    expect(page.getByRole('radio', { name: 'Dark' }).getAttribute('aria-checked')).toBe('true');
+    heldTheme.release();
+    await waitFor(() => expect(server.me.settings.theme).toBe('dark'));
+    expect(server.me.settings.accent).toBe('cobalt');
+    expect(accentShown(page)).toBe('Cobalt');
+  });
+
+  test.each([503, 429, 408])(
+    'an answer of %s keeps the change here, says so, and sends it again',
+    async (status) => {
+      const server = fakeServer();
+      const page = await openLook(server, 'desktop');
+      await settle();
+      server.failNext.profile = status;
+      // The clock runs, but the wait before sending again can be skipped
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+      await userEvent
+        .setup({ advanceTimers: vi.advanceTimersByTime })
+        .click(page.getByRole('radio', { name: 'Rust' }));
+      await act(() => vi.advanceTimersByTimeAsync(SETTINGS_QUIET_MS));
+      await waitFor(() =>
+        expect(toasts()).toEqual([
+          { role: 'status', text: 'Saved on this device. It will sync when the server answers.' },
+        ]),
+      );
+      // Not put back
+      expect(accentShown(page)).toBe('Rust');
+      expect(server.me.settings.accent).toBe('cobalt');
+
+      await act(() => vi.advanceTimersByTimeAsync(SETTINGS_RESEND_MS));
+      await waitFor(() => expect(server.me.settings.accent).toBe('rust'));
+      expect(saves()).toEqual([{ settings: { accent: 'rust' } }, { settings: { accent: 'rust' } }]);
+    },
+  );
+
+  test('one refused setting goes back alone, the others are saved, and Retry sends only it', async () => {
+    const server = fakeServer();
+    const page = await openAdding(server);
+    await settle();
+    let { user, quiet } = stopClock();
+    await user.click(page.getByRole('button', { name: /^Account to use/ }));
+    const list = await screen.findByRole('radiogroup', { name: 'Account to use' });
+    await user.click(within(list).getByRole('radio', { name: 'Bank' }));
+    await user.click(page.getByRole('switch', { name: 'Suggest as you type' }));
+    // Bank is archived on another device meanwhile
+    server.accounts.find((a) => a.id === BANK)!.archived = true;
+    await quiet();
+    await waitFor(() =>
+      expect(toasts()).toEqual([{ role: 'alert', text: 'That account is archived' }]),
+    );
+    await waitFor(() => expect(server.me.settings.suggestAsYouType).toBe(false));
+    expect(server.me.settings.defaultAccountId).toBeNull();
+    await waitFor(() =>
+      expect(page.getByRole('button', { name: /^Account to use/ }).textContent).toMatch(
+        /Last used/,
+      ),
+    );
+    expect(page.getByRole('switch', { name: 'Suggest as you type' })).toHaveProperty(
+      'checked',
+      false,
+    );
+
+    // Back in use: Retry sends the account alone
+    server.accounts.find((a) => a.id === BANK)!.archived = false;
+    const before = saves().length;
+    ({ user, quiet } = stopClock());
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await quiet();
+    await waitFor(() => expect(server.me.settings.defaultAccountId).toBe(BANK));
+    expect(saves().slice(before)).toEqual([{ settings: { defaultAccountId: BANK } }]);
+  });
+
+  test('Retry leaves alone a setting changed since it failed', async () => {
+    const server = fakeServer();
+    const page = await openLook(server, 'desktop');
+    await settle();
+    server.failNext.profile = { status: 400, error: 'That theme is not available.' };
+    let { user, quiet } = stopClock();
+    await user.click(page.getByRole('radio', { name: 'Dark' }));
+    await quiet();
+    await screen.findByText('That theme is not available.');
+    await waitFor(() =>
+      expect(page.getByRole('radio', { name: 'Match device' }).getAttribute('aria-checked')).toBe(
+        'true',
+      ),
+    );
+    // Changed again and back before its pause: nothing sent, the message stays
+    ({ user, quiet } = stopClock());
+    await user.click(page.getByRole('radio', { name: 'Light' }));
+    await user.click(page.getByRole('radio', { name: 'Match device' }));
+    await quiet();
+    await settle();
+    const before = saves().length;
+    ({ user, quiet } = stopClock());
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await quiet();
+    await settle();
+    expect(saves().slice(before)).toEqual([]);
+    expect(page.getByRole('radio', { name: 'Match device' }).getAttribute('aria-checked')).toBe(
+      'true',
+    );
+    expect(server.me.settings.theme).toBe('auto');
+  });
+
+  test("a save this browser stops part-way is said, and the cloud doesn't stay on Saving", async () => {
+    const server = fakeServer();
+    const page = await openLook(server, 'desktop');
+    await waitFor(() => expect(screen.getByText('Mahnee · Up to date')).toBeTruthy());
+    // The browser refuses the lock every save of the profile takes
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: () => Promise.reject(new DOMException('Not allowed', 'InvalidStateError')),
+      },
+    });
+    onTestFinished(() => void delete (navigator as { locks?: unknown }).locks);
+    const { user, quiet } = stopClock();
+    await user.click(page.getByRole('radio', { name: 'Plum' }));
+    await quiet();
+    await waitFor(() =>
+      expect(toasts()).toEqual([{ role: 'alert', text: "Couldn't save your settings." }]),
+    );
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(screen.queryByText('Mahnee · Saving')).toBeNull();
+  });
+});
+
+test("Sign out waits for settings already on their way, and needn't ask", async () => {
+  const server = fakeServer();
+  const page = await openLook(server, 'desktop');
+  await settle();
+  const sentTo: string[] = [];
+  const real = window.location;
+  vi.stubGlobal(
+    'location',
+    new Proxy(
+      {},
+      {
+        get: (_, key) => Reflect.get(real, key),
+        set: (_, key, value: string) => {
+          if (key === 'href') sentTo.push(value);
+          return true;
+        },
+      },
+    ),
+  );
+  const held = holdNext(server, 'PATCH', '/api/me');
+  const { user, quiet } = stopClock();
+  await user.click(page.getByRole('radio', { name: 'Plum' }));
+  await quiet();
+  await waitFor(() => expect(saves()).toHaveLength(1));
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  held.release();
   await waitFor(() => expect(sentTo).toEqual(['/cdn-cgi/access/logout']));
   expect(server.me.settings.accent).toBe('plum');
   expect(screen.queryByRole('dialog', { name: 'Sign out anyway?' })).toBeNull();

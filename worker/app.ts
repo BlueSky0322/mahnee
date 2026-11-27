@@ -26,11 +26,14 @@ import type { ConvertJob } from './currency/convert';
 import type { RatesEnv } from './currency/exchange-rates';
 import type { PushEnv } from './push/reminders';
 
-export interface Env extends AuthEnv, RatesEnv, PushEnv {
+export interface McpEnv extends RatesEnv {
   DB: D1Database;
-  ASSETS: Fetcher;
   /** Changes per account per minute */
   API_LIMITER: RateLimit;
+}
+
+export interface Env extends AuthEnv, McpEnv, PushEnv {
+  ASSETS: Fetcher;
   /** "true": writes must say whose they are (EXPECTED_ACCOUNT_HEADER); older apps are told to update */
   REQUIRE_EXPECTED_ACCOUNT?: string;
   /** Conversions into a new home currency, a step at a time (currency/convert-queue.ts) */

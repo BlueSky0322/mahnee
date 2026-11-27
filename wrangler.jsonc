@@ -17,6 +17,9 @@
     // Optional audience of a dedicated Access application for /api/mcp.
     // When empty, the endpoint uses the web application's audience.
     "ACCESS_MCP_AUD": "",
+    // /api/mcp/write stays disabled until it has its own Access application audience.
+    // This value must differ from both ACCESS_AUD and ACCESS_MCP_AUD.
+    "ACCESS_MCP_WRITE_AUD": "",
     // Reminders (worker/push/): the public key devices subscribe with (an uncompressed
     // P-256 point, base64url); its private key is the VAPID_PRIVATE_KEY secret (a JWK).
     // Without both, no reminder is sent.

@@ -77,6 +77,9 @@ const accountList = z.object({
     }),
   ),
 });
+const writerAccountList = accountList.extend({
+  signedInAs: z.string().describe('Copy this ledger owner into record_expense.expectedAccount.'),
+});
 const categoryList = z.object({
   categories: z.array(
     z.object({
@@ -130,7 +133,13 @@ async function readResult<S extends z.ZodObject>(
   }
 }
 
-export function registerLedgerTools(server: McpServer, db: D1Database, email: string) {
+export function registerLedgerTools(
+  server: McpServer,
+  db: D1Database,
+  email: string,
+  includeIdentity = false,
+) {
+  const accountsOutput = includeIdentity ? writerAccountList : accountList;
   server.registerTool(
     'list_accounts',
     {
@@ -138,10 +147,14 @@ export function registerLedgerTools(server: McpServer, db: D1Database, email: st
       description:
         'Accounts and current balances in whole cents of their currency, including archived accounts. A negative card balance is money owed.',
       inputSchema: emptyInput,
-      outputSchema: accountList,
+      outputSchema: accountsOutput,
       annotations,
     },
-    () => readResult(accountList, async () => ({ accounts: await listAccounts(db, email) })),
+    () =>
+      readResult(accountsOutput, async () => ({
+        accounts: await listAccounts(db, email),
+        ...(includeIdentity && { signedInAs: email }),
+      })),
   );
   server.registerTool(
     'list_categories',

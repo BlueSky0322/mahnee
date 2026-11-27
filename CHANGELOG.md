@@ -14,6 +14,7 @@ For agents:
 
 ## 2026-11-27
 
+- Added: authorize an MCP client to record expenses, with a separate write connection and safe retries [#84]
 - Added: connect an MCP client to read balances, search transactions, and see spending by category for your budget month [#83]
 
 ## 2026-11-26
@@ -216,4 +217,5 @@ For agents:
 [#80]: https://github.com/BlueSky0322/mahnee/pull/80
 [#82]: https://github.com/BlueSky0322/mahnee/pull/82
 [#83]: https://github.com/BlueSky0322/mahnee/pull/83
+[#84]: https://github.com/BlueSky0322/mahnee/pull/84
 [#81]: https://github.com/BlueSky0322/mahnee/pull/81

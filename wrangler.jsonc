@@ -14,12 +14,6 @@
     "REQUIRE_EXPECTED_ACCOUNT": "true",
     "ACCESS_TEAM_DOMAIN": "ryanng-0611.cloudflareaccess.com",
     "ACCESS_AUD": "18cc5a8ad6ad6b831b40ab4a17ab3a1e152251f8a556ce570ff110edcc59aa26",
-    // Optional audience of a dedicated Access application for /api/mcp.
-    // When empty, the endpoint uses the web application's audience.
-    "ACCESS_MCP_AUD": "",
-    // /api/mcp/write stays disabled until it has its own Access application audience.
-    // This value must differ from both ACCESS_AUD and ACCESS_MCP_AUD.
-    "ACCESS_MCP_WRITE_AUD": "",
     // Reminders (worker/push/): the public key devices subscribe with (an uncompressed
     // P-256 point, base64url); its private key is the VAPID_PRIVATE_KEY secret (a JWK).
     // Without both, no reminder is sent.

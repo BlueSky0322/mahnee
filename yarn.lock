@@ -105,6 +105,11 @@
   resolved "https://registry.npmjs.org/@cloudflare/workerd-windows-64/-/workerd-windows-64-1.20261123.1.tgz#fd0495b42273036c1b63abeb9b66f0199d60c51a"
   integrity sha512-/zl++/e/0JLMttdz4lUsCo58NaLKQZKancI2YPciaLH9iLHq6UOP2BQZt+dejGRrV9UxdpPYPHUYU9Km5PcALA==
 
+"@cloudflare/workers-oauth-provider@1.2.3":
+  version "1.2.3"
+  resolved "https://registry.yarnpkg.com/@cloudflare/workers-oauth-provider/-/workers-oauth-provider-1.2.3.tgz#f058a723fa202ba89edad9dcc28e0fa370096b5c"
+  integrity sha512-40eGeA3DnTOEl2ijHYY5Z9yNIf0fdjgomoaA6GHPo4FyKQw0oXPuy4GVjTE/uNfS/MoFAvzsuVBRwTPKUki4hA==
+
 "@cloudflare/workers-types@^5.20261123.1":
   version "5.20261125.1"
   resolved "https://registry.npmjs.org/@cloudflare/workers-types/-/workers-types-5.20261125.1.tgz#7d6836027644fda1276ccc9e09d9b3040f30e1d4"

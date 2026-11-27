@@ -18,6 +18,11 @@ import { useSettingInView } from './setting-in-view';
 import { SectionHeader } from './SettingsPage';
 import classes from './Settings.module.css';
 
+const connectionsUrl =
+  window.location.origin === 'https://mahnee.shitty-app.workers.dev'
+    ? 'https://mahnee-mcp.shitty-app.workers.dev/oauth/authorize/connections'
+    : null;
+
 // My account (R-Set-Account, R-Desk-Settings): who's signed in, with Change name and their
 // picture in the initial's place (tapping it changes it); then this
 // device, saying whether everything is saved ("Up to date", or what waits), and Install the
@@ -113,6 +118,28 @@ export default function MyAccount() {
             <div className={classes.detail}>{you.email}</div>
           </div>
           {changeName}
+        </section>
+      )}
+
+      {you != null && connectionsUrl != null && (
+        <section
+          className={classes.card}
+          aria-label="Connected apps"
+        >
+          <div className={classes.row}>
+            <div className={classes.rowText}>
+              <div className={classes.label}>Connected apps</div>
+              <div className={classes.detail}>Manage access you gave MCP clients.</div>
+            </div>
+            <Button
+              component="a"
+              variant="default"
+              size="xs"
+              href={connectionsUrl}
+            >
+              Manage connections
+            </Button>
+          </div>
         </section>
       )}
 

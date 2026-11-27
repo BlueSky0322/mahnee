@@ -9,7 +9,8 @@ imports a bank's CSV file or its own export. It
 installs as an app on phones and computers, opens offline, and keeps changes made
 offline on the device until they're saved.
 
-[Connect an MCP client](docs/mcp.md) to read your saved finances or enable separate access for adding expenses.
+Connect an MCP client to read your saved finances, record expenses, or both. Choose what each
+client can do when you sign in. [Connect a client](docs/mcp.md).
 
 ## Layout
 
@@ -49,6 +50,7 @@ The Worker is laid out by feature:
 | `index.ts`, `app.ts`, `http.ts`, `routes/` | The entry point, what every route shares, reading requests, and the routes |
 | `accounts/`                                | Signing in, the profile and settings                                       |
 | `currency/`                                | Exchange rates, and converting every amount into a new home currency       |
+| `mcp/`                                     | The remote MCP server, OAuth consent, and ledger tools                     |
 | `ledger/`                                  | Accounts, balances and categories, saving changes, and the nightly job     |
 | `push/`                                    | Reminders by web push: encrypting, signing, sending, and the cron's job    |
 | `test/`                                    | The API tests, run against a real local Worker and database                |

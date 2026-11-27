@@ -16,11 +16,13 @@
     "typecheck": "tsc -p web && tsc -p worker && tsc -p worker/test && tsc -p shared && tsc -p .",
     "deploy": "yarn build && wrangler deploy",
     "dev:worker": "yarn build && wrangler dev",
+    "dev:mcp": "wrangler dev --config wrangler.mcp.jsonc --local --ip 127.0.0.1 --port 8788 --var MCP_ORIGIN:http://127.0.0.1:8788 --var ACCESS_TEAM_DOMAIN: --var ACCESS_CONSENT_AUD:",
     "db:migrate": "wrangler d1 migrations apply mahnee-db --remote",
     "db:migrate:local": "wrangler d1 migrations apply mahnee-db --local"
   },
   "dependencies": {
     "@cfworker/json-schema": "4.1.1",
+    "@cloudflare/workers-oauth-provider": "1.2.3",
     "@mantine/core": "^7.9.2",
     "@mantine/hooks": "^7.9.2",
     "@modelcontextprotocol/sdk": "1.32.1",

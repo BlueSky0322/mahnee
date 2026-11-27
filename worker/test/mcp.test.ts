@@ -1,26 +1,51 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InvalidGrantError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, expect, it, onTestFinished } from 'vitest';
 import { DEFAULT_CATEGORIES } from '../../shared/categories';
 import { startLocalWorker, type LocalWorker } from './local-worker';
+import {
+  grant,
+  hiddenFields,
+  openPage,
+  read,
+  registerApp,
+  refresh,
+  type RegisteredApp,
+  startConsent,
+  submit,
+  write,
+} from './mcp-oauth';
 
 let api: LocalWorker;
+let base: string;
+let readerApp: RegisteredApp;
+let writerApp: RegisteredApp;
 beforeAll(async () => {
-  api = await startLocalWorker({ mcpWrites: true });
+  api = await startLocalWorker({ mcp: true });
+  base = api.mcpBase!;
+  readerApp = await registerApp(base, 'Ledger reader');
+  writerApp = await registerApp(base, 'Expense recorder');
 }, 180_000);
 afterAll(() => api?.stop(), 30_000);
 
-async function connect(email: string, path = '/api/mcp', send = fetch) {
+async function clientFor(accessToken: string, send = fetch) {
   const client = new Client({ name: 'mahnee-test', version: '1' });
   onTestFinished(() => client.close());
-  // A remote client uses the signed-in identity and has no browser account header.
   await client.connect(
-    new StreamableHTTPClientTransport(new URL(path, api.base), {
+    new StreamableHTTPClientTransport(new URL('/api/mcp', base), {
       fetch: send,
-      requestInit: { headers: { 'X-Dev-User': email } },
+      requestInit: { headers: { Authorization: `Bearer ${accessToken}` } },
     }),
   );
   return client;
+}
+
+async function connect(email: string, scopes = [read], send = fetch) {
+  return clientFor(
+    (await grant(scopes.includes(write) ? writerApp : readerApp, email, scopes)).access_token,
+    send,
+  );
 }
 
 const rowId = (n: number) => n.toString(16).padStart(16, '0');
@@ -169,11 +194,12 @@ it('lets a new signer read the empty ledger and default categories without creat
 });
 
 it('keeps tool responses out of caches and refuses a request from a different browser origin', async () => {
+  const { access_token } = await grant(readerApp, 'transport@example.test', [read]);
   const request = (origin: string) =>
-    fetch(new URL('/api/mcp', api.base), {
+    fetch(new URL('/api/mcp', base), {
       method: 'POST',
       headers: {
-        'X-Dev-User': 'transport@example.test',
+        'Authorization': `Bearer ${access_token}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/event-stream',
         'Origin': origin,
@@ -181,7 +207,7 @@ it('keeps tool responses out of caches and refuses a request from a different br
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     });
 
-  const firstParty = await request(api.base);
+  const firstParty = await request(base);
   expect(firstParty.status).toBe(200);
   expect(firstParty.headers.get('cache-control')).toContain('no-store');
   const elsewhere = await request('https://other.example.test');
@@ -203,7 +229,8 @@ it('records an expense once when a writer loses the reply and retries the same r
   const owner = 'repeat-expense@example.test';
   await seed(owner, [account(wallet, 'Wallet', 4000)]);
   let dropReply = false;
-  const writer = await connect(owner, '/api/mcp/write', async (input, init) => {
+  const combined = await grant(writerApp, owner, [read, write]);
+  const writer = await clientFor(combined.access_token, async (input, init) => {
     const response = await fetch(input, init);
     if (dropReply && init?.method === 'POST') {
       dropReply = false;
@@ -220,7 +247,7 @@ it('records an expense once when a writer loses the reply and retries the same r
   const args = expense((identity.structuredContent as { signedInAs: string }).signedInAs);
   const record = { name: 'record_expense', arguments: args };
   const reader = await connect(owner);
-  expect((await reader.callTool(record)).isError).toBe(true);
+  expect((await rpc(combined.access_token, record, '/api/mcp/write')).status).toBe(410);
   const history = () => api.call(owner, 'GET', '/api/search?rowsOnly=1');
   expect((await history()).data.transactions).toEqual([]);
 
@@ -263,7 +290,7 @@ it('books a foreign-currency expense once when identical writer requests overlap
   const quote = api.rates.hold('THB', 'MYR');
   let waitingForSecondPost = false;
   try {
-    const writer = await connect(owner, '/api/mcp/write', (input, init) => {
+    const writer = await connect(owner, [read, write], (input, init) => {
       const response = fetch(input, init);
       if (waitingForSecondPost && init?.method === 'POST') quote.release();
       return response;
@@ -295,7 +322,7 @@ it('refuses an unexpected signer, unavailable accounts and invalid amounts or cu
   ]);
   const foreign = rowId(3);
   await seed(neighbor, [account(foreign, 'Travel purse', 1500)]);
-  const writer = await connect(owner, '/api/mcp/write');
+  const writer = await connect(owner, [read, write]);
   const refusals = [
     [{ expectedAccount: neighbor }, /signed.in account changed/i],
     [{ accountId: foreign }, /account not found/i],
@@ -315,4 +342,103 @@ it('refuses an unexpected signer, unavailable accounts and invalid amounts or cu
     const after = await api.call(email, 'GET', '/api/search?rowsOnly=1');
     expect(after.data.transactions).toEqual([]);
   }
+});
+
+function rpc(
+  token: string,
+  tool: { name: string; arguments?: Record<string, unknown> },
+  path = '/api/mcp',
+) {
+  return fetch(new URL(path, base), {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: tool }),
+  });
+}
+
+it('enforces independently granted read and write scopes on the same MCP endpoint', async () => {
+  const owner = 'selected-scopes@example.test';
+  await seed(owner, [account(wallet, 'Wallet', 4000)]);
+  const consent = await startConsent(writerApp, owner);
+  expect(consent.form.querySelector<HTMLInputElement>(`input[value="${read}"]`)?.checked).toBe(
+    true,
+  );
+  expect(consent.form.querySelector<HTMLInputElement>(`input[value="${write}"]`)?.checked).toBe(
+    false,
+  );
+  const writeGrant = await consent.exchange(await consent.approve(owner, [write]));
+  expect(writeGrant.scope).toBe(write);
+  const writer = await clientFor(writeGrant.access_token);
+  expect((await writer.listTools()).tools.map(({ name }) => name)).toEqual(['record_expense']);
+  expect(writer.getInstructions()).toContain(owner);
+  const readGrant = await grant(readerApp, owner, [read]);
+  for (const [reply, required] of [
+    [
+      await rpc(readGrant.access_token, { name: 'record_expense', arguments: expense(owner) }),
+      write,
+    ],
+    [await rpc(writeGrant.access_token, { name: 'list_accounts' }), read],
+  ] as const) {
+    expect(reply.status).toBe(403);
+    expect(reply.headers.get('www-authenticate')).toContain('insufficient_scope');
+    expect(reply.headers.get('www-authenticate')).toContain(`scope="${required}"`);
+  }
+  expect((await api.call(owner, 'GET', '/api/search?rowsOnly=1')).data.transactions).toEqual([]);
+  expect((await rpc('invalid-local-token', { name: 'list_accounts' })).status).toBe(401);
+});
+
+it('refuses approval when the browser switches accounts between seeing and submitting consent', async () => {
+  const consent = await startConsent(readerApp, 'previous@example.test');
+  const reply = await consent.approve('current@example.test', [read]);
+  expect(reply.status).toBe(403);
+  expect(reply.headers.has('location')).toBe(false);
+});
+
+it('returns the client’s state and no authorization code when the signer denies consent', async () => {
+  const owner = 'declined@example.test';
+  const consent = await startConsent(readerApp, owner);
+  const fields = hiddenFields(consent.form);
+  fields.set('decision', 'deny');
+  const reply = await submit(consent.page, consent.form, owner, fields);
+  expect(reply.status).toBe(302);
+  const callback = new URL(reply.headers.get('location')!);
+  expect(callback.searchParams.get('error')).toBe('access_denied');
+  expect(callback.searchParams.get('state')).toBe(consent.state);
+  expect(callback.searchParams.has('code')).toBe(false);
+  const connections = await openPage(new URL('/oauth/authorize/connections', base), owner);
+  expect(connections.document.querySelector('form')).toBeNull();
+});
+
+it('keeps read-only access on refresh, lists connections by owner, and revokes the grant on disconnect', async () => {
+  const owner = 'disconnect@example.test';
+  const neighbor = 'unconnected@example.test';
+  const issued = await grant(readerApp, owner, [read]);
+  expect(issued.refresh_token).toEqual(expect.any(String));
+  const renewed = await refresh(readerApp, issued.refresh_token!);
+  expect(renewed.scope).toBe(read);
+  expect(renewed.refresh_token).toEqual(expect.any(String));
+  expect(
+    (await rpc(renewed.access_token, { name: 'record_expense', arguments: expense(owner) })).status,
+  ).toBe(403);
+  const connections = new URL('/oauth/authorize/connections', base);
+  const page = await openPage(connections, owner);
+  expect(page.document.textContent).toContain('Ledger reader');
+  const form = page.document.querySelector('form')!;
+  expect((await openPage(connections, neighbor)).document.querySelector('form')).toBeNull();
+  const missing = hiddenFields(form);
+  missing.delete('csrf');
+  expect((await submit(page, form, owner, missing)).status).toBe(403);
+  expect((await submit(page, form, neighbor, hiddenFields(form))).status).toBe(403);
+  expect((await rpc(renewed.access_token, { name: 'list_accounts' })).status).toBe(200);
+
+  expect((await submit(page, form, owner, hiddenFields(form))).status).toBe(303);
+  expect((await openPage(connections, owner)).document.querySelector('form')).toBeNull();
+  expect((await rpc(renewed.access_token, { name: 'list_accounts' })).status).toBe(401);
+  await expect(refresh(readerApp, renewed.refresh_token!)).rejects.toBeInstanceOf(
+    InvalidGrantError,
+  );
 });

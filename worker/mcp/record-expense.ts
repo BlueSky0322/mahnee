@@ -16,10 +16,16 @@ const input = z.strictObject({
     .trim()
     .max(254)
     .pipe(z.email())
-    .describe('Copy signedInAs from list_accounts.'),
+    .describe(
+      'Use the signed-in email from the server instructions or signedInAs from list_accounts.',
+    ),
   requestId: id.describe('Generate a random ID once per expense. Reuse it for retries.'),
-  accountId: id.describe('Active account ID from list_accounts.'),
-  categoryId: id.describe('Active expense category ID from list_categories.'),
+  accountId: id.describe(
+    'Active payment account ID. With read access, look it up in list_accounts.',
+  ),
+  categoryId: id.describe(
+    'Active expense category ID. With read access, look it up in list_categories.',
+  ),
   date: z.string().length(10).refine(isDay, 'Give a valid expense date in YYYY-MM-DD format.'),
   amountCents: z.number().int().positive().max(MAX_TRANSACTION_CENTS),
   currency: z.enum(ENTRY_CURRENCIES).describe('Currency in which amountCents was entered.'),
@@ -51,7 +57,7 @@ export function registerExpenseTool(server: McpServer, env: McpEnv, email: strin
     },
     async (expense) => {
       if (expense.expectedAccount.toLowerCase() !== email)
-        return failed('The signed-in account changed. Check signedInAs with list_accounts.');
+        return failed('The signed-in account changed. Check the email in the server instructions.');
       try {
         const { success } = await env.API_LIMITER.limit({ key: email });
         if (!success)

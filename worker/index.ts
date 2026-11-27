@@ -1,11 +1,11 @@
 // The Worker: the app's files for everything outside /api, and the API itself. Every
 // API request passes the cross-site check and sign-in before reaching a route.
 
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
 import type { AppEnv, Env } from './app';
 import { fail, isCrossSiteWrite, notFound } from './http';
 import { EXPECTED_ACCOUNT_HEADER, RESPONSE_ACCOUNT_HEADER } from '../shared/api';
-import { getSignIn } from './accounts/auth';
+import { getSignIn, type AccessService } from './accounts/auth';
 import type { ConvertJob } from './currency/convert';
 import { handleConvertQueue } from './currency/convert-queue';
 import { postScheduled } from './ledger/post-scheduled';
@@ -17,24 +17,31 @@ import rates from './routes/rates';
 
 const api = new Hono<AppEnv>().basePath('/api');
 
-api.use('*', async (c, next) => {
-  if (isCrossSiteWrite(c.req.raw, new URL(c.req.url))) {
-    return fail('Not allowed from another site', 403);
-  }
-  const signIn = await getSignIn(c.req.raw, c.env, c.req.path === '/api/mcp' ? 'mcp' : 'app');
-  if (signIn == null) return fail('Not signed in', 401);
-  c.set('email', signIn.email);
-  c.set('googlePicture', signIn.picture);
-  await next();
-  if (c.req.method === 'GET' || c.req.method === 'HEAD')
-    c.header(RESPONSE_ACCOUNT_HEADER, signIn.email);
-});
+function signedIn(service: AccessService): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    if (isCrossSiteWrite(c.req.raw, new URL(c.req.url))) {
+      return fail('Not allowed from another site', 403);
+    }
+    const signIn = await getSignIn(c.req.raw, c.env, service);
+    if (signIn == null) return fail('Not signed in', 401);
+    c.set('email', signIn.email);
+    c.set('googlePicture', signIn.picture);
+    await next();
+    if (c.req.method === 'GET' || c.req.method === 'HEAD')
+      c.header(RESPONSE_ACCOUNT_HEADER, signIn.email);
+  };
+}
 
-// MCP reads use POST. The authenticated account owns every tool call.
-api.all('/mcp', async (c) => {
+// Both MCP endpoints use POST for discovery. The verified account owns each tool call.
+api.all('/mcp', signedIn('mcp'), async (c) => {
   const { handleMcp } = await import('./mcp/server');
   return handleMcp(c.req.raw, c.env, c.var.email);
 });
+api.all('/mcp/write', signedIn('mcp-write'), async (c) => {
+  const { handleMcp } = await import('./mcp/server');
+  return handleMcp(c.req.raw, c.env, c.var.email, 'write');
+});
+api.use('*', signedIn('app'));
 
 // A tab may still show the previous account after the browser's session changes.
 api.use('*', async (c, next) => {

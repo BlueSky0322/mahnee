@@ -17,8 +17,13 @@ hack-proof, and the limits below are real.
   addresses are turned off (`preview_urls`), since Access doesn't cover them.
 - **MCP connections.** The Worker checks Access on `/api/mcp` and passes the verified
   email to read-only ledger tools. If configured, `ACCESS_MCP_AUD` sets the required
-  audience on that endpoint. Other routes always require `ACCESS_AUD`. The client receives
-  private tool results, so connect a client you trust. [MCP connection and deployment](mcp.md).
+  audience on that endpoint. The optional `/api/mcp/write` endpoint requires its own
+  distinct `ACCESS_MCP_WRITE_AUD` and a separate Access policy for writers. The submitted
+  `expectedAccount` must match the verified email. The browser app and its APIs use
+  `ACCESS_AUD`. The dedicated hosted MCP Worker uses its own `workers.dev` hostname and
+  serves only the two MCP routes. The client receives private tool results, so connect
+  a client you trust.
+  [MCP connection and deployment](mcp.md).
 - **Whose data it is.** Anyone with an email can sign in, and each account sees only its
   own data: every row belongs to the signed-in account, and every query is scoped by its
   email. Money accounts, categories and transactions are keyed by email and id together,
